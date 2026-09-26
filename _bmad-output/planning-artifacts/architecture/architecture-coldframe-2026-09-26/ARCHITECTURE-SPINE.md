@@ -331,7 +331,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 - **Binds:** NFR-3, NFR-7
 - **Prevents:** mixed migration mechanisms across epics, and ingestion halting because next month's Readings partition does not exist.
 - **Rule:**
-  - **One migration set:** all Server database schema lives in one forward-only migration set. It covers the Orleans ADO.NET scripts, the journal, read models, and Readings. The tool is FluentMigrator. The Orleans cluster schema comes from the existing `Escendit.Platform.Infrastructure.Persistence.Migrations.Cluster.PostgreSQL` migrations, which are moving into the public `escendit/migrations-cluster-postgresql` repository, and Coldframe's own migrations follow the same pattern. That schema must match the Orleans 10.3.1 ADO.NET PostgreSQL scripts before V1.
+  - **One migration set:** all Server database schema lives in one forward-only migration set. It covers the Orleans ADO.NET scripts, the journal, read models, and Readings. The tool is FluentMigrator. The Orleans cluster schema (storage, clustering, and reminders) comes from the `Escendit.Orleans.Migrations.Cluster.PostgreSQL` package, built from the public `escendit/migrations-cluster-postgresql` repository. Coldframe's own migrations follow the same pattern. That schema must match the Orleans 10.3.1 ADO.NET PostgreSQL scripts before V1.
   - **Execution:** migrations run as a Kubernetes Job before the silo starts, and application startup never runs DDL.
   - **Partitions:** Readings and device-report partitions are created at least two months ahead, with a default partition as a safety net.
 
