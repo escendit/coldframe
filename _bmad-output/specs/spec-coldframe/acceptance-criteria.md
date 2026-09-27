@@ -27,7 +27,7 @@ Line-item criteria that the SPEC kernel's `success` fields summarize. CAP-N matc
 - One Reading per Sensor every 15 minutes.
 - Every battery-powered Device also reports battery level (%) and charging status (*charging* / *not charging*).
 - Readings keep reaching the Server after the router changes its Wi-Fi channel, without re-provisioning.
-- Readings carry the Node's measurement time, not the Server's arrival time.
+- Readings carry the Node's measurement time, not the Server's arrival time. All Readings from one wake share the same measurement time.
 - The Hub is a pass-through relay and stores no Readings.
 - If the Server does not acknowledge a Reading, the Node keeps it and resends it once the Server is reachable. A Node buffers at least 24 h of Readings. Acknowledgement happens only after a durable commit (AD-9, AD-17).
 

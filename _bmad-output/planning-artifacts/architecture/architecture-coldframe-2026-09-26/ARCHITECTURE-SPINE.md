@@ -566,7 +566,7 @@ coldframe/
 
 | Item | Why it can wait |
 | --- | --- |
-| Soil probe, sealing, temperature compensation (PRD OQ4) | Hardware. AD-9 stores raw values with a Calibration ID, so a compensation model can be added later. |
+| Soil probe model and sealing; temperature compensation | V1 accepts approximate moisture (two-point linear Calibration) and records temperature from the same wake for later analysis. AD-9 stores raw values with a Calibration ID, so compensation can be added later without migration. The probe is chosen in the Node/hardware epic. |
 | DS-peripheral (RSA) asymmetric identity; secure boot; flash encryption | Hardening after V1. AD-12's versioned labels leave room. Each is an irreversible eFuse decision per board. |
 | Firmware OTA | V1 flashes over USB (AD-23). OTA would ride the AD-16 command path and needs secure boot first. |
 | gRPC or WebSocket transports | REST/JSON first. Could be added beside it later without touching `packages/proto`. |

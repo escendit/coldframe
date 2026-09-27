@@ -39,7 +39,10 @@ Node and Hub facts that bind firmware and hardware work. Evidence: PRD addendum 
 - **Battery %:** measure the voltage by ADC through a switched divider (no sleep draw) and map it with a LiPo discharge curve. The value is approximate, especially while charging.
 
 ## Sensors
-- **Soil moisture:** capacitive probe, not resistive. Cheap "v1.2" boards often use an NE555 (poor at 3.3 V), have unsealed edges, and give non-linear output, so seal or coat them. Probes need 2–3 days to settle after insertion. Temperature and salinity shift Readings. Probe choice and temperature compensation are open (PRD OQ4).
+- **Soil moisture:** a separate capacitive probe read through the Node's ADC; not resistive. Cheap "v1.2" boards often use an NE555 (poor at 3.3 V), have unsealed edges, and give non-linear output, so seal or coat them. Probes need 2–3 days to settle after insertion.
+  - **V1 accepts approximate values:** two-point linear Calibration, no temperature compensation. Temperature and salinity shift Readings.
+  - **Record temperature alongside:** all Readings from one wake carry the **same `measured_at`**, so moisture and temperature can be correlated later. The BME680 measures *air* temperature, which leads soil temperature; that is acceptable for the analysis. A soil temperature Sensor can be added later as a new Sensor Specification.
+  - Probe model and sealing are chosen in the Node/hardware epic against NFR-5.
 - **BME680** covers temperature, humidity, and gas resistance (air quality). Pressure is measured but is not a V1 Sensor.
   - Use forced mode, one measurement per 15-minute wake: about 0.05 mAh/day. The gas heater draws ~12 mA for ~150 ms only.
   - Report raw gas resistance (Ω). No BSEC: it is a closed-source binary incompatible with the Apache-2.0 repositories, and it needs a 3 s or 300 s rhythm. BSEC could become an adopter opt-in later.

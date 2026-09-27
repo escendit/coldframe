@@ -104,6 +104,7 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
 - **TLS everywhere (NFR-10):** all IP traffic between apps, web, Hub, Server, and identity provider uses TLS, including on the LAN; no plain-HTTP endpoints.
 - **Reach (NFR-11):** a Node reports reliably from the author's farthest Lot, where home Wi-Fi is unusable.
 - **Hardware baseline:** Node and Hub run Rust firmware on ESP32-S3 (coexistence validated, see `device-hardware.md`); the air-quality Sensor reports raw gas resistance (Ω) from a BME680.
+- **Approximate soil moisture:** V1 soil moisture is approximate. A separate analog (ADC) capacitive probe uses two-point linear Calibration with no temperature compensation. Temperature Readings from the same Node wake are recorded alongside, so the temperature effect can be analysed later and compensation added without migrating history (spine AD-9 keeps raw values). Probe model and sealing are chosen in the Node/hardware epic against NFR-5.
 
 ## Non-goals
 
@@ -123,7 +124,3 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
 - **Primary:** one full summer on the author's Site with no plant lost to missed watering, and every soil-moisture Threshold Alert delivered inside the author's Notification Window before the Lot reaches its calibrated dry point (0 %).
 - **Secondary:** every Device that stops reporting produces a Health Alert within its Silence Window (delivered when the window next opens) unless paused; a Node completes the season without manual recharging; at least one other person reproduces the setup from the public docs.
 - **Counter-metrics (do not optimize):** notifications per Lot per User per day stay at or below the Reminder cadence; the reporting interval is not lengthened to save battery if that delays Threshold Alerts past the Notification Window.
-
-## Open Questions
-
-- **Probe choice, sealing, and drift (PRD OQ4):** which capacitive probe meets NFR-5, and is two-point linear Calibration accurate enough across the season's temperature range, or is temperature compensation needed?

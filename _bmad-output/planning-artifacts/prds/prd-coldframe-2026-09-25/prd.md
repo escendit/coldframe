@@ -271,12 +271,12 @@ The Server's web app offers everything the mobile apps do except features that n
 
 ## 9. Open Questions
 
-Question 1 was resolved by the Hub radio spike. Questions 2, 3, and 5 were resolved in the architecture spine (`planning-artifacts/architecture/architecture-coldframe-2026-09-26/ARCHITECTURE-SPINE.md`). Numbering is kept stable because the spine cites these questions by number.
+Question 1 was resolved by the Hub radio spike. Question 4 was resolved by the author. Questions 2, 3, and 5 were resolved in the architecture spine (`planning-artifacts/architecture/architecture-coldframe-2026-09-26/ARCHITECTURE-SPINE.md`). Numbering is kept stable because the spine cites these questions by number.
 
 1. ~~**Hub radio feasibility:**~~ *Resolved by the Hub radio spike (2026-09-27): **GO**.* One ESP32-S3 ran Wi-Fi, BLE, ESP-NOW, and TLS together for about 3 h 45 min across four runs. There were no crashes, ESP-NOW loss was 0.04 % in the 2-hour run, and the Node found the Hub again after a channel change in under a second. See `docs/spikes/hub-radio-coexistence.md`.
 2. ~~**BLE provisioning protocol:**~~ *Resolved in architecture (AD-25):* a custom Coldframe BLE setup protocol for Hub and Node, secured with X25519 plus a per-Device proof-of-possession code. It is used instead of Espressif unified provisioning (no Rust crate; its app libraries don't fit the shared Kotlin core) or Improv Wi-Fi (credentials not encrypted, no enrolment).
 3. ~~**Mobile tech:**~~ *Resolved in architecture (AD-14):* a Kotlin Multiplatform shared core (BLE, provisioning, OIDC, API client) with native SwiftUI and Jetpack Compose UI.
-4. **Probe choice, sealing, and drift:** Which probe meets NFR-5, and is two-point linear Calibration accurate enough across the season's temperature range for SM-2, or is temperature compensation needed?
+4. ~~**Probe choice, sealing, and drift:**~~ *Resolved for V1 (author, 2026-09-27):* soil moisture is approximate. A separate analog capacitive probe uses two-point linear Calibration with no temperature compensation, and temperature is recorded alongside for later analysis. Probe model and sealing are chosen in the Node/hardware epic against NFR-5.
 5. ~~**Where Sites, Memberships, and Roles live:**~~ *Resolved in architecture (AD-3):* in Keycloak as Phase Two Organizations. The Server's Site grain is the only writer, and a local projection serves reads.
 
 ## 10. Assumptions Index
