@@ -354,7 +354,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 
 - **Binds:** NFR-6, AD-4, AD-10, AD-12, AD-21
 - **Prevents:** contract drift and authorization regressions that the single field-tested Site would never reveal.
-- **Rule:** These CI checks gate every merge:
+- **Rule:** Development is **test-first**: each story's acceptance criteria become failing tests before implementation. Firmware is tested host-side only, with hardware behind traits; there are no on-device tests in CI, and hardware is verified manually against a checklist. These CI checks gate every merge:
   - the generated authorization matrix (AD-4)
   - crypto test vectors in Rust and C# (AD-12)
   - Protobuf and OpenAPI/AsyncAPI compatibility checks against the previous release (AD-10)

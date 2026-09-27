@@ -103,6 +103,7 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
 - **Room for irrigation (NFR-9):** data and command paths allow later Device commands (e.g. open a valve) without reworking the V1 model; commands can require confirmation, can be stopped manually, and are blocked by Pause.
 - **TLS everywhere (NFR-10):** all IP traffic between apps, web, Hub, Server, and identity provider uses TLS, including on the LAN; no plain-HTTP endpoints.
 - **Reach (NFR-11):** a Node reports reliably from the author's farthest Lot, where home Wi-Fi is unusable.
+- **Test-first:** every capability is built test-first, with acceptance criteria written as failing automated tests before implementation. Firmware is tested host-side only; there are no on-device tests in CI.
 - **Hardware baseline:** Node and Hub run Rust firmware on ESP32-S3 (coexistence validated, see `device-hardware.md`); the air-quality Sensor reports raw gas resistance (Ω) from a BME680.
 - **Approximate soil moisture:** V1 soil moisture is approximate. A separate analog (ADC) capacitive probe uses two-point linear Calibration with no temperature compensation. Temperature Readings from the same Node wake are recorded alongside, so the temperature effect can be analysed later and compensation added without migrating history (spine AD-9 keeps raw values). Probe model and sealing are chosen in the Node/hardware epic against NFR-5.
 
