@@ -1,0 +1,43 @@
+[package]
+name    = "spike-hub-radio"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Throwaway spike: ESP32-S3 Wi-Fi STA + BLE + ESP-NOW + TLS coexistence (PRD Open Question 1)"
+
+[dependencies]
+embassy-executor = "0.10.0"
+embassy-futures  = "0.1"
+embassy-net      = { version = "0.9.1", features = ["dhcpv4", "medium-ethernet", "tcp", "udp", "dns"] }
+embassy-sync     = "0.8"
+embassy-time     = "0.5.1"
+esp-alloc        = { version = "0.11.0", features = ["esp32s3", "internal-heap-stats"] }
+esp-backtrace    = { version = "0.20.0", features = ["panic-handler", "println", "esp32s3"] }
+esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32s3"] }
+esp-hal          = { version = "1.2.2", features = ["esp32s3", "unstable", "log-04"] }
+esp-println      = { version = "0.18.0", features = ["esp32s3", "log-04"] }
+esp-rtos         = { version = "0.4.0", features = ["esp32s3", "esp-radio", "embassy", "log-04"] }
+esp-radio        = { version = "1.0.0-beta.1", features = ["esp32s3", "unstable", "log-04", "wifi", "esp-now", "ble", "coex"] }
+log              = "0.4"
+static_cell      = "2.1"
+heapless         = "0.9"
+critical-section = "1"
+trouble-host     = { version = "0.7.0", features = ["default-packet-pool-mtu-255", "derive"] }
+mbedtls-rs       = { version = "0.3.0", features = ["esp32s3"] }
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+opt-level        = "s"
+debug            = true
+debug-assertions = false
+lto              = "fat"
+codegen-units    = 1
+
+[features]
+default = []
+# Enable X.509 notBefore/notAfter checks with a wall clock fed by SNTP (AD-11).
+# Forces an on-the-fly mbedTLS C rebuild (needs cmake + ninja; C compiled with
+# the Xtensa GCC from espup, bindings via esp-clang's libclang). See README.
+tls-time-check = ["mbedtls-rs/hook-wall-clock", "mbedtls-rs/embassy-time", "mbedtls-rs/use-gcc"]

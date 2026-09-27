@@ -1,0 +1,6 @@
+/target
+*.bin
+*.log
+# The monorepo root ignores **/[Bb]in/* (.NET); Cargo binaries live in src/bin.
+!/src/bin/
+!/src/bin/*.rs
