@@ -357,6 +357,17 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - golden Hub JSON fixtures (AD-10)
   - a replay of all events against a fixture journal (AD-21)
   - Orleans grain tests for every AD-7 and AD-8 transition, using the test cluster
+  - BLE setup session test vectors in Rust and Kotlin (AD-25)
+
+### AD-25 — BLE setup protocol: custom, proof-of-possession secured
+
+- **Binds:** FR-1, FR-2, AD-10, AD-12, AD-14
+- **Prevents:** two setup protocols for Hub and Node, Wi-Fi credentials sent without encryption, an impostor Device accepting credentials, and the KMP core and firmware each inventing the session layer.
+- **Rule:**
+  - **Protocol:** Coldframe uses its own BLE GATT setup service, not Espressif Unified Provisioning or Improv Wi-Fi. One service and one Protobuf message set in `packages/proto` cover both Devices: identity, Wi-Fi config and result (Hub only), Site/Lot binding, and AD-12 enrolment. The KMP core implements the client once on Kable; the firmware implements the server on TrouBLE.
+  - **Session security:** every setup session is encrypted and authenticated before any configuration is exchanged. The two sides run an X25519 key exchange, mix the Device's **proof-of-possession (PoP) code** into the session key with HKDF-SHA256, and encrypt every message with ChaCha20-Poly1305. The labels and test vectors live in `packages/crypto-spec`. A wrong PoP code fails the session.
+  - **PoP code:** unique per Device, generated on the Device, and never sent over BLE. It reaches the Administrator out of band. How it is delivered for self-built boards (for example, printed to the serial console at first boot plus a sticker) is decided in the Hub epic.
+  - **Advertising:** the Hub advertises the setup service until provisioned. The Node advertises only in button-triggered setup mode, with a timeout.
 
 ## Consistency Conventions
 
@@ -530,8 +541,8 @@ coldframe/
 
 | Capability / Area | Lives in | Governed by |
 | --- | --- | --- |
-| FR-1 Hub provisioning | KMP core, Hub firmware, Device + Site grains | AD-10, AD-12, AD-13, AD-18 |
-| FR-2 Node pairing and assignment | KMP core, Node firmware, Device + Lot grains | AD-8, AD-12, AD-18 |
+| FR-1 Hub provisioning | KMP core, Hub firmware, Device + Site grains | AD-10, AD-12, AD-13, AD-18, AD-25 |
+| FR-2 Node pairing and assignment | KMP core, Node firmware, Device + Lot grains | AD-8, AD-12, AD-18, AD-25 |
 | FR-3 Sensor Specifications | `packages/proto`, Sensor grain | AD-19 |
 | FR-4 Report Readings | Node, Hub, Edge API, Device grain | AD-9, AD-11, AD-12, AD-17 |
 | FR-5 – FR-7 Sign-in, Sites, Lots, Memberships | Keycloak + Phase Two, Site/User/Lot grains, Temporal pipeline | AD-3, AD-4, AD-18, AD-20 |
@@ -555,8 +566,7 @@ coldframe/
 
 | Item | Why it can wait |
 | --- | --- |
-| BLE provisioning protocol choice (PRD OQ2) | Decided by the first epic that needs it. AD-10 already binds it to one protocol for Hub and Node, defined in `packages/proto`. |
-| Soil probe, sealing, temperature compensation (PRD OQ4) | Hardware. AD-9 stores raw values with a Calibration ID, so a compensation model can be added later. |
+| Soil probe model and sealing; temperature compensation | V1 accepts approximate moisture (two-point linear Calibration) and records temperature from the same wake for later analysis. AD-9 stores raw values with a Calibration ID, so compensation can be added later without migration. The probe is chosen in the Node/hardware epic. |
 | DS-peripheral (RSA) asymmetric identity; secure boot; flash encryption | Hardening after V1. AD-12's versioned labels leave room. Each is an irreversible eFuse decision per board. |
 | Firmware OTA | V1 flashes over USB (AD-23). OTA would ride the AD-16 command path and needs secure boot first. |
 | gRPC or WebSocket transports | REST/JSON first. Could be added beside it later without touching `packages/proto`. |
