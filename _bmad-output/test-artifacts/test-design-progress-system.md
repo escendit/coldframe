@@ -3,9 +3,9 @@ runScope: 'system-level'
 runKey: 'system'
 workflowStatus: 'in-progress'
 totalSteps: 5
-stepsCompleted: ['step-01-detect-mode', 'step-02-load-context', 'step-03-risk-and-testability']
-lastStep: 'step-03-risk-and-testability'
-nextStep: '{skill-root}/steps-c/step-04-coverage-plan.md'
+stepsCompleted: ['step-01-detect-mode', 'step-02-load-context', 'step-03-risk-and-testability', 'step-04-coverage-plan']
+lastStep: 'step-04-coverage-plan'
+nextStep: '{skill-root}/steps-c/step-05-generate-output.md'
 inputDocuments:
   - _bmad-output/specs/spec-coldframe/SPEC.md
   - _bmad-output/specs/spec-coldframe/acceptance-criteria.md
@@ -175,3 +175,106 @@ The highest risks sit on **the device data path** (R-01, R-02), **timing correct
 ### Change (Simon, 2026-09-27)
 - The S3 stand-in for tests is **RustFS** (Apache-2.0, S3-compatible; latest stable 1.0.0, previews 1.0.1-preview.x), replacing MinIO. It is used in the k3d backup and restore CI test (Story 2.3), and optionally as a local S3 in the Aspire AppHost.
 - The enablers TC-1, TC-2, TC-3 and TC-8 are now in the spine (AD-6, AD-7, AD-24, source tree) and in Stories 1.2, 3.1, 3.2 and 6.4 (Simon approved).
+
+## Step 4: Coverage plan
+
+### Test levels used (test-levels framework, mapped to this stack)
+| Level | Coldframe meaning | Tooling | Location |
+|---|---|---|---|
+| **Unit** | Pure logic: C# domain, Rust firmware logic behind `packages/rs/hal`, the Kotlin shared-core state machines | xUnit, `cargo test` (host), `kotlin.test` | `tests/cs`, inline Rust unit tests plus `tests/rs`, `tests/kt` |
+| **Contract** | Shared vectors, schema compatibility, golden fixtures | vector runners in 3 languages, buf/openapi-diff, AsyncAPI validation | `tests/{rs,cs,kt}`, CI |
+| **Grain** (component) | Orleans grain behaviour in a TestCluster with `FakeTimeProvider` | Orleans TestCluster | `tests/cs` |
+| **Integration** (API) | Edge API with real PostgreSQL, NATS, Temporal, Keycloak and Phase Two, plus the Device simulator | `Aspire.Hosting.Testing` | `tests/cs/*.integration` |
+| **UI component** | Snapshot and component tests of the six statuses and flows, in light and dark themes and at the largest text size | SwiftUI snapshot, Compose screenshot, Svelte component tests | `tests/swift`, `tests/kt`, `tests/ts` |
+| **E2E** | Web journeys through the backend-for-frontend against the Aspire host, with a fake clock | Playwright (+ axe) | `tests/ts/web.e2e` |
+| **Infra** | Chart lint, unit and schema tests; k3d smoke install; backup and restore with RustFS | helm-unittest, kubeconform, k3d | `tests/deploy` |
+| **Manual** | Hardware behaviour CI can't reach (NFR16) | versioned checklists | `docs/checklists/` |
+
+**Duplicate-coverage guard:**
+- Business rules (debounce, precedence, cadence, windows) are tested at **Grain or Unit** level only.
+- Integration tests cover wiring, persistence and authorization.
+- E2E tests cover one happy path per journey plus its key failure.
+- UI tests never re-test status computation; they render fixture rows.
+
+### Coverage matrix (system level)
+| ID | Scenario | Level | Priority | Risk link | Stories |
+|---|---|---|---|---|---|
+| T-01 | Frame counter never repeats across simulated reboots and power loss (flash block reservation) | Unit (Rust) | P0 | R-01 | 4.4 |
+| T-02 | A resend is sealed fresh with a new counter; a replayed or tampered frame is rejected by the Server | Unit (Rust) + Integration (simulator) | P0 | R-01 | 4.4, 4.5 |
+| T-03 | Replay window: above high-water mark / unseen slot accepted; others `rejected_replay`; window advances after restore | Integration | P0 | R-01, R-09 | 4.5, 2.3 |
+| T-04 | Acknowledge only after commit: a crash between insert and response makes the resend a `duplicate`, with no loss and no second row | Integration | P0 | R-02 | 4.5 |
+| T-05 | The Node deletes buffered Readings only on an authenticated downlink; a forged or radio-level ack is ignored | Unit (Rust) | P0 | R-02 | 4.4 |
+| T-06 | Hub outage of 1 h: buffered Readings arrive after the Hub returns, all stored exactly once | Integration (simulator) + Manual | P0 | R-02 | 4.4, 4.5 |
+| T-07 | Per-frame status vocabulary and HTTP semantics (200 when parseable, 4xx and 5xx rules) | Integration | P1 | R-02 | 4.5 |
+| T-08 | Unsynced Readings rebased; `measured_at` more than 5 min in the future rejected; Node clock slews and never steps back more than 1 s | Unit (Rust) + Integration | P1 | R-02 | 4.4, 4.5 |
+| T-09 | Key hierarchy, HPKE enrolment, AEAD nonce layout and setup session: identical outputs in Rust, C# and Kotlin | Contract | P0 | R-06 | 3.1 |
+| T-10 | AD-25 session: a wrong setup code fails; messages are encrypted; the setup code is never sent over BLE | Unit (Rust + Kotlin) | P0 | R-06 | 3.4, 3.6 |
+| T-11 | Hub HMAC authentication: bad signature, clock skew over ±5 min and nonce replay rejected | Integration | P0 | R-06 | 3.5 |
+| T-12 | eFuse burn once, dev mode never burns, a release build with dev mode enabled fails to compile | Unit (Rust, mock HAL) + Manual | P1 | R-06, R-07 | 3.2 |
+| T-13 | Generated authorization matrix: every endpoint × every Role × own Site and other Site | Integration | P0 | R-05 | 1.6 → all |
+| T-14 | A lowered or removed Role applies to the next request; at least one Owner kept even under concurrent demotion | Grain + Integration | P0 | R-05 | 9.2 |
+| T-15 | Create Site: idempotent, read-your-writes; Keycloak events reconcile; break-glass edit leaving no Owner is flagged | Grain + Integration | P1 | R-05 | 1.6, 1.7 |
+| T-16 | Threshold Alert: opens on exactly 3 Readings and closes on 3; 1–2 on the other side change nothing; deterministic IDs, no duplicate on retry | Grain | P0 | R-15, R-03 | 6.1 |
+| T-17 | Out-of-order and backlog Readings evaluated in `measured_at` order only | Grain | P1 | R-03 | 6.1 |
+| T-18 | Window delivery: in-window sent immediately; outside held; one summary per window, one entry per Alert; closed-while-held dropped | Grain (fake clock) | P0 | R-03 | 6.4 |
+| T-19 | Silo restart across 07:00 still sends the summary; daylight-saving transitions correct | Grain (fake clock) | P0 | R-03 | 6.4 |
+| T-20 | Reminder cadence User → Site → daily; Health Alerts at most once a day; no Reminders after close | Grain (fake clock) | P1 | R-03 | 6.4 |
+| T-21 | Delivery sent ≤ 1 min after due; `dueAt` and `sentAt` recorded | Grain (fake clock) + Integration (real time) | P1 | R-03 | 6.4, 6.5 |
+| T-22 | Silent Device: Node 6 h and Hub 5 min defaults and per-Device override; recovery closes the Alert; Server downtime never counts | Grain (fake clock) | P0 | R-04 | 7.1 |
+| T-23 | Silent Hub: one Alert for 5 Nodes; Node windows restart when the Hub recovers; Lots show *unknown* (Hub cause) | Grain (fake clock) | P0 | R-04 | 7.1 |
+| T-24 | UJ-3 E2E: Node stops, then after 6 h the summary and the *unknown* tile appear | E2E (Playwright, fake clock) | P1 | R-04 | 7.2 |
+| T-25 | UJ-2 E2E: crossing, Alert, browser notification in the window, recovery closes it, no Reminder | E2E | P1 | R-03 | 6.6 |
+| T-26 | UJ-4 E2E: Site paused until a date; no Health Alerts; automatic resume | E2E | P1 | R-04 | 8.2 |
+| T-27 | UJ-5 E2E: invite, accept, the Member gets an Alert in their own window, no admin controls | E2E | P1 | R-05 | 9.2 |
+| T-28 | Pause sources: Device and Site both held; Site pause propagates with redelivery; a Device joining a paused Site starts paused; pausing closes Alerts | Grain (fake clock) | P1 | R-04 | 8.1 |
+| T-29 | `LotStatus` precedence and sort order for all combinations, with `unknownCause` and `pausedBy` | Unit (projection) | P0 | R-04 | 4.7 |
+| T-30 | UI renders every status and stale variant from fixture rows, in light and dark themes, at the largest text size; never colour alone | UI component | P1 | R-12 | 4.7, 1.3 |
+| T-31 | Calibration: in force pushed to the Device grain; history keeps its Calibration; recalibration affects only new Readings | Grain | P1 | R-16 | 5.1 |
+| T-32 | Thresholds: validation, three states, 20 % proposal, override survives redeclaration | Grain | P2 | — | 5.3, 4.6 |
+| T-33 | Lot occupancy: concurrent claims (one wins), move with release retried, a claimed Lot refuses removal | Grain | P1 | — | 4.2, 4.9, 1.9 |
+| T-34 | Low-battery and Uncalibrated Alerts open and close rules | Grain | P2 | R-04 | 7.3, 7.4 |
+| T-35 | Event replay over the fixture journal; projector rebuild from position 0 | Contract + Integration | P1 | R-08 | 1.2 |
+| T-36 | Schema compatibility for Protobuf, OpenAPI and AsyncAPI; Hub golden JSON fixtures | Contract | P1 | R-08 | 3.1, 3.5, 6.6 |
+| T-37 | Contrast table check in tokens CI; axe with no serious violations on every web page | Contract (CI) + E2E | P1 | R-12 | 1.3, 1.4 |
+| T-38 | Charts: no Secret data, TLS on every route, no port 80; k3d smoke install ready | Infra | P1 | R-14, R-13 | 2.2, 2.4 |
+| T-39 | Backup to RustFS and restore within 1 h (timed); marker row survives | Infra | P1 | R-09 | 2.3 |
+| T-40 | Hub rejects an expired or untrusted certificate (date checks on) | Unit (Rust, mock clock) + Manual | P2 | R-13 | 3.5 |
+| T-41 | Setup flows (Hub and Node) with every BLE error path, via a mocked BLE layer | Unit (Kotlin) + UI component | P1 | R-06 | 3.6, 4.3 |
+| T-42 | Firmware manual checklist per release: Hub eFuse and setup, Wi-Fi strongest BSSID, heartbeat, Node sleep current ≤ ~100 µA, reach to the farthest Lot, Node BLE plus ESP-NOW coexistence, channel re-scan | Manual | P1 | R-07, R-10, R-11 | 3.x, 4.x |
+| T-43 | Real push on an iPhone and an Android phone; deep link opens Lot detail | Manual | P2 | R-03 | 6.5 |
+| T-44 | Reproduction by another person from the docs (SM-5) | Manual | P2 | — | 10.5 |
+| T-45 | Secret scanning in CI | Contract (CI) | P1 | R-14 | 1.1 |
+
+Every material risk has at least one suitable-level row: R-01 (T-01 to T-03), R-02 (T-04 to T-08), R-03 (T-16 to T-21, T-25), R-04 (T-22 to T-24, T-26, T-28, T-29), R-05 (T-13 to T-15, T-27), R-06 (T-09 to T-12, T-41), R-07 (T-12, T-42), R-08 (T-35, T-36), R-09 (T-03, T-39), R-10 and R-11 (T-42), R-12 (T-30, T-37), R-13 (T-38, T-40), R-14 (T-38, T-45), R-15 (T-16), R-16 (T-31). The manual rows for hardware are suitable because on-device CI is excluded (NFR16).
+
+### NFR coverage and evidence plan
+| NFR | Validation | Evidence artifact for `nfr-assess` |
+|---|---|---|
+| Security | T-09 to T-15, T-45 | CI test reports (vectors, authorization matrix), secret-scan report, crypto-spec review record (R-06) |
+| Reliability and durability | T-03 to T-06, T-19, T-22, T-35, T-39 | Integration and grain reports; timed restore log |
+| Performance (notification ≤ 1 min; ack window 300 ms) | T-21; firmware acknowledgement window in T-05 and T-42 | Grain test report; Notifier `dueAt`/`sentAt` metric; manual checklist record |
+| Availability | none (best effort) | none |
+| Energy and hardware | T-42 | Signed-off manual checklist per firmware release |
+| Accessibility | T-30, T-37 | Contrast CI report, axe report, snapshot artifacts |
+| Maintainability | T-35, T-36, coverage | CI coverage report, compatibility check logs |
+| Scalability | none by decision | none (accepted assumption) |
+
+### Execution strategy
+- **PR:** all Unit, Contract, Grain, UI component, Integration (Aspire) and chart unit tests, plus the E2E journeys (fake clock keeps them fast). Target under 15 minutes. If E2E pushes past 15 min, move E2E to nightly.
+- **Nightly:** k3d smoke install, backup and restore with RustFS (T-38, T-39), Swift snapshot job on macOS if runner cost matters.
+- **Per firmware or V1 release:** manual checklist T-42, real-push check T-43, crypto-spec review (R-06).
+- **Once before V1:** reproduction by another person (T-44).
+
+### Resource estimates (solo, ranges)
+- **P0** (19 scenarios, including harness work: Device simulator, fake-clock setup, authorization-matrix generator): ~50–80 h
+- **P1** (20 scenarios): ~40–70 h
+- **P2** (5 scenarios): ~8–16 h
+- **P3:** none planned
+- **Total:** ~100–165 h, spread across Epics 1–10 as each story is built test-first (not a separate phase)
+
+### Quality gates
+- **Pass rates:** P0 = 100 %, and P1 ≥ 95 % on every merge to `main`.
+- **Risks:** all score ≥ 6 risks (R-01 to R-07) have their mitigations implemented and passing before the V1 release. R-06 also needs the crypto-spec review recorded.
+- **Coverage:** line coverage ≥ 80 % on Server domain code (grains, projections) and on firmware logic crates (`packages/rs/*`); UI and generated code excluded.
+- **Manual checklist:** T-42 signed off for the firmware release being shipped.
+- **Evidence:** an evidence source is identified for every in-scope NFR category above. The final PASS, CONCERNS or FAIL is deferred to `nfr-assess` once implementation evidence exists.
