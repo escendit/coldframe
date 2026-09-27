@@ -266,7 +266,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - **Backups:** CNPG backups (Barman Cloud) with WAL archiving go to an adopter-provided S3-compatible target off the node. Restore is documented and tested. After a restore, the Server advances every Device's replay window by a safety margin (AD-17).
   - **Secrets:** Kubernetes Secrets with fixed names and keys, listed in `deploy/`, created by the adopter out of band. Charts never template secret values. Nothing secret is in Git.
   - **Upgrades:** with a single silo, an upgrade is stop-then-start. Migrations run first (AD-22).
-  - **Dependencies:** every dependency is obtainable from a public registry or public repository. .NET versions are pinned through Central Package Management, and no transitive dependency is allowed to float. The Keycloak extension JARs (`keycloak-temporal-extensions`) are built against the exact Keycloak version of the Phase Two image in use, and the two are upgraded together.
+  - **Dependencies:** every dependency is obtainable from a public registry or public repository. .NET versions are pinned through Central Package Management, and no transitive dependency is allowed to float. The Keycloak extension JARs (`keycloak-temporal-extensions`) must be verified against the Keycloak version of the Phase Two image in use. That compatibility is re-checked whenever either one is upgraded.
   - **Service defaults:** .NET services use the Escendit service defaults (`Escendit.Extensions.Hosting.*`, `Escendit.AspNetCore.Builder.*`) for OpenTelemetry, health, and configuration.
 
 ### AD-16 — Room for Device commands (reserved, not built in V1)
@@ -398,7 +398,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 | PostgreSQL | 18 |
 | CloudNativePG | 1.30.1 |
 | Keycloak (Phase Two image) + keycloak-orgs | phasetwo-keycloak 26.6.7 + 0.182 |
-| keycloak-temporal-extensions (built from source against the Phase Two Keycloak version) | v0.0.1-rc.0 |
+| keycloak-temporal-extensions (verified on phasetwo-keycloak 26.6.7) | v0.0.1-rc.2 |
 | SvelteKit / Svelte | 2.70.3 / 5.57.1 |
 | @escendit/sveltekit-auth-keycloak + @escendit/sveltekit-session | 0.1.0-rc.12 |
 | Kotlin / Kable / kotlin-multiplatform-oidc | 2.4.20 / 0.45.0 / 0.18.3 |
