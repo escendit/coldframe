@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1]
+stepsCompleted: [1, 2]
 inputDocuments:
   - _bmad-output/specs/spec-coldframe/SPEC.md
   - _bmad-output/specs/spec-coldframe/acceptance-criteria.md
@@ -487,3 +487,242 @@ Another maker builds a Node and Hub and deploys the stack from the public docs a
 **FRs covered:** none (NFR7, NFR8)
 
 Dependency flow: 1 → 2 → 3 → 4 → 5 → 6 → 7. Epics 8 and 9 need only Epics 1 and 4. Epic 10 comes last.
+
+## Epic 1: Sign in and create my garden
+
+Simon signs in through Keycloak on web, iOS, and Android, creates the Site "Home" as its Owner, and adds and renames Lots. The Site overview shows its empty state. Every story is test-first (NFR16): its acceptance criteria are written as failing tests before implementation.
+
+### Story 1.1: Monorepo scaffold, CI and local dev stack
+
+As a maker building Coldframe,
+I want the monorepo, CI and a one-command local stack in place,
+So that every later story lands in a consistent layout, is built and tested automatically, and runs locally against real dependencies.
+
+**Acceptance Criteria:**
+
+**Given** a fresh clone of the repository
+**When** I inspect the tree
+**Then** it contains `apps/`, `packages/`, `tests/` (split by language), `aspire/`, `deploy/`, `hardware/` and `docs/`, as in the architecture spine's source tree
+**And** .NET uses Central Package Management with Orleans 10.3.1, `Microsoft.Orleans.Streaming.NATS` 10.3.1-alpha.1 and NATS.Net 2.x pinned, and no transitive version floats (AD-15)
+
+**Given** Docker or Podman is available
+**When** I run the Aspire AppHost
+**Then** PostgreSQL, NATS JetStream, Temporal, and Keycloak start
+**And** Keycloak runs the Phase Two image 26.6.7 with `keycloak-temporal-extensions` v0.0.1-rc.2 loaded
+**And** an Orleans silo in `apps/cs/server` starts with the Escendit service defaults and reports healthy on its health endpoint
+
+**Given** a test project in `tests/cs/` that uses `Aspire.Hosting.Testing`
+**When** the integration test suite runs
+**Then** it starts the same AppHost and asserts that the silo's health endpoint returns healthy (the first failing-then-passing test)
+
+**Given** a pull request
+**When** GitHub Actions runs
+**Then** it builds and tests every language present (C#, Rust, Kotlin, TypeScript) and fails the check on any failing test or lint error
+**And** Rust unit tests may live inline (`#[cfg(test)]`); every other test lives under `tests/`
+
+**Given** the repository
+**When** I read `docs/`
+**Then** a developer quickstart explains how to run the AppHost and the tests
+
+### Story 1.2: Event journal, migrations and projection pipeline
+
+As a maker building Coldframe,
+I want one durable event journal with migrations and a projector framework,
+So that every grain added in later stories persists and projects state the same way and survives restarts (NFR3).
+
+**Acceptance Criteria:**
+
+**Given** an empty PostgreSQL database
+**When** the migration job runs (FluentMigrator 8.0.1 with `Escendit.Orleans.Migrations.Cluster.PostgreSQL` 10.3.1-rc.0)
+**Then** the Orleans cluster schema (clustering, persistence, reminders) and the Coldframe event journal and outbox tables exist
+**And** the migrations are forward-only, and application startup never runs DDL (AD-22)
+
+**Given** a sample JournaledGrain that uses CustomStorage (AD-2, AD-21)
+**When** it raises an event
+**Then** the event is appended to the journal as System.Text.Json, with stream ID, version, type, schema version and global position
+**And** the event and its outbox row are written in one transaction
+
+**Given** a projector with a checkpoint table
+**When** events are appended
+**Then** the projector applies them in global-position order and records its checkpoint
+**And** after its read model and checkpoint are deleted, it rebuilds the read model from position 0 with the same result
+
+**Given** Orleans streams are disabled
+**When** events are appended
+**Then** projectors still converge by polling the journal; streams are only wake-up hints (AD-5, AD-21)
+
+**Given** a fixture journal in `tests/cs/`
+**When** the CI event-replay test runs
+**Then** every stored event type deserializes (directly or through a registered upcaster) and replays without error (AD-24)
+
+### Story 1.3: Design tokens and themes
+
+As a user of any Coldframe app,
+I want one consistent Escendit look in light and dark themes,
+So that iOS, Android, and the web look like one product and meet the contrast floor.
+
+**Acceptance Criteria:**
+
+**Given** `escendit/branding` `css/theme.css`
+**When** the tokens are vendored into `packages/design-tokens`
+**Then** the repository holds a copied token source, with no dependency on the private `@escendit/branding` package
+**And** generation produces Swift, Kotlin and CSS outputs for every token in DESIGN.md's frontmatter, with light and dark values (UX-DR1 to UX-DR6, UX-DR8, UX-DR10, UX-DR11)
+
+**Given** the generated tokens
+**When** the CI contrast check runs
+**Then** it recomputes the load-bearing contrast table from DESIGN.md and fails on any pair below 4.5:1 for text or 3:1 for UI and graphics (UX-DR7, NFR14)
+
+**Given** the Carbon icon subset listed in UX-DR13
+**When** the package is built
+**Then** every listed icon is available on all three platforms and inherits the current colour
+
+**Given** each platform
+**When** a test reads the typography tokens
+**Then** each type role maps to Dynamic Type (iOS), `sp` (Android) and `rem` (web) as defined in UX-DR9
+
+### Story 1.4: Sign in on the web
+
+As Simon on my laptop,
+I want to sign in to the web app through my Keycloak and choose my theme,
+So that I can use Coldframe from a browser on my home network.
+
+**Acceptance Criteria:**
+
+**Given** I am signed out
+**When** I open the web app
+**Then** I see the Sign-in surface with a single SIGN IN button (UX-DR59, UX-DR60)
+**And** SIGN IN starts the OIDC Authorization Code + PKCE flow through the SvelteKit backend-for-frontend using `@escendit/sveltekit-auth-keycloak` (AD-14)
+
+**Given** Keycloak authenticates me
+**When** I return to the web app
+**Then** the browser holds only a session cookie, with no access or refresh token exposed to browser JavaScript
+**And** I land on the app shell with the Garden · Alerts · Devices · Members navigation (UX-DR58)
+
+**Given** the Server is unreachable, the certificate is not trusted, or Keycloak returns an error
+**When** I press SIGN IN
+**Then** the matching Inline notice from UX-DR92 appears, with no "continue anyway" option
+
+**Given** my session expires or is revoked
+**When** I next interact with the app
+**Then** the notice "You're signed out. Sign in again to see live data." appears, with a Sign in action (UX-DR93)
+
+**Given** Settings → Appearance
+**When** I choose System, Light or Dark (UX-DR53, UX-DR15)
+**Then** the theme applies immediately and persists for my account on this browser
+**And** System follows `prefers-color-scheme`, mapped onto the design system's `data-theme`
+
+**Given** any web page in this story
+**When** the automated axe check and keyboard tests run in Playwright
+**Then** there are no serious violations, the focus ring is visible, and tab order follows reading order (UX-DR16, UX-DR102)
+**And** every string comes from the message catalogue, with no hard-coded copy (UX-DR124)
+
+### Story 1.5: Sign in on iOS and Android
+
+As Simon on my phone,
+I want to sign in to the iOS or Android app and choose my theme,
+So that I can use Coldframe natively on my phone.
+
+**Acceptance Criteria:**
+
+**Given** an app build configured with the Server URL and Keycloak issuer at build time (AD-23)
+**When** I open the app signed out
+**Then** I see the Sign-in surface with only SIGN IN, and no field to enter a Server address
+
+**Given** I press SIGN IN
+**When** the shared Kotlin core runs OIDC Authorization Code + PKCE (kotlin-multiplatform-oidc) through `ASWebAuthenticationSession` on iOS or Custom Tabs on Android
+**Then** after authenticating I return to the app, signed in, with tokens held by the shared core
+**And** I see native tab navigation Garden · Alerts · Devices · Settings (UX-DR57, UX-DR109, UX-DR110)
+
+**Given** the Server is unreachable, the certificate is not trusted, Keycloak fails, or I cancel
+**When** sign-in runs
+**Then** the matching UX-DR92 notice appears; cancelling returns to Sign in with no error
+
+**Given** Settings → Appearance
+**When** I choose System, Light or Dark
+**Then** the SwiftUI or Compose theme updates from the generated tokens and persists on the device
+
+**Given** the shared Kotlin core module in `tests/kt/`
+**When** its unit tests run
+**Then** the OIDC flow, the token refresh and the session-expired transitions are covered, with the network mocked
+
+**Given** the largest system text size
+**When** the sign-in and shell screens render
+**Then** nothing is truncated or clipped (UX-DR96), and VoiceOver or TalkBack reads each control with its role (UX-DR98)
+
+### Story 1.6: Create my first Site
+
+As Simon, newly signed in,
+I want to create my garden as a Site and become its Owner,
+So that I have a place to add Lots and Devices.
+
+**Acceptance Criteria:**
+
+**Given** I am signed in and have no Membership
+**When** I reach the app
+**Then** I see Create Site with a Site name field and the detected time zone to confirm (UX-DR61)
+
+**Given** I submit the name "Home"
+**When** the Edge API calls `User.CreateSite(idempotencyKey)`
+**Then** a Phase Two Organization is created and tagged with the key, the Site grain is initialized with me as Owner, and `SiteCreated` and `MembershipGranted` are journaled (AD-3)
+**And** my very next request on that Site is authorized, because the identity projection is updated immediately (read-your-writes)
+
+**Given** the same Create Site request is retried with the same `Idempotency-Key`
+**When** it is processed
+**Then** no second Organization or Site is created, and the original result is returned
+
+**Given** the Keycloak → Temporal → Orleans pipeline delivers the matching membership event later
+**When** it arrives
+**Then** it is applied as an idempotent reconciliation with no change and no error
+
+**Given** the per-Site authorization policy (AD-4)
+**When** the generated authorization-matrix test runs over every endpoint in this story, for every Role, on my Site and on another Site
+**Then** every allowed and denied case matches the endpoint's declared minimum Role (NFR6, AD-24)
+
+**Given** a Site with no Hub and no Node
+**When** I open Garden on web, iOS or Android
+**Then** I see the Site summary header and the empty state "No Readings yet", with the first-run step tiles (UX-DR21, UX-DR54, UX-DR62, UX-DR82)
+**And** the Site switcher lists my Sites with my Role and offers "New Site" (UX-DR23)
+
+**Given** a Site ID that does not exist
+**When** any Site-scoped call is made
+**Then** the API returns 404 as RFC 9457 Problem Details, because the Site grain is `Uncreated`
+
+### Story 1.7: Manage my Site and Lots
+
+As an Owner or Administrator,
+I want to rename my Site and create, rename and remove Lots,
+So that the garden in Coldframe matches my real beds.
+
+**Acceptance Criteria:**
+
+**Given** I am the Owner of "Home"
+**When** I rename the Site in Site settings (UX-DR74)
+**Then** the new name appears everywhere, including the Site switcher
+**And** an Administrator or Member does not see the rename control (UX-DR84), and the API rejects their attempt with 403
+
+**Given** I am an Administrator or Owner
+**When** I create the Lots "Tomatoes" and "Beans"
+**Then** each Lot grain is created (event-sourced), and each appears on Garden as a tile with status *no Node* and the "+ add a Node" affordance (UX-DR18)
+**And** tiles appear in the Server's sort order, and clients never re-sort (UX-DR20)
+
+**Given** a Lot
+**When** I rename it
+**Then** the new name appears on every surface after the projection updates
+
+**Given** a Lot with no Node
+**When** I remove it and confirm the destructive action
+**Then** a `LotRemoved` event and tombstone are recorded, and the Lot disappears from Garden (AD-20)
+**And** its ID stays resolvable for history
+
+**Given** a Lot that holds a Node (a claim held by the Lot grain; tested with a fixture claim, because Node assignment arrives in Epic 4)
+**When** I try to remove it
+**Then** the Lot grain refuses with a clear error, and nothing changes (FR6, AD-18)
+
+**Given** a create request retried with the same `Idempotency-Key`
+**When** it is processed
+**Then** only one Lot exists
+
+**Given** a Member
+**When** they open Site settings
+**Then** they see Lots read-only, with no create, rename or remove controls, and the API rejects these calls with 403
+**And** these endpoints are included in the generated authorization matrix
