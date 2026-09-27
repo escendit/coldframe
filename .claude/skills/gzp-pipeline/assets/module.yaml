@@ -1,0 +1,80 @@
+code: gzp
+name: "Pipeline Forge"
+description: "Configurable Zoho Projects + GitHub Flow task pipeline: plans, tracks, and time-logs work in Zoho (optional per project), drives implementation tasks through GitHub Flow per repo config — issue-first flow, GPG enforcement, and PR auto-merge each a setup toggle — and handles ad hoc GitHub issues as standalone reporting artifacts."
+module_version: 1.3.0
+default_selected: false
+module_greeting: >
+  Pipeline Forge is ready. Say "start a new phase" to break your next chunk of work into a
+  tracked task list, or "work the next task" to pick up where you left off — with the Zoho
+  workflow enabled, every segment gets its own time-log session; resume always reads
+  session-state.json first.
+
+  Run this again any time with `configure` to reconfigure, or edit _bmad/config.yaml /
+  config.user.yaml directly.
+
+gzp_zoho_workflow:
+  prompt: >
+    Enable the Zoho Projects workflow — every piece of work tracked as a Zoho task with
+    paired time-log sessions? (When off, the pipeline drives GitHub Flow only: no Zoho
+    tasks, statuses, or time logs — pairing with the issue-first option below is then
+    recommended so each task still has a durable record.)
+  default: true
+
+gzp_zoho_mcp_name:
+  prompt: "Which Zoho Projects MCP server should this pipeline use for tasks and time-logging? (must expose time-log tools, e.g. add_time_log/update_single_time_log)"
+  default: ""
+  required: true
+  user_setting: true
+  asked_when: gzp_zoho_workflow
+
+gzp_zoho_project_name:
+  prompt: "What is the Zoho Projects project name that this repo's work should be tracked against?"
+  default: ""
+  required: true
+  asked_when: gzp_zoho_workflow
+
+gzp_default_bill_status:
+  prompt: "Default bill_status for time-log entries this pipeline creates (e.g. 'Non Billable', 'Billable')?"
+  default: "Non Billable"
+  asked_when: gzp_zoho_workflow
+
+gzp_github_mcp_name:
+  prompt: >
+    Which GitHub MCP server should the pipeline use for issues, PRs, and merges? (Preferred
+    over the 'gh' CLI whenever it's connected; gh is the fallback. Answer with the MCP server
+    name as your client lists it, or leave empty to use gh only.)
+  default: ""
+  user_setting: true
+
+gzp_gpg_signing:
+  prompt: >
+    Require GPG-signed commits as a hard checkpoint — every commit verified via
+    'git log --show-signature' before proceeding? (When off, commits are made with the
+    repo's existing git config as-is; signing is neither enforced nor disabled.)
+  default: true
+
+gzp_auto_merge_pr:
+  prompt: >
+    Automatically merge PRs the pipeline opens instead of waiting for your manual review
+    and merge? (Blocked merges — failing checks, required reviews, conflicts — always fall
+    back to waiting; nothing is ever forced.)
+  default: false
+
+gzp_github_issue_first:
+  prompt: >
+    Create a GitHub Issue first for every code-change task — opened before branching, linked
+    from the branch and PR, and auto-closed by the merge? (When off, tasks go straight to
+    branch and PR.)
+  default: true
+
+gzp_autotrack_bmad_build:
+  prompt: >
+    Automatically track bmad-build work through Pipeline Forge — task status, time-log
+    sessions, and the GitHub Flow handoff — without ever needing to say "gzp-pipeline"? This
+    writes hooks into _bmad/custom/bmad-build.toml (activation_steps_prepend + on_complete) if
+    bmad-build is installed in this project; skipped otherwise, and safe to answer yes even if
+    you later add bmad-build.
+  default: true
+
+directories:
+  - "{project-root}/_bmad/memory/gzp-pipeline"

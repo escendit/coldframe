@@ -1,0 +1,5 @@
+[workflow]
+activation_steps_prepend = [
+    "Invoke the gzp-pipeline skill before any other work: gzp-pipeline is the sole owner of Zoho task status and time-log sessions. Let it resume in-flight state or start tracking for this build (setting the relevant Zoho task 'In Progress' and opening a time-log session) before Build proceeds to its own steps. Do not duplicate task/time tracking here.",
+]
+on_complete = "Invoke the gzp-pipeline skill to hand off completion of this build's work: it drives code-touching changes through GitHub Flow (branch, commit, push, PR — self-assigned, labeled) if that has not already happened, updates the Zoho task's status, and closes out the time-log session opened at activation. Do not commit, push, open a PR, or touch Zoho directly from Build's own steps — gzp-pipeline owns that lifecycle end to end.\n"
