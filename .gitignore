@@ -432,3 +432,9 @@ FodyWeavers.xsd
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 _bmad/render/
+
+# Personal / machine-local settings
+.claude/settings.local.json
+_bmad/config.user.toml
+_bmad/config.user.yaml
+_bmad/memory/

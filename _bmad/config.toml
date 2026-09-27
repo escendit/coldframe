@@ -38,10 +38,8 @@ trace_output = "_bmad-output/test-artifacts/traceability"
 
 [modules.gzp]
 gzp_zoho_workflow = true
-gzp_zoho_mcp_name = "Zoho Projects - MB24 w/ Time Logs"
 gzp_zoho_project_name = "NE-8"
 gzp_default_bill_status = "Non Billable"
-gzp_github_mcp_name = "GitHub Agent Claudio"
 gzp_gpg_signing = true
 gzp_auto_merge_pr = true
 gzp_github_issue_first = true
