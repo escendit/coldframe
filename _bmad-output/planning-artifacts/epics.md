@@ -1677,3 +1677,121 @@ So that I see changes without reloading.
 **Given** a Playwright end-to-end test of UJ-2 (a Reading series crosses the low Threshold, the Alert opens, a browser notification arrives inside the window, recovery closes the Alert, and no Reminder follows)
 **When** it runs against the Aspire AppHost with a fake clock
 **Then** it passes
+
+## Epic 7: Know when something breaks
+
+A silent Node or Hub, a low battery, or an uncalibrated Sensor raises a Health Alert, capped at one Reminder per day. A silent Hub is never reported once per Node. Silence must never look like "all fine".
+
+### Story 7.1: Silent Device Alert on the Server
+
+As Simon,
+I want Coldframe to notice when a Node or Hub goes quiet,
+So that a dead Device is never mistaken for a healthy bed.
+
+**Acceptance Criteria:**
+
+**Given** an enrolled Device
+**When** nothing is accepted from it for longer than its Silence Window (defaults: Node 6 h, Hub 5 min, overridable per Device)
+**Then** the Device grain opens a Health Alert of kind `silent` with a deterministic ID, and closes it with reason `recovered` when the Device reports again (FR13, AD-7)
+
+**Given** silence measurement
+**When** it runs
+**Then** a Node's liveness is the latest `measured_at` it has had accepted, never arrival time, and silence counts from the latest of last accepted report, last Server start and last resume, so Server downtime never counts as Device silence (AD-6)
+**And** every Silence Window expiry is a persisted `due-at`, processed on each wake and activation
+
+**Given** a Node whose last relay Hub has an open `silent` Alert
+**When** the Node's own window expires
+**Then** no Alert opens for the Node, and its window restarts when the Hub recovers; a silent Hub is reported as the Hub only (FR13)
+
+**Given** an open `silent` Alert
+**When** the LotStatus projection updates
+**Then** the Lot shows *unknown*, with `unknownCause` `node` or `hub`
+
+**Given** Health Alerts
+**When** Reminders are scheduled (Story 6.4)
+**Then** they come at most once per day
+
+**Given** TestCluster tests with a fake clock
+**When** they run
+**Then** they cover Node and Hub default windows, a per-Device override, recovery, a Server restart that doesn't cause false silence, Hub-silence suppression with 5 Nodes (one Alert), and suppression lifting on Hub recovery
+
+### Story 7.2: Silence in the apps and Silence Window settings
+
+As a Member,
+I want silent Devices shown unmistakably,
+So that I never read an old value as current.
+
+**Acceptance Criteria:**
+
+**Given** a Lot with status *unknown*
+**When** the overview renders
+**Then** the tile is hatched, with a large duration ("6 h") and "was ~40 % at 01:05", sorted above every *OK* Lot (UX-DR18)
+
+**Given** a silent Hub
+**When** the overview renders
+**Then** an Inline notice above the tiles reads "Hub 3F2A silent for 12 min — Lots behind it can't be read.", and the affected Lots show *unknown* with the Hub as cause (UX-DR81)
+
+**Given** Devices
+**When** a Device is silent
+**Then** its row shows silence and last seen, and an Administrator or Owner can change its Silence Window; a Member can't (UX-DR84, 403 on the API)
+
+**Given** push and summary copy
+**When** a silent Alert is delivered
+**Then** it reads "Node on Lot 'Beans' silent for 6 h" or "Hub 3F2A silent for 5 min" (UX-DR117)
+
+**Given** a Playwright end-to-end test of UJ-3 (a Node stops, and after 6 h the summary and the *unknown* tile appear) with a fake clock, plus snapshot tests
+**When** they run
+**Then** they pass in light and dark themes
+
+### Story 7.3: Low-battery Alert
+
+As Simon,
+I want to know when a Node's battery is running out and it isn't charging,
+So that I can clear the shade from the panel or recharge it before it dies.
+
+**Acceptance Criteria:**
+
+**Given** device reports from a Node
+**When** three consecutive reports show battery below 20 % while *not charging*
+**Then** the Device grain opens a Health Alert of kind `battery`, showing level and charging status (FR14)
+**And** three consecutive reports that are *charging* or at 20 % or above close it
+
+**Given** below 20 % while *charging*, or *not charging* above 20 %
+**When** reports arrive
+**Then** no Alert opens
+
+**Given** the Alert
+**When** it is shown or pushed
+**Then** it reads, for example, "Node battery 14 %, not charging" on Alerts, Devices and Lot detail (UX-DR117)
+
+**Given** TestCluster tests
+**When** they run
+**Then** they cover exactly-three open and close, charging suppression, and flapping around 20 %
+
+### Story 7.4: Uncalibrated Sensor Alert
+
+As an Owner or Administrator,
+I want to be told when a newly assigned Node's soil Sensor hasn't been calibrated,
+So that I don't forget the step that makes its Readings meaningful.
+
+**Acceptance Criteria:**
+
+**Given** a Node is assigned to a Lot, and one of its `calibration: true` Sensors has no Calibration
+**When** the Sensor grain receives the evaluation context from the Device grain
+**Then** it opens a Health Alert of kind `uncalibrated` naming the Lot and the Sensor (FR21, AD-8)
+
+**Given** the Sensor is calibrated
+**When** the Calibration is saved
+**Then** the Alert closes with reason `calibrated`
+
+**Given** the Node is unassigned while the Alert is open
+**When** the new evaluation context arrives
+**Then** the Sensor grain closes its own Alert with reason `unassigned`
+
+**Given** the Alert
+**When** it is delivered
+**Then** it reads "Soil sensor on Lot 'Peppers' needs calibration", with "An Owner or Administrator can calibrate it.", and deep-links to Lot detail, where Calibrate is offered to Administrators
+
+**Given** TestCluster tests
+**When** they run
+**Then** they cover open on assignment, close on calibration, close on unassignment, and no Threshold Alerts while uncalibrated
