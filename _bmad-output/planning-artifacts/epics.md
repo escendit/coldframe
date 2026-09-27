@@ -165,7 +165,7 @@ NFR16: **Test-first, tested by default.**
 - Every story is built test-first: failing tests that express its acceptance criteria are written before the implementation (red → green → refactor).
 - Each story ships with automated tests for the behaviour it adds, and CI blocks merges when they fail.
 - **What kind of test belongs where:**
-  - **Server:** unit tests for domain logic; Orleans TestCluster grain tests; API tests against the OpenAPI contract; integration tests against real PostgreSQL, NATS and Keycloak containers.
+  - **Server:** unit tests for domain logic; Orleans TestCluster grain tests; API tests against the OpenAPI contract; integration tests run through **Aspire's testing host** (`Aspire.Hosting.Testing`), which starts the same AppHost used for local development: PostgreSQL, NATS, Temporal and Keycloak.
   - **Firmware:** host-side unit tests only, covering protocol, crypto, buffering, the channel re-scan and the setup protocol state machines, with hardware behind traits or mocks. **No on-device tests in CI.** Hardware behaviour is verified manually against a documented checklist.
   - **Shared Kotlin core:** unit tests for the BLE and setup protocol state machines, the API client and staleness logic, with a mocked BLE layer.
   - **Mobile UI:** snapshot or UI tests for the six Lot statuses in light and dark themes, with accessibility checks at the largest text size.
