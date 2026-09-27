@@ -591,7 +591,7 @@ So that I can use Coldframe from a browser on my home network.
 **Given** I am signed out
 **When** I open the web app
 **Then** I see the Sign-in surface with a single SIGN IN button (UX-DR59, UX-DR60)
-**And** SIGN IN starts the OIDC Authorization Code + PKCE flow through the SvelteKit backend-for-frontend using `@escendit/sveltekit-auth-keycloak` (AD-14)
+**And** SIGN IN starts the OIDC Authorization Code + PKCE flow through the SvelteKit backend-for-frontend using `@escendit/sveltekit-auth-keycloak` (AD-14, FR5, FR20)
 
 **Given** Keycloak authenticates me
 **When** I return to the web app
@@ -616,6 +616,10 @@ So that I can use Coldframe from a browser on my home network.
 **Then** there are no serious violations, the focus ring is visible, and tab order follows reading order (UX-DR16, UX-DR102)
 **And** every string comes from the message catalogue, with no hard-coded copy (UX-DR124)
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR34, UX-DR35, UX-DR36, UX-DR56, UX-DR71, UX-DR75, UX-DR76, UX-DR100, UX-DR101, UX-DR104, UX-DR111, UX-DR113, UX-DR114, UX-DR125, UX-DR126, UX-DR127, UX-DR130, UX-DR131 as specified, and their tests cover them
+
 ### Story 1.5: Sign in on iOS and Android
 
 As Simon on my phone,
@@ -630,7 +634,7 @@ So that I can use Coldframe natively on my phone.
 
 **Given** I press SIGN IN
 **When** the shared Kotlin core runs OIDC Authorization Code + PKCE (kotlin-multiplatform-oidc) through `ASWebAuthenticationSession` on iOS or Custom Tabs on Android
-**Then** after authenticating I return to the app, signed in, with tokens held by the shared core
+**Then** after authenticating I return to the app, signed in, with tokens held by the shared core (FR5, FR19)
 **And** I see native tab navigation Garden · Alerts · Devices · Settings (UX-DR57, UX-DR109, UX-DR110)
 
 **Given** the Server is unreachable, the certificate is not trusted, Keycloak fails, or I cancel
@@ -648,6 +652,10 @@ So that I can use Coldframe natively on my phone.
 **Given** the largest system text size
 **When** the sign-in and shell screens render
 **Then** nothing is truncated or clipped (UX-DR96), and VoiceOver or TalkBack reads each control with its role (UX-DR98)
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR34, UX-DR35, UX-DR36, UX-DR56, UX-DR71, UX-DR75, UX-DR76, UX-DR100, UX-DR101, UX-DR104, UX-DR113, UX-DR114, UX-DR125, UX-DR126, UX-DR127, UX-DR130, UX-DR131 as specified, and their tests cover them
 
 ### Story 1.6: Create my first Site
 
@@ -686,6 +694,10 @@ So that I have a place to add Lots and Devices.
 **Given** a Site ID that does not exist
 **When** any Site-scoped call is made
 **Then** the API returns 404 as RFC 9457 Problem Details, because the Site grain is `Uncreated`
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR22 as specified, and their tests cover them
 
 ### Story 1.7: Manage my Site and Lots
 
@@ -1025,6 +1037,10 @@ So that it's online on my Site within a minute without touching a terminal.
 **When** unit tests run
 **Then** every step transition and error above is covered, and snapshot tests cover each step in light and dark themes
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR40, UX-DR95, UX-DR103 as specified, and their tests cover them
+
 ### Story 3.7: See my Hub in Devices
 
 As a Member of a Site,
@@ -1048,6 +1064,10 @@ So that I know whether the garden's gateway is alive.
 **Given** I am a Member
 **When** I open Devices
 **Then** I see the list without admin actions (UX-DR84), and the list endpoints are in the authorization matrix
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR65 as specified, and their tests cover them
 
 ## Epic 4: See what my soil is doing
 
@@ -1272,6 +1292,10 @@ So that I see what needs attention first and never mistake old data for current.
 **When** they run
 **Then** every precedence combination and every tile variant, in light and dark themes, is covered
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR12, UX-DR24, UX-DR77, UX-DR79, UX-DR80, UX-DR99, UX-DR106, UX-DR107, UX-DR108, UX-DR112, UX-DR128, UX-DR129 as specified, and their tests cover them
+
 ### Story 4.8: Lot detail with history and Device status
 
 As a Member,
@@ -1301,6 +1325,10 @@ So that I understand what the bed has been doing.
 **When** they run
 **Then** Lot detail and Devices are covered for each state, in light and dark themes
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR27, UX-DR28, UX-DR29, UX-DR32, UX-DR33, UX-DR78 as specified, and their tests cover them
+
 ### Story 4.9: Move or unassign a Node
 
 As an Administrator,
@@ -1329,6 +1357,10 @@ So that my garden layout can change without losing history.
 **Given** Orleans TestCluster tests
 **When** they run
 **Then** move, a concurrent move to the same Lot, a failed release retried, and unassign are covered
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR31 as specified, and their tests cover them
 
 ## Epic 5: Calibrate the soil and set Thresholds
 
@@ -1412,6 +1444,10 @@ So that I can calibrate in seconds using the Node's button.
 **When** they run
 **Then** each step, the resume path and the paused explanation are covered, in light and dark themes
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR44, UX-DR87 as specified, and their tests cover them
+
 ### Story 5.3: Thresholds on the Server
 
 As an Owner or Administrator,
@@ -1470,6 +1506,10 @@ So that I understand where "too dry" starts for each bed.
 **Given** snapshot tests and a Playwright end-to-end test (calibrate, then set a low Threshold, then the tile shows ~% *OK*)
 **When** they run
 **Then** they pass in light and dark themes, at the largest text size
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR91 as specified, and their tests cover them
 
 ## Epic 6: Get told when to water
 
@@ -1549,6 +1589,10 @@ So that I know what's wrong now and what resolved itself.
 **When** they run
 **Then** each row variant, both groups and the empty state are covered, in light and dark themes
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR25, UX-DR26 as specified, and their tests cover them
+
 ### Story 6.3: My notification settings and the Site Reminder cadence
 
 As Simon,
@@ -1578,6 +1622,10 @@ So that Coldframe fits my day and doesn't wake me at night.
 **Given** tests
 **When** they run
 **Then** they cover time-zone detection precedence, never overwriting a chosen zone, the defaults, and mute scope (only me)
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR47, UX-DR48, UX-DR49 as specified, and their tests cover them
 
 ### Story 6.4: Delivery timing: windows, summaries and Reminders
 
@@ -1649,6 +1697,10 @@ So that I can act away from home without opening the app.
 **Then** they cover payload content and grouping, invalid-token cleanup, and the permission-denied state
 **And** a manual checklist confirms a real push on an iPhone and an Android phone
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR122 as specified, and their tests cover them
+
 ### Story 6.6: Browser notifications and live updates on the web
 
 As Simon with the web app open,
@@ -1677,6 +1729,10 @@ So that I see changes without reloading.
 **Given** a Playwright end-to-end test of UJ-2 (a Reading series crosses the low Threshold, the Alert opens, a browser notification arrives inside the window, recovery closes the Alert, and no Reminder follows)
 **When** it runs against the Aspire AppHost with a fake clock
 **Then** it passes
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR89, UX-DR123 as specified, and their tests cover them
 
 ## Epic 7: Know when something breaks
 
@@ -1904,6 +1960,10 @@ So that they get the same Alerts while I'm away.
 **When** they run
 **Then** invite, then accept, then Membership in the projection, then the new Member is authorized per Role are covered, plus the authorization-matrix entries
 
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR90 as specified, and their tests cover them
+
 ### Story 9.2: Change and remove Roles, always keeping an Owner
 
 As an Owner,
@@ -1940,6 +2000,10 @@ So that access matches who helps in the garden, and the Site is never left witho
 **Given** a Playwright end-to-end test of UJ-5 (invite, accept, the neighbour gets "Cucumbers needs water" in their own window, and sees no admin controls)
 **When** it runs against the Aspire AppHost
 **Then** it passes
+
+**Given** the UX contract (DESIGN.md, EXPERIENCE.md)
+**When** this story's surfaces and components are built
+**Then** they also implement UX-DR51 as specified, and their tests cover them
 
 ## Epic 10: Let others rebuild Coldframe
 
