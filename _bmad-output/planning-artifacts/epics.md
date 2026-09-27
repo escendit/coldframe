@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2]
+stepsCompleted: [1, 2, 3]
 inputDocuments:
   - _bmad-output/specs/spec-coldframe/SPEC.md
   - _bmad-output/specs/spec-coldframe/acceptance-criteria.md
@@ -486,7 +486,7 @@ Simon invites the neighbour by email as a Member and changes or removes Roles; a
 Another maker builds a Node and Hub and deploys the stack from the public docs alone. Covers the adopter guide, hardware designs in `hardware/`, the Compose example, the release pipeline (one SemVer, firmware binaries), and the firmware learning-reference docs.
 **FRs covered:** none (NFR7, NFR8)
 
-Dependency flow: 1 → 2 → 3 → 4 → 5 → 6 → 7. Epics 8 and 9 need only Epics 1 and 4. Epic 10 comes last.
+Dependency flow: 1 → 2 → 3 → 4 → 5 → 6 → 7. Epic 8 needs Epics 6–7 (it closes Health Alerts and suppresses notifications). Epic 9 needs Epic 6 (new Members receive Alerts). Epic 10 comes last.
 
 ## Epic 1: Sign in and create my garden
 
@@ -517,7 +517,7 @@ So that every later story lands in a consistent layout, is built and tested auto
 
 **Given** a pull request
 **When** GitHub Actions runs
-**Then** it builds and tests every language present (C#, Rust, Kotlin, TypeScript) and fails the check on any failing test or lint error
+**Then** it builds and tests every language present (C#, Rust, Kotlin, TypeScript, and Swift on a macOS runner) and fails the check on any failing test or lint error
 **And** Rust unit tests may live inline (`#[cfg(test)]`); every other test lives under `tests/`
 
 **Given** the repository
@@ -608,7 +608,7 @@ So that I can use Coldframe from a browser on my home network.
 
 **Given** Settings → Appearance
 **When** I choose System, Light or Dark (UX-DR53, UX-DR15)
-**Then** the theme applies immediately and persists for my account on this browser
+**Then** the theme applies immediately and persists on this browser (per device, not synced; UX-DR15)
 **And** System follows `prefers-color-scheme`, mapped onto the design system's `data-theme`
 
 **Given** any web page in this story
@@ -618,7 +618,7 @@ So that I can use Coldframe from a browser on my home network.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR34, UX-DR35, UX-DR36, UX-DR56, UX-DR71, UX-DR75, UX-DR76, UX-DR100, UX-DR101, UX-DR104, UX-DR111, UX-DR113, UX-DR114, UX-DR125, UX-DR126, UX-DR127, UX-DR130, UX-DR131 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR34, UX-DR35, UX-DR36, UX-DR56, UX-DR71, UX-DR75, UX-DR76, UX-DR100, UX-DR101, UX-DR104, UX-DR111, UX-DR113, UX-DR114, UX-DR125, UX-DR126, UX-DR127, UX-DR130, UX-DR131 as specified
 
 ### Story 1.5: Sign in on iOS and Android
 
@@ -655,51 +655,88 @@ So that I can use Coldframe natively on my phone.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR34, UX-DR35, UX-DR36, UX-DR56, UX-DR71, UX-DR75, UX-DR76, UX-DR100, UX-DR101, UX-DR104, UX-DR113, UX-DR114, UX-DR125, UX-DR126, UX-DR127, UX-DR130, UX-DR131 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR34, UX-DR35, UX-DR36, UX-DR56, UX-DR71, UX-DR75, UX-DR76, UX-DR100, UX-DR101, UX-DR104, UX-DR113, UX-DR114, UX-DR125, UX-DR126, UX-DR127, UX-DR130, UX-DR131 as specified
 
-### Story 1.6: Create my first Site
+### Story 1.6: Create a Site on the Server with per-Site authorization
 
 As Simon, newly signed in,
-I want to create my garden as a Site and become its Owner,
-So that I have a place to add Lots and Devices.
+I want the Server to create my garden as a Site and make me its Owner immediately,
+So that everything I do next is authorized on that Site.
 
 **Acceptance Criteria:**
 
-**Given** I am signed in and have no Membership
-**When** I reach the app
-**Then** I see Create Site with a Site name field and the detected time zone to confirm (UX-DR61)
-
-**Given** I submit the name "Home"
-**When** the Edge API calls `User.CreateSite(idempotencyKey)`
-**Then** a Phase Two Organization is created and tagged with the key, the Site grain is initialized with me as Owner, and `SiteCreated` and `MembershipGranted` are journaled (AD-3)
-**And** my very next request on that Site is authorized, because the identity projection is updated immediately (read-your-writes)
+**Given** an authenticated User with no Membership
+**When** the Edge API calls `User.CreateSite(idempotencyKey)` with the name "Home"
+**Then** a Phase Two Organization is created and tagged with the key, the Site grain is initialized with me as Owner, and `SiteCreated` and `MembershipGranted` are journaled (FR6, AD-3)
+**And** my very next request on that Site is authorized, because the Site grain's events update the identity projection immediately (read-your-writes)
 
 **Given** the same Create Site request is retried with the same `Idempotency-Key`
 **When** it is processed
 **Then** no second Organization or Site is created, and the original result is returned
 
-**Given** the Keycloak → Temporal → Orleans pipeline delivers the matching membership event later
-**When** it arrives
-**Then** it is applied as an idempotent reconciliation with no change and no error
+**Given** a Site ID that does not exist
+**When** any Site-scoped call is made
+**Then** the API returns 404 as RFC 9457 Problem Details, because the Site grain is `Uncreated`
 
 **Given** the per-Site authorization policy (AD-4)
-**When** the generated authorization-matrix test runs over every endpoint in this story, for every Role, on my Site and on another Site
-**Then** every allowed and denied case matches the endpoint's declared minimum Role (NFR6, AD-24)
+**When** the generated authorization-matrix test runs over every endpoint so far, for every Role, on my Site and on another Site
+**Then** every allowed and denied case matches the endpoint's declared minimum Role, and the matrix generator picks up new endpoints automatically (NFR6, AD-24)
+
+**Given** Orleans TestCluster and Aspire integration tests with Keycloak and Phase Two
+**When** they run
+**Then** creation, retry idempotency, read-your-writes and the 404 path are covered
+
+### Story 1.7: Reconcile identity changes from Keycloak
+
+As Simon,
+I want changes made in Keycloak to reach Coldframe reliably,
+So that Coldframe's view of who belongs where never drifts from Keycloak.
+
+**Acceptance Criteria:**
+
+**Given** `keycloak-temporal-extensions` publishing Keycloak admin and user events to Temporal
+**When** a Temporal workflow in the Server consumes an organization or membership event
+**Then** it is delivered to the Site and User grains and applied as an idempotent reconciliation (AD-3, AD-5)
+**And** an event that matches what the Site grain already wrote causes no change and no error
+
+**Given** a break-glass edit in Keycloak's admin console that would leave a Site with no Owner
+**When** the event arrives
+**Then** the Site grain keeps its last valid Owner set for authorization and raises an operator-visible error, and never silently repairs it
+
+**Given** a Site deletion arriving from Keycloak
+**When** it is applied
+**Then** the Site grain moves to `Deleted`, its roster is suspended and Site-scoped calls return 404 (AD-20)
+
+**Given** integration tests on the Aspire AppHost that change Keycloak through its admin API
+**When** they run
+**Then** the reconciliation, duplicate events, the no-Owner break-glass case and Site deletion are covered
+
+### Story 1.8: Create Site and the empty Garden in the apps
+
+As Simon, newly signed in,
+I want to name my Site in the app and see my empty garden,
+So that I can start setting it up from my phone or laptop.
+
+**Acceptance Criteria:**
+
+**Given** I am signed in and have no Membership
+**When** I reach the app on web, iOS or Android
+**Then** I see Create Site with a Site name field and the detected time zone to confirm (UX-DR61), and submitting it calls the Story 1.6 endpoint with an `Idempotency-Key`
 
 **Given** a Site with no Hub and no Node
 **When** I open Garden on web, iOS or Android
 **Then** I see the Site summary header and the empty state "No Readings yet", with the first-run step tiles (UX-DR21, UX-DR54, UX-DR62, UX-DR82)
 **And** the Site switcher lists my Sites with my Role and offers "New Site" (UX-DR23)
 
-**Given** a Site ID that does not exist
-**When** any Site-scoped call is made
-**Then** the API returns 404 as RFC 9457 Problem Details, because the Site grain is `Uncreated`
+**Given** snapshot tests and a Playwright end-to-end test (sign in, then create the Site, then the empty Garden)
+**When** they run
+**Then** they pass in light and dark themes, at the largest text size
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR22 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR22 as specified
 
-### Story 1.7: Manage my Site and Lots
+### Story 1.9: Manage my Site and Lots
 
 As an Owner or Administrator,
 I want to rename my Site and create, rename and remove Lots,
@@ -932,7 +969,7 @@ So that only Devices I set up can talk to my Server.
 **Given** an enrolment request with an HPKE-sealed `K_dev`, the Device identity and a Site ID, sent by an Administrator of that Site
 **When** the Server processes it
 **Then** the Device grain calls `Site.RegisterDevice(deviceId, kind)`, persists `DeviceEnrolled`, and stores `K_dev` encrypted at rest (AD-12, AD-18)
-**And** the Site's roster includes the Device, and a Device added to a paused Site starts paused (a hook for Epic 8)
+**And** the Site's roster includes the Device, and the `RegisterDevice` reply carries the Site's Pause state (always empty until Epic 8)
 
 **Given** a malformed or wrongly sealed enrolment, a Member caller, or a Device already enrolled on another Site
 **When** it is submitted
@@ -970,6 +1007,10 @@ So that nobody nearby can take it over or read my Wi-Fi password.
 **Given** a desktop test client in `tests/rs` (for example, btleplug)
 **When** I run it against a bench Hub per the manual checklist
 **Then** a full setup completes, and a wrong setup code is refused
+
+**Given** the Hub firmware image
+**When** it is inspected in a test
+**Then** it contains no Wi-Fi credentials; credentials exist only after BLE provisioning (FR1)
 
 ### Story 3.5: Hub joins Wi-Fi and heartbeats to the Server
 
@@ -1019,7 +1060,7 @@ So that it's online on my Site within a minute without touching a terminal.
 
 **Given** the shared Kotlin core (Kable 0.45)
 **When** it runs the setup client
-**Then** it fetches `GET /enrolment-key`, runs the AD-25 session with the entered code, sends Wi-Fi config and the Site, relays the sealed `K_dev` to the enrolment endpoint unread, and waits for the first heartbeat
+**Then** it fetches `GET /enrolment-key` and shows the key's fingerprint, runs the AD-25 session with the entered code, sends Wi-Fi config and the Site, relays the sealed `K_dev` to the enrolment endpoint unread, and waits for the first heartbeat
 
 **Given** a correct setup
 **When** the Hub's first heartbeat arrives
@@ -1039,7 +1080,7 @@ So that it's online on my Site within a minute without touching a terminal.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR40, UX-DR95, UX-DR103 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR40, UX-DR95, UX-DR103 as specified
 
 ### Story 3.7: See my Hub in Devices
 
@@ -1067,7 +1108,7 @@ So that I know whether the garden's gateway is alive.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR65 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR65 as specified
 
 ## Epic 4: See what my soil is doing
 
@@ -1120,10 +1161,6 @@ So that I know exactly which physical Node I'm assigning and it doesn't waste ba
 **Then** the Device grain calls `Lot.Claim(nodeId)`, which succeeds only if the Lot exists, isn't removed and is free, then persists `DeviceEnrolled` and `DeviceAssigned` (AD-18)
 **And** a Lot that already holds a Node rejects the claim with a clear error
 
-**Given** an enrolled Node that is not assigned to a Lot
-**When** its Readings arrive later
-**Then** they are stored but never evaluated for Alerts (FR2, AD-8)
-
 **Given** the Node setup state machine and the Lot-claim logic
 **When** host-side and Orleans TestCluster tests run
 **Then** setup timeout, wrong code, occupied Lot and concurrent claims of one Lot (only one wins) are covered
@@ -1136,7 +1173,7 @@ So that I know exactly which physical Node I'm assigning and it doesn't waste ba
 
 As Simon in the garden,
 I want to add a Node from the app by pressing its button and picking a Lot,
-So that the right bed starts reporting.
+So that the right Lot starts reporting.
 
 **Acceptance Criteria:**
 
@@ -1150,8 +1187,9 @@ So that the right bed starts reporting.
 5. Outcome.
 
 **Given** the setup succeeds
-**When** the Node's first Readings arrive
-**Then** the outcome shows "‹Lot› has a Node" with its Sensors, and the Lot tile changes from *no Node*
+**When** `DeviceAssigned` is persisted
+**Then** the outcome shows "‹Lot› has a Node", and the Lot tile changes from *no Node*
+**And** its Sensors appear once the first Readings arrive (Stories 4.4 to 4.6)
 
 **Given** BLE errors, a wrong code, the setup window timing out, or a Lot taken meanwhile
 **When** the flow hits that case
@@ -1165,7 +1203,7 @@ So that the right bed starts reporting.
 
 As Simon,
 I want Nodes to reach the Hub over ESP-NOW from the far end of the garden, and to keep Readings until they're safely stored,
-So that no Reading is lost when Wi-Fi can't reach a bed.
+So that no Reading is lost when Wi-Fi can't reach a Lot.
 
 **Acceptance Criteria:**
 
@@ -1194,6 +1232,10 @@ So that no Reading is lost when Wi-Fi can't reach a bed.
 **Given** a Node and a Hub on the bench and in the garden
 **When** I follow the manual checklist
 **Then** the Node reports reliably from the farthest Lot (NFR11), and buffered Readings arrive after the Hub was powered off for an hour
+
+**Given** a sealed downlink carrying `serverTime`
+**When** the Node applies it
+**Then** the Node sets its RTC only from authenticated downlinks, slews gradually and never steps back more than 1 s at a time; host-side tests cover this, including forged or unauthenticated time being ignored (AD-11)
 
 ### Story 4.5: Server ingestion and acknowledgements
 
@@ -1229,6 +1271,14 @@ So that my history is complete and never duplicated.
 **When** they run
 **Then** every status path, the replay window, dedupe and acknowledgement-after-commit are covered, including a crash between insert and response (the resend is then `duplicate`)
 
+**Given** a database restore (Story 2.3 runbook)
+**When** the operator runs the documented restore command
+**Then** every Device's replay-window high-water mark and downlink counter advance by a documented safety margin, so no nonce is reused (AD-15, AD-17)
+
+**Given** frames relayed by a Hub
+**When** the relaying Hub for a Node changes
+**Then** the Node's Device grain persists its last relay Hub (used for Hub-silence suppression in Story 7.1)
+
 ### Story 4.6: Sensor Specifications and Sensor grains
 
 As Simon,
@@ -1261,7 +1311,7 @@ So that Readings are labelled correctly and soil moisture is ready for calibrati
 ### Story 4.7: Lot status and the Site overview
 
 As Simon over morning coffee,
-I want the overview to show each bed's status at a glance, honestly,
+I want the overview to show each Lot's status at a glance, honestly,
 So that I see what needs attention first and never mistake old data for current.
 
 **Acceptance Criteria:**
@@ -1274,11 +1324,11 @@ So that I see what needs attention first and never mistake old data for current.
 **Given** the overview on web, iOS and Android
 **When** it renders
 **Then** every tile variant matches UX-DR17, UX-DR18 and UX-DR20 (shape, Carbon icon, text; never colour alone) in the Server's order
-**And** `unknown`, `paused` and `needsWater` render correctly from fixture rows; they become live in Epics 7, 8 and 5
+**And** `unknown`, `paused` and `needsWater` render correctly from fixture rows; they become live in Epics 7, 8 and 6
 
 **Given** calibrating soil Sensors are uncalibrated at this point
 **When** a Node reports
-**Then** its Lot shows *needs calibration*, with no % value
+**Then** its Lot shows *needs calibration*, with no % value, derived from the Sensor's Calibration state (the same condition that opens the Epic 7 Uncalibrated Alert)
 
 **Given** the Server can't be reached, or the data is older than the stale threshold
 **When** the overview renders
@@ -1294,13 +1344,13 @@ So that I see what needs attention first and never mistake old data for current.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR12, UX-DR24, UX-DR77, UX-DR79, UX-DR80, UX-DR99, UX-DR106, UX-DR107, UX-DR108, UX-DR112, UX-DR128, UX-DR129 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR12, UX-DR24, UX-DR77, UX-DR79, UX-DR80, UX-DR99, UX-DR106, UX-DR107, UX-DR108, UX-DR112, UX-DR128, UX-DR129 as specified
 
 ### Story 4.8: Lot detail with history and Device status
 
 As a Member,
 I want to open a Lot and see its latest Readings, a 30-day history and its Node's health,
-So that I understand what the bed has been doing.
+So that I understand what the Lot has been doing.
 
 **Acceptance Criteria:**
 
@@ -1327,7 +1377,7 @@ So that I understand what the bed has been doing.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR27, UX-DR28, UX-DR29, UX-DR32, UX-DR33, UX-DR78 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR27, UX-DR28, UX-DR29, UX-DR32, UX-DR33, UX-DR78 as specified
 
 ### Story 4.9: Move or unassign a Node
 
@@ -1360,7 +1410,7 @@ So that my garden layout can change without losing history.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR31 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR31 as specified
 
 ## Epic 5: Calibrate the soil and set Thresholds
 
@@ -1401,7 +1451,7 @@ So that raw probe values become an approximate 0–100 % soil moisture.
 
 **Given** Orleans TestCluster and integration tests
 **When** they run
-**Then** the flows above, the redelivery of Calibration in force, and the Lot leaving *needs calibration* after the first calibrated Reading are covered
+**Then** the flows above, the redelivery of Calibration in force, and the Lot leaving *needs calibration* when the Calibration is saved (its % appears with the next Reading) are covered
 
 ### Story 5.2: Calibrate from the app
 
@@ -1430,7 +1480,7 @@ So that I can calibrate in seconds using the Node's button.
 
 **Given** a paused Device
 **When** I open Calibrate
-**Then** it explains that Readings resume after the Pause ends, instead of waiting indefinitely (UX-DR86)
+**Then** it explains that Readings resume after the Pause ends, instead of waiting indefinitely (UX-DR86); tested with a fixture `pausedBy` until Epic 8 makes it live
 
 **Given** a screen reader is on
 **When** a fresh Reading arrives
@@ -1446,13 +1496,17 @@ So that I can calibrate in seconds using the Node's button.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR44, UX-DR87 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR44, UX-DR87 as specified
+
+**Given** a Sensor with `calibration: false`
+**When** its Lot detail is shown
+**Then** no Calibrate control appears (FR3)
 
 ### Story 5.3: Thresholds on the Server
 
 As an Owner or Administrator,
 I want to set, change and clear a Sensor's low and high Thresholds,
-So that Coldframe knows when a bed is too dry or too wet, and can alert on other Sensors if I choose.
+So that Coldframe knows when a Lot is too dry or too wet, and can alert on other Sensors if I choose.
 
 **Acceptance Criteria:**
 
@@ -1471,7 +1525,7 @@ So that Coldframe knows when a bed is too dry or too wet, and can alert on other
 
 **Given** a Threshold change
 **When** it is saved
-**Then** the Sensor grain resets its evaluation streaks (consumed by Epic 6)
+**Then** the Sensor grain raises a Thresholds-changed event, which Story 6.1 treats as a new evaluation epoch
 
 **Given** a Member caller
 **When** they try to change Thresholds
@@ -1485,7 +1539,7 @@ So that Coldframe knows when a bed is too dry or too wet, and can alert on other
 
 As Simon,
 I want to set Thresholds visually and see them on the history chart,
-So that I understand where "too dry" starts for each bed.
+So that I understand where "too dry" starts for each Lot.
 
 **Acceptance Criteria:**
 
@@ -1509,17 +1563,17 @@ So that I understand where "too dry" starts for each bed.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR91 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR91 as specified
 
 ## Epic 6: Get told when to water
 
-A morning push says "Tomatoes needs water" inside Simon's Notification Window. Reminders repeat while the bed stays dry, anything held overnight arrives as one summary, and a Site can be muted. The web app shows browser notifications while open.
+A morning push says "Tomatoes needs water" inside Simon's Notification Window. Reminders repeat while the Lot stays dry, anything held overnight arrives as one summary, and a Site can be muted. The web app shows browser notifications while open.
 
 ### Story 6.1: Threshold Alerts open and close
 
 As Simon,
-I want Coldframe to open an Alert when a bed stays beyond a Threshold and close it when it recovers,
-So that one hovering Reading never cries wolf and a watered bed clears itself.
+I want Coldframe to open an Alert when a Lot stays beyond a Threshold and close it when it recovers,
+So that one hovering Reading never cries wolf and a watered Lot clears itself.
 
 **Acceptance Criteria:**
 
@@ -1591,7 +1645,7 @@ So that I know what's wrong now and what resolved itself.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR25, UX-DR26 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR25, UX-DR26 as specified
 
 ### Story 6.3: My notification settings and the Site Reminder cadence
 
@@ -1606,7 +1660,7 @@ So that Coldframe fits my day and doesn't wake me at night.
 **Then** their Notification Window defaults to 07:00–22:00, and their IANA time zone is proposed from the phone OS or the browser (IP only as a last resort), for them to confirm or change (FR16, AD-11)
 **And** a zone the User chose themselves is never overwritten by detection
 
-**Given** My notifications (UX-DR72)
+**Given** My notifications (UX-DR72) on web, iOS or Android
 **When** I edit it
 **Then** I can set the window ("from 07:00" keeps the 22:00 end), confirm or change the time zone, mute or unmute this Site (FR17), and pick my Reminder cadence ("Use Site setting" / "Daily" / "Every 2 days") (UX-DR50)
 **And** every change is persisted as an event on my User grain
@@ -1625,12 +1679,12 @@ So that Coldframe fits my day and doesn't wake me at night.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR47, UX-DR48, UX-DR49 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR47, UX-DR48, UX-DR49 as specified
 
 ### Story 6.4: Delivery timing: windows, summaries and Reminders
 
 As Simon,
-I want Alerts that fall due overnight gathered into one morning summary, and Reminders while a bed stays dry,
+I want Alerts that fall due overnight gathered into one morning summary, and Reminders while a Lot stays dry,
 So that I'm told once, at the right time, and not every hour.
 
 **Acceptance Criteria:**
@@ -1699,7 +1753,7 @@ So that I can act away from home without opening the app.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR122 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR122 as specified
 
 ### Story 6.6: Browser notifications and live updates on the web
 
@@ -1732,7 +1786,7 @@ So that I see changes without reloading.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR89, UX-DR123 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR89, UX-DR123 as specified
 
 ## Epic 7: Know when something breaks
 
@@ -1742,7 +1796,7 @@ A silent Node or Hub, a low battery, or an uncalibrated Sensor raises a Health A
 
 As Simon,
 I want Coldframe to notice when a Node or Hub goes quiet,
-So that a dead Device is never mistaken for a healthy bed.
+So that a dead Device is never mistaken for a healthy Lot.
 
 **Acceptance Criteria:**
 
@@ -1787,7 +1841,7 @@ So that I never read an old value as current.
 **When** the overview renders
 **Then** an Inline notice above the tiles reads "Hub 3F2A silent for 12 min — Lots behind it can't be read.", and the affected Lots show *unknown* with the Hub as cause (UX-DR81)
 
-**Given** Devices
+**Given** Devices on web, iOS or Android
 **When** a Device is silent
 **Then** its row shows silence and last seen, and an Administrator or Owner can change its Silence Window; a Member can't (UX-DR84, 403 on the API)
 
@@ -1907,7 +1961,7 @@ So that I know the silence over winter is intentional.
 **Acceptance Criteria:**
 
 **Given** an Administrator or Owner
-**When** I choose Pause from Lot detail (Device), a Devices row, or the Site menu (Site)
+**When** I choose Pause, on web, iOS or Android, from Lot detail (Device), a Devices row, or the Site menu (Site)
 **Then** the Pause sheet opens, with the scope (this Device / whole Site) and an optional "Until" date (UX-DR46, UX-DR70)
 
 **Given** the Site is paused
@@ -1940,7 +1994,7 @@ So that they get the same Alerts while I'm away.
 **Acceptance Criteria:**
 
 **Given** I am the Owner of a Site
-**When** I submit the Invite form with an email address and a Role (Member, Administrator or Owner), whose description updates as I choose (UX-DR52)
+**When** I submit the Invite form, on web, iOS or Android, with an email address and a Role (Member, Administrator or Owner), whose description updates as I choose (UX-DR52)
 **Then** the Site grain sends a Phase Two native invitation for that Organization and Role; the Server keeps no invitation state (FR7, AD-3)
 **And** the form confirms "Invitation sent", with the hint to open the link on the garden's Wi-Fi
 
@@ -1962,7 +2016,7 @@ So that they get the same Alerts while I'm away.
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR90 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR90 as specified
 
 ### Story 9.2: Change and remove Roles, always keeping an Owner
 
@@ -1972,7 +2026,7 @@ So that access matches who helps in the garden, and the Site is never left witho
 
 **Acceptance Criteria:**
 
-**Given** Members (UX-DR73)
+**Given** Members (UX-DR73) on web, iOS or Android
 **When** I, as an Owner, change a person's Role or remove them and confirm the destructive dialog, which names the person
 **Then** the Site grain checks FR7 against its persisted Owner set, calls Phase Two, persists the result and updates the identity projection immediately
 
@@ -2003,7 +2057,7 @@ So that access matches who helps in the garden, and the Site is never left witho
 
 **Given** the UX contract (DESIGN.md, EXPERIENCE.md)
 **When** this story's surfaces and components are built
-**Then** they also implement UX-DR51 as specified, and their tests cover them
+**Then** each of these has at least one named test, written failing before implementation, and they implement UX-DR51 as specified
 
 ## Epic 10: Let others rebuild Coldframe
 
