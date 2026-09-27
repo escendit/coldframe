@@ -463,7 +463,7 @@ Simon presses a Node's button, assigns it to "Tomatoes", and sees its Readings: 
 **FRs covered:** FR2, FR3, FR4, FR8
 
 ### Epic 5: Calibrate the soil and set Thresholds
-Simon calibrates the soil probe (dry and wet, using report now) and sets low and high Thresholds. Lots then show approximate % and *needs water* or *OK*.
+Simon calibrates the soil probe (dry and wet, using report now) and sets low and high Thresholds. Lots then show approximate % and *OK*, with the Threshold band on the chart. *Needs water* goes live with Threshold Alerts in Epic 6, because it is defined by an open low-side Alert (AD-14).
 **FRs covered:** FR9, FR10
 
 ### Epic 6: Get told when to water
@@ -1329,3 +1329,144 @@ So that my garden layout can change without losing history.
 **Given** Orleans TestCluster tests
 **When** they run
 **Then** move, a concurrent move to the same Lot, a failed release retried, and unassign are covered
+
+## Epic 5: Calibrate the soil and set Thresholds
+
+Simon calibrates the soil probe and sets Thresholds. Lots show approximate % and *OK*, and the chart shows the Threshold band. *Needs water* goes live in Epic 6, because it is defined by an open low-side Threshold Alert (AD-14).
+
+### Story 5.1: Calibration on the Server
+
+As an Administrator,
+I want to record dry and wet reference points from stored Readings,
+So that raw probe values become an approximate 0–100 % soil moisture.
+
+**Acceptance Criteria:**
+
+**Given** a `calibration: true` Sensor with stored Readings
+**When** an Administrator submits a dry point and a wet point over REST, each naming the stored Reading's `reading_seq` (FR9, AD-9)
+**Then** the Sensor grain persists `SensorCalibrated` with a new Calibration ID and both raw values
+**And** it synchronously sets the Calibration in force on the Device grain before confirming, and re-delivers from persisted state if that call fails
+
+**Given** a Calibration in force
+**When** new Readings arrive
+**Then** each is stored with that Calibration ID, and its normalized % is derived from that Calibration and rounded to the nearest 5 % for display
+
+**Given** a recalibration
+**When** it is saved
+**Then** only Readings after it use the new Calibration; history keeps the Calibration it was recorded with, and Threshold % values are unchanged
+
+**Given** a half-finished Calibration (only the dry point)
+**When** it is saved
+**Then** the Sensor stays uncalibrated, and the dry point is kept until the wet point arrives
+
+**Given** a dry point that isn't meaningfully distinct from the wet point (for example, identical raw values)
+**When** it is submitted
+**Then** it is rejected with Problem Details
+
+**Given** a Member caller
+**When** they submit a Calibration
+**Then** it is rejected with 403, and the endpoint is in the authorization matrix
+
+**Given** Orleans TestCluster and integration tests
+**When** they run
+**Then** the flows above, the redelivery of Calibration in force, and the Lot leaving *needs calibration* after the first calibrated Reading are covered
+
+### Story 5.2: Calibrate from the app
+
+As Simon with the probe in my hand,
+I want a guided two-step calibration that works on my phone or laptop,
+So that I can calibrate in seconds using the Node's button.
+
+**Acceptance Criteria:**
+
+**Given** a *needs calibration* Lot and an Administrator or Owner
+**When** I start Calibrate from the tile, Lot detail or the Node-added outcome
+**Then** the two-step flow (dry, then wet) runs on web, iOS and Android (UX-DR68, UX-DR43), with no BLE involved
+
+**Given** the dry step
+**When** I put the probe in dry soil and short-press the Node's button (N-3), or wait
+**Then** the screen shows "Waiting for the next Reading", with the last raw value and its time, and enables "Record dry" when a Reading taken after the step started arrives
+**And** I can instead pick a recent stored Reading from the list
+
+**Given** both points are recorded
+**When** I confirm
+**Then** the confirmation shows the dry and wet raw values and says the % appears with the next Reading, updating in place when that Reading arrives
+
+**Given** I leave mid-flow
+**When** I come back later
+**Then** the recorded dry point is kept, and I resume at the wet step
+
+**Given** a paused Device
+**When** I open Calibrate
+**Then** it explains that Readings resume after the Pause ends, instead of waiting indefinitely (UX-DR86)
+
+**Given** a screen reader is on
+**When** a fresh Reading arrives
+**Then** the waiting announcement from UX-DR105 is made
+
+**Given** a Member
+**When** they open the Lot
+**Then** Calibrate isn't shown (UX-DR84)
+
+**Given** snapshot and client tests
+**When** they run
+**Then** each step, the resume path and the paused explanation are covered, in light and dark themes
+
+### Story 5.3: Thresholds on the Server
+
+As an Owner or Administrator,
+I want to set, change and clear a Sensor's low and high Thresholds,
+So that Coldframe knows when a bed is too dry or too wet, and can alert on other Sensors if I choose.
+
+**Acceptance Criteria:**
+
+**Given** a Sensor
+**When** Thresholds are set
+**Then** the Sensor grain validates them: low is required on an alerting Sensor, high is optional (empty never alerts), and low must be below high; anything else is rejected (FR10, AD-19)
+**And** each side is stored as `Default`, `Override(value)` or `Cleared`, and a later Specification redeclaration never replaces an override
+
+**Given** a watched Sensor with no Specification default (for example, temperature)
+**When** an Owner or Administrator turns on alerts
+**Then** the proposed low is `Min + 20 % × (Max − Min)` of the Sensor's range, with no proposed high
+
+**Given** a calibrating Sensor
+**When** Thresholds are read or written
+**Then** they are in 0–100 %
+
+**Given** a Threshold change
+**When** it is saved
+**Then** the Sensor grain resets its evaluation streaks (consumed by Epic 6)
+
+**Given** a Member caller
+**When** they try to change Thresholds
+**Then** it is rejected with 403, and the endpoints are in the authorization matrix
+
+**Given** TestCluster tests
+**When** they run
+**Then** every validation rule, the three states, the 20 % proposal and the override surviving a redeclaration are covered
+
+### Story 5.4: Set Thresholds in the app and see them on the chart
+
+As Simon,
+I want to set Thresholds visually and see them on the history chart,
+So that I understand where "too dry" starts for each bed.
+
+**Acceptance Criteria:**
+
+**Given** an Owner or Administrator on any platform
+**When** I open Thresholds from Lot detail or right after Calibration
+**Then** the Thresholds modal shows a Threshold column per Sensor, with low required and high optional ("Add high" / clear), in 5 % steps for calibrated soil moisture (UX-DR69, UX-DR45)
+**And** "Low must stay below high." appears inline, and Save is disabled while it's invalid
+
+**Given** saved Thresholds
+**When** I view Lot detail
+**Then** the 30-day History chart shows the Threshold band, and daily lows below the low Threshold use the below-low token (UX-DR5)
+**And** a calibrated, in-range Lot shows *OK* with ~% on its tile
+
+**Given** a Member
+**When** they open Lot detail
+**Then** Thresholds are visible read-only, with no edit control (UX-DR84)
+
+**Given** snapshot tests and a Playwright end-to-end test (calibrate, then set a low Threshold, then the tile shows ~% *OK*)
+**When** they run
+**Then** they pass in light and dark themes, at the largest text size
