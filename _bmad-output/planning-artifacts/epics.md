@@ -1,5 +1,5 @@
 ---
-stepsCompleted: []
+stepsCompleted: [1]
 inputDocuments:
   - _bmad-output/specs/spec-coldframe/SPEC.md
   - _bmad-output/specs/spec-coldframe/acceptance-criteria.md
@@ -420,8 +420,70 @@ UX-DR131: Keep glossary terms (Site, Lot, Node, Hub, Sensor, Reading, Threshold,
 
 ### FR Coverage Map
 
-{{requirements_coverage_map}}
+FR1: Epic 3 - Provision a Hub over BLE with its setup code
+FR2: Epic 4 - Pair a Node and assign it to a Lot
+FR3: Epic 4 - Nodes declare Sensor Specifications
+FR4: Epic 4 - Readings every 15 min through the Hub, buffered and acknowledged
+FR5: Epic 1 - Sign in via Keycloak (OIDC)
+FR6: Epic 1 - Create and manage Sites and Lots
+FR7: Epic 9 - Invite Members and manage Roles
+FR8: Epic 4 - Site overview, Lot statuses, history, stale and unreachable indicators
+FR9: Epic 5 - Two-point Calibration from stored Readings
+FR10: Epic 5 - Set Thresholds
+FR11: Epic 6 - Open and close Threshold Alerts
+FR12: Epic 6 - Reminders while an Alert is open
+FR13: Epic 7 - Silent Device Alert
+FR14: Epic 7 - Low-battery Alert
+FR15: Epic 6 - Push notifications
+FR16: Epic 6 - Notification Window and summary
+FR17: Epic 6 - Mute a Site
+FR18: Epic 8 - Pause a Device or a Site
+FR19: Epics 1, 3–9 - Mobile parity, delivered in each epic's mobile stories (BLE setup in Epics 3–4)
+FR20: Epics 1, 4–9 - Web parity, delivered in each epic's web stories; browser notifications in Epic 6
+FR21: Epic 7 - Uncalibrated Sensor Alert
+
+Cross-cutting: NFR1–NFR16 and UX-DR1–UX-DR131 apply to every story they touch. NFR16 (test-first) applies to all stories. Deployment NFRs (NFR1, NFR3, NFR7, NFR10) are delivered in Epic 2; reproducibility and open-source NFRs (NFR7, NFR8) are completed in Epic 10.
 
 ## Epic List
 
-{{epics_list}}
+### Epic 1: Sign in and create my garden
+Simon signs in through Keycloak on web, iOS, and Android, creates the Site "Home" as its Owner, and adds and renames Lots. The Site overview shows its empty state. Starts with the monorepo scaffold: layout, `tests/`, the Aspire AppHost and test host, CI, and Central Package Management. Includes the vendored design tokens and theme (System/Light/Dark), the identity grains and the Keycloak → Temporal → Orleans pipeline, per-Site authorization with a generated matrix test, the SvelteKit BFF, and the KMP core with SwiftUI and Compose shells.
+**FRs covered:** FR5, FR6 (and FR19, FR20 for these surfaces)
+
+### Epic 2: Run Coldframe on my home server
+The whole stack runs 24/7 on Simon's home server. Phones and the Hub reach it over TLS with public certificates, nothing is lost on restart, and backups can be restored. Covers RKE2 with Fleet and Helm charts, CloudNativePG with off-node S3 backups, Let's Encrypt DNS-01 with split DNS, the migration job, images on ghcr.io, and out-of-band Secrets.
+**FRs covered:** none (NFR1, NFR3, NFR7, NFR10)
+
+### Epic 3: Bring the Hub online
+Simon adds a Hub from his phone over BLE with its setup code. It appears on the Site within a minute, and Devices shows it online with its last-seen time. Covers Hub firmware (strongest-BSSID Wi-Fi, TLS with date checks, heartbeat, HMAC request authentication), the AD-25 BLE setup protocol, AD-12 enrolment with the eFuse root and dev mode, the crypto spec with test vectors, and the Device grain.
+**FRs covered:** FR1 (and FR19 for BLE setup)
+
+### Epic 4: See what my soil is doing
+Simon presses a Node's button, assigns it to "Tomatoes", and sees its Readings: Lot tiles, Lot detail with the 30-day chart, battery and charging status, and last seen. All six Lot statuses are shown, stale data is marked, and the app says when the Server is unreachable. Covers Node firmware (Sensors, ESP-NOW, deep sleep, 24 h buffer, sealing, report now, channel following), ingestion with acknowledgements and the replay window, the partitioned Readings table, the Lot and Sensor grains, and the LotStatus projection.
+**FRs covered:** FR2, FR3, FR4, FR8
+
+### Epic 5: Calibrate the soil and set Thresholds
+Simon calibrates the soil probe (dry and wet, using report now) and sets low and high Thresholds. Lots then show approximate % and *needs water* or *OK*.
+**FRs covered:** FR9, FR10
+
+### Epic 6: Get told when to water
+A morning push says "Tomatoes needs water" inside Simon's Notification Window. Reminders repeat while the Lot stays dry, anything held overnight arrives as one summary, and a Site can be muted. The web app shows browser notifications while open. Covers the Alert and User grains, the Notifier seam (APNs, FCM, SignalR), time zones, and notification permission.
+**FRs covered:** FR11, FR12, FR15, FR16, FR17 (and browser notifications from FR20)
+
+### Epic 7: Know when something breaks
+A silent Node or Hub, a low battery, or an uncalibrated Sensor raises a Health Alert, capped at one per day. A silent Hub is never reported once per Node.
+**FRs covered:** FR13, FR14, FR21
+
+### Epic 8: Pause for maintenance and winter
+Simon pauses a Device or the whole Site, optionally until a date, without false alarms. It resumes automatically.
+**FRs covered:** FR18
+
+### Epic 9: Share the garden
+Simon invites the neighbour by email as a Member and changes or removes Roles; a Site always keeps an Owner. Members get Alerts but see no admin controls.
+**FRs covered:** FR7
+
+### Epic 10: Let others rebuild Coldframe
+Another maker builds a Node and Hub and deploys the stack from the public docs alone. Covers the adopter guide, hardware designs in `hardware/`, the Compose example, the release pipeline (one SemVer, firmware binaries), and the firmware learning-reference docs.
+**FRs covered:** none (NFR7, NFR8)
+
+Dependency flow: 1 → 2 → 3 → 4 → 5 → 6 → 7. Epics 8 and 9 need only Epics 1 and 4. Epic 10 comes last.
