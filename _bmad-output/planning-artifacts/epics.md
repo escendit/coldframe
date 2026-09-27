@@ -1870,3 +1870,73 @@ So that I know the silence over winter is intentional.
 **Given** a Playwright end-to-end test of UJ-4 (pause the Site until a date; no Health Alerts arrive while Nodes are silent; it resumes automatically on the date), with a fake clock, plus snapshot tests
 **When** they run
 **Then** they pass in light and dark themes
+
+## Epic 9: Share the garden
+
+Simon invites the neighbour by email as a Member and changes or removes Roles; a Site always keeps an Owner. Members get Alerts but see no admin controls.
+
+### Story 9.1: Invite someone to my Site
+
+As Simon before a holiday,
+I want to invite my neighbour by email with a Role,
+So that they get the same Alerts while I'm away.
+
+**Acceptance Criteria:**
+
+**Given** I am the Owner of a Site
+**When** I submit the Invite form with an email address and a Role (Member, Administrator or Owner), whose description updates as I choose (UX-DR52)
+**Then** the Site grain sends a Phase Two native invitation for that Organization and Role; the Server keeps no invitation state (FR7, AD-3)
+**And** the form confirms "Invitation sent", with the hint to open the link on the garden's Wi-Fi
+
+**Given** the invitation email (a Keycloak/Phase Two template in the deployment)
+**When** the invitee opens it
+**Then** the email says acceptance needs the home network, and the link leads to the Keycloak/Phase Two page, where they sign in or register and accept
+
+**Given** the invitee accepts
+**When** the membership event reaches the Site and User grains through the Keycloak → Temporal → Orleans pipeline
+**Then** they appear in Members with their Role, their User grain gains the Site and pulls its open Alerts, and their app opens on that Site's overview, asking for notification permission there (Story 6.5)
+
+**Given** an Administrator or Member
+**When** they try to invite
+**Then** the Invite form isn't shown, and the API rejects the call with 403
+
+**Given** integration tests on the Aspire AppHost with Keycloak and Phase Two
+**When** they run
+**Then** invite, then accept, then Membership in the projection, then the new Member is authorized per Role are covered, plus the authorization-matrix entries
+
+### Story 9.2: Change and remove Roles, always keeping an Owner
+
+As an Owner,
+I want to change or remove someone's Role,
+So that access matches who helps in the garden, and the Site is never left without an Owner.
+
+**Acceptance Criteria:**
+
+**Given** Members (UX-DR73)
+**When** I, as an Owner, change a person's Role or remove them and confirm the destructive dialog, which names the person
+**Then** the Site grain checks FR7 against its persisted Owner set, calls Phase Two, persists the result and updates the identity projection immediately
+
+**Given** a change would leave the Site with no Owner
+**When** it is submitted, including two Owners demoting each other at the same time
+**Then** it is rejected, because Site-grain calls are serialized; at least one Owner always remains (FR7, AD-3)
+
+**Given** a Role is lowered or removed
+**When** the person makes their next request
+**Then** it is authorized with the new Role or rejected, without waiting for token expiry (AD-4)
+**And** a removed person's User grain drops the Site and its held notifications
+
+**Given** a break-glass edit in Keycloak's admin console that would leave a Site with no Owner
+**When** the event arrives through the pipeline
+**Then** the Site grain keeps its last valid Owner set for authorization and raises an operator-visible error, and never silently repairs it
+
+**Given** a Member
+**When** they open the Site
+**Then** they see every read surface, receive Alerts in their own Notification Window, and see no Thresholds, Calibrate, Pause, Devices or Members admin controls (UX-DR84)
+
+**Given** NFR6
+**When** the generated authorization matrix and multi-Site tests run (a person who is Owner on Site A and Member on Site B)
+**Then** every endpoint enforces Roles per Site, and nothing on Site A grants anything on Site B
+
+**Given** a Playwright end-to-end test of UJ-5 (invite, accept, the neighbour gets "Cucumbers needs water" in their own window, and sees no admin controls)
+**When** it runs against the Aspire AppHost
+**Then** it passes
