@@ -850,7 +850,7 @@ So that a disk or server failure doesn't lose my garden's history.
 **And** the runbook states the recovery point: data written after the last archived WAL segment is lost
 **And** the runbook requires advancing every Device's replay window by a safety margin after a restore (AD-17)
 
-**Given** the k3d smoke environment in CI with MinIO standing in for S3
+**Given** the k3d smoke environment in CI with RustFS (S3-compatible, Apache-2.0) standing in for S3
 **When** the backup-and-restore test runs
 **Then** a marker row written before the backup exists after the restore
 
