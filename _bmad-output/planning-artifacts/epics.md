@@ -1940,3 +1940,132 @@ So that access matches who helps in the garden, and the Site is never left witho
 **Given** a Playwright end-to-end test of UJ-5 (invite, accept, the neighbour gets "Cucumbers needs water" in their own window, and sees no admin controls)
 **When** it runs against the Aspire AppHost
 **Then** it passes
+
+## Epic 10: Let others rebuild Coldframe
+
+Another maker builds a Node and Hub and deploys the stack from the public docs alone (NFR7, NFR8). Documentation stories are test-first where it applies: link checks, doc build and command snippets exercised in CI; the full reproduction is verified manually.
+
+### Story 10.1: Releases with one version and firmware binaries
+
+As a maker adopting Coldframe,
+I want each release to bundle matching images, charts and firmware under one version,
+So that I know which pieces belong together.
+
+**Acceptance Criteria:**
+
+**Given** a release tag `vX.Y.Z`
+**When** the release workflow runs
+**Then** it publishes the images (Story 2.1), sets each Helm chart's `appVersion` to `X.Y.Z`, attaches Hub and Node firmware binaries (release builds, never dev mode) with checksums, and publishes release notes grouped by conventional-commit type (AD-23)
+
+**Given** a release that changes a wire protocol major version
+**When** the release workflow runs
+**Then** it fails unless the Server still accepts the previous major version (AD-10)
+
+**Given** the mobile apps
+**When** a release is cut
+**Then** no store binaries are published; the release notes point to the build-your-own-apps guide (Story 10.3)
+
+**Given** CI
+**When** the release workflow is tested on a dry-run tag
+**Then** every artifact is produced and the checksums verify
+
+### Story 10.2: Build a Node and a Hub from the docs
+
+As a maker,
+I want complete hardware and flashing instructions,
+So that I can build working Devices without asking anyone.
+
+**Acceptance Criteria:**
+
+**Given** `hardware/`
+**When** I open it
+**Then** it contains, under Apache-2.0 (NFR8):
+- the Node and Hub schematics
+- the bill of materials (ESP32-S3, capacitive soil probe, BME680, LiPo 800 mAh, solar panel, a charger IC with NTC input and a status pin)
+- the wiring, including the switched probe power and the battery divider
+- enclosure notes, and probe sealing guidance
+
+**Given** `docs/build/`
+**When** I follow it
+**Then** I can flash the Hub and Node over USB with `espflash` from release binaries or from source, see the setup code printed at first boot, and understand the eFuse key burn
+**And** a prominent warning explains that the eFuse burn is irreversible and how to use dev mode on test boards (AD-12)
+
+**Given** the power and placement guidance
+**When** I read it
+**Then** it covers panel placement above the canopy, the sleep-current budget (about 100 µA or less) and how to measure it, and the approximate nature of soil moisture and battery %
+
+**Given** CI
+**When** the docs build
+**Then** links and referenced files resolve, and the documented `espflash` and build commands run in a CI job against the firmware crates (build only, no flashing)
+
+### Story 10.3: Deploy Coldframe at home and build my own apps
+
+As a maker,
+I want one end-to-end guide from domain to phone,
+So that I can run the whole stack and my own apps at home.
+
+**Acceptance Criteria:**
+
+**Given** `docs/deploy/`
+**When** I follow it
+**Then** it walks through, in order:
+1. Domain and DNS API token.
+2. RKE2 and Fleet install.
+3. Creating every Secret from `deploy/SECRETS.md` (SMTP, APNs/FCM, DNS-01, enrolment key, S3 backups).
+4. Keycloak realm and Phase Two setup, including the invitation email template with the home-network hint.
+5. Split DNS.
+6. The first sign-in.
+
+It links to the operations runbooks from Epic 2.
+
+**Given** the mobile apps
+**When** I follow the build-your-own-apps section
+**Then** I can set my Server URL and Keycloak issuer as build-time configuration (AD-23), use my own APNs key and FCM project for push, and install the apps on my phones
+
+**Given** `deploy/compose/`
+**When** I read it
+**Then** it provides a Compose example clearly labelled as a reference example only, not the supported path (NFR7)
+
+**Given** CI
+**When** the docs build
+**Then** links resolve, and the Compose file validates (`docker compose config`)
+
+### Story 10.4: Firmware learning reference
+
+As a maker learning embedded Rust,
+I want the firmware documented as a readable reference,
+So that I can learn ESP-NOW, BLE provisioning and deep sleep from a real system (NFR8).
+
+**Acceptance Criteria:**
+
+**Given** `docs/firmware/`
+**When** I read it
+**Then** it explains, with pointers to the code:
+- ESP-NOW transport and channel following
+- the BLE setup protocol with its proof-of-possession code (AD-25)
+- the eFuse identity and key hierarchy (AD-12)
+- frame sealing, counters and replay (AD-17)
+- deep sleep and the power budget
+- the report-now and setup button presses (N-3)
+- the radio coexistence findings from the spike
+
+**Given** the firmware crates
+**When** `cargo doc` runs in CI
+**Then** public items in `packages/rs/*` are documented, and the doc build has no warnings
+
+### Story 10.5: Someone else reproduces Coldframe
+
+As Simon,
+I want a person other than me to rebuild Coldframe from the public docs,
+So that I know the "reproducible from the docs" promise holds (SM-5).
+
+**Acceptance Criteria:**
+
+**Given** the public repository and docs only
+**When** a person other than the author, or the author on a clean machine and fresh hardware with no prior state, follows Stories 10.2 and 10.3
+**Then** they build a Node and a Hub, deploy the stack, install their own apps, add the Hub and Node, calibrate, and receive a Threshold Alert inside their Notification Window
+**And** every point where they got stuck is recorded as an issue and fixed in the docs before this story is closed
+
+**Given** the manual reproduction checklist in `docs/`
+**When** it is completed
+**Then** its results are recorded in the repository
