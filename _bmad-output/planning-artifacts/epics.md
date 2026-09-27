@@ -1470,3 +1470,210 @@ So that I understand where "too dry" starts for each bed.
 **Given** snapshot tests and a Playwright end-to-end test (calibrate, then set a low Threshold, then the tile shows ~% *OK*)
 **When** they run
 **Then** they pass in light and dark themes, at the largest text size
+
+## Epic 6: Get told when to water
+
+A morning push says "Tomatoes needs water" inside Simon's Notification Window. Reminders repeat while the bed stays dry, anything held overnight arrives as one summary, and a Site can be muted. The web app shows browser notifications while open.
+
+### Story 6.1: Threshold Alerts open and close
+
+As Simon,
+I want Coldframe to open an Alert when a bed stays beyond a Threshold and close it when it recovers,
+So that one hovering Reading never cries wolf and a watered bed clears itself.
+
+**Acceptance Criteria:**
+
+**Given** a calibrated Sensor with Thresholds
+**When** three consecutive Readings are below its low Threshold (or above its high one)
+**Then** the Sensor grain persists a new episode and calls the idempotent `Alert.Open` with `alertId = UUIDv5(subjectKind:subjectId:threshold:episode)`, recording the side crossed (FR11, AD-7)
+**And** one or two Readings on the other side change nothing, and at the 15-minute interval an Alert opens about 30 minutes after the first crossing
+
+**Given** an open Threshold Alert
+**When** three consecutive Readings are back within the Thresholds
+**Then** only the Sensor grain that opened it closes it, with reason `recovered`
+
+**Given** Readings arrive out of order or as a backlog
+**When** they are evaluated
+**Then** evaluation runs in `measured_at` order, and a Reading older than the grain's `lastEvaluatedAt` is stored but not evaluated
+
+**Given** an uncalibrated calibrating Sensor, or a Sensor without Thresholds
+**When** Readings arrive
+**Then** no Threshold Alert opens (FR9, FR21)
+
+**Given** a Threshold change or a new evaluation epoch
+**When** it is applied
+**Then** streaks reset
+
+**Given** an open low-side Alert on a soil-moisture Sensor
+**When** the LotStatus projection updates
+**Then** the Lot shows *needs water* and sorts first
+
+**Given** Alert events
+**When** they are published
+**Then** they go out per Site, and the Site grain keeps the set of open Alerts, which is rebuildable from the journal (AD-7, AD-21)
+
+**Given** TestCluster tests
+**When** they run
+**Then** they cover exactly-three opening and closing, flapping around the Threshold, a retried evaluation producing no duplicate Alert, the low-to-high switch, out-of-order backlog, and the 2-of-3 no-change cases
+
+### Story 6.2: See Alerts in the apps
+
+As a Member,
+I want to see open and recently closed Alerts,
+So that I know what's wrong now and what resolved itself.
+
+**Acceptance Criteria:**
+
+**Given** open Alerts on a Site
+**When** I open Alerts on web, iOS or Android
+**Then** Threshold Alerts are grouped before Health Alerts, newest first, and closed Alerts from the last 7 days sit in "Closed" (UX-DR64)
+**And** only low-side soil-moisture Alerts ("‹Lot› needs water") use orange; "too wet" and other Sensors use the non-orange treatment (UX-DR14)
+
+**Given** an Alert row
+**When** I tap it
+**Then** it opens Lot detail, and the row's screen-reader label states the condition and when it started (UX-DR98)
+
+**Given** no open Alerts
+**When** Alerts renders
+**Then** it shows "No open Alerts." and never "All good" (UX-DR82)
+
+**Given** the mobile Alerts tab
+**When** Alerts are open
+**Then** the tab label carries the count ("Alerts · 5")
+
+**Given** an Alerts read model with close reasons
+**When** the API serves it
+**Then** it is paginated and filtered by Site, and it is in the authorization matrix
+
+**Given** snapshot and API contract tests
+**When** they run
+**Then** each row variant, both groups and the empty state are covered, in light and dark themes
+
+### Story 6.3: My notification settings and the Site Reminder cadence
+
+As Simon,
+I want to set when I'm bothered, in my own time zone, and mute a Site,
+So that Coldframe fits my day and doesn't wake me at night.
+
+**Acceptance Criteria:**
+
+**Given** a new User
+**When** they first reach a Site
+**Then** their Notification Window defaults to 07:00–22:00, and their IANA time zone is proposed from the phone OS or the browser (IP only as a last resort), for them to confirm or change (FR16, AD-11)
+**And** a zone the User chose themselves is never overwritten by detection
+
+**Given** My notifications (UX-DR72)
+**When** I edit it
+**Then** I can set the window ("from 07:00" keeps the 22:00 end), confirm or change the time zone, mute or unmute this Site (FR17), and pick my Reminder cadence ("Use Site setting" / "Daily" / "Every 2 days") (UX-DR50)
+**And** every change is persisted as an event on my User grain
+
+**Given** Site settings
+**When** an Owner or Administrator sets the Site Reminder cadence ("Daily" / "Every 2 days")
+**Then** it is stored on the Site grain and cached in each member's User grain (FR12)
+
+**Given** a Member
+**When** they open Site settings
+**Then** the Site cadence is read-only, and my own settings affect only me
+
+**Given** tests
+**When** they run
+**Then** they cover time-zone detection precedence, never overwriting a chosen zone, the defaults, and mute scope (only me)
+
+### Story 6.4: Delivery timing: windows, summaries and Reminders
+
+As Simon,
+I want Alerts that fall due overnight gathered into one morning summary, and Reminders while a bed stays dry,
+So that I'm told once, at the right time, and not every hour.
+
+**Acceptance Criteria:**
+
+**Given** an Alert opens on a Site I belong to
+**When** it is inside my Notification Window and I haven't muted the Site
+**Then** my User grain hands it to the Notifier seam at once (AD-7)
+
+**Given** Alerts and Reminders fall due outside my window
+**When** my window opens (in my time zone, correct across daylight-saving changes)
+**Then** I get one summary with at most one entry per open Alert, and an Alert that opened and closed while held is dropped (FR16)
+
+**Given** an open Threshold Alert
+**When** my resolved cadence elapses (User setting → Site setting → once per day)
+**Then** a Reminder falls due (delivered now, or held for the window), and a closed Alert sends none (FR12)
+
+**Given** Health Alerts (used by Epic 7)
+**When** Reminders are scheduled
+**Then** the interval is `max(resolved, 24 h)`
+
+**Given** deadlines
+**When** they are stored
+**Then** every window opening and Reminder is a persisted UTC `due-at` on the User grain, the Orleans Reminder is only a wake-up, and each wake or activation processes everything overdue (AD-6)
+
+**Given** Membership events
+**When** I'm granted or removed from a Site
+**Then** my User grain updates its Site set, pulls that Site's open Alerts on join, drops them on removal, and reconciles against `Site.OpenAlerts()` on activation
+
+**Given** TestCluster tests with a fake clock and a Notifier test double
+**When** they run
+**Then** they cover in-window delivery, the overnight summary (one entry per Alert, closed-while-held dropped), cadence precedence, mute, a daylight-saving change, a silo restart across 07:00 (the summary is still sent), and a join or leave while Alerts are open
+
+### Story 6.5: Push notifications on my phone
+
+As Simon,
+I want Alerts as push notifications that make sense on the lock screen,
+So that I can act away from home without opening the app.
+
+**Acceptance Criteria:**
+
+**Given** the mobile app signed in
+**When** I first land on a Site's overview (as creator or new Member)
+**Then** the app asks for notification permission with one line of why, and registers its push token through the shared Kotlin core; the User grain owns the tokens (UX-DR115)
+
+**Given** the Notifier seam
+**When** it delivers to my devices
+**Then** the APNs and FCM adapters send self-contained payloads (Lot, Sensor or Device, and the condition in plain words, for example "Tomatoes needs water — ~20 % in the soil, your low is 30 %"), grouped per Site, with no app-icon badge (FR15, UX-DR116 to UX-DR121)
+**And** the adapters contain no timing or filtering logic, and a token the provider reports as invalid is removed from my User grain
+
+**Given** a morning summary
+**When** it arrives
+**Then** it is one notification with one line per open Alert
+
+**Given** I tap a notification
+**When** the app opens
+**Then** it deep-links to Lot detail (Threshold) or to the overview (summary)
+
+**Given** notification permission is denied or revoked
+**When** I open the app
+**Then** My notifications shows a persistent notice with a link to OS settings, and the overview shows a hint (UX-DR88)
+
+**Given** adapter tests (APNs/FCM mocked) and an integration test on the Aspire AppHost
+**When** they run
+**Then** they cover payload content and grouping, invalid-token cleanup, and the permission-denied state
+**And** a manual checklist confirms a real push on an iPhone and an Android phone
+
+### Story 6.6: Browser notifications and live updates on the web
+
+As Simon with the web app open,
+I want Alerts to pop up and screens to refresh live,
+So that I see changes without reloading.
+
+**Acceptance Criteria:**
+
+**Given** the web app open
+**When** it connects
+**Then** the browser reaches the Server's SignalR hub only through the SvelteKit backend-for-frontend proxy, which attaches my access token (AD-14)
+
+**Given** I turn on "Browser notifications while Coldframe is open" in My notifications
+**When** the browser asks for permission and I allow it
+**Then** `notification.delivered` messages from the Notifier appear as browser notifications, following the same window and mute rules (applied on the Server) (FR20)
+**And** nothing is delivered when no tab is open, because there is no background web push
+
+**Given** a read model changes
+**When** the Server emits `readmodel.changed { resource, id, version }`
+**Then** the open page refetches that resource over REST; hints carry no domain data
+
+**Given** the message shapes
+**When** CI runs
+**Then** SignalR messages match `packages/asyncapi`, and the TypeScript client types are generated from it (AD-10)
+
+**Given** a Playwright end-to-end test of UJ-2 (a Reading series crosses the low Threshold, the Alert opens, a browser notification arrives inside the window, recovery closes the Alert, and no Reminder follows)
+**When** it runs against the Aspire AppHost with a fake clock
+**Then** it passes
