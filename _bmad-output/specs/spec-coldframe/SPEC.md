@@ -126,5 +126,4 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
 
 ## Open Questions
 
-- **BLE provisioning protocol (PRD OQ2):** Espressif unified provisioning vs Improv Wi-Fi vs custom; no no_std crate exists for either. Decided by the first epic that needs it; bound by spine AD-10 (one protocol for Hub and Node, defined in `packages/proto`).
 - **Probe choice, sealing, and drift (PRD OQ4):** which capacitive probe meets NFR-5, and is two-point linear Calibration accurate enough across the season's temperature range, or is temperature compensation needed?

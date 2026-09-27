@@ -5,12 +5,13 @@ Line-item criteria that the SPEC kernel's `success` fields summarize. CAP-N matc
 ## CAP-1: Provision a Hub over BLE
 - The Hub joins Wi-Fi only through BLE provisioning. Firmware contains no Wi-Fi credentials.
 - After provisioning, the Hub appears on the chosen Site within one minute.
-- Credentials are exchanged encrypted over BLE (AD-12 enrolment happens in the same exchange).
+- Credentials are exchanged over the Coldframe BLE setup protocol. The session is encrypted and bound to the Device's proof-of-possession code, so a wrong code fails the session (AD-25). AD-12 enrolment happens in the same session.
 
 ## CAP-2: Pair a Node and assign it
 - A new Node is *unassigned*.
 - A Node is visible over BLE only after its setup button is pressed, and only for a limited time. Otherwise it does not advertise, to save energy.
 - The app shows only Nodes within BLE range, so the Administrator knows which physical Node is being assigned.
+- Node setup uses the same BLE setup protocol and proof-of-possession check as the Hub (AD-25).
 - An unassigned Node's Readings are stored but not evaluated for Alerts (AD-8).
 - A Lot that already has a Node cannot take a second one. The existing Node must be moved or unassigned first (AD-18).
 - Reassigning a Node to another Lot keeps its Reading history.
