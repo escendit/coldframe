@@ -1,0 +1,16 @@
+{
+  "resolved": {
+    "zoho_mcp_name": "claude.ai Zoho Projects - MB24 w/ Time Logs",
+    "github_tool": "mcp",
+    "portal_id": "port-1",
+    "zoho_project_id": "proj-1",
+    "zoho_project_name": "Sandbox Demo",
+    "status_option_ids": {"In Progress": "10", "In Review": "20", "Closed": "30"},
+    "repo_owner": "simon",
+    "repo_name": "sandbox-bmad"
+  },
+  "current_task_list": {"id": "list-1", "name": "Phase 1: Demo"},
+  "current_task": {"id": "task-42", "title": "Add retry logic to webhook delivery", "step": "pr_open_awaiting_merge"},
+  "open_time_logs": {"task-42": {"time_log_id": "tl-77", "started_at": "09:10 AM"}},
+  "issue_tasks": []
+}

@@ -1,0 +1,13 @@
+[
+  {"query": "Let's start a new phase for the pipeline: rate-limit the export endpoint.", "should_trigger": true},
+  {"query": "Work the next task in gzp-pipeline.", "should_trigger": true},
+  {"query": "I need to report an issue on the current pipeline task, the CI runner keeps timing out.", "should_trigger": true},
+  {"query": "Ad hoc request for the pipeline: bump the lockfile before the next release.", "should_trigger": true},
+  {"query": "Continue Pipeline Forge where we left off.", "should_trigger": true},
+  {"query": "Can you open a GitHub issue for this bug in the auth module?", "should_trigger": false},
+  {"query": "What's the current status of my Zoho Projects account?", "should_trigger": false},
+  {"query": "Explain what GitHub Flow is and how it differs from Git Flow.", "should_trigger": false},
+  {"query": "Merge this PR for me, it's already approved.", "should_trigger": false},
+  {"query": "Log 2 hours against yesterday's task in Zoho.", "should_trigger": false},
+  {"query": "Create a task list in Zoho Projects called Q3 Planning.", "should_trigger": false}
+]

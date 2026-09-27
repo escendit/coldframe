@@ -1,0 +1,38 @@
+[
+  {
+    "id": "start-phase-cold",
+    "input": "Kick off a phase for adding basic health-check support to the notification service: a /healthz endpoint, wiring it into the existing readiness probe, and writing up how to test it manually since we don't have integration tests for this service yet.",
+    "rubric": [
+      "the response describes creating a new Zoho task list for this phase before any code is written, rather than jumping straight into implementation",
+      "the response breaks the phase into more than one task, and explicitly identifies at least one task as not touching code (e.g. the manual test write-up) and at least one as code-touching",
+      "the response does not claim a Zoho task list, task, or time-log entry was actually created unless the transcript shows a tool call to a Zoho Projects MCP tool — if no such tool was available/called, the response says so explicitly instead of asserting success",
+      "the response does not describe opening a GitHub issue as the first step of the code-touching task's flow — with gzp_github_issue_first unset in the fixture config, GitHub Flow for a task goes straight to a branch/PR, no issue step"
+    ],
+    "state_prefix": null,
+    "files": ["_bmad/config.yaml"]
+  },
+  {
+    "id": "resume-dangling-session",
+    "input": "continue",
+    "rubric": [
+      "the response reports the current task (id task-42, \"Add retry logic to webhook delivery\") and that it is at the pr_open_awaiting_merge step, sourced from session-state.json rather than asked of the user",
+      "the response reports the open time-log session (time_log_id tl-77, started 09:10 AM) as still open, rather than silently ignoring it",
+      "the response does not claim the PR was verified merged unless a GitHub MCP tool call for merge/PR status appears in the transcript — if no such tool was available/called, it says it cannot verify and asks how to proceed rather than assuming merged",
+      "the response's proposed next action follows from the actually recorded step (pr_open_awaiting_merge), not a guessed or different step"
+    ],
+    "state_prefix": "[picking back up on a prior gzp-pipeline session after a context reset]",
+    "files": ["_bmad/config.yaml", "_bmad/memory/gzp-pipeline/session-state.json"]
+  },
+  {
+    "id": "issue-not-work-item",
+    "input": "While waiting on the PR for the retry-logic task, CI on an unrelated repo just started failing because a transitive dependency bumped itself to a breaking major version — can you flag this so it doesn't get lost?",
+    "rubric": [
+      "the response proposes opening a GitHub issue for the dependency break as a standalone reported problem, not as part of task-42's own PR",
+      "the response proposes creating a separate, linked Zoho task (with its own time-log) for the issue rather than folding the work into task-42",
+      "the response does not describe changing or overwriting session-state's current_task (task-42) to refer to the dependency issue instead — the two stay tracked separately",
+      "the response does not claim the GitHub issue or the new Zoho task was actually created unless a corresponding tool call appears in the transcript"
+    ],
+    "state_prefix": "[mid-task on task-42, \"Add retry logic to webhook delivery\" — the PR is open awaiting merge]",
+    "files": ["_bmad/config.yaml", "_bmad/memory/gzp-pipeline/session-state.json"]
+  }
+]

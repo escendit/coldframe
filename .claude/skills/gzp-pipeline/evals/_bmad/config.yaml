@@ -1,0 +1,7 @@
+document_output_language: English
+output_folder: '{project-root}/_bmad-output'
+gzp:
+  name: Pipeline Forge
+  gzp_zoho_mcp_name: 'claude.ai Zoho Projects - MB24 w/ Time Logs'
+  gzp_zoho_project_name: 'Sandbox Demo'
+  gzp_default_bill_status: 'Non Billable'
