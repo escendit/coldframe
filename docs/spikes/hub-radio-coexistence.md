@@ -169,7 +169,48 @@ grep -E 'panic|Exception|rst:|Guru|abort' hub.log     # C3: must be empty
 
 ## 8. Results
 
-*To be filled in after the hardware run.*
+### Phase 0 smoke test (2026-09-27, about 23 min)
+
+**Setup:**
+- Two ESP32-S3 boards (rev v0.2, 8 MB flash, eFuses untouched): Hub `Hub board` and Node `Node board`, about 1 m apart.
+- Firmware `655d413`, default Hub build (BLE on).
+- Router on channel 6, WPA2-Personal. The Hub's Wi-Fi signal was weak (RSSI −80 to −84 dBm).
+- `SPIKE_URL` was set, but the endpoint returned HTTP 405 to POST. That still measures TLS round trips.
+- The phone (nRF Connect) was connected for most of the run.
+
+| Item | Result |
+| --- | --- |
+| Resets, panics, Guru meditations | **0** on both boards |
+| Wi-Fi disconnects | **0** (one association, whole run) |
+| TLS handshakes / requests failed | 1 handshake (664 ms) / **0** of 1,217 relay requests failed |
+| Heartbeats | **45/45 OK** |
+| BLE | 3 connects, 2 remote disconnects, 4 writes; runtime ack-mode switch over BLE worked (`I` → immediate, `S` → server) |
+| Heap | 208 KB total; minimum free **54.2 KB** (above the 32 KiB margin) |
+| Node → Hub delivery | The Hub received essentially every data frame the Node sent (1,359 received vs 1,355 sent; the counters are not perfectly aligned) |
+| Node send status `mac_fail` | 118 of 1,355 (8.7 %), spread evenly over the run, before and after BLE connected. **Every sampled `mac_fail` frame had arrived at the Hub and was acknowledged**; the ack came in after the Node had given up (`late_or_dup` 115). |
+| Hub ack send failures (radio level) | 99 of 1,359 |
+| Frames with no ack at all | about 4 of 1,355 (**≈0.3 %**) |
+| Node re-scans | 1 (after 3 consecutive failures), found the Hub again on channel 6 in 613 ms |
+
+**Round trip at the Node (Node → Hub → [Server] → Hub → Node):**
+
+| Mode | n | p50 | p95 | max |
+| --- | --- | --- | --- | --- |
+| Server (HTTPS relay per frame) | 1,076 | 52 ms | 111 ms | 277 ms |
+| Immediate (no Server round trip) | 160 | 8 ms | 48 ms | 81 ms |
+
+Warm HTTPS request latency at the Hub: p50 45 ms, p95 99 ms, max 270 ms. Cold (with handshake): 756 ms.
+
+**Phase 0 findings:**
+1. **Coexistence works functionally.** Wi-Fi STA, ESP-NOW, BLE (connect, write, reconnect), and TLS ran together for 23 minutes with no reset, no Wi-Fi drop, and no TLS failure.
+2. **The radio-level send status is not trustworthy under coexistence.** About 9 % of Node sends report failure even though the frame arrived. Firmware must treat only the application-level (sealed) acknowledgement as the truth, and keep waiting for it after a failed send status. It should resend only when no ack arrives within the ack window. That matches AD-9 and AD-17, but it must be explicit in the Node firmware.
+3. **True loss before retry is about 0.3 %.** The AD-17 design (buffer, resend, dedupe by `reading_seq`) absorbs it.
+4. **AD-17 ack window (provisional):** W = max(2 × p95, max) of server-mode RTT = max(222, 277) = **≈ 300 ms**. This is measured against the configured endpoint, not the real LAN Server. Phase B should confirm it with a LAN endpoint, and it should be re-measured with the real Server.
+5. **Still open for Phase A/B:**
+   - Whether the 9 % radio-level failures come from BLE time-slicing. Answer with the `SPIKE_BLE=0` baseline.
+   - Channel-change recovery.
+   - A 2-hour stability run.
+   - A better Hub placement (−84 dBm is marginal).
 
 ### Environment
 
