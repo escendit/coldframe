@@ -22,7 +22,7 @@ Visual references: [claude-design-B-plots.html](imports/claude-design-B-plots.ht
 
 | Surface | Platforms | Reached from | Purpose | Journey |
 |---|---|---|---|---|
-| Sign in | all | Cold start, signed out | Server address field (mobile), hand-off to Keycloak; the address is a real domain with a public certificate (AD-13), not B's `coldframe.home.arpa` | UJ-1 |
+| Sign in | all | Cold start, signed out | SIGN IN only, which hands off to Keycloak. The Server URL is fixed at build time in each app; users cannot enter or change it. It is a real domain with a public certificate (AD-13) | UJ-1 |
 | Create Site | all | First sign-in with no Membership; Site switcher "New Site" | Name the Site, confirm time zone; creator becomes Owner | UJ-1 |
 | Site overview (Garden) | all | Tab 1 / nav "Garden"; app open | Summary sentence + Lot tiles in Server sort order | UJ-2, UJ-3, UJ-4 |
 | Lot detail | all | Lot tile; Threshold push | Latest Reading per Sensor, 30-day chart, Node battery/charging/last seen, admin actions | UJ-2 |
@@ -116,7 +116,7 @@ Behavioural. Visual specs live in `DESIGN.md` Components.
 | Outcome screens | End of Add a Hub, Add a Node, Calibrate; setup errors | Full screen; accessibility focus moves to the headline; one primary next action. Errors never auto-dismiss. Paused-Site note on success screens (State Patterns). |
 | Inline notice | Read-only, Hub silent, web BLE, notifications off, paused-Site Device, sign-in errors | Non-dismissable explanation where a state can't be changed here; may carry one action (Open Settings, Resume Site). |
 | Navigation | App shell | Mobile tabs Garden · Alerts · Devices · Settings; web side nav Garden · Alerts · Devices · Members + Settings. Alerts carries the open count, announced as "Alerts, 5 open". Current item exposed as selected / `aria-current`. |
-| Sign-in surface | Sign in | Mobile: Server address field (remembered after first success), SIGN IN checks the address, then hands off to Keycloak in the system browser session and returns. Web: SIGN IN only (served by the Server). Errors per State Patterns › Sign-in and session; the address is kept on every error. |
+| Sign-in surface | Sign in | All platforms: SIGN IN only. The Server URL and Keycloak issuer are build-time configuration in the mobile apps; the web app is served by the Server itself. SIGN IN checks that the Server is reachable, then hands off to Keycloak in the system browser session and returns. Errors per State Patterns › Sign-in and session. |
 | Push notification | Lock screen, notification shade, browser | Content and tap targets per Notifications. |
 
 ## State Patterns
@@ -156,13 +156,11 @@ Behavioural. Visual specs live in `DESIGN.md` Components.
 
 | Case | Surface | Copy / recovery |
 |---|---|---|
-| Address malformed (mobile) | Sign in, under the field | "Enter your Server's address, like coldframe.example.com." |
-| Address unreachable (DNS failure, timeout, refused) — includes being off the home network, which the app cannot tell apart | Sign in, Inline notice | "Can't reach coldframe.novak.ch. Check the address, and that this phone is on your home Wi-Fi." → Try again / Edit address |
-| Address answers but is not a Coldframe Server | Sign in, Inline notice | "coldframe.novak.ch answered, but it isn't a Coldframe Server. Check the address." → Edit address |
-| Certificate / TLS failure | Sign in, Inline notice | "coldframe.novak.ch's certificate isn't trusted, so Coldframe won't connect. The Server needs a valid certificate for its domain." No "continue anyway" (AD-13). |
-| Keycloak cancelled by the user | Sign in | Returns to Sign in with the address kept; no error. |
+| Address unreachable (DNS failure, timeout, refused) — includes being off the home network, which the app cannot tell apart | Sign in, Inline notice | "Can't reach your Coldframe Server. Check that this phone is on your home Wi-Fi." → Try again |
+| Certificate / TLS failure | Sign in, Inline notice | "Your Server's certificate isn't trusted, so Coldframe won't connect. The Server needs a valid certificate for its domain." No "continue anyway" (AD-13). |
+| Keycloak cancelled by the user | Sign in | Returns to Sign in; no error. |
 | Keycloak error or unreachable during sign-in | Sign in, Inline notice | "Sign-in didn't finish: your Server's sign-in page returned an error. Nothing was changed." → Try again |
-| Session expired or revoked later | Any | Cached data stays in stale mode; Inline notice "You're signed out. Sign in again to see live data." → Sign in (address prefilled). |
+| Session expired or revoked later | Any | Cached data stays in stale mode; Inline notice "You're signed out. Sign in again to see live data." → Sign in. |
 | Web off the home network | Browser | The page does not load (browser's own error); no Coldframe copy is possible. |
 
 ### BLE setup errors (mobile)
@@ -228,7 +226,7 @@ iOS `AccessibilityNotification.Announcement` (polite) / `.screenChanged`; Androi
 
 ### UJ-1. Simon sets up the garden (Saturday afternoon, phone in the shed)
 
-1. On the home Wi-Fi Simon opens the app; Sign in shows the Server field; SIGN IN hands off to Keycloak and back.
+1. On the home Wi-Fi Simon opens the app he built with his Server's URL; SIGN IN hands off to Keycloak and back.
 2. No Membership yet → Create Site: he types "Home", confirms the detected time zone Europe/Zurich; he is Owner. Overview shows "No Readings yet" with first-run step tiles; on this first landing the app asks for notification permission with one line of why, and he allows it.
 3. STEP 1 Add a Hub: scan finds 3F2A → setup code accepted → picks Novak-Home, enters password → Site "Home" → progress runs through BLUETOOTH · WI-FI SENT · JOINING · SERVER.
 4. Green "Hub is online" screen within a minute; he taps ADD A NODE.

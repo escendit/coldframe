@@ -347,7 +347,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - **CI and images:** CI runs on GitHub Actions, and images are published to `ghcr.io/escendit/coldframe/<component>`, multi-arch where supported.
   - **Versioning:** one SemVer per release tag across the monorepo, and the Helm chart appVersion equals that tag.
   - **Firmware:** released as binaries per tag and flashed over USB in V1.
-  - **Mobile:** adopters build the mobile apps from source, with their own push credentials.
+  - **Mobile:** adopters build the mobile apps from source, with their own push credentials. The Server URL and Keycloak issuer are **build-time configuration** baked into each app build; the apps have no field to enter or change them.
   - **Wire compatibility:** a wire-major bump (AD-10) ships only in a release whose Server still accepts the previous major.
 
 ### AD-24 — Test obligations that guard the contracts

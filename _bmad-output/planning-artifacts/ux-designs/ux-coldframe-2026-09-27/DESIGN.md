@@ -588,7 +588,7 @@ Icons: Carbon icons only (`@carbon/icons`, fill `currentColor`), subset vendored
 - **Outcome screens** — success: full-bleed `{colors.support-success}` with `ink-on-bright` ("Hub is online"); error: neutral background, `error--filled` + eyebrow in `{colors.support-error-text}` ("STEP 5 STOPPED"), plain headline ("Wrong Wi-Fi password").
 - **Inline notice** — DS InlineNotification style (info/warning), used for read-only explanations, Site-level Hub silence, notification permission off, and paused-Site Device notes.
 - **Navigation** — mobile: native tab bar (iOS) / Material 3 NavigationBar (Android) with Carbon icons `grid`, `notification`, `box`, `settings`; selected tab = `{colors.primary-text}` label and icon plus a non-colour cue (filled icon on iOS, M3 indicator pill on Android). Web: DS AppShell + AppHeader (`{colors.header-bg}`, Site tabs in header, side nav Garden · Alerts · Devices · Members, Settings in the nav footer), current item with a 3 px left bar. See [B-plots-7](imports/claude-design-B-plots-7.png).
-- **Sign-in surface** — DS signature radial background, white card with Server field and SIGN IN button; errors as an Inline notice inside the card. No text sits directly on the gradient. See [B-plots-6](imports/claude-design-B-plots-6.png) (B22).
+- **Sign-in surface** — DS signature radial background, white card with the Coldframe mark and the SIGN IN button (no Server field; the URL is build-time configuration); errors as an Inline notice inside the card. No text sits directly on the gradient. See [B-plots-6](imports/claude-design-B-plots-6.png) (B22).
 - **Push notification** — OS-rendered; only content is specified (EXPERIENCE.md → Notifications). App icon uses the Coldframe mark.
 
 ## Do's and Don'ts
