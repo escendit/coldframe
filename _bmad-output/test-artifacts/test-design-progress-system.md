@@ -1,11 +1,11 @@
 ---
 runScope: 'system-level'
 runKey: 'system'
-workflowStatus: 'in-progress'
+workflowStatus: 'completed'
 totalSteps: 5
-stepsCompleted: ['step-01-detect-mode', 'step-02-load-context', 'step-03-risk-and-testability', 'step-04-coverage-plan']
-lastStep: 'step-04-coverage-plan'
-nextStep: '{skill-root}/steps-c/step-05-generate-output.md'
+stepsCompleted: ['step-01-detect-mode', 'step-02-load-context', 'step-03-risk-and-testability', 'step-04-coverage-plan', 'step-05-generate-output']
+lastStep: 'step-05-generate-output'
+nextStep: ''
 inputDocuments:
   - _bmad-output/specs/spec-coldframe/SPEC.md
   - _bmad-output/specs/spec-coldframe/acceptance-criteria.md
@@ -266,8 +266,8 @@ Every material risk has at least one suitable-level row: R-01 (T-01 to T-03), R-
 - **Once before V1:** reproduction by another person (T-44).
 
 ### Resource estimates (solo, ranges)
-- **P0** (19 scenarios, including harness work: Device simulator, fake-clock setup, authorization-matrix generator): ~50–80 h
-- **P1** (20 scenarios): ~40–70 h
+- **P0** (17 scenarios, including harness work: Device simulator, fake-clock setup, authorization-matrix generator): ~50–80 h
+- **P1** (23 scenarios): ~40–70 h
 - **P2** (5 scenarios): ~8–16 h
 - **P3:** none planned
 - **Total:** ~100–165 h, spread across Epics 1–10 as each story is built test-first (not a separate phase)
@@ -278,3 +278,13 @@ Every material risk has at least one suitable-level row: R-01 (T-01 to T-03), R-
 - **Coverage:** line coverage ≥ 80 % on Server domain code (grains, projections) and on firmware logic crates (`packages/rs/*`); UI and generated code excluded.
 - **Manual checklist:** T-42 signed off for the firmware release being shipped.
 - **Evidence:** an evidence source is identified for every in-scope NFR category above. The final PASS, CONCERNS or FAIL is deferred to `nfr-assess` once implementation evidence exists.
+
+## Step 5: Outputs
+
+- **Execution mode:** subagent (auto). The architecture, QA and handoff documents were generated in parallel, then reconciled.
+- **Outputs:**
+  - `_bmad-output/test-artifacts/test-design-architecture.md`: risks, ADR readiness (29 criteria: 18 ✅, 6 ⚠️, 5 N/A accepted), testability concerns, ASRs, mitigation plans.
+  - `_bmad-output/test-artifacts/test-design-qa.md`: coverage matrix T-01 to T-45, NFR evidence plan, execution strategy, estimates, gates.
+  - `_bmad-output/test-artifacts/test-design/coldframe-handoff.md`: epic-level and story-level guidance for the existing 53 stories, and the risk-to-story map.
+- **Reconciliation:** the priority counts were corrected to the matrix (17 P0, 23 P1, 5 P2 = 45). Estimates are unchanged at ~100–165 h.
+- **Checklist items not applicable:** multi-person sign-off (solo project); staging (none); weekly chaos and load runs (best-effort availability, no latency SLO); the architecture document exceeds the 150–200 line target because of the full 29-criterion table.
