@@ -44,3 +44,19 @@ source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
 severity: medium
 reason: This run may not push or open a pull request. It is listed under operator_actions.
 status: open
+
+### DW-7: AD-21 asks for journal snapshots on a fixed event interval; this story has no acceptance criterion for them and no grain yet has a long stream, so the CustomStorage read replays the full stream.
+origin: spec-deferred a59fe982da88
+location: apps/cs/server/Journal/
+source_spec: `spec-1-2-event-journal-migrations-and-projection-pipeline.md`
+severity: low
+reason: Story 1.2 acceptance criteria in epics.md (lines 527-561) name append, outbox, projectors, polling, time and replay, not snapshots.
+status: open
+
+### DW-8: Escendit.Orleans.Migrations.Cluster.PostgreSQL 10.3.1-rc.1 is published; the architecture and the story pin 10.3.1-rc.0, which this story keeps.
+origin: spec-deferred 9c186f8991dd
+location: Directory.Packages.props
+source_spec: `spec-1-2-event-journal-migrations-and-projection-pipeline.md`
+severity: low
+reason: nuget.org flat container index lists 10.3.1-rc.0 and 10.3.1-rc.1 (checked 2026-09-28).
+status: open

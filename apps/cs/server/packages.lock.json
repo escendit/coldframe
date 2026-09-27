@@ -32,6 +32,12 @@
           "Microsoft.Orleans.Streaming.NATS": "10.1.0-alpha.1"
         }
       },
+      "Microsoft.CodeAnalysis.BannedApiAnalyzers": {
+        "type": "Direct",
+        "requested": "[4.14.0, )",
+        "resolved": "4.14.0",
+        "contentHash": "gSWJlDWwmDhtbrEJGiHqvEjz9KthIiFD0qYB8zZ6a7z+xpMSPEtM9yTYELSa58iFWYlzSRqP9FXO6KoT3+ZMtg=="
+      },
       "Microsoft.Extensions.Http.Resilience": {
         "type": "Direct",
         "requested": "[10.10.0, )",
@@ -41,6 +47,86 @@
           "Microsoft.Extensions.Http.Diagnostics": "10.10.0",
           "Microsoft.Extensions.Resilience": "10.10.0"
         }
+      },
+      "Microsoft.Orleans.Clustering.AdoNet": {
+        "type": "Direct",
+        "requested": "[10.3.1, )",
+        "resolved": "10.3.1",
+        "contentHash": "TWbHwHIxX4+HsA32Y9UuFt71Vanolrj6Cy4mkT5XbN/LsVMUoPDSOEPq1P/9zKyqDJVX77wb5A9zUxXtdXc6zg==",
+        "dependencies": {
+          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
+          "Microsoft.CodeAnalysis.Common": "5.0.0",
+          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
+          "Microsoft.Extensions.DependencyModel": "10.0.5",
+          "Microsoft.Orleans.Runtime": "10.3.1",
+          "Newtonsoft.Json": "13.0.4",
+          "Polly": "8.6.4",
+          "Polly.Extensions": "8.6.5",
+          "System.IO.Hashing": "10.0.3",
+          "System.Memory.Data": "10.0.3"
+        }
+      },
+      "Microsoft.Orleans.EventSourcing": {
+        "type": "Direct",
+        "requested": "[10.3.1, )",
+        "resolved": "10.3.1",
+        "contentHash": "gtfGEnFDfLGQx1PwN5Fg5BIdK9yPzENjcj0ozXe33MfUp5j3kV2lununo1Xcrhbv+xA/gIS/oBGS3BEIj53POA==",
+        "dependencies": {
+          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
+          "Microsoft.CodeAnalysis.Common": "5.0.0",
+          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
+          "Microsoft.Extensions.DependencyModel": "10.0.5",
+          "Microsoft.Orleans.Runtime": "10.3.1",
+          "Newtonsoft.Json": "13.0.4",
+          "Polly": "8.6.4",
+          "Polly.Extensions": "8.6.5",
+          "System.IO.Hashing": "10.0.3",
+          "System.Memory.Data": "10.0.3"
+        }
+      },
+      "Microsoft.Orleans.Reminders.AdoNet": {
+        "type": "Direct",
+        "requested": "[10.3.1, )",
+        "resolved": "10.3.1",
+        "contentHash": "cFqyKIYs7gLlek0A1dAhSbG5fdlxzcCMtEypPTV9fPLeQ47GDJUcShR6xlCLx21VXg77bloKTR5YfB4H9KMg5Q==",
+        "dependencies": {
+          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
+          "Microsoft.CodeAnalysis.Common": "5.0.0",
+          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
+          "Microsoft.Extensions.DependencyModel": "10.0.5",
+          "Microsoft.Orleans.Reminders": "10.3.1",
+          "Microsoft.Orleans.Runtime": "10.3.1",
+          "Newtonsoft.Json": "13.0.4",
+          "Polly": "8.6.4",
+          "Polly.Extensions": "8.6.5",
+          "System.IO.Hashing": "10.0.3",
+          "System.Memory.Data": "10.0.3"
+        }
+      },
+      "Microsoft.Orleans.Streaming.NATS": {
+        "type": "Direct",
+        "requested": "[10.3.1-alpha.1, )",
+        "resolved": "10.3.1-alpha.1",
+        "contentHash": "8ojQM5WOMap0wazNE11BDavnhpnnRBqzSeqCpjcuANrUU4gW9uQrx06dt4JVyVmiykMHYpALosGz8OepbPiNoA==",
+        "dependencies": {
+          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
+          "Microsoft.CodeAnalysis.Common": "5.0.0",
+          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
+          "Microsoft.Extensions.DependencyModel": "10.0.5",
+          "Microsoft.Orleans.Streaming": "10.3.1",
+          "NATS.Net": "2.7.2",
+          "Newtonsoft.Json": "13.0.4",
+          "Polly": "8.6.4",
+          "Polly.Extensions": "8.6.5",
+          "System.IO.Hashing": "10.0.3",
+          "System.Memory.Data": "10.0.3"
+        }
+      },
+      "Npgsql": {
+        "type": "Direct",
+        "requested": "[10.0.3, )",
+        "resolved": "10.0.3",
+        "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w=="
       },
       "OpenTelemetry.Instrumentation.AspNetCore": {
         "type": "Direct",
@@ -295,23 +381,6 @@
         "resolved": "10.3.1",
         "contentHash": "2AgjNAVYdyIN14lx4WuTErYuvM7LAdok6iIoEE/4mR0hX37pLHSzzfVtfHTV0sZKbP94cuRfxu8mBEvSMZS58Q=="
       },
-      "Microsoft.Orleans.Streaming": {
-        "type": "Transitive",
-        "resolved": "10.3.1",
-        "contentHash": "Aj0O92zJDVnRfyDy1dPjaZFMWVqbziWgvlqrrlU/bguq3Gv8OfdrpZOVj2ILC0lzoUEZFp5bJthnBjAZMzqNgw==",
-        "dependencies": {
-          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
-          "Microsoft.CodeAnalysis.Common": "5.0.0",
-          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
-          "Microsoft.Extensions.DependencyModel": "10.0.5",
-          "Microsoft.Orleans.Runtime": "10.3.1",
-          "Newtonsoft.Json": "13.0.4",
-          "Polly": "8.6.4",
-          "Polly.Extensions": "8.6.5",
-          "System.IO.Hashing": "10.0.3",
-          "System.Memory.Data": "10.0.3"
-        }
-      },
       "NATS.Client.Abstractions": {
         "type": "Transitive",
         "resolved": "2.8.2",
@@ -392,11 +461,6 @@
         "type": "Transitive",
         "resolved": "13.0.4",
         "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
-      },
-      "Npgsql": {
-        "type": "Transitive",
-        "resolved": "10.0.2",
-        "contentHash": "q5RfBI+wywJSFUNDE1L4ZbHEHCFTblo8Uf6A6oe4feOUFYiUQXyAf9GBh5qEZpvJaHiEbpBPkQumjEhXCJxdrg=="
       },
       "Npgsql.OpenTelemetry": {
         "type": "Transitive",
@@ -590,6 +654,9 @@
         "resolved": "16.3.0",
         "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
       },
+      "coldframe.contracts": {
+        "type": "Project"
+      },
       "Escendit.AspNetCore.Diagnostics.HealthChecks": {
         "type": "CentralTransitive",
         "requested": "[0.1.0-rc.0, )",
@@ -632,24 +699,6 @@
           "System.Memory.Data": "10.0.3"
         }
       },
-      "Microsoft.Orleans.Clustering.AdoNet": {
-        "type": "CentralTransitive",
-        "requested": "[10.3.1, )",
-        "resolved": "10.3.1",
-        "contentHash": "TWbHwHIxX4+HsA32Y9UuFt71Vanolrj6Cy4mkT5XbN/LsVMUoPDSOEPq1P/9zKyqDJVX77wb5A9zUxXtdXc6zg==",
-        "dependencies": {
-          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
-          "Microsoft.CodeAnalysis.Common": "5.0.0",
-          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
-          "Microsoft.Extensions.DependencyModel": "10.0.5",
-          "Microsoft.Orleans.Runtime": "10.3.1",
-          "Newtonsoft.Json": "13.0.4",
-          "Polly": "8.6.4",
-          "Polly.Extensions": "8.6.5",
-          "System.IO.Hashing": "10.0.3",
-          "System.Memory.Data": "10.0.3"
-        }
-      },
       "Microsoft.Orleans.Clustering.Redis": {
         "type": "CentralTransitive",
         "requested": "[10.3.1, )",
@@ -665,24 +714,6 @@
           "Polly": "8.6.4",
           "Polly.Extensions": "8.6.5",
           "StackExchange.Redis": "2.11.0",
-          "System.IO.Hashing": "10.0.3",
-          "System.Memory.Data": "10.0.3"
-        }
-      },
-      "Microsoft.Orleans.EventSourcing": {
-        "type": "CentralTransitive",
-        "requested": "[10.3.1, )",
-        "resolved": "10.3.1",
-        "contentHash": "gtfGEnFDfLGQx1PwN5Fg5BIdK9yPzENjcj0ozXe33MfUp5j3kV2lununo1Xcrhbv+xA/gIS/oBGS3BEIj53POA==",
-        "dependencies": {
-          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
-          "Microsoft.CodeAnalysis.Common": "5.0.0",
-          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
-          "Microsoft.Extensions.DependencyModel": "10.0.5",
-          "Microsoft.Orleans.Runtime": "10.3.1",
-          "Newtonsoft.Json": "13.0.4",
-          "Polly": "8.6.4",
-          "Polly.Extensions": "8.6.5",
           "System.IO.Hashing": "10.0.3",
           "System.Memory.Data": "10.0.3"
         }
@@ -711,25 +742,6 @@
         "requested": "[10.3.1, )",
         "resolved": "10.3.1",
         "contentHash": "pMgky2bpQQ9N+0tK7bQBb51shykCb5vRIkGZjMx92fl7Z4Q3Kwa3nUuQDig9o8DvCzKfeXDLU5WqMuAv7EPGTA==",
-        "dependencies": {
-          "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
-          "Microsoft.CodeAnalysis.Common": "5.0.0",
-          "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
-          "Microsoft.Extensions.DependencyModel": "10.0.5",
-          "Microsoft.Orleans.Reminders": "10.3.1",
-          "Microsoft.Orleans.Runtime": "10.3.1",
-          "Newtonsoft.Json": "13.0.4",
-          "Polly": "8.6.4",
-          "Polly.Extensions": "8.6.5",
-          "System.IO.Hashing": "10.0.3",
-          "System.Memory.Data": "10.0.3"
-        }
-      },
-      "Microsoft.Orleans.Reminders.AdoNet": {
-        "type": "CentralTransitive",
-        "requested": "[10.3.1, )",
-        "resolved": "10.3.1",
-        "contentHash": "cFqyKIYs7gLlek0A1dAhSbG5fdlxzcCMtEypPTV9fPLeQ47GDJUcShR6xlCLx21VXg77bloKTR5YfB4H9KMg5Q==",
         "dependencies": {
           "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
           "Microsoft.CodeAnalysis.Common": "5.0.0",
@@ -784,18 +796,17 @@
           "System.Memory.Data": "10.0.3"
         }
       },
-      "Microsoft.Orleans.Streaming.NATS": {
+      "Microsoft.Orleans.Streaming": {
         "type": "CentralTransitive",
-        "requested": "[10.3.1-alpha.1, )",
-        "resolved": "10.3.1-alpha.1",
-        "contentHash": "8ojQM5WOMap0wazNE11BDavnhpnnRBqzSeqCpjcuANrUU4gW9uQrx06dt4JVyVmiykMHYpALosGz8OepbPiNoA==",
+        "requested": "[10.3.1, )",
+        "resolved": "10.3.1",
+        "contentHash": "Aj0O92zJDVnRfyDy1dPjaZFMWVqbziWgvlqrrlU/bguq3Gv8OfdrpZOVj2ILC0lzoUEZFp5bJthnBjAZMzqNgw==",
         "dependencies": {
           "Microsoft.CodeAnalysis.Analyzers": "3.11.0",
           "Microsoft.CodeAnalysis.Common": "5.0.0",
           "Microsoft.CodeAnalysis.Workspaces.Common": "5.0.0",
           "Microsoft.Extensions.DependencyModel": "10.0.5",
-          "Microsoft.Orleans.Streaming": "10.3.1",
-          "NATS.Net": "2.7.2",
+          "Microsoft.Orleans.Runtime": "10.3.1",
           "Newtonsoft.Json": "13.0.4",
           "Polly": "8.6.4",
           "Polly.Extensions": "8.6.5",

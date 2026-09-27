@@ -8,6 +8,18 @@
     <PackageReference Include="Escendit.AspNetCore.Builder.Core" />
     <PackageReference Include="Escendit.Extensions.Hosting.Orleans" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" />
+    <PackageReference Include="Microsoft.Orleans.EventSourcing" />
+    <PackageReference Include="Microsoft.Orleans.Reminders.AdoNet" />
+    <PackageReference Include="Microsoft.Orleans.Streaming.NATS" />
+    <PackageReference Include="Npgsql" />
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Coldframe.Server.Tests" />
+    <InternalsVisibleTo Include="Coldframe.Server.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\packages\cs\contracts\Coldframe.Contracts.csproj" />
   </ItemGroup>
 </Project>

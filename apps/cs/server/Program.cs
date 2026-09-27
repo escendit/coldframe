@@ -5,6 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder
     .AddServiceDefaults()
+    .AddJournal()
     .AddSilo()
     .AddHealthCheckDefaults(checks => checks.AddCheck<SiloHealthCheck>(SiloHealthCheck.Name, tags: ["ready"]));
 

@@ -7,11 +7,22 @@
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.Testing" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Orleans.Streaming" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" />
     <PackageReference Include="NATS.Net" />
+    <PackageReference Include="Npgsql" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\aspire\Coldframe.AppHost\Coldframe.AppHost.csproj" />
+    <ProjectReference Include="..\..\..\apps\cs\migrations\Coldframe.Migrations.csproj" />
+    <ProjectReference Include="..\..\..\apps\cs\server\Coldframe.Server.csproj" />
+    <ProjectReference Include="..\..\..\packages\cs\contracts\Coldframe.Contracts.csproj" />
+  </ItemGroup>
+  <!-- The test-only sample events and state are shared with the unit tests, so the fixture journal covers them. -->
+  <ItemGroup>
+    <Compile Include="..\server.tests\Samples\*.cs" Link="Journal\Samples\%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

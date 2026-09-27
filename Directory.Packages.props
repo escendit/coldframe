@@ -36,8 +36,24 @@
     <PackageVersion Include="Microsoft.Orleans.Reminders.AdoNet" Version="10.3.1" />
     <PackageVersion Include="Microsoft.Orleans.Reminders.Redis" Version="10.3.1" />
     <PackageVersion Include="Microsoft.Orleans.Server" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Streaming" Version="10.3.1" />
     <PackageVersion Include="Microsoft.Orleans.Streaming.NATS" Version="10.3.1-alpha.1" />
     <PackageVersion Include="NATS.Net" Version="2.8.2" />
+  </ItemGroup>
+  <!--
+    Database and migrations (AD-22). One migration set runs through one FluentMigrator runner; the
+    Orleans cluster schema comes from the Escendit package, which follows the Orleans version.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="Escendit.Orleans.Migrations.Cluster.PostgreSQL" Version="10.3.1-rc.0" />
+    <PackageVersion Include="FluentMigrator" Version="8.0.1" />
+    <PackageVersion Include="FluentMigrator.Extensions.Postgres" Version="8.0.1" />
+    <PackageVersion Include="FluentMigrator.Runner.Postgres" Version="8.0.1" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+  </ItemGroup>
+  <!-- Analyzers. BannedSymbols.txt at the root lists what apps/cs and packages/cs must not call. -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0" />
   </ItemGroup>
   <!-- Telemetry and HTTP resilience. The OpenTelemetry version follows the Escendit service defaults. -->
   <ItemGroup>
@@ -46,6 +62,8 @@
   </ItemGroup>
   <!-- Tests -->
   <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
+    <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.3.1" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>
 </Project>

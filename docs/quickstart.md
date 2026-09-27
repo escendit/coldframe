@@ -47,9 +47,11 @@ dashboard, which shows every resource, its state, its logs and its endpoints. St
 | `nats` | NATS with JetStream | 2.15.0 |
 | `temporal` | Temporal CLI development server, namespace `coldframe` | CLI 1.8.3, Server 1.31.2 |
 | `keycloak` | Phase Two Keycloak with `keycloak-temporal-extensions` v0.0.1-rc.2 | 26.6.7 |
+| `migrations` | The migration job: creates or updates the schema of `coldframe`, then exits | built from `apps/cs/migrations` |
 | `server` | The Server: Orleans silo and Edge API | built from `apps/cs/server` |
 
-The Server reports its health at `/.well-known/healthz`, with `/ready`, `/live` and `/startup`
+The `migrations` job runs first and shows as *Finished* once it has applied the schema; the Server
+waits for it and does not start when it fails. The Server reports its health at `/.well-known/healthz`, with `/ready`, `/live` and `/startup`
 below it. The answer lists the check `silo`, which is healthy while the silo is an active member
 of its cluster.
 
@@ -65,8 +67,12 @@ Things to know:
   listener in a realm, add `temporal` under *Realm settings → Events → Event listeners*.
 - **Temporal is a development server.** It keeps its state in memory. The version for deployment
   is decided with the deployment epic.
-- **The silo uses localhost clustering** until the cluster schema exists. Its ports are allocated
-  per start, so the stack and the integration tests can run at the same time.
+- **The silo uses ADO.NET clustering and reminders** on the `coldframe` database, in the Orleans
+  tables the migration job creates. Its ports are allocated per start, so the stack and the
+  integration tests can run at the same time.
+- **The Server never changes the schema.** Every table comes from the migration job in
+  [`apps/cs/migrations`](../apps/cs/migrations). How to add a migration, an event type, an upcaster or
+  a projector is described in [`apps/cs/README.md`](../apps/cs/README.md).
 
 ## Run the tests and lints
 
@@ -83,8 +89,14 @@ dotnet format --verify-no-changes
 dotnet test
 ```
 
-`dotnet test` starts the same AppHost as above, so it needs Docker or Podman. With Podman, run
-`ASPIRE_CONTAINER_RUNTIME=podman dotnet test`.
+`dotnet test` runs two projects. `tests/cs/server.tests` needs no containers: event registry and
+upcasters, the replay of the fixture journal, time substitution and the wall-clock ban.
+`tests/cs/server.integration` starts the same AppHost as above, so it needs Docker or Podman. With
+Podman, run `ASPIRE_CONTAINER_RUNTIME=podman dotnet test`. Its journal tests each create a fresh
+database on the AppHost's PostgreSQL, migrate it with the job's runner and drop it afterwards.
+
+Server code reads the time only from an injected `TimeProvider`. `DateTime.UtcNow` and its relatives
+fail the build with RS0030.
 
 ### Rust
 

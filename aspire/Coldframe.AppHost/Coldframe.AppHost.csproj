@@ -15,6 +15,7 @@
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\apps\cs\migrations\Coldframe.Migrations.csproj" />
     <ProjectReference Include="..\..\apps\cs\server\Coldframe.Server.csproj" />
   </ItemGroup>
 </Project>

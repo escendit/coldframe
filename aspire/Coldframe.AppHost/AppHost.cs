@@ -62,6 +62,13 @@ var keycloak = builder
     .WaitFor(keycloakDatabase)
     .WaitFor(temporal);
 
+// The migration job applies the one forward-only migration set, then exits (AD-22).
+// The Server starts only after it has finished successfully; the Server itself never runs DDL.
+var migrations = builder
+    .AddProject<Projects.Coldframe_Migrations>("migrations")
+    .WithReference(serverDatabase)
+    .WaitFor(serverDatabase);
+
 // The Server: Orleans silo and Edge API in one ASP.NET Core host.
 // The silo ports are allocated per run, so the stack and the tests can run side by side.
 builder
@@ -71,7 +78,7 @@ builder
     .WithEndpoint(name: "silo", scheme: "tcp", env: "Orleans__Endpoints__SiloPort", isProxied: false)
     .WithEndpoint(name: "gateway", scheme: "tcp", env: "Orleans__Endpoints__GatewayPort", isProxied: false)
     .WithHttpHealthCheck("/.well-known/healthz")
-    .WaitFor(serverDatabase)
+    .WaitForCompletion(migrations)
     .WaitFor(nats)
     .WaitFor(temporal)
     .WaitFor(keycloak);

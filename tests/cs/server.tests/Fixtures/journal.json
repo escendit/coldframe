@@ -1,0 +1,23 @@
+[
+  {
+    "streamId": "sample/fixture-a",
+    "version": 1,
+    "alias": "sample.created",
+    "schemaVersion": 1,
+    "payload": { "name": "Fixture A" }
+  },
+  {
+    "streamId": "sample/fixture-a",
+    "version": 2,
+    "alias": "sample.noted",
+    "schemaVersion": 1,
+    "payload": { "text": "written before notes had a weight" }
+  },
+  {
+    "streamId": "sample/fixture-a",
+    "version": 3,
+    "alias": "sample.noted",
+    "schemaVersion": 2,
+    "payload": { "text": "written with a weight", "weight": 4 }
+  }
+]
