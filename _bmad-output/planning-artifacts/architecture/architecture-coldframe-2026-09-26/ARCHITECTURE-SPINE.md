@@ -541,7 +541,7 @@ coldframe/
   docs/                      # adopter build guide, learning reference
 ```
 
-`apps/` holds runtimes and `packages/` holds what they reference. **All tests live in `tests/`**, mirroring the language split, never inside `apps/` or `packages/` (in Rust this means separate test crates, not inline `#[cfg(test)]` modules): language-neutral contracts in their own folders, shared code split by language. The top level holds everything that is not code.
+`apps/` holds runtimes and `packages/` holds what they reference. **All tests live in `tests/`**, mirroring the language split, never inside `apps/` or `packages/`. **Exception:** Rust unit tests stay inline next to the code (`#[cfg(test)]` modules), as Rust idiom expects. Rust integration tests and all other languages' tests go in `tests/`: language-neutral contracts in their own folders, shared code split by language. The top level holds everything that is not code.
 
 ## Capability → Architecture Map
 
