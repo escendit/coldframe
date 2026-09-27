@@ -28,3 +28,8 @@
   1. Before a holiday, Simon invites a neighbor by email as a Member of the Site.
   2. The neighbor accepts on Simon's Wi-Fi.
   3. The neighbor receives the same Alerts in their own Notification Window but cannot change Thresholds.
+- **UJ-6. Tidying up after the first month** (CAP-6, CAP-7, CAP-13, CAP-2, CAP-20). Added in UX.
+  1. On the web app, Simon renames the Site, adds and removes Lots, and sets the Site Reminder cadence.
+  2. He moves a Node to another Lot (its history stays with the Node) and lengthens a Node's Silence Window.
+  3. He changes the neighbour's Role, switches the web app's theme to Dark, and switches to another Site where he is a Member.
+  4. With the tab open, a browser notification arrives inside his Notification Window. It is the same Alert as the one on his phone, not a second one.

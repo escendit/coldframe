@@ -49,7 +49,7 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
   - **success:** The invitee gets the Membership on acceptance (on the home network); every Site always keeps at least one Owner; a Member's attempt to change Devices, Thresholds, Calibration, Pause, or Memberships is rejected; a Role on one Site grants nothing on another.
 - **CAP-8**
   - **intent:** Any Member sees the latest Reading of every Sensor grouped by Lot, a 30-day history chart, and each Device's last-seen, battery, and charging state.
-  - **success:** Each Lot shows exactly one status (*needs water*, *OK*, *unknown* with time since last Reading, *paused*); Lots needing water list first; a stale Reading is never shown as current; the apps say when the Server is unreachable and how old the data is.
+  - **success:** Each Lot shows exactly one status (*needs water*, *needs calibration*, *OK*, *unknown* with time since last Reading, *paused*, *no Node*); Lots needing water list first; a stale Reading is never shown as current; the apps say when the Server is unreachable and how old the data is.
 - **CAP-9**
   - **intent:** An Administrator calibrates a `calibration: true` Sensor with a *dry* and a *wet* reference point.
   - **success:** Thresholds and calibrated Readings show in 0–100 %; recalibration changes only new Readings and leaves Threshold % values unchanged.

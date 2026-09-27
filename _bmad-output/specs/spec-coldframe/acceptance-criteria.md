@@ -51,7 +51,13 @@ Line-item criteria that the SPEC kernel's `success` fields summarize. CAP-N matc
 
 ## CAP-8: View Readings
 - The latest Reading of every Sensor on a Site, grouped by Lot, plus a 30-day history chart.
-- Each Lot shows one status: *needs water*, *OK*, *unknown* (Node silent, with the time since its last Reading), or *paused*. Status is computed once on the Server (AD-14).
+- Each Lot shows exactly one status, computed once on the Server (AD-14):
+  - *needs water*
+  - *needs calibration*: its soil-moisture Sensor has no Calibration yet (see CAP-21)
+  - *OK*
+  - *unknown*: Node silent, with the time since its last Reading
+  - *paused*
+  - *no Node*
 - A stale Reading is never shown as the current state.
 - The Site overview lists Lots that need water first.
 - Each Device shows its last-seen time. Battery-powered Devices also show battery level and charging status.
@@ -59,7 +65,7 @@ Line-item criteria that the SPEC kernel's `success` fields summarize. CAP-N matc
 - Readings are retained indefinitely.
 
 ## CAP-9: Calibrate a Sensor
-- Two reference points: *dry* (probe in dry soil) and *wet* (probe in water).
+- Two reference points: *dry* (probe in dry soil) and *wet* (probe in water). Each point is the raw value of a stored Reading, submitted over REST and never over BLE (AD-9). A short press of the Node's setup button triggers an immediate Reading (device-hardware N-3).
 - Thresholds of a `calibration: true` Sensor are always in normalized units (0–100 %). Its Readings show in the same units once calibrated.
 - Until it is calibrated, such a Sensor opens no Threshold Alerts (see CAP-21).
 - Recalibrating applies to new Readings and leaves the Thresholds' % values unchanged. History keeps the Calibration it was recorded with.

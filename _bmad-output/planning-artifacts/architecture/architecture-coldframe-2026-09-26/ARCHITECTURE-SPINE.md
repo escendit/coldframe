@@ -246,7 +246,11 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 - **Binds:** FR-8, FR-15, FR-19, FR-20
 - **Prevents:** protocol or status logic duplicated across clients, tokens exposed to the browser, and a browser that cannot authenticate to SignalR.
 - **Rule:**
-  - **Status is computed once, on the Server,** as a read model exposed through OpenAPI. `LotStatus ∈ {needsWater, ok, unknown, paused, noNode}`, with `statusSince`, `lastReadingAt`, and the FR-8 sort order.
+  - **Status is computed once, on the Server,** as a read model exposed through OpenAPI. `LotStatus ∈ {needsWater, needsCalibration, ok, unknown, paused, noNode}`, with `statusSince`, `lastReadingAt`, and the FR-8 sort order.
+    - Precedence, when several apply: `noNode` > `paused` > `unknown` > `needsCalibration` > `needsWater` > `ok`.
+    - `needsCalibration`: the Lot's Node has a `calibration: true` soil-moisture Sensor without Calibration (an open CAP-21 Alert).
+    - Sort order: `needsWater`, `needsCalibration`, `unknown`, `ok`, `paused`, `noNode`.
+    - Supporting fields, also computed by the Server so clients never derive them: `unknownCause ∈ {node, hub}` (whether the Node or its relay Hub is silent) and `pausedBy ⊆ {device, site}` (from AD-8).
     - `needsWater`: an open low-side Threshold Alert on a soil-moisture Sensor of the Lot's Node.
     - `unknown`: an open Silent Alert on the Node or on its relay Hub.
   - **Clients only render.** Their own logic is limited to transport staleness: data age and Server unreachable.

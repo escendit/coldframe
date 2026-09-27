@@ -127,7 +127,7 @@ An Owner can invite a person to a Site with a Role by email, change the Role, an
 
 #### FR-8: View Readings
 Any Member can see the latest Reading of every Sensor on a Site, grouped by Lot, and a history chart of the last 30 days.
-- Each Lot shows one status: *needs water*, *OK*, *unknown* (Node silent, with the time since its last Reading), or *paused*. A stale Reading is never shown as the current state.
+- Each Lot shows one status: *needs water*, *needs calibration* (soil Sensor not yet calibrated, see FR-21), *OK*, *unknown* (Node silent, with the time since its last Reading), *paused*, or *no Node*. A stale Reading is never shown as the current state.
 - The Site overview lists Lots that need water first.
 - Each Device shows its last-seen time; battery-powered Devices also show battery level (%) and charging status.
 - When the apps cannot reach the Server, they say so and show how old the displayed data is.
