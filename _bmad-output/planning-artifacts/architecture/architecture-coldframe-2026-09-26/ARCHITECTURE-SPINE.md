@@ -127,6 +127,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - Every deadline (Notification Window opening, next Reminder, Pause end, Silence Window expiry) is stored in the owning grain's state as a UTC `due-at`.
   - An Orleans Reminder is only a wake-up. On every wake **and** every activation, the grain processes **all** overdue deadlines. Reminder periods are at least 1 minute.
   - Silence is measured from `max(last accepted report, last Server start, last resume)`, so time the Server was down never counts as Device silence.
+  - **Time is injected:** every grain, projector and the Notifier read time only from .NET `TimeProvider`, never `DateTime.Now`, so tests drive every deadline with `FakeTimeProvider`.
 
 ### AD-7 — Alert evaluation, identity, and delivery
 
@@ -151,6 +152,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
     - It owns every Reminder deadline, one per Alert. The interval resolves User → Site (cached from Site events) → default of once per day. Health Alerts use `max(resolved, 24 h)`.
     - *How* to notify goes through one **Notifier seam** (APNs, FCM, and SignalR via AD-14), which contains no timing or filtering logic.
     - Push payloads are self-contained: Lot, Sensor or Device, and condition in plain words, readable without reaching the Server (FR-15).
+    - Every delivery is sent **≤ 1 min** after it falls due. The Notifier records `dueAt` and `sentAt` as a structured log field and an OpenTelemetry metric.
   - **Defaults:**
     - Notification Window 07:00–22:00
     - Silence Window: Node 6 h, Hub 5 min
@@ -360,7 +362,10 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - Protobuf and OpenAPI/AsyncAPI compatibility checks against the previous release (AD-10)
   - golden Hub JSON fixtures (AD-10)
   - a replay of all events against a fixture journal (AD-21)
-  - Orleans grain tests for every AD-7 and AD-8 transition, using the test cluster
+  - Orleans grain tests for every AD-7 and AD-8 transition, using the test cluster, with `FakeTimeProvider` (AD-6)
+  - Server and end-to-end tests exercise the Device path through one **Device simulator** test library in `tests/cs`, built on `packages/proto` and `packages/crypto-spec` (enrol, seal frames, sign heartbeats, verify downlinks), never through hand-built payloads
+  - Firmware logic depends only on one **HAL-trait crate** (`packages/rs/hal`: radio, eFuse, HMAC, flash, ADC, RTC, GPIO), with mock implementations for host-side tests
+  - Assertions that notification delivery is ≤ 1 min after due (AD-7)
   - BLE setup session test vectors in Rust and Kotlin (AD-25)
 
 ### AD-25 — BLE setup protocol: custom, proof-of-possession secured
@@ -530,6 +535,7 @@ coldframe/
     asyncapi/                # SignalR messages + push payloads
     crypto-spec/             # labels, algorithms, nonce layout, test vectors
     rs/protocol/ rs/crypto/  # generated Protobuf, key derivation, sealing
+    rs/hal/                  # hardware traits (radio, eFuse, HMAC, flash, ADC, RTC, GPIO) + mocks
     cs/                      # grain interfaces, event contracts, generated types
     kt/core/                 # KMP shared core
     ts/api-client/           # generated TS client

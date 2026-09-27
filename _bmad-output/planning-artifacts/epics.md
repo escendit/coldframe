@@ -551,6 +551,11 @@ So that every grain added in later stories persists and projects state the same 
 **When** events are appended
 **Then** projectors still converge by polling the journal; streams are only wake-up hints (AD-5, AD-21)
 
+**Given** the time convention (AD-6)
+**When** grains and projectors need the current time
+**Then** they read it only from an injected `TimeProvider`, the TestCluster and Aspire test hosts can substitute `FakeTimeProvider`, and a test fails the build if `DateTime.Now` or `DateTime.UtcNow` is used in Server code
+**And** a test helper waits for a journal position or projector checkpoint with a bounded timeout instead of sleeping
+
 **Given** a fixture journal in `tests/cs/`
 **When** the CI event-replay test runs
 **Then** every stored event type deserializes (directly or through a registered upcaster) and replays without error (AD-24)
@@ -929,6 +934,11 @@ So that firmware, Server and app can't disagree on message shape or key derivati
 **Then** all three produce identical outputs for key derivation, HPKE sealing, the AEAD with nonce layout, and the setup-session keys (AD-24)
 **And** a breaking change to any `.proto` or OpenAPI file fails the contract-compatibility check
 
+**Given** the Device simulator test library in `tests/cs` (AD-24)
+**When** a test uses it
+**Then** it can generate a Device identity, produce the HPKE-sealed enrolment, sign heartbeats with the `hub-auth/v1` HMAC, and seal and verify frames and downlinks, all from `packages/proto` and `packages/crypto-spec`
+**And** its outputs match the shared test vectors
+
 ### Story 3.2: Hub firmware foundation with a hardware-bound identity
 
 As a maker building Coldframe,
@@ -945,6 +955,10 @@ So that no human ever sees its key and it can prove who it is.
 **Given** a dev-mode build (a documented Cargo feature)
 **When** it boots
 **Then** it uses a software key and never touches eFuses, and release builds refuse to compile with dev mode enabled
+
+**Given** the HAL-trait crate `packages/rs/hal` (radio, eFuse, HMAC, flash, ADC, RTC, GPIO) with mock implementations (AD-24)
+**When** firmware logic is written
+**Then** it depends only on these traits, never directly on esp-hal types, so it runs in host-side tests
 
 **Given** key derivation and purpose-key logic in `packages/rs/crypto`, behind a hardware trait
 **When** host-side tests run with a mock HMAC peripheral
@@ -1713,9 +1727,13 @@ So that I'm told once, at the right time, and not every hour.
 **When** I'm granted or removed from a Site
 **Then** my User grain updates its Site set, pulls that Site's open Alerts on join, drops them on removal, and reconciles against `Site.OpenAlerts()` on activation
 
+**Given** a delivery falls due
+**When** the Notifier sends it
+**Then** it is sent ≤ 1 min after `dueAt`, and `dueAt` and `sentAt` are recorded as a structured log field and an OpenTelemetry metric (AD-7)
+
 **Given** TestCluster tests with a fake clock and a Notifier test double
 **When** they run
-**Then** they cover in-window delivery, the overnight summary (one entry per Alert, closed-while-held dropped), cadence precedence, mute, a daylight-saving change, a silo restart across 07:00 (the summary is still sent), and a join or leave while Alerts are open
+**Then** they cover the ≤ 1 min send latency, in-window delivery, the overnight summary (one entry per Alert, closed-while-held dropped), cadence precedence, mute, a daylight-saving change, a silo restart across 07:00 (the summary is still sent), and a join or leave while Alerts are open
 
 ### Story 6.5: Push notifications on my phone
 
