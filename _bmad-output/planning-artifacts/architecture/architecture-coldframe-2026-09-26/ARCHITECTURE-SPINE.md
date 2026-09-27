@@ -331,7 +331,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 - **Binds:** NFR-3, NFR-7
 - **Prevents:** mixed migration mechanisms across epics, and ingestion halting because next month's Readings partition does not exist.
 - **Rule:**
-  - **One migration set:** all Server database schema lives in one forward-only migration set. It covers the Orleans ADO.NET scripts, the journal, read models, and Readings. The tool is FluentMigrator. The Orleans cluster schema (storage, clustering, and reminders) comes from the `Escendit.Orleans.Migrations.Cluster.PostgreSQL` package, built from the public `escendit/migrations-cluster-postgresql` repository. Coldframe's own migrations follow the same pattern. That schema must match the Orleans 10.3.1 ADO.NET PostgreSQL scripts before V1.
+  - **One migration set:** all Server database schema lives in one forward-only migration set. It covers the Orleans ADO.NET scripts, the journal, read models, and Readings. The tool is FluentMigrator. The Orleans cluster schema (storage, clustering, and reminders) comes from the `Escendit.Orleans.Migrations.Cluster.PostgreSQL` package, built from the public `escendit/migrations-cluster-postgresql` repository. Coldframe's own migrations follow the same pattern. The package version follows the Orleans version its schema matches, and it is upgraded together with Orleans.
   - **Execution:** migrations run as a Kubernetes Job before the silo starts, and application startup never runs DDL.
   - **Partitions:** Readings and device-report partitions are created at least two months ahead, with a default partition as a safety net.
 
@@ -389,7 +389,8 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 | Microsoft.Orleans.Streaming.NATS (pinned) | 10.3.1-alpha.1 |
 | NATS.Net (transitive, pinned to 2.x) | 2.8.2 |
 | Google.Protobuf | 3.36.2 |
-| FluentMigrator (+ Runner, Extensions.Postgres) | 8.0.1 |
+| FluentMigrator (+ Runner.Postgres, Extensions.Postgres) | 8.0.1 |
+| Escendit.Orleans.Migrations.Cluster.PostgreSQL | 10.3.1-rc.0 |
 | NATS Server (JetStream) | 2.15.0 |
 | Temporal Server / Temporalio .NET SDK | 1.31.3 / 1.19.0 |
 | Escendit.Extensions.Hosting.* | 0.1.0-rc.4 |
