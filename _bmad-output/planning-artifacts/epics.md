@@ -726,3 +726,130 @@ So that the garden in Coldframe matches my real beds.
 **When** they open Site settings
 **Then** they see Lots read-only, with no create, rename or remove controls, and the API rejects these calls with 403
 **And** these endpoints are included in the generated authorization matrix
+
+## Epic 2: Run Coldframe on my home server
+
+The whole stack runs 24/7 on Simon's home server. Phones and the Hub reach it over TLS with publicly trusted certificates. Nothing is lost on restart, and backups can be restored. Infrastructure stories are test-first through chart unit tests, schema validation and a CI smoke install on a disposable k3d cluster; the home-server run is verified manually against a documented checklist.
+
+### Story 2.1: Container images published per release
+
+As Simon deploying Coldframe,
+I want versioned container images for every server-side component,
+So that my cluster pulls exactly the release I choose.
+
+**Acceptance Criteria:**
+
+**Given** a release tag `vX.Y.Z` on the monorepo
+**When** the release workflow runs
+**Then** images for the Server (Orleans silo, Edge API and SignalR), the web BFF and the migration job are pushed to `ghcr.io/escendit/coldframe/<component>:X.Y.Z` (AD-23)
+**And** each image is multi-arch (amd64 and arm64) where the base image supports it, and the workflow reports any component where it doesn't
+
+**Given** a container built from any image
+**When** it starts
+**Then** it takes configuration only from environment variables and exposes liveness and readiness endpoints (Escendit service defaults)
+**And** it runs as a non-root user
+
+**Given** a pull request that changes a Dockerfile
+**When** CI runs
+**Then** the image builds, and a container-structure test checks the entrypoint, the non-root user and the health endpoint
+
+### Story 2.2: Helm charts with a fixed Secret contract
+
+As Simon deploying Coldframe,
+I want Helm charts for the whole stack that read secrets I create myself,
+So that I can install and upgrade the stack without putting secrets in Git.
+
+**Acceptance Criteria:**
+
+**Given** `deploy/charts/`
+**When** I inspect it
+**Then** there are charts (or subcharts) for the Server, web BFF, Keycloak (the Phase Two image plus `keycloak-temporal-extensions`), Temporal and NATS JetStream
+**And** `deploy/SECRETS.md` lists every Kubernetes Secret by fixed name and key (SMTP, APNs/FCM credentials, DNS-01 token, Server enrolment private key, database credentials), and no chart templates a secret value (AD-15)
+
+**Given** a Helm upgrade to a new version
+**When** it runs
+**Then** the migration Job runs first and must succeed before the Server Deployment rolls
+**And** the Server runs as a single replica with a stop-then-start strategy, and a graceful-shutdown timeout lets the silo drain (AD-15, AD-22)
+
+**Given** the charts
+**When** CI runs helm lint, helm-unittest and kubeconform schema validation
+**Then** all pass, and a test asserts that no Secret manifest contains data
+
+**Given** a disposable k3d cluster in CI with placeholder Secrets
+**When** the charts are installed
+**Then** every pod becomes ready, and the Server health endpoint returns healthy
+
+### Story 2.3: Database cluster with off-node backups and tested restore
+
+As Simon,
+I want all Coldframe data in one managed PostgreSQL cluster with backups off the server,
+So that a disk or server failure doesn't lose my garden's history.
+
+**Acceptance Criteria:**
+
+**Given** CloudNativePG 1.30.1 installed in the cluster
+**When** the Coldframe database chart is applied
+**Then** one CNPG cluster runs on PostgreSQL 18, with separate databases and roles for the Server/Orleans, Temporal and Keycloak (AD-15)
+
+**Given** an adopter-provided S3-compatible target, configured through a fixed-name Secret
+**When** the cluster runs
+**Then** CNPG (Barman Cloud) ships WAL continuously and takes scheduled base backups to that target
+
+**Given** a backup exists
+**When** I follow `docs/operations/restore.md` to restore into a fresh cluster
+**Then** the Server starts on the restored data, with Sites, Lots, Memberships and events intact
+**And** the runbook states the recovery point: data written after the last archived WAL segment is lost
+**And** the runbook requires advancing every Device's replay window by a safety margin after a restore (AD-17)
+
+**Given** the k3d smoke environment in CI with MinIO standing in for S3
+**When** the backup-and-restore test runs
+**Then** a marker row written before the backup exists after the restore
+
+### Story 2.4: TLS with public certificates on my home network
+
+As Simon,
+I want the web app, the API and Keycloak on a real domain with publicly trusted certificates,
+So that phones, browsers and the Hub connect securely without anyone installing a certificate.
+
+**Acceptance Criteria:**
+
+**Given** RKE2's bundled Traefik ingress and cert-manager 1.21.2
+**When** the ingress chart is applied with my domain and a DNS-01 API token in a fixed-name Secret
+**Then** cert-manager obtains Let's Encrypt certificates via the DNS-01 challenge, with no inbound internet traffic (AD-13, NFR1)
+**And** certificates renew automatically before they expire
+
+**Given** the ingress
+**When** it is deployed
+**Then** only HTTPS (443) is exposed for the Server, web and Keycloak hosts, with no plain-HTTP listener serving application traffic (NFR10)
+
+**Given** my router or local DNS configured per `docs/operations/split-dns.md`
+**When** a phone on the home Wi-Fi resolves the Coldframe domain
+**Then** it gets the LAN ingress address, and the TLS handshake succeeds using public roots only
+
+**Given** the charts
+**When** CI runs chart unit tests
+**Then** they assert that TLS is set on every Ingress and IngressRoute, the Issuer uses DNS-01, and no route serves port 80
+
+### Story 2.5: GitOps deployment to my RKE2 server
+
+As Simon,
+I want my home server to deploy Coldframe from Git with Fleet,
+So that upgrading means changing a version in Git, and a restart never loses data.
+
+**Acceptance Criteria:**
+
+**Given** single-node RKE2 (the stable v1.36 line) with Fleet v0.16.2
+**When** I point a Fleet GitRepo at `deploy/` per `docs/operations/install.md`
+**Then** Fleet installs CloudNativePG, the database, ingress and TLS, and all Coldframe charts in dependency order, and every pod becomes ready (NFR7)
+
+**Given** a running installation
+**When** I change the release version in my Fleet configuration
+**Then** the upgrade runs migrations first and then restarts the Server with stop-then-start, and Sites and Lots are intact afterwards
+
+**Given** a running installation with Sites and Lots
+**When** the Server pod, the database pod or the whole node restarts
+**Then** no stored data, setting or event is lost, and the apps reconnect when the Server is back (NFR3)
+
+**Given** `docs/operations/install.md`
+**When** I follow it on the home server
+**Then** a manual verification checklist confirms: pods ready; HTTPS valid on all three hosts; sign-in works from phone and browser; restart durability; a backup exists in S3
