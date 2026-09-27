@@ -533,13 +533,15 @@ coldframe/
     cs/                      # grain interfaces, event contracts, generated types
     kt/core/                 # KMP shared core
     ts/api-client/           # generated TS client
-  aspire/                    # local dev AppHost
+  tests/                     # all tests, mirroring apps/ and packages/ by language
+    cs/  rs/  kt/  swift/  ts/  # e.g. tests/cs/server.integration, tests/rs/protocol, tests/ts/web.e2e
+  aspire/                    # local dev AppHost + integration-test host
   deploy/                    # Helm charts + Fleet bundles, Secret manifest list, Compose example
   hardware/                  # Node/Hub schematics, PCB, enclosure
   docs/                      # adopter build guide, learning reference
 ```
 
-`apps/` holds runtimes and `packages/` holds what they reference: language-neutral contracts in their own folders, shared code split by language. The top level holds everything that is not code.
+`apps/` holds runtimes and `packages/` holds what they reference. **All tests live in `tests/`**, mirroring the language split, never inside `apps/` or `packages/` (in Rust this means separate test crates, not inline `#[cfg(test)]` modules): language-neutral contracts in their own folders, shared code split by language. The top level holds everything that is not code.
 
 ## Capability → Architecture Map
 
