@@ -853,3 +853,198 @@ So that upgrading means changing a version in Git, and a restart never loses dat
 **Given** `docs/operations/install.md`
 **When** I follow it on the home server
 **Then** a manual verification checklist confirms: pods ready; HTTPS valid on all three hosts; sign-in works from phone and browser; restart durability; a backup exists in S3
+
+## Epic 3: Bring the Hub online
+
+Simon adds a Hub from his phone over BLE with its setup code. It appears on the Site within a minute, and Devices shows it online with its last-seen time. Firmware is tested host-side only, with hardware behind traits; on-device behaviour is verified manually against a checklist (NFR16).
+
+### Story 3.1: Wire and crypto contracts with shared test vectors
+
+As a maker building Coldframe,
+I want the BLE setup, Device, and crypto contracts defined once and generated into Rust, C# and Kotlin,
+So that firmware, Server and app can't disagree on message shape or key derivation.
+
+**Acceptance Criteria:**
+
+**Given** `packages/proto`
+**When** I inspect it
+**Then** it defines, with `protocol_version`, the BLE setup messages (identity, Wi-Fi scan list, Wi-Fi config and result, Site binding, enrolment request and response) and the sealed-downlink envelope, including an empty `commands` field (AD-10, AD-16, AD-25)
+**And** `packages/openapi` defines `POST /device/heartbeat`, `POST /device/ingest` (placeholder), `GET /enrolment-key` and the enrolment endpoint
+
+**Given** `packages/crypto-spec`
+**When** code generation runs
+**Then** labels (`coldframe/device/v1`, `seal/v1`, `ack/v1`, `hub-auth/v1`), algorithms (HKDF-SHA256, HPKE X25519-HKDF-SHA256-ChaCha20Poly1305, ChaCha20-Poly1305), nonce layout and the setup-session derivation (X25519 plus proof-of-possession code via HKDF) are emitted as constants for Rust, C# and Kotlin (AD-12, AD-25)
+
+**Given** the shared test vectors in `packages/crypto-spec`
+**When** CI runs the vector tests in Rust (`tests/rs`), C# (`tests/cs`) and Kotlin (`tests/kt`)
+**Then** all three produce identical outputs for key derivation, HPKE sealing, the AEAD with nonce layout, and the setup-session keys (AD-24)
+**And** a breaking change to any `.proto` or OpenAPI file fails the contract-compatibility check
+
+### Story 3.2: Hub firmware foundation with a hardware-bound identity
+
+As a maker building Coldframe,
+I want the Hub to create its own secret identity on first boot,
+So that no human ever sees its key and it can prove who it is.
+
+**Acceptance Criteria:**
+
+**Given** `apps/rs/hub` on esp-hal 1.2.2 and esp-radio 1.0.0-beta.1 for ESP32-S3
+**When** a release build boots for the first time
+**Then** it generates a key from the TRNG with the radio enabled, burns it into a read-protected eFuse key block with HMAC purpose ToUser, and derives `K_dev = HMAC-SHA256_eFuse(root, "coldframe/device/v1")` (AD-12)
+**And** on later boots it detects the burned key and never burns again
+
+**Given** a dev-mode build (a documented Cargo feature)
+**When** it boots
+**Then** it uses a software key and never touches eFuses, and release builds refuse to compile with dev mode enabled
+
+**Given** key derivation and purpose-key logic in `packages/rs/crypto`, behind a hardware trait
+**When** host-side tests run with a mock HMAC peripheral
+**Then** the derived purpose keys match the crypto-spec test vectors
+
+**Given** the Hub on the bench
+**When** I follow the manual checklist
+**Then** the first boot burns the key once (verified with `espflash board-info` key purposes) and a dev-mode board shows no eFuse change
+
+### Story 3.3: Server-side Device enrolment
+
+As Simon,
+I want the Server to accept a new Device's sealed identity during setup,
+So that only Devices I set up can talk to my Server.
+
+**Acceptance Criteria:**
+
+**Given** the Server enrolment keypair in a fixed-name Secret
+**When** an authenticated Administrator calls `GET /enrolment-key`
+**Then** it returns the X25519 public key and its fingerprint
+
+**Given** an enrolment request with an HPKE-sealed `K_dev`, the Device identity and a Site ID, sent by an Administrator of that Site
+**When** the Server processes it
+**Then** the Device grain calls `Site.RegisterDevice(deviceId, kind)`, persists `DeviceEnrolled`, and stores `K_dev` encrypted at rest (AD-12, AD-18)
+**And** the Site's roster includes the Device, and a Device added to a paused Site starts paused (a hook for Epic 8)
+
+**Given** a malformed or wrongly sealed enrolment, a Member caller, or a Device already enrolled on another Site
+**When** it is submitted
+**Then** it is rejected with RFC 9457 Problem Details and nothing is persisted
+**And** the endpoints are included in the generated authorization matrix
+
+**Given** Server integration tests on the Aspire AppHost
+**When** enrolment runs end to end with the crypto-spec vectors
+**Then** the stored key decrypts to the expected `K_dev`
+
+### Story 3.4: Hub BLE setup service
+
+As Simon standing next to a new Hub,
+I want the Hub to offer a secure setup channel that only works with its setup code,
+So that nobody nearby can take it over or read my Wi-Fi password.
+
+**Acceptance Criteria:**
+
+**Given** an unprovisioned Hub
+**When** it boots
+**Then** it advertises the Coldframe setup GATT service (trouble-host 0.7.0) and prints its per-Device proof-of-possession code to the serial console at first boot; the code is persisted and never sent over BLE (AD-25)
+
+**Given** a client that knows the setup code
+**When** it runs the setup session
+**Then** X25519 plus the setup code via HKDF produces the session key, every message is encrypted with ChaCha20-Poly1305, and a wrong code fails the session with a distinct error
+
+**Given** an established session
+**When** the client asks for networks, sends Wi-Fi config and a Site ID, and sends the Server enrolment public key
+**Then** the Hub returns a Wi-Fi scan list (WPA3-only networks flagged as unsupported, H-3), stores the credentials, returns `K_dev` sealed with HPKE to that key, and reports its join result
+
+**Given** the setup state machine behind BLE and storage traits
+**When** host-side tests run
+**Then** the success path, wrong code, timeout and malformed messages are covered, using the crypto-spec vectors
+
+**Given** a desktop test client in `tests/rs` (for example, btleplug)
+**When** I run it against a bench Hub per the manual checklist
+**Then** a full setup completes, and a wrong setup code is refused
+
+### Story 3.5: Hub joins Wi-Fi and heartbeats to the Server
+
+As Simon,
+I want the provisioned Hub to join my Wi-Fi reliably and check in with the Server,
+So that Coldframe knows the Hub is alive.
+
+**Acceptance Criteria:**
+
+**Given** a provisioned Hub
+**When** it joins Wi-Fi
+**Then** it scans all channels and joins the strongest BSSID for the SSID (`ScanMethod::AllChannels`), and re-joins after a disconnect (H-1)
+
+**Given** Wi-Fi is up
+**When** the Hub connects to the Server
+**Then** it bootstraps its clock over SNTP, validates the Server's public certificate including validity dates with mbedtls-rs `hook-wall-clock`, and CI builds with cmake and ninja available (H-2, AD-11, AD-13)
+
+**Given** a connected Hub
+**When** every 30–60 s elapse
+**Then** it POSTs `/device/heartbeat`, authenticated by an HMAC over method, path, body hash, timestamp and nonce with its `hub-auth/v1` key, and adopts the `serverTime` from the response for Hub-local timing only (AD-12, FR13)
+
+**Given** the Server receives a heartbeat
+**When** it validates it
+**Then** a bad HMAC, a timestamp more than ±5 min off or a replayed nonce is rejected, and a valid heartbeat updates the Hub's Device-grain last-seen time
+**And** the Hub's JSON structs pass the golden fixtures generated from OpenAPI (AD-10)
+
+**Given** the Hub firmware logic behind traits
+**When** host-side tests run
+**Then** BSSID selection, heartbeat scheduling, HMAC signing against vectors and reconnect backoff are covered
+
+### Story 3.6: Add a Hub from my phone
+
+As Simon,
+I want to add a Hub from the iOS or Android app in a few guided steps,
+So that it's online on my Site within a minute without touching a terminal.
+
+**Acceptance Criteria:**
+
+**Given** I am an Administrator or Owner on the mobile app
+**When** I start Add a Hub
+**Then** the five-step full-screen flow runs in the Setup flow shell (UX-DR39, UX-DR66):
+1. Scan with Device candidate tiles (UX-DR37).
+2. Setup code (UX-DR41).
+3. Wi-Fi network rows, with WPA3-only rows not selectable and saying why (UX-DR42).
+4. Site.
+5. Progress, then outcome (UX-DR55).
+
+**Given** the shared Kotlin core (Kable 0.45)
+**When** it runs the setup client
+**Then** it fetches `GET /enrolment-key`, runs the AD-25 session with the entered code, sends Wi-Fi config and the Site, relays the sealed `K_dev` to the enrolment endpoint unread, and waits for the first heartbeat
+
+**Given** a correct setup
+**When** the Hub's first heartbeat arrives
+**Then** the "Hub is online" outcome appears within 1 minute of sending the Wi-Fi credentials (FR1)
+
+**Given** Bluetooth is off or permission denied, the code is wrong, the Wi-Fi password is wrong, the network is WPA3-only, or the Hub never reaches the Server
+**When** the flow hits that case
+**Then** the matching UX-DR94 error with its recovery step appears, and nothing on the Hub or Server is left half-configured
+
+**Given** setup progress changes
+**When** a screen reader is on
+**Then** the UX-DR105 announcements are made, and the flow never times out while one is being read
+
+**Given** the shared-core setup client in `tests/kt` with a mocked BLE layer
+**When** unit tests run
+**Then** every step transition and error above is covered, and snapshot tests cover each step in light and dark themes
+
+### Story 3.7: See my Hub in Devices
+
+As a Member of a Site,
+I want to see the Site's Hubs with their status,
+So that I know whether the garden's gateway is alive.
+
+**Acceptance Criteria:**
+
+**Given** a Site with an enrolled Hub
+**When** I open Devices on web, iOS or Android
+**Then** the Devices list shows a "Hubs" section with the Hub's ID, online state and last-seen time (UX-DR30), read from a projection of Device-grain events
+
+**Given** the Hub's heartbeat stops
+**When** I refresh Devices
+**Then** the last-seen time is shown honestly, and the Hub is never shown as online past its last heartbeat (the Silent Alert itself arrives in Epic 7)
+
+**Given** I use the web app
+**When** I open Devices
+**Then** the Inline notice "Adding a Hub or Node needs the Coldframe mobile app." replaces Add actions (UX-DR85)
+
+**Given** I am a Member
+**When** I open Devices
+**Then** I see the list without admin actions (UX-DR84), and the list endpoints are in the authorization matrix
