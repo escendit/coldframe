@@ -1048,3 +1048,284 @@ So that I know whether the garden's gateway is alive.
 **Given** I am a Member
 **When** I open Devices
 **Then** I see the list without admin actions (UX-DR84), and the list endpoints are in the authorization matrix
+
+## Epic 4: See what my soil is doing
+
+Simon presses a Node's button, assigns it to "Tomatoes", and sees its Readings: Lot tiles, Lot detail with the 30-day chart, battery and charging status, and last seen. Stale data is marked, and the app says when the Server is unreachable. Firmware is tested host-side only; power, radio reach and coexistence are verified manually against a checklist.
+
+### Story 4.1: Node firmware foundation: wake, measure, sleep
+
+As a maker building Coldframe,
+I want the Node to wake every 15 minutes, measure its Sensors and go back to deep sleep,
+So that it produces trustworthy Readings on a season's battery budget.
+
+**Acceptance Criteria:**
+
+**Given** `apps/rs/node` on ESP32-S3, reusing `packages/rs/crypto` for its eFuse identity (as in Story 3.2, including dev mode)
+**When** it wakes on its 15-minute timer
+**Then** it powers the soil probe through a switch, reads the ADC capacitive probe (raw value) and the BME680 in forced mode (temperature, humidity, gas resistance), reads battery voltage through a switched divider and charging status from the charger status pin, then powers everything off and deep-sleeps (NFR12, NFR13)
+**And** all Readings from one wake carry the same `measured_at` and a monotonically increasing `reading_seq`, persisted across resets (AD-17, FR4)
+
+**Given** battery voltage
+**When** it is converted
+**Then** battery % comes from a LiPo discharge-curve table and is marked approximate
+
+**Given** the measurement, scheduling and battery-mapping logic behind hardware traits
+**When** host-side tests run
+**Then** the wake cycle, `reading_seq` persistence and the battery mapping are covered
+
+**Given** a Node on the bench
+**When** I follow the manual checklist
+**Then** the average sleep current is at most about 100 µA on the chosen board (or the measured value is recorded against the budget in device-hardware.md), and the wake stays short (NFR4)
+
+### Story 4.2: Node pairing: setup mode, enrolment and Lot assignment
+
+As an Administrator,
+I want a new Node to enter setup mode only when I press its button, and to be enrolled and assigned to a Lot,
+So that I know exactly which physical Node I'm assigning and it doesn't waste battery advertising.
+
+**Acceptance Criteria:**
+
+**Given** an unassigned Node
+**When** I long-press its setup button
+**Then** it advertises the Coldframe setup service for a limited time, then stops; it never advertises otherwise (FR2, N-3, AD-25)
+**And** a short press instead triggers an immediate Reading and report ("report now")
+
+**Given** a setup session with the Node's setup code
+**When** the AD-25 session runs
+**Then** the Node returns its identity and `K_dev` sealed with HPKE to the Server's enrolment key, and a wrong code fails the session
+
+**Given** an enrolment request with a Lot
+**When** the Server processes it
+**Then** the Device grain calls `Lot.Claim(nodeId)`, which succeeds only if the Lot exists, isn't removed and is free, then persists `DeviceEnrolled` and `DeviceAssigned` (AD-18)
+**And** a Lot that already holds a Node rejects the claim with a clear error
+
+**Given** an enrolled Node that is not assigned to a Lot
+**When** its Readings arrive later
+**Then** they are stored but never evaluated for Alerts (FR2, AD-8)
+
+**Given** the Node setup state machine and the Lot-claim logic
+**When** host-side and Orleans TestCluster tests run
+**Then** setup timeout, wrong code, occupied Lot and concurrent claims of one Lot (only one wins) are covered
+
+**Given** a Node on the bench
+**When** I follow the manual checklist
+**Then** BLE setup and ESP-NOW work on the same Node, which validates Node coexistence (device-hardware open item)
+
+### Story 4.3: Add a Node from my phone
+
+As Simon in the garden,
+I want to add a Node from the app by pressing its button and picking a Lot,
+So that the right bed starts reporting.
+
+**Acceptance Criteria:**
+
+**Given** I am an Administrator or Owner on iOS or Android
+**When** I start Add a Node (from Devices, a *no Node* tile, or "Hub is online")
+**Then** the five-step flow runs (UX-DR67):
+1. "Press the setup button on the Node".
+2. Nodes in BLE range, with "PRESSED JUST NOW" (UX-DR37).
+3. Setup code.
+4. Lot picker, including "+ New Lot"; Lots that already have a Node are not selectable (UX-DR38).
+5. Outcome.
+
+**Given** the setup succeeds
+**When** the Node's first Readings arrive
+**Then** the outcome shows "‹Lot› has a Node" with its Sensors, and the Lot tile changes from *no Node*
+
+**Given** BLE errors, a wrong code, the setup window timing out, or a Lot taken meanwhile
+**When** the flow hits that case
+**Then** the matching UX-DR94 error and recovery appear, and nothing is left half-assigned
+
+**Given** the shared Kotlin core client with a mocked BLE layer
+**When** unit and snapshot tests run
+**Then** every step, error and theme variant is covered, with UX-DR105 announcements
+
+### Story 4.4: ESP-NOW transport from Node to Hub
+
+As Simon,
+I want Nodes to reach the Hub over ESP-NOW from the far end of the garden, and to keep Readings until they're safely stored,
+So that no Reading is lost when Wi-Fi can't reach a bed.
+
+**Acceptance Criteria:**
+
+**Given** a Node with Readings to send
+**When** it transmits
+**Then** each frame is a Protobuf Node frame carrying `protocol_version`, `spec_hash` and its Readings, sealed with ChaCha20-Poly1305 under `seal/v1`, using a nonce built from the Device ID and a 64-bit counter
+**And** the counter never repeats for the life of the key (flash reservation in blocks), and every resend is freshly sealed with a new counter (AD-12, AD-17)
+
+**Given** the Hub receives a Node frame
+**When** it relays it
+**Then** it forwards the sealed frame, base64-encoded, in the JSON envelope of `POST /device/ingest` without reading it, and returns each opaque sealed downlink to the right Node over ESP-NOW; it stores no Readings (FR4, AD-9)
+
+**Given** no valid sealed downlink acknowledgement within the 300 ms window
+**When** the window expires
+**Then** the Node keeps the Readings in its buffer (at least 24 h) and resends them on later wakes; it never treats radio-level send status as delivery (N-1, N-2)
+**And** it collects a late acknowledgement on its next wake from the Hub's volatile downlink slot
+
+**Given** repeated missed acknowledgements
+**When** the threshold is reached
+**Then** the Node re-scans channels and finds the Hub on its current channel, so reporting survives a router channel change (FR4, N-2)
+
+**Given** framing, sealing, counter reservation, buffering and re-scan logic behind traits
+**When** host-side tests run against the crypto-spec vectors
+**Then** resend-with-new-counter, buffer overflow policy, counter continuity across reboots and channel re-scan are covered
+
+**Given** a Node and a Hub on the bench and in the garden
+**When** I follow the manual checklist
+**Then** the Node reports reliably from the farthest Lot (NFR11), and buffered Readings arrive after the Hub was powered off for an hour
+
+### Story 4.5: Server ingestion and acknowledgements
+
+As Simon,
+I want the Server to store every Reading exactly once and tell the Node only after it's safe,
+So that my history is complete and never duplicated.
+
+**Acceptance Criteria:**
+
+**Given** a `POST /device/ingest` envelope from an authenticated Hub
+**When** the Server processes each frame
+**Then** it verifies the seal and the replay window (above the high-water mark, or in an unseen slot of the 64-entry window), then inserts the Readings keyed by `(device_id, sensor_id, reading_seq)` into the monthly-partitioned Readings table, and battery and charging status into device reports (AD-9, AD-17)
+**And** it acknowledges only after the PostgreSQL commit, returning a per-frame status (`stored`, `duplicate`, `rejected_auth`, `rejected_replay`, `rejected_time`, `unknown_device`, `retry`) with a downlink sealed under `ack/v1` for `stored` and `duplicate` only
+
+**Given** a resent frame with a new counter but Readings already stored
+**When** it arrives
+**Then** the status is `duplicate` and it is acknowledged, with no second row
+
+**Given** each sealed downlink
+**When** it is built
+**Then** it carries `serverTime` and the acknowledged `reading_seq` ranges, and an empty `commands` field (AD-11, AD-16)
+**And** Readings flagged `time_unsynced` are rebased from boot ID and uptime, and a `measured_at` more than 5 minutes in the future is `rejected_time`
+
+**Given** partitions
+**When** the migration job or scheduled maintenance runs
+**Then** Readings and device-report partitions exist at least two months ahead, with a default partition as a safety net (AD-22)
+
+**Given** Readings from a paused Device (fixture) or an unassigned Node
+**When** they arrive
+**Then** paused Readings are acknowledged and discarded, and unassigned Node Readings are stored but not evaluated (AD-8)
+
+**Given** Server integration tests on the Aspire AppHost using crypto-spec vectors
+**When** they run
+**Then** every status path, the replay window, dedupe and acknowledgement-after-commit are covered, including a crash between insert and response (the resend is then `duplicate`)
+
+### Story 4.6: Sensor Specifications and Sensor grains
+
+As Simon,
+I want each Node to tell the Server what it measures,
+So that Readings are labelled correctly and soil moisture is ready for calibration.
+
+**Acceptance Criteria:**
+
+**Given** a frame with a `spec_hash` the Server doesn't know
+**When** the Server replies
+**Then** the downlink asks for the full Specification set, and the Node sends it once (AD-19)
+
+**Given** a Specification set
+**When** it is declared
+**Then** each Sensor gets `sensorId = UUIDv5(deviceId:slot:quantity)`, and the Sensor grain stores quantity, unit, range, `calibration` flag and default Thresholds as `Default` (FR3)
+**And** soil moisture declares `calibration: true` with default Thresholds; temperature, humidity and air quality (gas resistance in Ω) have none, so they are watched only
+
+**Given** the same `spec_hash` again
+**When** it arrives
+**Then** nothing changes; a changed Specification updates defaults only and never an override, and a new quantity at a slot creates a new Sensor
+
+**Given** Readings for a slot that hasn't been declared yet
+**When** they arrive
+**Then** they are stored and acknowledged, but not evaluated until the declaration arrives
+
+**Given** Orleans TestCluster tests
+**When** they run
+**Then** declaration, redeclaration, a changed Specification and undeclared-slot handling are covered
+
+### Story 4.7: Lot status and the Site overview
+
+As Simon over morning coffee,
+I want the overview to show each bed's status at a glance, honestly,
+So that I see what needs attention first and never mistake old data for current.
+
+**Acceptance Criteria:**
+
+**Given** the LotStatus projection (AD-14)
+**When** it computes each Lot
+**Then** it returns exactly one of `needsWater`, `needsCalibration`, `ok`, `unknown`, `paused`, `noNode`, using precedence noNode > paused > unknown > needsCalibration > needsWater > ok, plus `statusSince`, `lastReadingAt`, `unknownCause` and `pausedBy`
+**And** it orders Lots needsWater, needsCalibration, unknown, ok, paused, noNode
+
+**Given** the overview on web, iOS and Android
+**When** it renders
+**Then** every tile variant matches UX-DR17, UX-DR18 and UX-DR20 (shape, Carbon icon, text; never colour alone) in the Server's order
+**And** `unknown`, `paused` and `needsWater` render correctly from fixture rows; they become live in Epics 7, 8 and 5
+
+**Given** calibrating soil Sensors are uncalibrated at this point
+**When** a Node reports
+**Then** its Lot shows *needs calibration*, with no % value
+
+**Given** the Server can't be reached, or the data is older than the stale threshold
+**When** the overview renders
+**Then** the stale header and tile variant appear with "as of ‹time›", and no Reading is shown as current (UX-DR19, FR8)
+
+**Given** the largest text sizes
+**When** the grid renders
+**Then** it falls back to one column (UX-DR97), and each tile has a complete screen-reader label (UX-DR98)
+
+**Given** projection tests and UI snapshot tests
+**When** they run
+**Then** every precedence combination and every tile variant, in light and dark themes, is covered
+
+### Story 4.8: Lot detail with history and Device status
+
+As a Member,
+I want to open a Lot and see its latest Readings, a 30-day history and its Node's health,
+So that I understand what the bed has been doing.
+
+**Acceptance Criteria:**
+
+**Given** a Lot with a Node
+**When** I open Lot detail on any platform (UX-DR63)
+**Then** I see the hero with status, the latest Reading per Sensor (soil moisture raw and uncalibrated until Epic 5; °C, %RH, kΩ, each with its time), and the Node's battery %, charging status and last seen
+
+**Given** the 30-day History chart
+**When** it renders
+**Then** it shows daily lows from the Readings table, with a text alternative for screen readers (UX-DR98)
+**And** the Threshold band appears once Thresholds exist (Epic 5)
+
+**Given** Devices
+**When** I open it
+**Then** the "Nodes" section lists each Node by Lot, with battery, charging status and last seen (UX-DR30)
+
+**Given** history queries
+**When** the API serves them
+**Then** they take `from` and `to` and are cursor-paginated, and Readings are retained indefinitely (FR8)
+
+**Given** API contract tests and UI snapshot tests
+**When** they run
+**Then** Lot detail and Devices are covered for each state, in light and dark themes
+
+### Story 4.9: Move or unassign a Node
+
+As an Administrator,
+I want to move a Node to another Lot or unassign it,
+So that my garden layout can change without losing history.
+
+**Acceptance Criteria:**
+
+**Given** a Node on "Tomatoes"
+**When** I move it to "Peppers" from Devices (web or mobile, no BLE needed)
+**Then** the Device grain claims "Peppers", persists `DeviceMoved` and releases "Tomatoes" (the release is retried from persisted state until it succeeds) (AD-18)
+**And** the Node's Reading history stays with the Node, and "Tomatoes" shows *no Node* (FR2)
+
+**Given** the target Lot already holds a Node
+**When** I try to move a Node there
+**Then** the move is rejected, and nothing changes
+
+**Given** I unassign a Node
+**When** it is processed
+**Then** the Lot is released, the Node's later Readings are stored but not evaluated, and the Node appears as unassigned in Devices
+
+**Given** a Member
+**When** they open Devices
+**Then** move and unassign are not shown, the API rejects them with 403, and the endpoints are in the authorization matrix
+
+**Given** Orleans TestCluster tests
+**When** they run
+**Then** move, a concurrent move to the same Lot, a failed release retried, and unassign are covered
