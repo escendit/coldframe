@@ -172,7 +172,7 @@ grep -E 'panic|Exception|rst:|Guru|abort' hub.log     # C3: must be empty
 ### Phase 0 smoke test (2026-09-27, about 23 min)
 
 **Setup:**
-- Two ESP32-S3 boards (rev v0.2, 8 MB flash, eFuses untouched): Hub `Hub board` and Node `Node board`, about 1 m apart.
+- Two ESP32-S3 boards (rev v0.2, 8 MB flash, eFuses untouched), one as Hub and one as Node, about 1 m apart.
 - Firmware `655d413`, default Hub build (BLE on).
 - Router on channel 6, WPA2-Personal. The Hub's Wi-Fi signal was weak (RSSI −80 to −84 dBm).
 - `SPIKE_URL` was set, but the endpoint returned HTTP 405 to POST. That still measures TLS round trips.
