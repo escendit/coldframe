@@ -18,6 +18,7 @@ Node and Hub facts that bind firmware and hardware work. Evidence: PRD addendum 
 - **N-1:** only the sealed application acknowledgement counts as delivery. The radio-level send status is unreliable under coexistence (false failures were seen), so ignore it.
 - **N-2:** the acknowledgement window is **W = 300 ms** (AD-17). On expiry, resend; after repeated misses, re-scan channels. The spike measured re-discovery in about 0.6 s.
 - BLE advertising only in setup mode, entered by a **physical setup button** with a timeout. Continuous advertising breaks the energy budget.
+- **N-3, report now:** a **short press** of the setup button makes the Node take and send one Reading immediately, outside its 15-minute schedule. Calibration uses it, so it takes seconds instead of up to 15 minutes. A **long press** enters BLE setup mode. The exact press timings are decided in the Node epic.
 - Buffer at least 24 h of unacknowledged Readings: 96 per Sensor, a few KB. Keep them in RTC RAM (survives deep sleep) or flash (survives power loss; mind write wear). Batch resends.
 - No Wi-Fi on the Node. Keep wakes short, with a channel re-scan only on acknowledgement failure.
 - **Open:** BLE (setup mode) and ESP-NOW coexistence on the Node is not yet validated. The spike's Node ran ESP-NOW only. Validate it in the Node epic.

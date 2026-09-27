@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/escendit-design-system-019dfe5b-cbc3-7aa0-ad73-ca85bd27ed8f/colors_and_type.css">
+<script src="_ds/escendit-design-system-019dfe5b-cbc3-7aa0-ad73-ca85bd27ed8f/_ds_bundle.js"></script>
+<style>*{scrollbar-width:none}::-webkit-scrollbar{display:none}body{margin:0;background:#EBEBEB;font-family:'Ubuntu',system-ui,sans-serif}a{color:#CF5D00;text-decoration:none}a:hover{color:#9C4E00;text-decoration:underline}.dv-turn{padding:40px 44px 36px;border-bottom:1px solid #c6c6c6}.dv-thd{display:flex;align-items:baseline;gap:12px;margin:0 0 22px}.dv-tid{font:700 11px 'Ubuntu Mono',monospace;padding:3px 7px;background:#670FFF;color:#fefefe;text-decoration:none}.dv-tname{font:400 22px/1.2 'Ubuntu Condensed',sans-serif;color:#161616}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px}.dv-oid{font:700 11px 'Ubuntu Mono',monospace;padding:3px 7px;background:#d6d6d6;color:#161616;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 12px/1.3 'Ubuntu',sans-serif;color:#525252}</style>
+</helmet>
+
+<section class="dv-turn" id="intro" style="background:#FEFEFE;color:#161616">
+<div style="display:flex;flex-direction:column;gap:14px;max-width:900px">
+<div style="font:400 13px 'Ubuntu Mono',monospace;color:#4F00CF">COLDFRAME · DIRECTION C OF 3</div>
+<div style="font:400 56px/1 'Ubuntu Condensed',sans-serif">Brief</div>
+<div style="font:400 24px/1.4 'Quattrocento',serif;text-wrap:pretty">The app opens with a sentence, like a note from a neighbour: "Tomatoes and Cucumbers need water. Beans has gone quiet." Lots are grouped under their status word, and moisture is drawn as a soft ±5 % range on a dry→wet scale, not a precise number.</div>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:8px;font-size:13px;color:#525252">
+<div style="display:flex;flex-direction:column;gap:6px"><div style="position:relative;height:6px;background:#EBEBEB"><div style="position:absolute;left:30%;width:30%;top:0;bottom:0;background:#d6d6d6"></div><div style="position:absolute;left:15%;width:10%;top:-3px;bottom:-3px;background:#FF770F"></div></div>Range marker: where the soil is, ±5 %, over the Threshold band</div>
+<div style="display:flex;flex-direction:column;gap:6px"><div style="position:relative;height:6px;background:repeating-linear-gradient(90deg,#c6c6c6 0 3px,transparent 3px 6px)"></div>Unknown: the scale itself goes dotted. No marker is drawn</div>
+<div style="display:flex;flex-direction:column;gap:6px"><div style="position:relative;height:6px;background:#EBEBEB"><div style="position:absolute;left:15%;width:10%;top:-3px;bottom:-3px;outline:1.5px solid #8d8d8d;outline-offset:-1.5px"></div></div>Stale: markers become hollow outlines, and the sentence switches to past tense</div>
+</div>
+<div style="font-size:13px;color:#707070">Colour is secondary here: status is carried by the section a Lot sits in and by plain words. The brand gradient is kept for moments of arrival: sign-in, lock screen, "Hub is online".</div>
+</div>
+</section>
+
+<section class="dv-turn" id="t-core">
+<div class="dv-thd"><a class="dv-tid" href="#t-core">1–3</a><span class="dv-tname">Overview, Lot detail, Alerts</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C01"><div class="dv-olabel"><a class="dv-oid" href="#C01">C01</a>Site overview · light · 13 Lots, OK collapsed</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:54px 0 90px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);position:relative">
+<div style="padding:14px 20px 18px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #e0e0e0">
+<div style="font-size:12px;color:#525252">Sunday morning · Home garden · as of 07:03</div>
+<div style="font:400 28px/1.25 var(--esc-font-serif);text-wrap:pretty"><b>Tomatoes</b> and <b>Cucumbers</b> need water. Beans has gone quiet. The rest is fine.</div>
+</div>
+<div style="padding:14px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#CF5D00">NEEDS WATER · 2</div>
+<sc-for list="{{ water }}" as="l" hint-placeholder-count="2">
+<div style="padding:10px 20px;display:grid;grid-template-columns:1fr 130px;gap:12px;align-items:center;border-bottom:1px solid #EBEBEB">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:17px">{{ l.name }}</span><span style="font-size:12px;color:#525252">{{ l.sub }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="position:relative;height:6px;background:#EBEBEB"><div style="position:absolute;left:{{ l.bandL }};width:{{ l.bandW }};top:0;bottom:0;background:#d6d6d6"></div><div style="position:absolute;left:{{ l.mL }};width:10%;top:-3px;bottom:-3px;background:#FF770F"></div></div><div style="display:flex;justify-content:space-between;font-size:10px;color:#707070"><span>dry</span><span>{{ l.approx }}</span><span>wet</span></div></div>
+</div>
+</sc-for>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">UNKNOWN · 2</div>
+<sc-for list="{{ unknown }}" as="l" hint-placeholder-count="2">
+<div style="padding:10px 20px;display:grid;grid-template-columns:1fr 130px;gap:12px;align-items:center;border-bottom:1px solid #EBEBEB">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:17px">{{ l.name }}</span><span style="font-size:12px;color:#525252">{{ l.sub }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="height:6px;background:repeating-linear-gradient(90deg,#adadad 0 3px,transparent 3px 6px)"></div><div style="font-size:10px;color:#707070;text-align:center">{{ l.approx }}</div></div>
+</div>
+</sc-for>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#2F9C00">OK · 7</div>
+<div style="padding:8px 20px 12px;border-bottom:1px solid #EBEBEB;display:flex;flex-direction:column;gap:4px"><div style="font-size:15px;line-height:1.5">Lettuce, Herbs, Carrots, Onions, Kale, Zucchini, Chard</div><div style="font-size:12px;color:#525252">All between their Thresholds. Lettuce's Node battery is at 14 %. <a href="#C01">Show all</a></div></div>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">NOT WATCHED · 2</div>
+<div style="padding:8px 20px;display:flex;justify-content:space-between;font-size:15px;border-bottom:1px solid #EBEBEB"><span>Strawberries</span><span style="color:#4F00CF">paused until 1 Nov</span></div>
+<div style="padding:8px 20px;display:flex;justify-content:space-between;font-size:15px;border-bottom:1px solid #EBEBEB"><span>Potatoes</span><span style="color:#525252">no Node · <a href="#C14">add one</a></span></div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:82px;box-sizing:border-box;padding-top:8px;border-top:1px solid #e0e0e0;background:#FEFEFE;display:grid;grid-template-columns:repeat(4,1fr);font-size:11px">
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#4F00CF"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="doc" size="{{ 22 }}" hint-size="22px,22px"></x-import>Today</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#525252"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="bell" size="{{ 22 }}" hint-size="22px,22px"></x-import>Alerts</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#525252"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="package" size="{{ 22 }}" hint-size="22px,22px"></x-import>Devices</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#525252"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="settings" size="{{ 22 }}" hint-size="22px,22px"></x-import>Settings</div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C02"><div class="dv-olabel"><a class="dv-oid" href="#C02">C02</a>Site overview · dark · all fine day</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div class="dark" style="min-height:874px;box-sizing:border-box;padding:54px 0 90px;background:#1F1F1F;color:#f4f4f4;font-family:var(--esc-font-sans);position:relative">
+<div style="padding:14px 20px 18px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #393939">
+<div style="font-size:12px;color:#c6c6c6">Tuesday morning · Home garden · as of 07:01</div>
+<div style="font:400 28px/1.25 var(--esc-font-serif);text-wrap:pretty">Nothing needs water today. All 7 Nodes reported in the last 15 minutes.</div>
+</div>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#67FF0F">OK · 7</div>
+<sc-for list="{{ okLots }}" as="l" hint-placeholder-count="6">
+<div style="padding:10px 20px;display:grid;grid-template-columns:1fr 130px;gap:12px;align-items:center;border-bottom:1px solid #333333">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:17px">{{ l.name }}</span><span style="font-size:12px;color:#c6c6c6">{{ l.sub }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="position:relative;height:6px;background:#393939"><div style="position:absolute;left:{{ l.bandL }};width:{{ l.bandW }};top:0;bottom:0;background:#5C5C5C"></div><div style="position:absolute;left:{{ l.mL }};width:10%;top:-3px;bottom:-3px;background:#f4f4f4"></div></div><div style="display:flex;justify-content:space-between;font-size:10px;color:#adadad"><span>dry</span><span>{{ l.approx }}</span><span>wet</span></div></div>
+</div>
+</sc-for>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#adadad">NOT WATCHED · 1</div>
+<div style="padding:8px 20px;display:flex;justify-content:space-between;font-size:15px;border-bottom:1px solid #333333"><span>Potatoes</span><span style="color:#c6c6c6">no Node</span></div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:82px;box-sizing:border-box;padding-top:8px;border-top:1px solid #393939;background:#1F1F1F;display:grid;grid-template-columns:repeat(4,1fr);font-size:11px">
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#A778FF"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="doc" size="{{ 22 }}" hint-size="22px,22px"></x-import>Today</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#c6c6c6"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="bell" size="{{ 22 }}" hint-size="22px,22px"></x-import>Alerts</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#c6c6c6"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="package" size="{{ 22 }}" hint-size="22px,22px"></x-import>Devices</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:3px;color:#c6c6c6"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="settings" size="{{ 22 }}" hint-size="22px,22px"></x-import>Settings</div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C03"><div class="dv-olabel"><a class="dv-oid" href="#C03">C03</a>Lot detail · Tomatoes</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:54px 0 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans)">
+<div style="padding:8px 14px;display:flex;align-items:center;gap:2px;color:#4F00CF;font-size:15px"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="chevronLeft" size="{{ 20 }}" hint-size="20px,20px"></x-import>Today</div>
+<div style="padding:6px 20px 16px;display:flex;flex-direction:column;gap:8px">
+<div style="font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#CF5D00">TOMATOES · NEEDS WATER</div>
+<div style="font:400 28px/1.25 var(--esc-font-serif);text-wrap:pretty">The soil is at about 20 %. It went below your 30 % at 05:45.</div>
+</div>
+<div style="padding:0 20px 8px">
+<svg width="362" height="150" viewBox="0 0 362 150" style="display:block">
+<rect x="0" y="{{ chartC.bandY }}" width="362" height="{{ chartC.bandH }}" fill="#F4F4F4"></rect>
+<text x="4" y="{{ chartC.highTY }}" font-size="10" fill="#707070" font-family="Ubuntu">your range 30–60 %</text>
+<path d="{{ chartC.area }}" fill="#FFB078"></path>
+<circle cx="{{ chartC.lastX }}" cy="{{ chartC.lastY }}" r="4" fill="#CF5D00"></circle>
+<text x="0" y="148" font-size="10" fill="#707070" font-family="Ubuntu">30 days ago</text>
+<text x="330" y="148" font-size="10" fill="#707070" font-family="Ubuntu">now</text>
+</svg>
+<div style="font-size:12px;color:#525252">Shaded band = about ±5 %. Three waterings are visible as the jumps.</div>
+</div>
+<div style="margin-top:12px;border-top:1px solid #e0e0e0">
+<div style="padding:12px 20px;display:grid;grid-template-columns:1fr auto;gap:2px 12px;border-bottom:1px solid #EBEBEB"><span style="font-size:15px">Soil moisture</span><span style="font-size:15px">about 20 %</span><span style="font-size:12px;color:#707070">calibrated 12 Sep</span><span style="font-size:12px;color:#707070;text-align:right">07:02</span></div>
+<div style="padding:12px 20px;display:flex;justify-content:space-between;border-bottom:1px solid #EBEBEB;font-size:15px"><span>Temperature</span><span>14 °C</span></div>
+<div style="padding:12px 20px;display:flex;justify-content:space-between;border-bottom:1px solid #EBEBEB;font-size:15px"><span>Humidity</span><span>78 %</span></div>
+<div style="padding:12px 20px;display:flex;justify-content:space-between;border-bottom:1px solid #EBEBEB;font-size:15px"><span>Air quality (gas resistance)</span><span>142 kΩ</span></div>
+<div style="padding:12px 20px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid #EBEBEB"><span style="font-size:15px">Node N-07A1 · battery 62 %, charging</span><span style="font-size:12px;color:#525252">Last heard from at 07:02, as expected every 15 min.</span></div>
+</div>
+<div style="padding:16px 20px;display:flex;gap:16px;font-size:14px"><a href="#C18">Thresholds</a><a href="#C17">Calibration</a><a href="#C19">Pause</a></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C04"><div class="dv-olabel"><a class="dv-oid" href="#C04">C04</a>Alerts · plants vs equipment</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:54px 0 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans)">
+<div style="padding:14px 20px 16px;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:4px"><div style="font:400 34px/1.1 var(--esc-font-sans-condensed)">Alerts</div><div style="font-size:13px;color:#525252">5 open. Each Alert closes by itself when the cause is gone.</div></div>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#CF5D00">ABOUT YOUR PLANTS · THRESHOLD ALERTS</div>
+<sc-for list="{{ alertsT }}" as="a" hint-placeholder-count="2">
+<div style="padding:10px 20px;border-bottom:1px solid #EBEBEB;display:flex;flex-direction:column;gap:2px"><div style="display:flex;justify-content:space-between;gap:12px"><span style="font:400 19px var(--esc-font-serif)">{{ a.t }}</span><span style="font-size:12px;color:#707070">{{ a.at }}</span></div><span style="font-size:13px;color:#525252">{{ a.d }}</span></div>
+</sc-for>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">ABOUT THE EQUIPMENT · HEALTH ALERTS</div>
+<sc-for list="{{ alertsH }}" as="a" hint-placeholder-count="3">
+<div style="padding:10px 20px;border-bottom:1px solid #EBEBEB;display:flex;flex-direction:column;gap:2px"><div style="display:flex;justify-content:space-between;gap:12px"><span style="font:400 19px var(--esc-font-serif)">{{ a.t }}</span><span style="font-size:12px;color:#707070">{{ a.at }}</span></div><span style="font-size:13px;color:#525252">{{ a.d }}</span></div>
+</sc-for>
+<div style="padding:22px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#707070">CLOSED</div>
+<div style="padding:10px 20px;display:flex;flex-direction:column;gap:2px;color:#707070"><span style="font:italic 400 17px var(--esc-font-serif)">Herbs was too wet from Sat 18:20 until 06:40 today.</span><span style="font-size:12px">Closed automatically when the soil dropped to about 50 %.</span></div>
+</div>
+</x-import>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="t-push">
+<div class="dv-thd"><a class="dv-tid" href="#t-push">4–5 · 10</a><span class="dv-tname">Push notifications · Server unreachable · Paused Site</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C05"><div class="dv-olabel"><a class="dv-oid" href="#C05">C05</a>Lock screen · single Alert</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:100px 12px 24px;background:radial-gradient(farthest-corner at 5% 5%,#FF770F,#670FFF);color:#fefefe;font-family:-apple-system,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center">
+<div style="font-size:17px;font-weight:600">Sunday 27 September</div>
+<div style="font-size:92px;font-weight:700;line-height:1;margin-bottom:auto">08:02</div>
+<div style="width:100%;box-sizing:border-box;background:rgba(254,254,254,.92);color:#161616;border-radius:22px;padding:12px 14px;display:grid;grid-template-columns:38px 1fr;gap:10px;margin-bottom:120px">
+<div style="width:38px;height:38px;border-radius:9px;background:#FEFEFE;outline:1px solid #e0e0e0;display:flex;align-items:center;justify-content:center;font:400 22px 'Quattrocento';color:#4F00CF">C</div>
+<div style="display:flex;flex-direction:column;gap:1px"><div style="display:flex;justify-content:space-between;font-size:13px;color:#525252"><span>Coldframe</span><span>now</span></div><div style="font-size:15px;font-weight:600">Tomatoes needs water</div><div style="font-size:15px">The soil is at about 20 %. You asked to hear below 30 %.</div></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C06"><div class="dv-olabel"><a class="dv-oid" href="#C06">C06</a>Lock screen · morning summary</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:100px 12px 24px;background:radial-gradient(farthest-corner at 5% 5%,#FF770F,#670FFF);color:#fefefe;font-family:-apple-system,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center">
+<div style="font-size:17px;font-weight:600">Sunday 27 September</div>
+<div style="font-size:92px;font-weight:700;line-height:1;margin-bottom:auto">07:00</div>
+<div style="width:100%;box-sizing:border-box;background:rgba(254,254,254,.92);color:#161616;border-radius:22px;padding:12px 14px;display:grid;grid-template-columns:38px 1fr;gap:10px;margin-bottom:120px">
+<div style="width:38px;height:38px;border-radius:9px;background:#FEFEFE;outline:1px solid #e0e0e0;display:flex;align-items:center;justify-content:center;font:400 22px 'Quattrocento';color:#4F00CF">C</div>
+<div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;justify-content:space-between;font-size:13px;color:#525252"><span>Coldframe</span><span>07:00</span></div><div style="font-size:15px;font-weight:600">Good morning. Overnight in Home garden:</div>
+<div style="font-size:14px;line-height:1.45;display:flex;flex-direction:column"><span>Tomatoes needs water (about 20 %)</span><span>Cucumbers needs water (about 25 %)</span><span>Beans' Node has been silent for 6 h</span><span>Lettuce's Node battery is 14 %, not charging</span><span>Peppers' soil sensor needs calibration</span></div>
+<div style="font-size:12px;color:#525252;margin-top:2px">5 Alerts held since 22:00, sent together</div></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C07"><div class="dv-olabel"><a class="dv-oid" href="#C07">C07</a>Server unreachable · past tense</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:54px 0 24px;background:#F4F4F4;color:#161616;font-family:var(--esc-font-sans)">
+<div style="margin:10px 12px 0;background:#FEFEFE;outline:1px solid #e0e0e0;padding:12px 14px;display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252"><span>CAN'T REACH YOUR SERVER</span><span style="font-family:var(--esc-font-mono)">retry in 40 s</span></div><div style="font-size:13px;color:#525252">You're probably away from home, or the Server is off.</div></div>
+<div style="padding:18px 20px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #e0e0e0">
+<div style="font-size:12px;color:#525252">Home garden · <b style="color:#161616">last known 07:02, 2 h 12 min ago</b></div>
+<div style="font:italic 400 26px/1.3 var(--esc-font-serif);color:#474747;text-wrap:pretty">At 07:02, Tomatoes and Cucumbers needed water. That may have changed since.</div>
+</div>
+<div style="padding:14px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#707070">AT 07:02 · NEEDED WATER</div>
+<sc-for list="{{ water }}" as="l" hint-placeholder-count="2">
+<div style="padding:10px 20px;display:grid;grid-template-columns:1fr 130px;gap:12px;align-items:center;border-bottom:1px solid #e0e0e0;color:#525252">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:17px">{{ l.name }}</span><span style="font-size:12px">was {{ l.approx }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="position:relative;height:6px;background:#e0e0e0"><div style="position:absolute;left:{{ l.mL }};width:10%;top:-3px;bottom:-3px;outline:1.5px solid #8d8d8d;outline-offset:-1.5px"></div></div><div style="font-size:10px;color:#707070;text-align:center">07:02</div></div>
+</div>
+</sc-for>
+<div style="padding:14px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#707070">AT 07:02 · OK</div>
+<div style="padding:8px 20px 12px;font-size:15px;line-height:1.5;color:#525252">Lettuce, Herbs, Carrots, Onions, Kale, Zucchini, Chard</div>
+<div style="padding:14px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#707070">AT 07:02 · UNKNOWN</div>
+<div style="padding:8px 20px 12px;font-size:15px;line-height:1.5;color:#525252">Beans (silent since 01:05), Peppers (needs calibration)</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C08"><div class="dv-olabel"><a class="dv-oid" href="#C08">C08</a>Paused Site on the overview</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:54px 0 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans)">
+<div style="padding:14px 20px 18px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #e0e0e0">
+<div style="font-size:12px;color:#525252">Home garden</div>
+<div style="font:400 28px/1.25 var(--esc-font-serif);text-wrap:pretty">Home garden is <span style="color:#4F00CF">paused for the winter</span> until 1 March. You won't get Alerts until then.</div>
+<div style="font-size:13px;color:#525252">Paused by Simon on 2 Nov. Nodes keep recording, but nothing is judged or sent.</div>
+<div style="display:flex"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="tertiary" size="sm" hint-size="130px,32px">Resume now</x-import></div>
+</div>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#4F00CF">PAUSED · 13</div>
+<div style="padding:8px 20px;font-size:15px;line-height:1.8;color:#525252">Tomatoes, Cucumbers, Beans, Peppers, Lettuce, Herbs, Carrots, Onions, Kale, Zucchini, Chard, Strawberries, Potatoes</div>
+</div>
+</x-import>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="t-hub">
+<div class="dv-thd"><a class="dv-tid" href="#t-hub">6</a><span class="dv-tname">Add a Hub · one question per screen</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C09"><div class="dv-olabel"><a class="dv-oid" href="#C09">C09</a>1 · Which Hub?</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Cancel</span><span style="font-size:12px;color:#707070">Add a Hub · 1 of 5</span></div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Which Hub is in front of you?</div>
+<div style="font-size:14px;color:#525252">Plug it in. While its LED blinks orange, it's waiting to be set up. Match the 4 characters on its label.</div>
+<div style="border-top:1px solid #e0e0e0">
+<div style="padding:14px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:17px">Hub <b>3F2A</b></span><span style="font-size:12px;color:#525252">very close · waiting for setup</span></div><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="chevronRight" size="{{ 20 }}" hint-size="20px,20px"></x-import></div>
+<div style="padding:14px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px;color:#707070"><span style="font-size:17px">Hub 91C0</span><span style="font-size:12px">further away · already belongs to "Allotment"</span></div>
+</div>
+<div style="font-size:12px;color:#707070">Still looking…</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C10"><div class="dv-olabel"><a class="dv-oid" href="#C10">C10</a>2 · Setup code</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" keyboard="{{ true }}" hint-size="402px,874px">
+<div style="box-sizing:border-box;padding:62px 20px 16px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Back</span><span style="font-size:12px;color:#707070">Add a Hub · 2 of 5</span></div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">What's the setup code?</div>
+<div style="font-size:14px;color:#525252">You saw it the first time Hub 3F2A booted, on its console or display. It proves the Hub is yours.</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.TextInput" label="Setup code" value="K7Q4-92M" hint-size="100%,72px"></x-import>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Continue</x-import>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C11"><div class="dv-olabel"><a class="dv-oid" href="#C11">C11</a>3–4 · Wi-Fi and Site</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Back</span><span style="font-size:12px;color:#707070">Add a Hub · 3 of 5</span></div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Which Wi-Fi should it join?</div>
+<div style="border-top:1px solid #e0e0e0">
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center"><span style="font-size:17px"><b>Novak-Home</b></span><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="check" size="{{ 20 }}" hint-size="20px,20px"></x-import></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;font-size:17px">Novak-IoT</div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px;color:#707070"><span style="font-size:17px">Guest-6</span><span style="font-size:12px">Can't be used: it only allows WPA3, which the Hub doesn't support yet.</span></div>
+</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.TextInput" label="Password" type="password" value="tomatoes-2026" hint-size="100%,72px"></x-import>
+<div style="font:400 22px/1.2 var(--esc-font-serif);margin-top:10px">Which garden is it for?</div>
+<div style="display:flex;gap:8px"><div style="padding:8px 14px;outline:2px solid #670FFF;outline-offset:-2px;font-size:14px">Home garden</div><div style="padding:8px 14px;outline:1px solid #c6c6c6;outline-offset:-1px;font-size:14px;color:#525252">+ New Site</div></div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Connect</x-import>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C12"><div class="dv-olabel"><a class="dv-oid" href="#C12">C12</a>5 · Progress</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:flex-end;font-size:12px;color:#707070">Add a Hub · 5 of 5</div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Setting up Hub 3F2A…</div>
+<div style="display:flex;flex-direction:column;gap:0;border-left:2px solid #e0e0e0;margin-left:6px">
+<div style="padding:8px 0 8px 16px;display:flex;flex-direction:column;gap:2px"><span style="font-size:16px">Talked to the Hub over Bluetooth</span><span style="font-size:12px;color:#2F9C00">done</span></div>
+<div style="padding:8px 0 8px 16px;display:flex;flex-direction:column;gap:2px"><span style="font-size:16px">Gave it the Wi-Fi details</span><span style="font-size:12px;color:#2F9C00">done</span></div>
+<div style="padding:8px 0 8px 14px;border-left:4px solid #670FFF;margin-left:-3px;display:flex;flex-direction:column;gap:2px"><span style="font-size:16px"><b>Joining Novak-Home</b></span><span style="font-size:12px;color:#4F00CF">in progress, 12 s</span></div>
+<div style="padding:8px 0 8px 16px;display:flex;flex-direction:column;gap:2px;color:#8d8d8d"><span style="font-size:16px">Saying hello to your Server</span><span style="font-size:12px">next</span></div>
+</div>
+<div style="font-size:13px;color:#525252">This usually takes under a minute.</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C13"><div class="dv-olabel"><a class="dv-oid" href="#C13">C13</a>Hub is online · or it isn't</div>
+<div style="display:flex;flex-direction:column;gap:16px">
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" height="{{ 440 }}" hint-size="402px,440px">
+<div style="min-height:440px;box-sizing:border-box;padding:80px 24px 24px;background:radial-gradient(farthest-corner at 5% 5%,#FF770F,#670FFF);color:#fefefe;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:10px">
+<div style="font:400 40px/1.15 var(--esc-font-serif)">Hub is online.</div>
+<div style="font-size:15px">Hub 3F2A is on Novak-Home and your Server can hear it. Next, give it a Node to listen to.</div>
+<div style="margin-top:auto;display:flex;gap:8px"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="secondary" size="md" hint-size="130px,40px">Add a Node</x-import><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="ghost" size="md" style="color:#fefefe" hint-size="80px,40px">Later</x-import></div>
+</div>
+</x-import>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" height="{{ 440 }}" hint-size="402px,440px">
+<div style="min-height:440px;box-sizing:border-box;padding:80px 24px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:10px">
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Novak-Home didn't accept the password.</div>
+<div style="font-size:14px;color:#525252">The Hub is fine and still waiting. Check the password (it's case-sensitive) and try again.</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.TextInput" label="Password" type="password" invalid="{{ true }}" invalid-text="Wrong password" value="tomatoes2026" hint-size="100%,88px"></x-import>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Try again</x-import>
+</div>
+</x-import>
+</div>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="t-node">
+<div class="dv-thd"><a class="dv-tid" href="#t-node">7–8</a><span class="dv-tname">Add a Node · Calibrate soil moisture</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C14"><div class="dv-olabel"><a class="dv-oid" href="#C14">C14</a>Node 1–2 · press the button, find it</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Cancel</span><span style="font-size:12px;color:#707070">Add a Node · 2 of 5</span></div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Press the setup button on the Node.</div>
+<div style="height:150px;background:repeating-linear-gradient(135deg,#F4F4F4 0 8px,#FEFEFE 8px 16px);outline:1px solid #e0e0e0;display:flex;align-items:center;justify-content:center;font:400 12px var(--esc-font-mono);color:#707070">photo: where the button is</div>
+<div style="font-size:14px;color:#525252">The one you pressed moves to the top and says so.</div>
+<div style="border-top:1px solid #e0e0e0">
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><span style="font-size:17px"><b>Node 7C19</b> <span style="font:400 13px var(--esc-font-sans-condensed);letter-spacing:.06em;color:#CF5D00">· YOU PRESSED THIS ONE</span></span><span style="font-size:12px;color:#525252">battery 91 % · measures soil, temperature, humidity, air</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><span style="font-size:17px">Node 2B04</span><span style="font-size:12px;color:#525252">battery 77 % · measures soil, temperature</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px;color:#707070"><span style="font-size:17px">Node 07A1</span><span style="font-size:12px">already in Tomatoes</span></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C15"><div class="dv-olabel"><a class="dv-oid" href="#C15">C15</a>Node 3–4 · code, which Lot</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Back</span><span style="font-size:12px;color:#707070">Add a Node · 4 of 5</span></div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.TextInput" label="Setup code for Node 7C19" value="R2VD-81KP" helper="Accepted" hint-size="100%,88px"></x-import>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Which bed is it in?</div>
+<div style="border-top:1px solid #e0e0e0">
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center"><span style="font-size:17px"><b>Potatoes</b></span><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="check" size="{{ 20 }}" hint-size="20px,20px"></x-import></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;font-size:17px;color:#4F00CF">+ A new Lot</div>
+</div>
+<div style="font-size:13px;color:#707070;line-height:1.5">Already watched by a Node, so not available: Tomatoes, Cucumbers, Beans, Peppers, Lettuce, Herbs, Carrots, Onions, Kale, Zucchini, Strawberries.</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Put it in Potatoes</x-import>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C16"><div class="dv-olabel"><a class="dv-oid" href="#C16">C16</a>Node 5 · meet your Sensors</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="font-size:15px;color:#4F00CF;text-align:right">Done</div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Potatoes is being watched.</div>
+<div style="font-size:14px;color:#525252">Node 7C19 sent its first Reading at 07:21.</div>
+<div style="border-top:1px solid #e0e0e0">
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><div style="display:flex;justify-content:space-between"><span style="font-size:16px">Soil moisture</span><span style="font-size:14px;color:#9C4E00">needs calibration</span></div><span style="font-size:12px;color:#525252">Until it's calibrated, Coldframe can't say whether Potatoes needs water.</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;font-size:16px"><span>Temperature</span><span>13 °C</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;font-size:16px"><span>Humidity</span><span>81 %</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;font-size:16px"><span>Air quality (gas)</span><span>156 kΩ</span></div>
+</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Calibrate now (2 minutes)</x-import>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C17"><div class="dv-olabel"><a class="dv-oid" href="#C17">C17</a>Calibrate · two steps on one page</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Cancel</span><span style="font-size:12px;color:#707070">Potatoes · soil moisture</span></div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Teach the probe what dry and wet mean.</div>
+<div style="display:grid;grid-template-columns:28px 1fr;gap:12px">
+<div style="width:28px;height:28px;background:#2F9C00;color:#fefefe;display:flex;align-items:center;justify-content:center"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="check" size="{{ 16 }}" hint-size="16px,16px"></x-import></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:16px">Hold it in dry soil</span><span style="font-size:13px;color:#525252">Recorded as dry at 07:24 (raw 812)</span></div>
+<div style="width:28px;height:28px;background:#670FFF;color:#fefefe;display:flex;align-items:center;justify-content:center;font:400 15px var(--esc-font-sans-condensed)">2</div>
+<div style="display:flex;flex-direction:column;gap:10px"><span style="font-size:16px"><b>Now put it in a glass of water</b></span><span style="font-size:13px;color:#525252">Up to the line on the probe. Wait for the number to settle.</span><div style="background:#F4F4F4;padding:14px;display:flex;justify-content:space-between;align-items:baseline"><span style="font:400 36px var(--esc-font-mono)">391</span><span style="font-size:12px;color:#2F9C00">settled</span></div><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Record wet</x-import></div>
+</div>
+<div style="margin-top:20px;padding:16px;outline:1px solid #e0e0e0;outline-offset:-1px;display:flex;flex-direction:column;gap:6px"><div style="font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#2F9C00">THEN · CONFIRMATION</div><div style="font:400 20px/1.3 var(--esc-font-serif)">Calibrated. Potatoes reads about 40 % right now.</div><div style="font-size:12px;color:#525252">Good to roughly ±5 %: enough to decide "water or not".</div></div>
+</div>
+</x-import>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="t-settings">
+<div class="dv-thd"><a class="dv-tid" href="#t-settings">9–12</a><span class="dv-tname">Thresholds · Pause · My notifications · Members, all written as sentences</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C18"><div class="dv-olabel"><a class="dv-oid" href="#C18">C18</a>Thresholds · sentence builder</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;justify-content:space-between;font-size:15px;color:#4F00CF"><span>Tomatoes</span><span>Save</span></div>
+<div style="font:400 26px/1.7 var(--esc-font-serif)">Tell me Tomatoes needs water when the soil drops below <span style="display:inline-block;min-width:64px;text-align:center;border-bottom:2px solid #670FFF;background:#F2EDFF;font-family:var(--esc-font-mono);font-size:24px">30 %</span>.</div>
+<div style="font:400 26px/1.7 var(--esc-font-serif);color:#474747">And that it's too wet above <span style="display:inline-block;min-width:64px;text-align:center;border-bottom:2px dashed #8d8d8d;font-family:var(--esc-font-mono);font-size:24px;color:#8d8d8d">60 %</span>.</div>
+<div style="font-size:13px;color:#525252;margin-top:-6px">Optional. <a href="#C18">Remove</a> to never hear "too wet". It has to stay above 30 %.</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px"><div style="position:relative;height:10px;background:#EBEBEB"><div style="position:absolute;left:30%;width:30%;top:0;bottom:0;background:#d6d6d6"></div><div style="position:absolute;left:15%;width:10%;top:-3px;bottom:-3px;background:#FF770F"></div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:#707070"><span>dry</span><span>today: about 20 %</span><span>wet</span></div></div>
+<div style="font-size:12px;color:#707070">Percent works because this probe was calibrated on 12 Sep.</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C19"><div class="dv-olabel"><a class="dv-oid" href="#C19">C19</a>Pause · sentence builder</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:18px">
+<div style="font-size:15px;color:#4F00CF">Cancel</div>
+<div style="font:400 26px/1.7 var(--esc-font-serif)">Pause <span style="display:inline-block;padding:0 6px;border-bottom:2px solid #670FFF;background:#F2EDFF">the whole Site</span> until <span style="display:inline-block;padding:0 6px;border-bottom:2px solid #670FFF;background:#F2EDFF">1 March 2027</span>.</div>
+<div style="display:flex;flex-direction:column;gap:8px;font-size:14px">
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span style="color:#707070">What:</span><span style="padding:4px 10px;outline:1px solid #c6c6c6;outline-offset:-1px">the Node on Tomatoes</span><span style="padding:4px 10px;outline:2px solid #670FFF;outline-offset:-2px">the whole Site</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span style="color:#707070">Until:</span><span style="padding:4px 10px;outline:2px solid #670FFF;outline-offset:-2px">a date</span><span style="padding:4px 10px;outline:1px solid #c6c6c6;outline-offset:-1px">I resume it</span></div>
+</div>
+<div style="font-size:14px;color:#525252;line-height:1.5">Every Lot will say "paused" instead of a status, and nobody on this Site gets Alerts. On 1 March everything switches back on and you'll get one summary.</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Pause Home garden</x-import>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C20"><div class="dv-olabel"><a class="dv-oid" href="#C20">C20</a>My notifications</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:16px">
+<div style="font-size:15px;color:#4F00CF">Settings</div>
+<div style="font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">MY NOTIFICATIONS · ONLY AFFECTS YOU</div>
+<div style="font:400 24px/1.7 var(--esc-font-serif)">Notify me from <span style="display:inline-block;padding:0 6px;border-bottom:2px solid #670FFF;background:#F2EDFF;font-family:var(--esc-font-mono);font-size:22px">07:00</span> to <span style="display:inline-block;padding:0 6px;border-bottom:2px solid #670FFF;background:#F2EDFF;font-family:var(--esc-font-mono);font-size:22px">22:00</span>. Anything at night waits for one morning summary.</div>
+<div style="background:#F2EDFF;padding:12px 14px;display:flex;flex-direction:column;gap:8px"><div style="font-size:14px">These times are in <b>Europe/Zurich</b>, detected from this phone. Is that right?</div><div style="display:flex;gap:8px"><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="sm" hint-size="110px,32px">Yes, confirm</x-import><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="ghost" size="sm" hint-size="90px,32px">Change</x-import></div></div>
+<div style="font:400 24px/1.7 var(--esc-font-serif)">If a Lot stays dry, remind me <span style="display:inline-block;padding:0 6px;border-bottom:2px solid #670FFF;background:#F2EDFF">once a day</span>.</div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid #e0e0e0;border-bottom:1px solid #e0e0e0"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:16px">Mute Home garden</span><span style="font-size:12px;color:#525252">You'll still see everything in the app.</span></div><div style="width:51px;height:31px;border-radius:16px;background:#d6d6d6;position:relative"><div style="position:absolute;left:2px;top:2px;width:27px;height:27px;border-radius:50%;background:#fefefe;box-shadow:0 1px 3px rgba(0,0,0,.2)"></div></div></div>
+<div style="font-size:12px;color:#707070">At most one notification per Lot per day, however long it stays dry.</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C21"><div class="dv-olabel"><a class="dv-oid" href="#C21">C21</a>Members · change a Role</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:62px 20px 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px;position:relative">
+<div style="font-size:15px;color:#4F00CF">Settings</div>
+<div style="font:400 30px/1.2 var(--esc-font-serif)">Who looks after Home garden</div>
+<div style="border-top:1px solid #e0e0e0">
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><span style="font-size:16px">Simon Novak <span style="color:#707070">(you)</span></span><span style="font-size:13px;color:#525252">Owner. The only one, so this can't change until there's another Owner.</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><span style="font-size:16px">Anna Meier</span><span style="font-size:13px;color:#525252">Member: sees everything, gets the same Alerts, changes nothing.</span></div>
+<div style="padding:12px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px;color:#707070"><span style="font-size:16px">ben@example.org</span><span style="font-size:13px">Invited as Administrator on 26 Sep, not accepted yet.</span></div>
+</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="tertiary" size="md" icon="add" style="width:100%" hint-size="100%,40px">Invite someone</x-import>
+<div style="position:absolute;left:0;right:0;bottom:0;background:#FEFEFE;box-shadow:0 -10px 30px rgba(0,0,0,.12);padding:20px 20px 40px;display:flex;flex-direction:column;gap:10px">
+<div style="font:400 20px var(--esc-font-serif)">Anna Meier's Role</div>
+<div style="padding:10px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px">Owner</span><span style="font-size:12px;color:#525252">everything, including Members</span></div>
+<div style="padding:10px 0;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px">Administrator</span><span style="font-size:12px;color:#525252">Devices, Thresholds, Calibration, Pause</span></div>
+<div style="padding:10px 0;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:15px"><b>Member</b></span><span style="font-size:12px;color:#525252">watch only</span></div><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Icon" name="check" size="{{ 20 }}" hint-size="20px,20px"></x-import></div>
+<div style="padding:6px 0;font-size:15px;color:#CF0003">Remove from Home garden</div>
+</div>
+</div>
+</x-import>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="t-first">
+<div class="dv-thd"><a class="dv-tid" href="#t-first">13</a><span class="dv-tname">First run</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C22"><div class="dv-olabel"><a class="dv-oid" href="#C22">C22</a>Sign in</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:140px 24px 40px;background:radial-gradient(farthest-corner at 5% 5%,#FF770F,#670FFF);color:#fefefe;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:16px">
+<div style="font:400 52px/1.05 var(--esc-font-serif)">Coldframe</div>
+<div style="font:400 22px/1.4 var(--esc-font-serif)">Water now, or not. Decided by your soil, not the forecast.</div>
+<div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
+<div style="background:#FEFEFE;color:#161616;padding:14px 16px;display:flex;flex-direction:column;gap:2px"><span style="font-size:12px;color:#525252">Your Server</span><span style="font-size:16px">coldframe.home.arpa</span></div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="secondary" size="lg" icon="arrowRight" style="width:100%" hint-size="100%,48px">Sign in</x-import>
+<div style="font-size:12px">Continues on your identity provider's page. Open source, and it all stays at home.</div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C23"><div class="dv-olabel"><a class="dv-oid" href="#C23">C23</a>Create your first Site</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" keyboard="{{ true }}" hint-size="402px,874px">
+<div style="box-sizing:border-box;padding:80px 20px 16px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);display:flex;flex-direction:column;gap:14px">
+<div style="font:400 30px/1.2 var(--esc-font-serif)">What do you call this garden?</div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.TextInput" label="Site name" value="Home garden" hint-size="100%,72px"></x-import>
+<div style="font-size:13px;color:#525252">We'll use <b>Europe/Zurich</b> for its times. <a href="#C23">Change</a></div>
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Create Site</x-import>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C24"><div class="dv-olabel"><a class="dv-oid" href="#C24">C24</a>Empty state</div>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="min-height:874px;box-sizing:border-box;padding:54px 0 24px;background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans)">
+<div style="padding:14px 20px 18px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #e0e0e0">
+<div style="font-size:12px;color:#525252">Home garden</div>
+<div style="font:400 28px/1.25 var(--esc-font-serif);text-wrap:pretty">Nothing is being measured yet, so there's nothing to report.</div>
+<div style="font-size:14px;color:#525252">Coldframe won't guess. Once a Node sends its first Reading, this page will tell you what it found.</div>
+</div>
+<div style="padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+<div style="display:grid;grid-template-columns:28px 1fr;gap:12px;align-items:start"><div style="width:28px;height:28px;background:#670FFF;color:#fefefe;display:flex;align-items:center;justify-content:center;font:400 15px var(--esc-font-sans-condensed)">1</div><div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:16px"><b>Add a Hub</b> to your Wi-Fi</span><x-import component-from-global-scope="EscenditDesignSystem_019dfe.Button" kind="primary" size="md" style="width:100%" hint-size="100%,40px">Add a Hub</x-import></div></div>
+<div style="display:grid;grid-template-columns:28px 1fr;gap:12px;color:#8d8d8d"><div style="width:28px;height:28px;outline:1px solid #c6c6c6;display:flex;align-items:center;justify-content:center;font:400 15px var(--esc-font-sans-condensed)">2</div><span style="font-size:16px">Put a Node in a Lot</span></div>
+<div style="display:grid;grid-template-columns:28px 1fr;gap:12px;color:#8d8d8d"><div style="width:28px;height:28px;outline:1px solid #c6c6c6;display:flex;align-items:center;justify-content:center;font:400 15px var(--esc-font-sans-condensed)">3</div><span style="font-size:16px">Calibrate its soil sensor</span></div>
+<div style="display:grid;grid-template-columns:28px 1fr;gap:12px;color:#8d8d8d"><div style="width:28px;height:28px;outline:1px solid #c6c6c6;display:flex;align-items:center;justify-content:center;font:400 15px var(--esc-font-sans-condensed)">4</div><span style="font-size:16px">Say when it should get water</span></div>
+</div>
+</div>
+</x-import>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="t-platforms">
+<div class="dv-thd"><a class="dv-tid" href="#t-platforms">+</a><span class="dv-tname">Android · Web app overview</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="C25"><div class="dv-olabel"><a class="dv-oid" href="#C25">C25</a>Android · Site overview</div>
+<x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" title="Home garden" hint-size="412px,892px">
+<div style="background:#FEFEFE;color:#161616;font-family:var(--esc-font-sans);min-height:100%">
+<div style="padding:4px 20px 18px;border-bottom:1px solid #e0e0e0;display:flex;flex-direction:column;gap:6px"><div style="font-size:12px;color:#525252">as of 07:03</div><div style="font:400 26px/1.25 var(--esc-font-serif)"><b>Tomatoes</b> and <b>Cucumbers</b> need water. Beans has gone quiet.</div></div>
+<div style="padding:14px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#CF5D00">NEEDS WATER · 2</div>
+<sc-for list="{{ water }}" as="l" hint-placeholder-count="2">
+<div style="padding:10px 20px;display:grid;grid-template-columns:1fr 130px;gap:12px;align-items:center;border-bottom:1px solid #EBEBEB">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:17px">{{ l.name }}</span><span style="font-size:12px;color:#525252">{{ l.sub }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="position:relative;height:6px;background:#EBEBEB;border-radius:3px"><div style="position:absolute;left:{{ l.bandL }};width:{{ l.bandW }};top:0;bottom:0;background:#d6d6d6"></div><div style="position:absolute;left:{{ l.mL }};width:10%;top:-3px;bottom:-3px;background:#FF770F;border-radius:6px"></div></div><div style="display:flex;justify-content:space-between;font-size:10px;color:#707070"><span>dry</span><span>{{ l.approx }}</span><span>wet</span></div></div>
+</div>
+</sc-for>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">UNKNOWN · 2</div>
+<sc-for list="{{ unknown }}" as="l" hint-placeholder-count="2">
+<div style="padding:10px 20px;display:flex;flex-direction:column;gap:1px;border-bottom:1px solid #EBEBEB"><span style="font-size:17px">{{ l.name }}</span><span style="font-size:12px;color:#525252">{{ l.sub }}</span></div>
+</sc-for>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#2F9C00">OK · 7</div>
+<div style="padding:8px 20px 12px;font-size:15px;line-height:1.5">Lettuce, Herbs, Carrots, Onions, Kale, Zucchini, Chard</div>
+<div style="padding:16px 20px 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">NOT WATCHED · 2</div>
+<div style="padding:8px 20px 12px;font-size:15px;line-height:1.5">Strawberries (paused) · Potatoes (no Node)</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="C26"><div class="dv-olabel"><a class="dv-oid" href="#C26">C26</a>Web app · overview · 1440</div>
+<div style="width:1440px;border:1px solid #c6c6c6">
+<x-import component-from-global-scope="EscenditDesignSystem_019dfe.AppShell" header="{{ webHeader }}" side-nav="{{ webNav }}" side-nav-footer="{{ webNavFoot }}" height="{{ 860 }}" hint-size="1440px,860px">
+<div style="padding:40px 56px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;font-family:var(--esc-font-sans);color:#161616;background:#FEFEFE;min-height:100%;box-sizing:border-box">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="font-size:13px;color:#525252">Sunday 27 September · Home garden · as of 07:03</div>
+<div style="font:400 40px/1.25 var(--esc-font-serif);text-wrap:pretty"><b>Tomatoes</b> and <b>Cucumbers</b> need water. Beans has gone quiet. The rest is fine.</div>
+<div style="padding:18px 0 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">ALSO WORTH KNOWING</div>
+<div style="font-size:15px;line-height:1.7">Lettuce's Node battery is at 14 % and not charging. Peppers' soil sensor still needs calibration. Strawberries is paused until 1 Nov. Potatoes has no Node.</div>
+</div>
+<div style="display:flex;flex-direction:column">
+<div style="padding:0 0 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#CF5D00">NEEDS WATER · 2</div>
+<sc-for list="{{ water }}" as="l" hint-placeholder-count="2">
+<div style="padding:12px 0;display:grid;grid-template-columns:1fr 240px;gap:16px;align-items:center;border-bottom:1px solid #EBEBEB">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:18px">{{ l.name }}</span><span style="font-size:13px;color:#525252">{{ l.sub }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="position:relative;height:8px;background:#EBEBEB"><div style="position:absolute;left:{{ l.bandL }};width:{{ l.bandW }};top:0;bottom:0;background:#d6d6d6"></div><div style="position:absolute;left:{{ l.mL }};width:10%;top:-3px;bottom:-3px;background:#FF770F"></div></div><div style="display:flex;justify-content:space-between;font-size:11px;color:#707070"><span>dry</span><span>{{ l.approx }}</span><span>wet</span></div></div>
+</div>
+</sc-for>
+<div style="padding:22px 0 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#525252">UNKNOWN · 2</div>
+<sc-for list="{{ unknown }}" as="l" hint-placeholder-count="2">
+<div style="padding:12px 0;display:grid;grid-template-columns:1fr 240px;gap:16px;align-items:center;border-bottom:1px solid #EBEBEB">
+<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:18px">{{ l.name }}</span><span style="font-size:13px;color:#525252">{{ l.sub }}</span></div>
+<div style="display:flex;flex-direction:column;gap:4px"><div style="height:8px;background:repeating-linear-gradient(90deg,#adadad 0 3px,transparent 3px 6px)"></div><div style="font-size:11px;color:#707070;text-align:center">{{ l.approx }}</div></div>
+</div>
+</sc-for>
+<div style="padding:22px 0 4px;font:400 13px var(--esc-font-sans-condensed);letter-spacing:.08em;color:#2F9C00">OK · 7</div>
+<sc-for list="{{ okLots }}" as="l" hint-placeholder-count="6">
+<div style="padding:8px 0;display:grid;grid-template-columns:1fr 240px;gap:16px;align-items:center;border-bottom:1px solid #EBEBEB">
+<span style="font-size:15px">{{ l.name }}</span>
+<div style="position:relative;height:8px;background:#EBEBEB"><div style="position:absolute;left:{{ l.bandL }};width:{{ l.bandW }};top:0;bottom:0;background:#d6d6d6"></div><div style="position:absolute;left:{{ l.mL }};width:10%;top:-3px;bottom:-3px;background:#474747"></div></div>
+</div>
+</sc-for>
+</div>
+</div>
+</x-import>
+</div>
+</div>
+
+</div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const mk=(name,v,low,high,sub)=>({name,sub,approx:'about '+v+' %',mL:(v-5)+'%',bandL:low+'%',bandW:(high-low)+'%'});
+const SER=[44,41,38,35,33,52,49,46,43,40,37,34,31,55,51,48,45,42,39,36,33,30,50,46,43,39,35,31,24,20];
+function chartC(){const w=362,h=138,y=v=>h-(v/80)*h,dx=w/(SER.length-1);
+const up=SER.map((v,i)=>`${(i*dx).toFixed(1)},${y(v+5).toFixed(1)}`),dn=SER.map((v,i)=>`${(i*dx).toFixed(1)},${y(v-5).toFixed(1)}`).reverse();
+return{area:'M'+up.join(' L')+' L'+dn.join(' L')+' Z',bandY:y(60),bandH:y(30)-y(60),highTY:y(60)+12,lastX:w-4,lastY:y(20)};}
+class Component extends DCLogic{
+renderVals(){return{
+water:[mk('Tomatoes',20,30,60,'below 30 % since 05:45'),mk('Cucumbers',25,30,60,'below 30 % since 06:30')],
+unknown:[{name:'Beans',sub:'Node silent for 6 h. Last heard 01:05.',approx:'no Reading for 6 h'},{name:'Peppers',sub:'Soil sensor needs calibration',approx:'not calibrated'}],
+okLots:[mk('Lettuce',45,30,70,'Node battery 14 %, not charging'),mk('Herbs',35,25,55,'07:02'),mk('Carrots',50,30,65,'07:00'),mk('Onions',40,25,60,'07:01'),mk('Kale',55,35,70,'07:02'),mk('Zucchini',40,30,65,'06:59'),mk('Chard',45,30,65,'07:00')],
+chartC:chartC(),
+alertsT:[{t:'Tomatoes needs water',at:'05:45',d:'About 20 %, below your 30 %.'},{t:'Cucumbers needs water',at:'06:30',d:'About 25 %, below your 30 %.'}],
+alertsH:[{t:"The Node on Beans has been silent for 6 h",at:'01:05',d:'Last Reading 01:05. Check its battery or distance to the Hub.'},{t:"Lettuce's Node battery is 14 %, not charging",at:'Sat',d:'The solar panel may be shaded or dirty.'},{t:"Peppers' soil sensor needs calibration",at:'Fri',d:"Until then Coldframe can't tell if Peppers needs water."}],
+webHeader:{appName:'Coldframe',markSrc:'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%23670FFF%22/%3E%3C/svg%3E',userInitials:'SN',nav:[{label:'Home garden',current:true},{label:'Allotment'}]},
+webNav:[{label:'Today',icon:'doc',current:true},{label:'Alerts · 5',icon:'bell'},{label:'Devices',icon:'package'},{label:'Members',icon:'user'}],
+webNavFoot:[{label:'Settings',icon:'settings'}]
+};}}
+</script>
+</body>
+</html>

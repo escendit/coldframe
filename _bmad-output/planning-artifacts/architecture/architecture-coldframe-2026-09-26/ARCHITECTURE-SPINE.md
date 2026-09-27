@@ -127,6 +127,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - Every deadline (Notification Window opening, next Reminder, Pause end, Silence Window expiry) is stored in the owning grain's state as a UTC `due-at`.
   - An Orleans Reminder is only a wake-up. On every wake **and** every activation, the grain processes **all** overdue deadlines. Reminder periods are at least 1 minute.
   - Silence is measured from `max(last accepted report, last Server start, last resume)`, so time the Server was down never counts as Device silence.
+  - **Time is injected:** every grain, projector and the Notifier read time only from .NET `TimeProvider`, never `DateTime.Now`, so tests drive every deadline with `FakeTimeProvider`.
 
 ### AD-7 — Alert evaluation, identity, and delivery
 
@@ -151,6 +152,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
     - It owns every Reminder deadline, one per Alert. The interval resolves User → Site (cached from Site events) → default of once per day. Health Alerts use `max(resolved, 24 h)`.
     - *How* to notify goes through one **Notifier seam** (APNs, FCM, and SignalR via AD-14), which contains no timing or filtering logic.
     - Push payloads are self-contained: Lot, Sensor or Device, and condition in plain words, readable without reaching the Server (FR-15).
+    - Every delivery is sent **≤ 1 min** after it falls due. The Notifier records `dueAt` and `sentAt` as a structured log field and an OpenTelemetry metric.
   - **Defaults:**
     - Notification Window 07:00–22:00
     - Silence Window: Node 6 h, Hub 5 min
@@ -246,7 +248,11 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 - **Binds:** FR-8, FR-15, FR-19, FR-20
 - **Prevents:** protocol or status logic duplicated across clients, tokens exposed to the browser, and a browser that cannot authenticate to SignalR.
 - **Rule:**
-  - **Status is computed once, on the Server,** as a read model exposed through OpenAPI. `LotStatus ∈ {needsWater, ok, unknown, paused, noNode}`, with `statusSince`, `lastReadingAt`, and the FR-8 sort order.
+  - **Status is computed once, on the Server,** as a read model exposed through OpenAPI. `LotStatus ∈ {needsWater, needsCalibration, ok, unknown, paused, noNode}`, with `statusSince`, `lastReadingAt`, and the FR-8 sort order.
+    - Precedence, when several apply: `noNode` > `paused` > `unknown` > `needsCalibration` > `needsWater` > `ok`.
+    - `needsCalibration`: the Lot's Node has a `calibration: true` soil-moisture Sensor without Calibration (an open CAP-21 Alert).
+    - Sort order: `needsWater`, `needsCalibration`, `unknown`, `ok`, `paused`, `noNode`.
+    - Supporting fields, also computed by the Server so clients never derive them: `unknownCause ∈ {node, hub}` (whether the Node or its relay Hub is silent) and `pausedBy ⊆ {device, site}` (from AD-8).
     - `needsWater`: an open low-side Threshold Alert on a soil-moisture Sensor of the Lot's Node.
     - `unknown`: an open Silent Alert on the Node or on its relay Hub.
   - **Clients only render.** Their own logic is limited to transport staleness: data age and Server unreachable.
@@ -261,7 +267,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 - **Binds:** NFR-1, NFR-3, NFR-7, NFR-8
 - **Prevents:** state stranded in pods, unreproducible installs, secrets in Git, and unrecoverable data loss on a single node.
 - **Rule:**
-  - **Platform:** single-node RKE2, with Fleet pulling the Helm charts in `deploy/`. The Compose file is a reference example only. Environments are local (Aspire AppHost, dev only) and the reference deployment; there is no staging.
+  - **Platform:** single-node RKE2, with Fleet pulling the Helm charts in `deploy/`. The Compose file is a reference example only. Environments are local (Aspire AppHost, for development and as the Server integration-test host via `Aspire.Hosting.Testing`; it generates no deployment artifacts) and the reference deployment; there is no staging.
   - **State:** Server pods are stateless. All durable state lives in one CloudNativePG cluster, with separate databases for Server/Orleans, Temporal, and Keycloak. JetStream is disposable.
   - **Backups:** CNPG backups (Barman Cloud) with WAL archiving go to an adopter-provided S3-compatible target off the node. Restore is documented and tested. After a restore, the Server advances every Device's replay window by a safety margin (AD-17).
   - **Secrets:** Kubernetes Secrets with fixed names and keys, listed in `deploy/`, created by the adopter out of band. Charts never template secret values. Nothing secret is in Git.
@@ -343,20 +349,23 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - **CI and images:** CI runs on GitHub Actions, and images are published to `ghcr.io/escendit/coldframe/<component>`, multi-arch where supported.
   - **Versioning:** one SemVer per release tag across the monorepo, and the Helm chart appVersion equals that tag.
   - **Firmware:** released as binaries per tag and flashed over USB in V1.
-  - **Mobile:** adopters build the mobile apps from source, with their own push credentials.
+  - **Mobile:** adopters build the mobile apps from source, with their own push credentials. The Server URL and Keycloak issuer are **build-time configuration** baked into each app build; the apps have no field to enter or change them.
   - **Wire compatibility:** a wire-major bump (AD-10) ships only in a release whose Server still accepts the previous major.
 
 ### AD-24 — Test obligations that guard the contracts
 
 - **Binds:** NFR-6, AD-4, AD-10, AD-12, AD-21
 - **Prevents:** contract drift and authorization regressions that the single field-tested Site would never reveal.
-- **Rule:** These CI checks gate every merge:
+- **Rule:** Development is **test-first**: each story's acceptance criteria become failing tests before implementation. Server integration tests run on the Aspire AppHost through `Aspire.Hosting.Testing`. Firmware is tested host-side only, with hardware behind traits; there are no on-device tests in CI, and hardware is verified manually against a checklist. These CI checks gate every merge:
   - the generated authorization matrix (AD-4)
   - crypto test vectors in Rust and C# (AD-12)
   - Protobuf and OpenAPI/AsyncAPI compatibility checks against the previous release (AD-10)
   - golden Hub JSON fixtures (AD-10)
   - a replay of all events against a fixture journal (AD-21)
-  - Orleans grain tests for every AD-7 and AD-8 transition, using the test cluster
+  - Orleans grain tests for every AD-7 and AD-8 transition, using the test cluster, with `FakeTimeProvider` (AD-6)
+  - Server and end-to-end tests exercise the Device path through one **Device simulator** test library in `tests/cs`, built on `packages/proto` and `packages/crypto-spec` (enrol, seal frames, sign heartbeats, verify downlinks), never through hand-built payloads
+  - Firmware logic depends only on one **HAL-trait crate** (`packages/rs/hal`: radio, eFuse, HMAC, flash, ADC, RTC, GPIO), with mock implementations for host-side tests
+  - Assertions that notification delivery is ≤ 1 min after due (AD-7)
   - BLE setup session test vectors in Rust and Kotlin (AD-25)
 
 ### AD-25 — BLE setup protocol: custom, proof-of-possession secured
@@ -413,7 +422,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 | SvelteKit / Svelte | 2.70.3 / 5.57.1 |
 | @escendit/sveltekit-auth-keycloak + @escendit/sveltekit-session | 0.1.0-rc.12 |
 | Kotlin / Kable / kotlin-multiplatform-oidc | 2.4.20 / 0.45.0 / 0.18.3 |
-| Aspire (dev AppHost) | 13.5.4 |
+| Aspire (dev AppHost + `Aspire.Hosting.Testing`) | 13.5.4 |
 | RKE2 (stable channel) | v1.36.4+rke2r1 |
 | Ingress | RKE2-bundled Traefik |
 | cert-manager | 1.21.2 |
@@ -526,16 +535,19 @@ coldframe/
     asyncapi/                # SignalR messages + push payloads
     crypto-spec/             # labels, algorithms, nonce layout, test vectors
     rs/protocol/ rs/crypto/  # generated Protobuf, key derivation, sealing
+    rs/hal/                  # hardware traits (radio, eFuse, HMAC, flash, ADC, RTC, GPIO) + mocks
     cs/                      # grain interfaces, event contracts, generated types
     kt/core/                 # KMP shared core
     ts/api-client/           # generated TS client
-  aspire/                    # local dev AppHost
+  tests/                     # all tests, mirroring apps/ and packages/ by language
+    cs/  rs/  kt/  swift/  ts/  # e.g. tests/cs/server.integration, tests/rs/protocol, tests/ts/web.e2e
+  aspire/                    # local dev AppHost + integration-test host
   deploy/                    # Helm charts + Fleet bundles, Secret manifest list, Compose example
   hardware/                  # Node/Hub schematics, PCB, enclosure
   docs/                      # adopter build guide, learning reference
 ```
 
-`apps/` holds runtimes and `packages/` holds what they reference: language-neutral contracts in their own folders, shared code split by language. The top level holds everything that is not code.
+`apps/` holds runtimes and `packages/` holds what they reference. **All tests live in `tests/`**, mirroring the language split, never inside `apps/` or `packages/`. **Exception:** Rust unit tests stay inline next to the code (`#[cfg(test)]` modules), as Rust idiom expects. Rust integration tests and all other languages' tests go in `tests/`: language-neutral contracts in their own folders, shared code split by language. The top level holds everything that is not code.
 
 ## Capability → Architecture Map
 

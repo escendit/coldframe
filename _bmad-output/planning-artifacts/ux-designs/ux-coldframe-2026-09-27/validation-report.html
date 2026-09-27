@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: Coldframe</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; background: rgba(120, 113, 108, 0.1); padding: 0 3px; border-radius: 3px; }
+  .severity-totals { display: flex; gap: 10px; flex-wrap: wrap; margin: -8px 0 24px; font-size: 13px; }
+  .severity-totals .badge { font-size: 12px; padding: 4px 10px; }
+  .finding-status { margin-top: 8px; font-size: 13px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .status-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+  .status-approved { color: #15803d; }
+  .status-open { color: var(--muted); }
+  .finding-status-note { color: var(--muted); }
+  .reviewer-counts { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="report-header">
+      <div class="title">
+        <h1>Coldframe — UX Design Validation Report</h1>
+        <div class="subtitle">/var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/DESIGN.md<br>/var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/EXPERIENCE.md</div>
+      </div>
+    </header>
+    <div class="synthesis">
+      <p>The pair is a usable contract. Every colour token has a hex value and light/dark pairs, every <code>{path}</code> reference resolves, all five spec journeys have a Key Flow with a protagonist and a climax, and the Lot-status and stale-data rules are specified well enough to build from without guessing. Most of the gaps are at the seams. Several components are specified in only one spine, or under different names in each. <code>DESIGN.md</code> still describes direction B's live-BLE calibration panel, which the memlog dropped in favour of stored-Reading calibration. Sign-in errors, notification-permission denial and calibration failures have no specified states. The rubric walker found no criticals and five highs to fix before epics are cut from these spines.</p>
+      <p>The two extra reviewers make the picture more serious. The accessibility review finds that the spines <em>do not yet meet the agreed floor</em>, though the fixes need no structural redesign. The DS orange fails as focus ring (1.00:1 on every orange surface), as the primary-button background under white text (2.64:1) and as light-theme text or selection. The "pattern" half of "text + pattern" is too low-contrast to see. Dynamic Type, zoom and live announcements are under-specified. The spec-consistency review returns <em>pass with changes</em>. It finds one critical gap: Members are never asked for notification permission, so UJ-5 fails. It also finds seven highs, several of which need a spec or AD decision rather than a UX edit: the Node "report now" button, the post-Calibration value versus AD-9, adding a Device to a paused Site, invitations, the unknown-cause and pause-source fields, and orange on non-water Threshold Alerts.</p>
+      <p><strong>Resolution status.</strong> The user approved fixing every Critical and High finding. Named resolutions: dark ink <code>#0A0A0A</code> on orange buttons, deviating from the Escendit DS until the fix lands upstream; the Node setup-button short press ("report now") becomes a Node firmware requirement; invitations stay purely Phase Two; <code>LotStatus</code> gains server-computed <code>unknownCause</code> and <code>pausedBy</code>; notification permission is requested on the first Site overview. These fixes are being applied to the spines now. Medium and Low findings stay open and do not block epics.</p>
+    </div>
+    <div class="severity-totals">
+      <span class="badge badge-sev-critical">critical 3</span>
+      <span class="badge badge-sev-high">high 19</span>
+      <span class="badge badge-sev-medium">medium 39</span>
+      <span class="badge badge-sev-low">low 40</span>
+      <span style="color: var(--muted); align-self: center;">101 findings across 3 reviewers · Critical/High: resolution approved — being applied · Medium/Low: open, non-blocking</span>
+    </div>
+    <div class="dimension-summary">
+      <div class="dim-card">
+        <div class="dim-name">Flow coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Token completeness</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Component coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">State coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Visual reference coverage</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Bloat &amp; overspecification</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Inheritance discipline</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Shape fit</div>
+        <div class="dim-verdict" style="color: var(--verdict-strong)">strong</div>
+      </div>
+    </div>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Flow coverage <span class="reviewer-counts">3 medium · 3 low</span></h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked UJ-1…UJ-5 from <code>specs/spec-coldframe/user-journeys.md</code>, UJ-6 (added in UX), and the CAP-1…21 intents in <code>SPEC.md</code>. All six journeys have a named protagonist, numbered steps and a bold <strong>Climax</strong> beat. UJ-1 and UJ-5 have failure paths, UJ-2 has an edge case and UJ-3 a variant. UJ-4 and UJ-6 have neither.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">CAP-10 (set/change/remove Thresholds) has no Key Flow</h3>
+              <span class="finding-location">EXPERIENCE.md §Key Flows UJ-1</span>
+            </header>
+            <div class="finding-note">UJ-2 relies on "your low is 30 %", but no flow shows the Thresholds screen being reached, the default proposal (Min + 20 % × range) or saving. The first-run step tile 4 "Set a low Threshold" has no flow. UJ-1 ends at the Notification Window (step 9).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a step to UJ-1 after the Calibration climax (Thresholds opened from the confirmation, proposed low accepted, Save), or add a short flow.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">UJ-4 has no failure or edge path</h3>
+              <span class="finding-location">EXPERIENCE.md §UJ-4</span>
+            </header>
+            <div class="finding-note">Not covered: a Member trying to pause, a Device added while the Site is paused ("start paused", CAP-18), an automatic resume at the end date. Step 1 allows "Until left empty (or 1 Mar)", but the step 3 climax only shows "Paused until 1 Mar".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Pick one example path and add an edge line for the automatic resume on the end date.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">UJ-6 has no failure path</h3>
+              <span class="finding-location">EXPERIENCE.md §UJ-6</span>
+            </header>
+            <div class="finding-note">UJ-6 covers the admin actions most likely to be rejected: removing a Lot that holds a Node, demoting the last Owner, moving a Node onto an occupied Lot.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a "Failure:" line that points to the existing validation copy in State Patterns.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">CAP-14, CAP-17 and CAP-9 recalibration have no flow</h3>
+              <span class="finding-location">EXPERIENCE.md §Component Patterns &quot;Calibration reference point&quot;</span>
+            </header>
+            <div class="finding-note">Low battery, mute and recalibration ("changes only new Readings") appear only in component rows and notification payloads. That is acceptable for V1, but recalibration from Lot detail is a path no flow covers.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Optional one-line variant under UJ-1.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">UJ-1 step 7 relies on the Node "report now" button</h3>
+              <span class="finding-location">EXPERIENCE.md §UJ-1 step 7</span>
+            </header>
+            <div class="finding-note">The button is tagged <code>[ASSUMPTION]</code> pending the Node epic. The main path should read correctly without it.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Write the step as "waits for the next Reading (≤ 15 min)" and treat the button as an optional shortcut.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span> <span class="finding-status-note">Related: the approved Spec-consistency H-1 resolution makes the button a Node firmware requirement.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">UJ-5 step 2 contradicts the web-only Accept invitation</h3>
+              <span class="finding-location">EXPERIENCE.md §IA &quot;Accept invitation&quot; vs §UJ-5</span>
+            </header>
+            <div class="finding-note">UJ-5 step 2 says "the app opens on Home's overview", but IA marks Accept invitation as web-only <code>[ASSUMPTION]</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Say "the web app opens…" or resolve the assumption.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span> <span class="finding-status-note">Related: invitations stay purely Phase Two (approved Spec-consistency H-5 resolution).</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Token completeness <span class="reviewer-counts">1 high · 3 medium · 3 low</span></h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked 77 colour tokens, 14 typography roles, rounded, 21 spacing tokens and 38 component token groups in DESIGN.md frontmatter, plus every <code>{path.to.token}</code> reference in both spines. A script found 0 unresolved references. All colours have hex values. The rule "tokens without a <code>-dark</code> twin are identical in both themes" is stated and holds on inspection. Contrast targets are stated for tile text and non-text borders.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">calibration-live-value "steady" text is green at about 1.9:1</h3>
+              <span class="finding-location">DESIGN.md L343–346, L456</span>
+            </header>
+            <div class="finding-note"><code>steady: {colors.support-success}</code> (<code>#48CF00</code>) is used as <strong>text</strong> ("steady for 5 s, ready to record") on <code>layer-01</code> <code>#F4F4F4</code>. In the light theme that is well below 4.5:1. The component itself is obsolete (see Component coverage).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Remove the token group together with the component. If a "fresh Reading arrived" text colour is still needed, use a text-safe token (for example <code>text-primary</code> plus a Carbon checkmark icon).</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">confirm-panel border is yellow on white (about 1.4:1)</h3>
+              <span class="finding-location">DESIGN.md L357, L402</span>
+            </header>
+            <div class="finding-note"><code>{colors.support-warning}</code> <code>#FFCB0F</code> on <code>#FEFEFE</code> is below 3:1 for non-text. DESIGN.md Colors itself says yellow-500 cannot be read on white.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Point it to <code>{colors.status-calibration-border}</code> / <code>-dark</code>, or add a <code>confirm-border</code> light/dark pair.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">outcome-screen-error eyebrow red fails as text (about 3.3:1)</h3>
+              <span class="finding-location">DESIGN.md L372, L462</span>
+            </header>
+            <div class="finding-note"><code>{colors.support-error}</code> <code>#FF454B</code> is used as small uppercase text on <code>#FEFEFE</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a light-theme <code>support-error-text</code> token (DS red-600/700) with a dark twin.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">button-primary is white on orange (about 2.7:1) while other orange surfaces use ink</h3>
+              <span class="finding-location">DESIGN.md L296, L322, L365, L399</span>
+            </header>
+            <div class="finding-note">The button is declared DS-owned <code>[ASSUMPTION]</code>, but <code>segmented-choice</code> and <code>first-run-step-tile</code> put <code>ink-on-bright</code> on the same orange. So the most frequent CTA is the one orange surface that fails 4.5:1, and the two treatments conflict.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Record the DS button contrast as an explicit exception, or use <code>ink-on-bright</code> on the button label.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span> <span class="finding-status-note">The approved Accessibility C2 resolution (dark ink <code>#0A0A0A</code> on orange buttons) covers this.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Stated contrast figures are optimistic</h3>
+              <span class="finding-location">DESIGN.md L399, L407</span>
+            </header>
+            <div class="finding-note"><code>#0A0A0A</code> on <code>#FF770F</code> computes to about 7.4:1, not "8.2:1" or "≈ 8:1". Pass/fail is unchanged.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Correct the figures.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">primary-active has no -dark twin</h3>
+              <span class="finding-location">DESIGN.md L38–40</span>
+            </header>
+            <div class="finding-note"><code>primary-hover</code> has a <code>-dark</code> twin and <code>primary-active</code> does not, so hover and active diverge in the dark theme.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add <code>primary-active-dark</code> or say that it is intentionally shared.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Unreferenced tokens</h3>
+              <span class="finding-location">DESIGN.md frontmatter</span>
+            </header>
+            <div class="finding-note">Nothing references <code>layer-02</code>/<code>-dark</code>, <code>support-info</code>, <code>typography.tile-name</code> (named in prose without braces), <code>body-lg</code>, <code>spacing.tile-padding-web</code> or <code>rounded.DEFAULT</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Reference <code>tile-name</code> and <code>tile-padding-web</code> as <code>{…}</code> in Layout &amp; Spacing / Components; keep or drop the rest.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Component coverage <span class="reviewer-counts">2 high · 3 medium · 1 low</span></h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked 24 DESIGN.md Components entries (plus the <code>app-header-web</code> token group) against 27 EXPERIENCE.md Component Patterns rows, plus components named in IA, State Patterns and Key Flows. The main problems are a stale calibration component, navigation surfaces with no visual spec, and components that have different names in the two spines.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">DESIGN still specifies the dropped live-BLE calibration</h3>
+              <span class="finding-location">DESIGN.md L343–346, L456; EXPERIENCE.md L97</span>
+            </header>
+            <div class="finding-note">DESIGN.md "Calibration live value" ("LIVE RAW VALUE", "steady for 5 s, ready to record", citing B-plots-4/5) specifies the <strong>live-BLE</strong> calibration that the memlog dropped. EXPERIENCE.md specifies "Calibration reference point" on stored Readings. The two spines describe incompatible screens. There is no visual spec for the waiting state, the recent-Readings list or the "~% ±5 %" confirmation.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace the DESIGN component with "Calibration reference point": a waiting panel (last raw value and time, "Waiting for the next Reading"), selectable recent-Reading rows, and the confirmation block. Drop the "steady" semantics.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Devices list, Site menu and Site switcher have no visual spec</h3>
+              <span class="finding-location">EXPERIENCE.md IA L35, L42; §UJ-4 step 1; §Component Patterns L90</span>
+            </header>
+            <div class="finding-note">These are central to navigation. The <strong>Devices list / Device row</strong> is a main tab with row actions and a swipe reveal. The <strong>Site menu</strong> is the entry point for Site Pause and Resume in UJ-4. The <strong>Site switcher</strong> is an IA surface. Neither Site menu nor Site switcher has a behavioural row in EXPERIENCE.md either.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add DESIGN entries for Device row (Hub vs Node, silent and paused treatments). Add a Site menu / Site switcher row to both spines, covering the mobile sheet and the web AppHeader Site tabs.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Components specified only for behaviour, with no DESIGN visual spec</h3>
+              <span class="finding-location">DESIGN.md Components; EXPERIENCE.md State Patterns L129</span>
+            </header>
+            <div class="finding-note">Setup code field (including the "accepted" chip), Pause sheet, Invite form, Mute toggle (native, acceptable), Theme switcher (covered implicitly by Segmented choice), skeleton tile (cold start).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add one-line DESIGN entries for the setup-code chip, Pause sheet chrome and skeleton tile. The rest can point to DS or native components.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Components specified only visually, with no EXPERIENCE behavioural row</h3>
+              <span class="finding-location">EXPERIENCE.md Component Patterns</span>
+            </header>
+            <div class="finding-note">First-run step tiles (what a Member sees on an empty Site, whether completed steps disappear), Outcome screens (covered only indirectly by the BLE error table), Sign-in surface (field validation, Keycloak hand-off, return), Buttons, Text input, Navigation (the Alerts count badge rule appears only in IA prose).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add rows at least for First-run step tiles, Sign-in surface and Outcome screens.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">The spines name the same components differently</h3>
+              <span class="finding-location">DESIGN.md Components vs EXPERIENCE.md Component Patterns</span>
+            </header>
+            <div class="finding-note">"Alert rows" / "Alert row"; "Confirm panel" / "Time-zone confirm panel"; "Selectable tile" / "Device candidate tile" + "Lot picker"; "Step counter + setup progress" / "Setup flow shell" + "Setup progress"; "Notification Window bar" / "Notification Window control"; "Calibration live value" / "Calibration reference point".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use one canonical name per component in both files and in the frontmatter keys. Where one visual serves several behaviours, say so in the DESIGN entry.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Setup flow shell step count is wrong for Calibrate</h3>
+              <span class="finding-location">EXPERIENCE.md L91</span>
+            </header>
+            <div class="finding-note">"Setup flow shell" applies "NN / 05" to Calibrate, but Calibrate has two steps (dry and wet, B16 "STEP 1 OF 2").</div>
+            <div class="finding-fix"><strong>Fix:</strong> State the step count for each flow.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>State coverage <span class="reviewer-counts">2 high · 2 medium · 2 low</span></h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked every IA surface for empty, cold-load, loading, error, offline/stale, permission-denied and role-gated states. The overview, Lot detail (per status), Alerts, BLE setup errors, stale/unreachable and Member read-only are well covered.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Sign in has no error states</h3>
+              <span class="finding-location">EXPERIENCE.md §IA &quot;Sign in&quot;; §State Patterns</span>
+            </header>
+            <div class="finding-note">Not covered: Server address unreachable or mistyped, TLS or certificate failure (NFR-10, AD-13 real domain), not on the home network (NFR-1), Keycloak cancelled or failed, token expired after sign-in. Every user sees this surface first, and it is the most likely place to fail when away from home.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a "Sign-in and session" block to State Patterns with copy for each case, in the style of the BLE table.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Notification permission denied or revoked is not handled</h3>
+              <span class="finding-location">EXPERIENCE.md §Notifications &quot;Permission&quot;; §State Patterns</span>
+            </header>
+            <div class="finding-note">The notification is the whole value of Coldframe. With permission denied, the product fails without any visible sign, which contradicts "silence never looks fine".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a state for My notifications and a persistent inline notice on the overview ("Notifications are off for Coldframe on this phone — you won't get Alerts." with Open Settings).</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span> <span class="finding-status-note">Approved together with Spec-consistency C-1: permission is requested on the first Site overview.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Calibrate failure states are missing</h3>
+              <span class="finding-location">EXPERIENCE.md L97</span>
+            </header>
+            <div class="finding-note">Not covered: no Reading arrives (the Node goes silent during calibration), the wet raw value is too close to the dry value or on the wrong side of it, the flow is resumed after the Node was moved.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add rows: timeout copy after, say, 20 min pointing to the Silent Node state, and a validation message for "dry and wet are too close".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Accept invitation covers only the off-network case</h3>
+              <span class="finding-location">EXPERIENCE.md §UJ-5 Failure</span>
+            </header>
+            <div class="finding-note">Not specified: invitation expired or revoked, already a Member, signed in with a different account than the invited email.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add rows.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Missing empty or cold-load states</h3>
+              <span class="finding-location">EXPERIENCE.md §State Patterns</span>
+            </header>
+            <div class="finding-note">Devices with no Devices (Member on a new Site), Lot detail and Alerts cold load, Site switcher with a single Site, Members with only yourself, invite email send failure (SMTP).</div>
+            <div class="finding-fix"><strong>Fix:</strong> One row each, or a general cold-load rule that applies to every surface.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Lot detail chart for a new Node is only implied</h3>
+              <span class="finding-location">EXPERIENCE.md L86</span>
+            </header>
+            <div class="finding-note">For a Node added less than 30 days ago, the chart's behaviour is only implied by "Days without Readings are gaps".</div>
+            <div class="finding-fix"><strong>Fix:</strong> State that the chart shows the days so far and gives no "no data" warning for days before the Node existed.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Visual reference coverage <span class="reviewer-counts">1 medium · 2 low</span></h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked <code>imports/</code>: 3 HTML directions, 18 PNG captures and <code>escendit-ds/</code> (README, CSS). DESIGN.md Brand &amp; Style links all 23 files, so there are no orphans. B-plots-1…7 are also cited inline at the relevant Components. Both spines state that the spine wins on conflict.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Citations point to superseded screens without a warning</h3>
+              <span class="finding-location">DESIGN.md L454, L456–457</span>
+            </header>
+            <div class="finding-note">B-plots-4 and B-plots-5 are cited as the model for "Calibration live value" but show the dropped live-BLE flow. B-plots-3 shows an "ALREADY SET UP" Hub tile that the spine forbids (AD-25).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Annotate at the citation, for example "(B16–B17 show live BLE — superseded by stored-Reading calibration)" and "(ignore 'Already set up' tile, AD-25)".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">EXPERIENCE.md links captures only once</h3>
+              <span class="finding-location">EXPERIENCE.md L19</span>
+            </header>
+            <div class="finding-note">Captures are linked only as a block in Foundation ("[1]–[7]"). Key Flows and Component Patterns never point to the frame that illustrates them.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add inline "→ B-plots-n (B09–B12)" pointers in the Key Flows.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">A and C captures are bare numbers</h3>
+              <span class="finding-location">DESIGN.md L392</span>
+            </header>
+            <div class="finding-note">They have no description of what each shows. This is acceptable because those directions were rejected.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Optional.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Bloat &amp; overspecification <span class="reviewer-counts">1 medium · 2 low</span></h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>DESIGN.md prose is tight and every paragraph carries a decision. The editorial voice in Brand &amp; Style is appropriate. EXPERIENCE.md is mostly tables.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">The IA "Closure notes" are stale</h3>
+              <span class="finding-location">EXPERIENCE.md L50 vs §UJ-6</span>
+            </header>
+            <div class="finding-note">The notes say Devices, Site settings, Site switcher, Appearance and browser notifications have no journey and are "not invented further". UJ-6 now covers exactly those surfaces.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Delete the paragraph or replace it with "Covered by UJ-6 (UX-added; see §7)".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Foundation and Notifications restate architecture</h3>
+              <span class="finding-location">EXPERIENCE.md L15–17, L237, L256</span>
+            </header>
+            <div class="finding-note">They repeat content from the architecture: the KMP path <code>packages/kt/core</code>, SignalR invalidation, AD-7 Server-side timing, the counter-metric.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Reduce to one-line AD citations.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">A flow is written into a table cell</h3>
+              <span class="finding-location">EXPERIENCE.md L97</span>
+            </header>
+            <div class="finding-note">The "Calibration reference point" cell is a whole flow written as one paragraph.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Move the step sequence to a Key Flow variant and keep only the rules in the row.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Inheritance discipline <span class="reviewer-counts">1 medium · 2 low</span></h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Checked that the <code>sources</code> paths resolve. UJ-1…UJ-5 titles are verbatim. Glossary terms (Lot, Node, Hub, Reading, Threshold, Alert, Reminder, Notification Window, Silence Window, Pause, Membership) are capitalised and used consistently. The one EXPERIENCE token reference (<code>{colors.focus}</code>) and the component name <code>lot-tile-stale</code> resolve.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">UJ-6 exists only in EXPERIENCE.md</h3>
+              <span class="finding-location">EXPERIENCE.md §UJ-6; spec user-journeys.md</span>
+            </header>
+            <div class="finding-note"><code>user-journeys.md</code> still lists only UJ-1…UJ-5, although the other UX-driven upstream changes were propagated. Epics built from the spec will not see UJ-6.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add UJ-6 to <code>user-journeys.md</code> with CAP refs (CAP-2, 6, 7, 12, 13, 20), or mark it in EXPERIENCE.md as "UX-only, pending spec update".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Terms not in the glossary</h3>
+              <span class="finding-location">EXPERIENCE.md UJ-3 step 1 and others</span>
+            </header>
+            <div class="finding-note">"Silent Alert", "Uncalibrated" push/Alert, "Admin+", "Garden" (tab label for the Site overview), "Site menu". The glossary defines only "Health Alert", with three causes.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use "Health Alert (silent)" or add the sub-kind names to the glossary. Define "Admin+" once as "Administrator or Owner".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Green and orange usage rules have undeclared exceptions</h3>
+              <span class="finding-location">DESIGN.md L403 vs L94–95, L405; L362, L398</span>
+            </header>
+            <div class="finding-note">Green "only confirms a finished setup step", but <code>chart-band</code> is a green tint on data surfaces. Orange is used decoratively for the member-tile "you" initials, despite "never for decoration".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add the chart band to the green rule and make the member initials neutral, or list both as exceptions.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Shape fit <span class="reviewer-counts">1 low</span></h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>DESIGN.md sections are in canonical order. EXPERIENCE.md has all required defaults. The sections that are required when applicable are present and triggered (Responsive &amp; Platform; Inspiration &amp; Anti-patterns). The invented sections (Notifications, Internationalization) earn their place.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Frontmatter status and description</h3>
+              <span class="finding-location">EXPERIENCE.md frontmatter</span>
+            </header>
+            <div class="finding-note">EXPERIENCE.md frontmatter has no <code>description</code>. Neither spine's <code>status: draft</code> reflects the user acceptance recorded in the memlog.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Set the status when finalizing.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Accessibility review <span class="reviewer-counts">2 critical · 7 high · 12 medium · 8 low</span></h2>
+          <span class="reviewer-source">review-accessibility.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p><strong>Verdict: does not yet meet the agreed floor. Fixable without structural redesign.</strong> The review checked against the floor agreed in the memlog (Dynamic Type, font scale and browser zoom; full screen-reader labels; status never by colour alone, meaning text + pattern; DS contrast) plus WCAG 2.2 AA where it matters. It computed contrast from the frontmatter hex values in both themes and simulated colour-vision deficiency (Machado 2009, CIE76 ΔE).</p>
+            <p>The behaviour spine is strong. Screen-reader labels are written per status, stale data gets a text marker, reduced motion is covered, errors do not auto-dismiss, and nothing depends on hover. The problems are concentrated in three areas. First, orange in the light theme: the DS orange is 2.64:1 on white and 1.00:1 as a focus ring on every orange surface. Second, the "pattern" half of "text + pattern" cannot be seen, so without colour and text the 7 tile states collapse into 4 visual groups. Text still tells them apart, so the letter of the floor holds. Third, fixed-aspect tiles conflict with Dynamic Type and zoom, and there is no announcement policy. The full contrast tables and suggested token changes are in the review file.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C1. The focus ring cannot be seen on orange surfaces and fails in the light theme</h3>
+              <span class="finding-location">DESIGN.md focus; EXPERIENCE.md Accessibility Floor, Interaction Primitives</span>
+            </header>
+            <div class="finding-note">The orange ring is 1.00:1 on the needs-water tile, primary buttons, the Threshold Alert row, the selected segment and the first-run "next" tile, and 2.64 / 2.42 on white / layer-01. A keyboard user cannot see focus on the tile the product exists to show (WCAG 2.4.7, 1.4.11).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use a two-tone focus indicator: new <code>focus-inner</code> <code>#161616</code> / <code>focus-inner-dark</code> <code>#F4F4F4</code>, a 2 px outline plus a 2 px background gap. Keep orange only as an optional outer accent. Never let the sticky AppHeader or tab bar hide focus (2.4.11, <code>scroll-padding-top</code>).</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C2. The primary button label is white on orange (2.64:1; hover 3.34 / 2.33; active 4.32)</h3>
+              <span class="finding-location">DESIGN.md button-primary.foreground; Colors [ASSUMPTION] &quot;DS-owned&quot;</span>
+            </header>
+            <div class="finding-note">Every primary action fails 1.4.3 (SIGN IN, SEND INVITE, Record dry, Save, PAUSE HOME GARDEN…). The 14 px label does not qualify for the large-text exemption. Calling it "DS-owned" does not make it pass, and segmented choice and first-run tiles already use ink on orange.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Set <code>button-primary.foreground</code> to <code>{colors.ink-on-bright}</code> (7.45 / 5.87 / 4.55). Raise the change upstream in <code>escendit/branding</code> and override locally until then. No white text on orange anywhere.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span> <span class="finding-status-note">Approved resolution: dark ink <code>#0A0A0A</code> on orange buttons, a recorded deviation from the Escendit DS until the fix lands upstream.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H1. Light-theme orange fails as text or as a state indicator</h3>
+              <span class="finding-location">button-ghost, links, step-counter, navigation selected, segmented-choice, selectable-tile, wifi-network-row</span>
+            </header>
+            <div class="finding-note">Orange text is 2.64 on white and 2.42 on layer-01. The step counter fails even as large text. Selected tab, segment, tile and row show selection only by a low-contrast colour change (1.4.1, 1.4.11).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add <code>primary-text</code> <code>#B84A00</code> (light) / <code>#FF770F</code> dark on background. Use it for ghost buttons, links, step counter, selected nav and low line. Add a non-colour selection cue (checkmark, M3 indicator pill, filled icon) and expose the selected state to screen readers.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H2. The "pattern" half of "text + pattern" cannot be seen; states collapse into 4 shapes</h3>
+              <span class="finding-location">status-hatch-a/b, status-ok-*, DESIGN.md Shapes and Colors claim</span>
+            </header>
+            <div class="finding-note">Hatch 1.20 / 1.31, OK fill 1.09, OK border 1.31 (1.00 in dark, because the border equals the fill). unknown and needsCalibration have identical shapes, noNode matches them once the hatch disappears, and ok and stale are both 1 px solid. The claim "tile borders and hatch vs background ≥ 3:1" is false.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Draw the hatch as 1.5 px <code>#8D8D8D</code> lines over layer-01, with a solid plate behind text. OK border <code>#8D8D8D</code>. Give each status a distinct shape and add one Carbon status icon per status. Correct the Colors claim.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H3. Tile foot line and helper text over the soil fill or hatch fail contrast</h3>
+              <span class="finding-location">DESIGN.md tile anatomy</span>
+            </header>
+            <div class="finding-note">text-helper on <code>#E0E0E0</code> is 3.75, and on dark <code>#525252</code> 3.48. The 12 px foot line carries load-bearing data (Reading time, low Threshold, "as of 07:02").</div>
+            <div class="finding-fix"><strong>Fix:</strong> Specify tile text per status: <code>text-primary</code> for name and value, <code>text-secondary</code> for the foot line. Lower the dark level to <code>#474747</code>. Add a CI rule in <code>packages/design-tokens</code> checking every tile text token against every surface it can overlap.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H4. Setup progress is shown by colour alone, and the colours merge under deuteranopia</h3>
+              <span class="finding-location">DESIGN.md setup-progress; EXPERIENCE.md Setup progress</span>
+            </header>
+            <div class="finding-note">Done vs active is 1.29:1 (ΔE 7 under deutan). Pending layer-01 on white is 1.09. Done green on white is 2.04.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Put an icon and text on every segment, give pending segments a <code>border-strong</code> outline, add <code>setup-done</code> <code>#2E7D00</code> for light, and expose the progress as one element with value text.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H5. The history chart cannot be read in the light theme</h3>
+              <span class="finding-location">chart-bar, chart-bar-below-low, chart-band, history-chart.low-line</span>
+            </header>
+            <div class="finding-note">Bars vs background are 1.69, below-low vs normal bar 1.56, band vs background 1.03, low line on band 2.56. Only the text summary survives.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use <code>chart-bar</code> <code>#8D8D8D</code> and <code>chart-bar-below-low</code> <code>#B84A00</code> with a non-colour cue, draw the low line 2 px in <code>primary-text</code>, and treat the band as decorative. Use <code>#8D8D8D</code> for the dark bars.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H6. Fixed-aspect tiles conflict with Dynamic Type, font scale and 200 % zoom / reflow</h3>
+              <span class="finding-location">DESIGN.md Layout; EXPERIENCE.md Accessibility Floor, Responsive, i18n</span>
+            </header>
+            <div class="finding-note">At AX5 or 200 % font scale, the tile content cannot fit a 2-up or even a 1-up square. On a 320 CSS px web view, tiles are about 140 px. A fixed aspect ratio clips text-only zoom and text spacing (1.4.4, 1.4.10, 1.4.12).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Make square a minimum, not a fixed size, or switch to 1 column at a defined text-size threshold. Decide this as a rule and drop the <code>[ASSUMPTION]</code>. Use rem-based web tiles and 1 column below 400 CSS px.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H7. No announcement or live-region policy for things that change while the user waits</h3>
+              <span class="finding-location">EXPERIENCE.md Setup progress, Calibration reference point, Device candidate tile, Stale header</span>
+            </header>
+            <div class="finding-note">A blind user hears nothing as setup advances, when Record dry becomes available, when stale mode starts or ends, or when a candidate appears. An unscoped live region on the ticking age would spam them (4.1.3).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an Announcements table (polite, assertive, never announce), move focus to the headline on screen change, and name the platform APIs.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M1. Error eyebrow red fails as text</h3>
+              <span class="finding-location">support-error</span>
+            </header>
+            <div class="finding-note"><code>#FF454B</code> text is 3.36 light and 4.47 dark.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add <code>support-error-text</code> <code>#DA1E28</code> / <code>#FF8389</code>. Keep <code>#FF454B</code> for borders. Show an error icon beside the reason and connect the reason with <code>aria-describedby</code>.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M2. Assorted non-text borders below 3:1</h3>
+              <span class="finding-location">status-calibration-border, border-strong-dark, confirm panel</span>
+            </header>
+            <div class="finding-note">Calibration dash on hatch-a 2.78, dark input border 2.30, confirm panel yellow 1.51.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use <code>#7A6800</code>, <code>#8D8D8D</code> and <code>#9C8400</code> respectively.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M3. The soil level and low-Threshold tick do not show "how dry"</h3>
+              <span class="finding-location">status-ok-level, water-level, low tick</span>
+            </header>
+            <div class="finding-note">Levels are 1.20–1.51 and the tick over the level is 2.51. The Brand claim does not hold for low vision.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Draw a 2 px top edge (<code>status-level-edge</code>) and make the tick 2 × 12 px in text-secondary.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M4. Disabled states hide the reason, and disabled controls are hard to discover</h3>
+              <span class="finding-location">selectable-tile.disabled-foreground; stale-mode admin actions</span>
+            </header>
+            <div class="finding-note">Reason text ("HAS A NODE", WPA3 message) is drawn at 1.69. Disabled web buttons are not focusable, so the reason is never reached.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Dim only the name and draw the reason in text-secondary. Use <code>aria-disabled</code> or an accessibility hint, or a single inline notice.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M5. Gaps in the screen-reader labels</h3>
+              <span class="finding-location">EXPERIENCE.md State Patterns</span>
+            </header>
+            <div class="finding-note">Missing: the OK-tile Health condition, the HUB SILENT variant, the full stale label, the button role, merging each tile into one element, the headline as a heading, and "Alerts, 5 open".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add these labels, built from externalized, pluralised strings.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M6. The chart needs more than a summary sentence</h3>
+              <span class="finding-location">EXPERIENCE.md History chart</span>
+            </header>
+            <div class="finding-note">The "tap/drag a bar" tooltip has no keyboard or screen-reader equivalent.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a data-table or list alternative, Audio Graphs, focusable or adjustable bars, arrow-key navigation, spoken gaps, and a labelled Sensor picker.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M7. The time-limit policy cannot be implemented as written</h3>
+              <span class="finding-location">EXPERIENCE.md Accessibility Floor</span>
+            </header>
+            <div class="finding-note">The app cannot detect whether a screen reader is reading. The real timeouts come from the hardware.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Separate device-imposed from app-imposed timeouts. App-imposed waits never end the flow. A retry keeps what the user entered. State a firmware minimum for the Node setup window (for example ≥ 3 min).</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M8. The live candidate list reorders under the finger and the screen-reader cursor</h3>
+              <span class="finding-location">EXPERIENCE.md Device candidate tile</span>
+            </header>
+            <div class="finding-note">"Strongest first" while the list keeps scanning makes items jump.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Sort only on first display, then keep insertion order. Use a text badge for "PRESSED JUST NOW" and announce politely.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M9. Truncation contradicts the floor</h3>
+              <span class="finding-location">EXPERIENCE.md i18n vs Accessibility Floor</span>
+            </header>
+            <div class="finding-note">"Wrap to two lines, then truncate" conflicts with "no truncated controls or clipped values".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Allow truncation below accessibility sizes only, and never truncate status labels.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M10. Small condensed type carries critical data</h3>
+              <span class="finding-location">DESIGN.md status-label, meta-mono</span>
+            </header>
+            <div class="finding-note">The status word is 13 px condensed uppercase, and the foot line is 12 px.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use at least 14 px for the status label and 13 px meta-mono on tiles. No Ubuntu Condensed below 14 px.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M11. No plan for forced colours or high contrast</h3>
+              <span class="finding-location">DESIGN.md / EXPERIENCE.md</span>
+            </header>
+            <div class="finding-note">Windows forced-colors removes the hatch and fills, so the needs-water tile looks like every other tile. iOS and Android contrast settings are not addressed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a <code>forced-colors</code> block, honour Differentiate Without Color and Increase Contrast, and mark fills and charts to be ignored by colour inversion.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M12. Web structure basics are missing</h3>
+              <span class="finding-location">EXPERIENCE.md Responsive / Web</span>
+            </header>
+            <div class="finding-note">No skip link, landmarks, per-route title, lang attribute, modal focus trap, focus on route change, tablist semantics or list semantics for the grid.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add them to EXPERIENCE.md.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L1. "~", "—", "+", "h"/"min" in push bodies</h3>
+              <span class="finding-location">EXPERIENCE.md Notifications</span>
+            </header>
+            <div class="finding-note">Push bodies are read raw ("tilde twenty percent").</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use "about 20 %" in notification bodies, or accept the loss knowingly.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L2. Target sizes</h3>
+              <span class="finding-location">DESIGN.md field-height</span>
+            </header>
+            <div class="finding-note">40 px web fields do not meet the stated 44 px floor, although they pass WCAG 2.5.8.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Align the floor or use 48 px. Specify hit areas for icons, chips, drag handles and segments.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L3. Gesture alternatives</h3>
+              <span class="finding-location">EXPERIENCE.md Device row swipe, pull-to-refresh</span>
+            </header>
+            <div class="finding-note">Swipe-to-Pause and pull-to-refresh need alternatives.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add custom actions and a Refresh menu item. Give the Threshold drag Slider semantics.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L4. Marginal passes that will fail after rounding</h3>
+              <span class="finding-location">Dark no-node border, border-strong, chart bar, paused border</span>
+            </header>
+            <div class="finding-note">Values are 3.01–3.14, and 4.57 for text-secondary on <code>#525252</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use <code>#8D8D8D</code> for dark dashed and neutral borders and <code>#9A66FF</code> for the dark paused border.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L5. Contrast claims in DESIGN.md are inaccurate</h3>
+              <span class="finding-location">DESIGN.md Colors</span>
+            </header>
+            <div class="finding-note">"8.2:1" is really 7.45, and "hatch vs background ≥ 3:1" is false.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace the prose with a table generated by the token CI check.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L6. Stale component</h3>
+              <span class="finding-location">DESIGN.md calibration-live-value</span>
+            </header>
+            <div class="finding-note">Describes the dropped live-BLE calibration, with green text at 1.87:1.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Remove it or rewrite it as "latest Reading".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L7. Orange surfaces with unspecified text</h3>
+              <span class="finding-location">Member tile, sign-in gradient, Notification Window bar</span>
+            </header>
+            <div class="finding-note">The "you" initials have no foreground token, and white on the sign-in gradient is 2.64.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use <code>ink-on-bright</code>, put no text on the gradient, and mark the bar as decorative.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L8. Needs-water tile vs white page is 2.64</h3>
+              <span class="finding-location">DESIGN.md lot-tile needs-water</span>
+            </header>
+            <div class="finding-note">The tile is large, solid and labelled, so it is perceivable.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Nothing more is needed if the H2 icons are adopted. Otherwise add a 1 px <code>#C25C00</code> edge.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Spec-consistency review <span class="reviewer-counts">1 critical · 7 high · 13 medium · 16 low</span></h2>
+          <span class="reviewer-source">review-spec-consistency.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p><strong>Verdict: pass with changes.</strong> The review checked against <code>specs/spec-coldframe/</code> (SPEC, acceptance-criteria, glossary, user-journeys, device-hardware) and <code>ARCHITECTURE-SPINE.md</code>. The spines follow the contract well. They keep server-computed LotStatus with the 6 statuses, precedence and sort order. They show stale data honestly, keep "Silence Window" and "outside your window" apart, use stored-Reading Calibration in EXPERIENCE, show no "already set up" Hub, break no non-goals and add no Alert actions.</p>
+            <p>One critical gap and seven high findings must be fixed before epics are cut. Several of them need a spec or AD decision, not only a UX edit. The review file also lists which <code>[ASSUMPTION]</code> tags hide contract changes and which contract points were checked and found consistent.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C-1 Members are never asked for notification permission, so UJ-5 fails</h3>
+              <span class="finding-location">EXPERIENCE › Notifications &quot;Permission&quot;; memlog</span>
+            </header>
+            <div class="finding-note">Permission is requested only after the first Hub setup. A Member or invited Administrator never sets up a Hub, and on iOS and Android 13+ no push can be shown without the permission. The UJ-5 climax cannot happen (CAP-15, CAP-19, UJ-5 step 3).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Ask when the User first holds a Membership and has seen the overview. Add a persistent "Notifications are off → Open Settings" row in My notifications.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span> <span class="finding-status-note">Approved resolution: notification permission is requested on the first Site overview.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-1 The Node setup-button short press ("report now") is invented firmware behaviour, and UJ-1 depends on it</h3>
+              <span class="finding-location">EXPERIENCE › Calibration reference point; UJ-1 step 7</span>
+            </header>
+            <div class="finding-note">The spec gives the button one meaning: enter BLE setup mode (device-hardware, CAP-2, AD-25, NFR-4). A second gesture that forces an ESP-NOW report is new firmware and protocol behaviour. The <code>[ASSUMPTION]</code> tag hides a spec change.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add it to device-hardware.md as a Node requirement (short press = report now, long press = setup mode), or remove it from UJ-1.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span> <span class="finding-status-note">Approved resolution: short press "report now" becomes a Node firmware requirement.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-2 DESIGN still specifies B's live-BLE calibration component</h3>
+              <span class="finding-location">DESIGN › components.calibration-live-value; Components; Typography; Colors › Green</span>
+            </header>
+            <div class="finding-note">AD-9 says reference points are raw values of <strong>stored Readings</strong> submitted over REST. A live value with a "steady for 5 s" check needs a live BLE stream. Implementers reading DESIGN will build the dropped flow.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace it with a stored-Reading panel. Remove "steady" from green usage and "live calibration" from the typography notes. Mark B-plots-4/5 as superseded.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-3 The value shown right after Calibration contradicts AD-9</h3>
+              <span class="finding-location">EXPERIENCE › UJ-1 step 8; Calibration reference point</span>
+            </header>
+            <div class="finding-note">Readings stored before Calibration have no %. The latest Reading stays raw until the next wake, so the tile cannot show "about 40 %" without client-side computation (against AD-14).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Word the confirmation as a preview, add a "Calibrated · first % Reading due by 07:15" state, and move the UJ-1 climax to the next Reading. Alternatively, amend AD-9 so the Server re-derives the latest Reading.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-4 Adding a Device to a paused Site is not designed, and calibrating in that state is impossible</h3>
+              <span class="finding-location">EXPERIENCE › UJ-1 steps 5–7, Node-added screen, Calibrate</span>
+            </header>
+            <div class="finding-note">CAP-18 and AD-8: Devices added to a paused Site start paused, and their Readings are discarded. Calibrate would wait forever, and the acceptance criterion has no UI surface.</div>
+            <div class="finding-fix"><strong>Fix:</strong> On the Node-added and Hub-online screens, explain the paused start and offer Resume Site or "Calibrate later". Calibrate refuses to start on a paused Device and says why.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-5 The invitation UI needs data and surfaces the architecture does not provide</h3>
+              <span class="finding-location">EXPERIENCE › IA &quot;Accept invitation&quot;; Member tile; UJ-5</span>
+            </header>
+            <div class="finding-note">AD-3: Phase Two's native invitation flow, no invitation state on the Server. Pending-invite tiles need a projection that does not exist. Acceptance happens on Phase Two pages, so no Coldframe copy can run there. Expiry is not handled, and the Membership arrives asynchronously.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Decide in SPEC/AD whether to record sent invitations, or remove the invited tile. Treat acceptance as a themed Phase Two page, put the away-from-home copy in the email, and add a "Joining…" state.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span> <span class="finding-status-note">Approved resolution: invitations stay purely Phase Two, with no Coldframe invitation state.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-6 Unknown cause and OK secondary conditions need read-model fields that do not exist</h3>
+              <span class="finding-location">EXPERIENCE › State Patterns (SILENT vs HUB SILENT; ok + Health condition); DESIGN › Lot tile</span>
+            </header>
+            <div class="finding-note">AD-14 <code>LotStatus</code> has only <code>statusSince</code> and <code>lastReadingAt</code>. The client would have to join Alerts to Lots, which is status logic in the client.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Extend LotStatus with server-computed <code>unknownCause</code> and an optional <code>secondaryCondition</code>, or drop the refinements.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span> <span class="finding-status-note">Approved resolution: LotStatus gains server-computed <code>unknownCause</code> and <code>pausedBy</code>.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H-7 Threshold Alerts that are not "needs water" are painted orange</h3>
+              <span class="finding-location">DESIGN › alert-row-threshold; Colors; EXPERIENCE › Notifications</span>
+            </header>
+            <div class="finding-note">"Herbs too wet" or "temperature below 5 °C" would use the act-now orange while the Lot tile stays neutral <code>ok</code> (CAP-11, AD-14). Orange loses its single meaning.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use orange only for low-side soil-moisture Threshold Alerts. Give other Threshold Alerts a distinct non-orange treatment.</div>
+            <div class="finding-status"><span class="status-pill status-approved">Resolution approved — being applied</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-1 A 7-day closed-Alert history is not in the architecture</h3>
+              <span class="finding-location">EXPERIENCE › IA Alerts; Alert row; UJ-2 climax</span>
+            </header>
+            <div class="finding-note">AD-7 keeps only open Alerts, and AD-14 names only LotStatus as a read model.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an Alerts read model with a closed-Alert query and a close reason to AD-14/openapi.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-2 The time zone is confirmed during Create Site, which reads as a Site property</h3>
+              <span class="finding-location">EXPERIENCE › IA Create Site; UJ-1 step 2</span>
+            </header>
+            <div class="finding-note">Glossary: a User has one time zone, and Sites have none (AD-11).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Confirm "your time zone" on first sign-in or in My notifications. Add the IP-geolocation fallback.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-3 The Pause end-date time zone and the auto-resume moment are undefined</h3>
+              <span class="finding-location">Pause sheet; tiles; headline</span>
+            </header>
+            <div class="finding-note">CAP-18 and AD-6/AD-11 store a UTC due-at, but no rule says how a date resolves to it.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define it (for example 00:00 in the pausing User's zone) and add "Resumes automatically on…" helper text.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-4 Pause sources are hidden, so Resume on a Device whose Site is paused misleads</h3>
+              <span class="finding-location">Pause sheet; paused hero</span>
+            </header>
+            <div class="finding-note">AD-8 <code>pausedBy ⊆ {device, site}</code>. A Device resumes only when both sources clear.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Show the source(s) and point to Resume Site when the Site Pause blocks.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span> <span class="finding-status-note">Note: <code>pausedBy</code> is now part of the approved H-6 resolution; the UX copy remains open.</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-5 Morning summary per Site vs "one summary"</h3>
+              <span class="finding-location">EXPERIENCE › Notifications</span>
+            </header>
+            <div class="finding-note">CAP-16 says one summary when the window opens. AD-7 does not specify per-Site scope.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Decide per User or per Site. State that Alerts that opened and closed while held are dropped.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-6 There is no way to remove Thresholds or return to the default</h3>
+              <span class="finding-location">Threshold column</span>
+            </header>
+            <div class="finding-note">CAP-10 includes "removes". AD-19 has <code>Default | Override | Cleared</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add "Stop alerting on this Sensor" and "Reset to Specification default".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-7 The spec does not support the "±5 %" accuracy claim</h3>
+              <span class="finding-location">EXPERIENCE › Lot detail hero, Calibration confirmation; DESIGN</span>
+            </header>
+            <div class="finding-note">SPEC Constraints: moisture values are approximate, with no temperature compensation.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace it with "approximate" and keep the <code>~</code> prefix and 5 % rounding.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-8 AD-14 does not cover mobile live updates over SignalR</h3>
+              <span class="finding-location">EXPERIENCE › Interaction Primitives; Lot tile</span>
+            </header>
+            <div class="finding-note">AD-14 describes SignalR only for the browser, through the BFF. The KMP core is REST only.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Amend AD-14, or define mobile refresh as refetch on foreground, pull-to-refresh and polling.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-9 Nothing defines where partial Calibration points are kept</h3>
+              <span class="finding-location">Calibration reference point</span>
+            </header>
+            <div class="finding-note">AD-9 has no draft state.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Keep the dry point locally on the client, or add a Sensor-grain draft to AD-9.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-10 History chart vs Node moves and Readings taken before Calibration</h3>
+              <span class="finding-location">History chart; UJ-6</span>
+            </header>
+            <div class="finding-note">History follows the Node (AD-18), and Readings stored without a Calibration have no %.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Say whether the chart shows the Lot's or the Node's history, and show raw-only days as gaps, never 0 %.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-11 Node advertisement content and the Hub Wi-Fi scan list extend the BLE protocol</h3>
+              <span class="finding-location">Device candidate tile; Wi-Fi network row</span>
+            </header>
+            <div class="finding-note">AD-25 does not specify the advertising payload or a Wi-Fi scan message.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add the messages to <code>packages/proto</code>/AD-25, or show Node details only after the session opens.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-12 The Settings IA mixes per-User and per-Site scopes without labelling them</h3>
+              <span class="finding-location">My notifications</span>
+            </header>
+            <div class="finding-note">The window and time zone are per User. Mute and Reminder cadence are per Site.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Split the surface into "All Sites" and "&lt;Site name&gt;".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M-13 Reminder cadence values are not in the contract</h3>
+              <span class="finding-location">Reminder cadence</span>
+            </header>
+            <div class="finding-note">CAP-12 and AD-7 define the resolution order but no set of values.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Record the allowed values in openapi/AD-7.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-1 Headline cases are incomplete or inaccurate</h3>
+              <span class="finding-location">EXPERIENCE › Voice rules</span>
+            </header>
+            <div class="finding-note">Mixed ok + paused / no-Node cases are missing, and "can't be read" is wrong for needsCalibration.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use "2 Lots need calibration" / "1 Lot silent" and define the mixed cases.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-2 "Paused by Simon (Owner) on 2 Nov" needs actor and time</h3>
+              <span class="finding-location">EXPERIENCE › All paused</span>
+            </header>
+            <div class="finding-note">AD-8 stores only the state and the end date.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add them to the read model, or drop the line.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-3 The Hub's "LED blinks orange" is invented</h3>
+              <span class="finding-location">BLE errors</span>
+            </header>
+            <div class="finding-note">device-hardware has no LED.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add it to the Hub epic, or use generic copy.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-4 Device cell "charging · solar"</h3>
+              <span class="finding-location">DESIGN › device cell</span>
+            </header>
+            <div class="finding-note">The spec has only charging and not charging.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Drop "solar".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-5 Glossary wording</h3>
+              <span class="finding-location">Uncalibrated push; DESIGN Colors; UJ-2</span>
+            </header>
+            <div class="finding-note">"Soil sensor" should be "Soil-moisture Sensor". "bed" appears in prose.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Keep "bed" out of UI strings.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-6 "Garden" tab label</h3>
+              <span class="finding-location">Navigation</span>
+            </header>
+            <div class="finding-note">The glossary term is Site.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Show the Site name in the header, and consider "Overview".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-7 "from 07:00" interpreted as 07:00–22:00</h3>
+              <span class="finding-location">Notification Window</span>
+            </header>
+            <div class="finding-note">CAP-16 says only "from 07:00".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Confirm the default end in the SPEC.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-8 Hub timeout of 90 s vs CAP-1's "within one minute"</h3>
+              <span class="finding-location">BLE errors</span>
+            </header>
+            <div class="finding-note">Acceptable as an error margin.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a "Taking longer than usual…" state at 60 s.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-9 Recalibration messaging is missing</h3>
+              <span class="finding-location">Calibrate confirmation</span>
+            </header>
+            <div class="finding-note">CAP-9: a recalibration changes only new Readings, and Threshold % values stay unchanged.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Say so when a Calibration already exists.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-10 Calibration gating</h3>
+              <span class="finding-location">Calibrate entry points</span>
+            </header>
+            <div class="finding-note">CAP-3: only <code>calibration: true</code> Sensors can be calibrated.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State the gate explicitly.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-11 The Pause close effect is not shown</h3>
+              <span class="finding-location">Alerts</span>
+            </header>
+            <div class="finding-note">CAP-18: open Alerts close on Pause.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Show those Alerts moving to Closed with reason "paused".</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-12 The time-zone detection order is missing the IP fallback</h3>
+              <span class="finding-location">Time-zone confirm panel</span>
+            </header>
+            <div class="finding-note">AD-11. Covered in M-2.</div>
+            <div class="finding-fix"><strong>Fix:</strong> See M-2.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-13 The web side nav shows "Members" to Members</h3>
+              <span class="finding-location">Web side nav</span>
+            </header>
+            <div class="finding-note">The spec does not say whether Members may see the Membership list.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Show a read-only list, or hide it.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-14 Air (gas) shown in kΩ while the contract unit is Ω</h3>
+              <span class="finding-location">Sensor cell; Threshold entry</span>
+            </header>
+            <div class="finding-note">Fine for display.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Make Threshold entry show or convert the stored unit clearly.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-15 UJ-6 exists only in the UX</h3>
+              <span class="finding-location">EXPERIENCE › UJ-6</span>
+            </header>
+            <div class="finding-note">Same as the Inheritance-discipline finding.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add it to <code>user-journeys.md</code>, or trace the surfaces to CAPs directly.</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L-16 The browser-notification opt-in is per browser</h3>
+              <span class="finding-location">My notifications (web)</span>
+            </header>
+            <div class="finding-note">Where it is stored is not stated.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State that it is stored in the browser and that Server-side window and mute still apply (CAP-20).</div>
+            <div class="finding-status"><span class="status-pill status-open">Open</span></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li><strong>Token references:</strong> 0 unresolved across both spines (script-verified). Unreferenced tokens are listed under Token completeness.</li>
+        <li><strong>Name inconsistencies:</strong> see the component name pairs under Component coverage. Also, the State Patterns <code>ok</code> example shows the tile as <code>~45</code>, but its screen-reader label says "about 35 percent" (EXPERIENCE.md L119).</li>
+        <li><strong>Stale cross-reference:</strong> the IA closure notes contradict UJ-6 (see Bloat &amp; overspecification).</li>
+        <li><strong>Frontmatter:</strong> both spines have <code>name</code>, <code>status</code>, <code>created</code>, <code>updated</code> and <code>sources</code>; only DESIGN.md has <code>description</code>. The sources resolve.</li>
+        <li><strong>Open assumptions:</strong> 6 <code>[ASSUMPTION]</code> tags in DESIGN.md and 23 in EXPERIENCE.md. These block stories: the stale-mode trigger, the 90 s setup timeout, the web-only Accept invitation, the Node "report now" button, and the breakpoints. The Node button and Accept invitation assumptions are now covered by approved resolutions (Spec H-1, H-5). The breakpoints are tied to Accessibility H6 (approved) and the 90 s timeout to Spec L-8 (open).</li>
+        <li><strong>Overlaps across reviewers:</strong> the stale <code>calibration-live-value</code> component is raised four times (Token completeness, Component coverage, Spec H-2, Accessibility L6). Orange-button contrast is raised twice (Token completeness medium, Accessibility C2), as are notification permission (State coverage high, Spec C-1) and UJ-6 only in UX (Inheritance medium, Spec L-15). Severity counts below are per reviewer, not deduplicated.</li>
+        <li><strong>Mermaid:</strong> none present.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: /var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/review-rubric.md</span>
+        <span>Accessibility: /var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/review-accessibility.md</span>
+        <span>Spec consistency: /var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/review-spec-consistency.md</span>
+        <span>DESIGN.md: /var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/DESIGN.md</span>
+        <span>EXPERIENCE.md: /var/home/simon/work/escendit/coldframe/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/EXPERIENCE.md</span>
+        <span>Generated: 2026-09-27T18:37:52+02:00</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

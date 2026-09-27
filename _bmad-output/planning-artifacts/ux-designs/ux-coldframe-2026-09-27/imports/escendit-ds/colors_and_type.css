@@ -1,0 +1,395 @@
+/* =============================================================================
+   Escendit Design System — Colors & Type
+   Source of truth: github.com/escendit/branding (src/presets/colors.js)
+                    github.com/escendit/identity-provider-design (_type.scss)
+   The brand is built on IBM Carbon Design System. Tokens here mirror Carbon's
+   structure (`--esc-*` prefix, matching Carbon's `--cds-*` convention) and
+   layer the Escendit primary/secondary on top.
+   ============================================================================= */
+
+/* ---------- Webfonts ---------- */
+/* Ubuntu — self-hosted (uploaded woff2 files, 6 subsets × 4 weights × 2 styles = 48 faces) */
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-300-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-300-italic.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-400-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-400-italic.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-500-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-500-italic.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-700-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-cyrillic-ext-700-italic.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-cyrillic-300-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-cyrillic-300-italic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-cyrillic-400-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-cyrillic-400-italic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-cyrillic-500-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-cyrillic-500-italic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-cyrillic-700-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-cyrillic-700-italic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-greek-ext-300-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-greek-ext-300-italic.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-greek-ext-400-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-greek-ext-400-italic.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-greek-ext-500-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-greek-ext-500-italic.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-greek-ext-700-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-greek-ext-700-italic.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-greek-300-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-greek-300-italic.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-greek-400-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-greek-400-italic.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-greek-500-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-greek-500-italic.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-greek-700-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-greek-700-italic.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-latin-ext-300-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-latin-ext-300-italic.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-latin-ext-400-italic.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-latin-ext-500-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-latin-ext-500-italic.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-latin-ext-700-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-latin-ext-700-italic.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-latin-300-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 300; font-display: swap; src: url('./fonts/ubuntu-latin-300-italic.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-latin-400-italic.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-latin-500-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 500; font-display: swap; src: url('./fonts/ubuntu-latin-500-italic.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-latin-700-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-latin-700-italic.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/* Ubuntu Condensed — self-hosted (6 subsets, weight 400 normal only) */
+@font-face { font-family: 'Ubuntu Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-condensed-cyrillic-ext-400-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-condensed-cyrillic-400-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-condensed-greek-ext-400-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-condensed-greek-400-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-condensed-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-condensed-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/* Ubuntu Mono — self-hosted (6 subsets, weights 400/700, normal + italic) */
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-ext-400-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-ext-400-italic.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-ext-700-normal.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-ext-700-italic.woff2') format('woff2'); unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-400-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-400-italic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-700-normal.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-cyrillic-700-italic.woff2') format('woff2'); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-greek-ext-400-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-greek-ext-400-italic.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-greek-ext-700-normal.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-greek-ext-700-italic.woff2') format('woff2'); unicode-range: U+1F00-1FFF; }
+
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-greek-400-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-greek-400-italic.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-greek-700-normal.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-greek-700-italic.woff2') format('woff2'); unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF; }
+
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-latin-ext-400-italic.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-latin-ext-700-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-latin-ext-700-italic.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 400; font-display: swap; src: url('./fonts/ubuntu-mono-latin-400-italic.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: normal;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-latin-700-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Ubuntu Mono'; font-style: italic;  font-weight: 700; font-display: swap; src: url('./fonts/ubuntu-mono-latin-700-italic.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+/* Quattrocento — self-hosted (latin + latin-ext, weights 400/700, normal only) */
+@font-face { font-family: 'Quattrocento'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/quattrocento-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Quattrocento'; font-style: normal; font-weight: 700; font-display: swap; src: url('./fonts/quattrocento-latin-ext-700-normal.woff2') format('woff2'); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Quattrocento'; font-style: normal; font-weight: 400; font-display: swap; src: url('./fonts/quattrocento-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Quattrocento'; font-style: normal; font-weight: 700; font-display: swap; src: url('./fonts/quattrocento-latin-700-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+/* All four Ubuntu families are now fully self-hosted — no Google Fonts dependency */
+
+:root {
+  /* ============================================================
+     COLORS — exact values from src/presets/colors.js
+     ============================================================ */
+
+  /* Neutrals */
+  --esc-color-white: #FEFEFE;
+  --esc-color-black: #0A0A0A;
+
+  /* Primary — Escendit orange (the signature brand color) */
+  --esc-color-primary:     #FF770F;
+  --esc-color-primary-50:  #FFF3ED;
+  --esc-color-primary-100: #FFE3D1;
+  --esc-color-primary-200: #FFCBA6;
+  --esc-color-primary-300: #FFB078;
+  --esc-color-primary-400: #FF9645;
+  --esc-color-primary-500: #FF770F;
+  --esc-color-primary-600: #CF5D00;
+  --esc-color-primary-700: #9C4E00;
+  --esc-color-primary-800: #6B3700;
+  --esc-color-primary-900: #402100;
+
+  /* Secondary — purple, used as the gradient endpoint */
+  --esc-color-secondary:     #670FFF;
+  --esc-color-secondary-50:  #F2EDFF;
+  --esc-color-secondary-100: #E0D1FF;
+  --esc-color-secondary-200: #C5A6FF;
+  --esc-color-secondary-300: #A778FF;
+  --esc-color-secondary-400: #8945FF;
+  --esc-color-secondary-500: #670FFF;
+  --esc-color-secondary-600: #4F00CF;
+  --esc-color-secondary-700: #43009C;
+  --esc-color-secondary-800: #30006B;
+  --esc-color-secondary-900: #1D0040;
+
+  /* Gray scale (UI surfaces, borders, text) */
+  --esc-color-gray:     #858585;
+  --esc-color-gray-50:  #EBEBEB;
+  --esc-color-gray-100: #D6D6D6;
+  --esc-color-gray-200: #C2C2C2;
+  --esc-color-gray-300: #ADADAD;
+  --esc-color-gray-400: #999999;
+  --esc-color-gray-500: #858585;
+  --esc-color-gray-600: #707070;
+  --esc-color-gray-700: #5C5C5C;
+  --esc-color-gray-800: #474747;
+  --esc-color-gray-850: #333333;   /* Carbon-style extra step */
+  --esc-color-gray-900: #1F1F1F;
+
+  /* Blue (informational) */
+  --esc-color-blue:     #0F43FF;
+  --esc-color-blue-50:  #EDF3FF;
+  --esc-color-blue-500: #0F43FF;
+  --esc-color-blue-600: #0029CF;
+  --esc-color-blue-700: #00179C;
+
+  /* Red (error / decline) */
+  --esc-color-red:     #FF0F17;
+  --esc-color-red-400: #FF454B;
+  --esc-color-red-500: #FF0F17;
+  --esc-color-red-600: #CF0003;
+
+  /* Orange (warning — distinct hue from primary) */
+  --esc-color-orange:     #FF4F0F;
+  --esc-color-orange-500: #FF4F0F;
+  --esc-color-orange-600: #CF3B00;
+
+  /* Yellow (caution) */
+  --esc-color-yellow:     #FFCB0F;
+  --esc-color-yellow-500: #FFCB0F;
+
+  /* Green (success / accept) */
+  --esc-color-green:     #67FF0F;
+  --esc-color-green-500: #67FF0F;
+  --esc-color-green-600: #48CF00;
+  --esc-color-green-700: #2F9C00;
+
+  /* ============================================================
+     SEMANTIC TOKENS — light theme (the default)
+     Mapped from @carbon/themes white + Escendit overrides.
+     ============================================================ */
+  --esc-background:       var(--esc-color-white);
+  --esc-layer-01:         #f4f4f4;
+  --esc-layer-02:         var(--esc-color-white);
+  --esc-field-01:         #f4f4f4;
+
+  --esc-text-primary:     #161616;
+  --esc-text-secondary:   #525252;
+  --esc-text-helper:      var(--esc-color-gray-600);
+  --esc-text-on-color:    var(--esc-color-white);
+  --esc-text-disabled:    #c6c6c6;
+
+  --esc-border-subtle:    #e0e0e0;
+  --esc-border-strong:    #8d8d8d;
+  --esc-border-inverse:   #161616;
+
+  --esc-focus:            var(--esc-color-primary);
+  --esc-link-primary:     var(--esc-color-primary);
+  --esc-link-primary-hover: #E06A00; /* primary darkened ~5% */
+  --esc-link-inverse:     var(--esc-color-primary);
+
+  --esc-support-error:        var(--esc-color-red-400);
+  --esc-support-error-inverse:var(--esc-color-red-400);
+  --esc-support-success:      var(--esc-color-green-600);
+  --esc-support-warning:      var(--esc-color-yellow-500);
+  --esc-support-info:         var(--esc-color-blue-500);
+
+  --esc-button-primary:        var(--esc-color-primary);
+  --esc-button-primary-hover:  #E06A00;
+  --esc-button-primary-active: #C25C00;
+  --esc-button-accept:         var(--esc-color-green-600);
+  --esc-button-decline:        var(--esc-color-red-600);
+  --esc-button-secondary:      #393939;
+  --esc-button-secondary-hover:#4c4c4c;
+
+  /* App chrome, tables, tags, overlays (promoted from the Component Reference template) */
+  --esc-header-bg:     #161616;
+  --esc-header-border: #393939;
+  --esc-overlay:       rgba(22,22,22,.5);
+  --esc-row-hover:     #e8e8e8;
+  --esc-tag-bg:        var(--esc-color-primary-50);
+  --esc-tag-fg:        var(--esc-color-primary-700);
+
+  /* ============================================================
+     TYPOGRAPHY — Ubuntu family (per _type.scss)
+     ============================================================ */
+  --esc-font-sans:           'Ubuntu', system-ui, -apple-system, BlinkMacSystemFont, '.SFNSText-Regular', sans-serif;
+  --esc-font-sans-condensed: 'Ubuntu Condensed', system-ui, -apple-system, BlinkMacSystemFont, '.SFNSText-Regular', sans-serif;
+  --esc-font-mono:           'Ubuntu Mono', system-ui, -apple-system, BlinkMacSystemFont, monospace;
+  --esc-font-serif:          'Quattrocento', Georgia, 'Times New Roman', serif;
+
+  /* Font sizes — Carbon "productive heading" scale, anchored at 16pt h2 */
+  --esc-fs-display:  3rem;     /* 48px — hero/marketing */
+  --esc-fs-h1:       2.25rem;  /* 36px */
+  --esc-fs-h2:       1.5rem;   /* 24px ≈ 16pt */
+  --esc-fs-h3:       1.25rem;  /* 20px ≈ 15pt */
+  --esc-fs-h4:       1rem;     /* 16px */
+  --esc-fs-body:     0.875rem; /* 14px — Carbon body-01 */
+  --esc-fs-body-lg:  1rem;
+  --esc-fs-helper:   0.75rem;  /* 12px */
+  --esc-fs-code:     0.875rem;
+
+  --esc-lh-tight:    1.2;    /* @kind font */
+  --esc-lh-normal:   1.5;    /* @kind font */
+  --esc-lh-relaxed:  1.625;  /* @kind font */
+
+  --esc-fw-light:    300;    /* @kind font */
+  --esc-fw-regular:  400;    /* @kind font */
+  --esc-fw-medium:   500;    /* @kind font */
+  --esc-fw-bold:     700;    /* @kind font */
+
+  /* ============================================================
+     SPACING — Carbon spacing scale (used throughout SCSS)
+     ============================================================ */
+  --esc-spacing-01: 2px;   /* spacing-01 */
+  --esc-spacing-02: 4px;
+  --esc-spacing-03: 8px;
+  --esc-spacing-04: 12px;
+  --esc-spacing-05: 16px;
+  --esc-spacing-06: 24px;
+  --esc-spacing-07: 32px;
+  --esc-spacing-08: 40px;
+  --esc-spacing-09: 48px;
+  --esc-spacing-10: 64px;
+  --esc-spacing-11: 80px;
+  --esc-spacing-12: 96px;
+  --esc-spacing-13: 160px;
+
+  /* ============================================================
+     RADII — from email-design tailwind.config.js
+     ============================================================ */
+  --esc-radius-none: 0;
+  --esc-radius-sm:   2px;
+  --esc-radius:      4px;   /* default */
+  --esc-radius-md:   6px;
+  --esc-radius-lg:   8px;
+  --esc-radius-xl:   12px;
+  --esc-radius-2xl:  16px;
+  --esc-radius-3xl:  24px;
+
+  /* ============================================================
+     SHADOWS — from email-design tailwind.config.js
+     ============================================================ */
+  --esc-shadow-sm:   0 1px 2px 0 rgba(0,0,0,.05);
+  --esc-shadow:      0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1);
+  --esc-shadow-md:   0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1);
+  --esc-shadow-lg:   0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1);
+  --esc-shadow-xl:   0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1);
+  --esc-shadow-2xl:  0 25px 50px -12px rgba(0,0,0,.25);
+  --esc-shadow-inner:inset 0 2px 4px 0 rgba(0,0,0,.05);
+
+  /* ============================================================
+     SIGNATURE BACKGROUND — orange→purple radial gradient
+     Defined in identity-provider-design/_mixins.scss
+     ============================================================ */
+  --esc-bg-brand-radial: radial-gradient(
+    farthest-corner at 5% 5%,
+    var(--esc-color-primary),
+    var(--esc-color-secondary)
+  ) no-repeat;
+}
+
+/* ============================================================
+   DARK THEME — applied via .dark class on body
+   Mirrors @carbon/themes g90 + Escendit overrides.
+   ============================================================ */
+.dark, [data-theme="dark"] {
+  --esc-background:     #262626;
+  --esc-layer-01:       #393939;
+  --esc-layer-02:       #525252;
+  --esc-field-01:       #393939;
+
+  --esc-text-primary:   #f4f4f4;
+  --esc-text-secondary: #c6c6c6;
+  --esc-text-helper:    var(--esc-color-gray-300);
+  --esc-text-on-color:  var(--esc-color-white);
+  --esc-text-disabled:  #6f6f6f;
+
+  --esc-border-subtle:  #525252;
+  --esc-border-strong:  #6f6f6f;
+  --esc-border-inverse: #f4f4f4;
+
+  --esc-link-primary-hover: #FF8A2E; /* primary lightened ~5% on dark */
+  --esc-button-secondary:      #6f6f6f;
+  --esc-button-secondary-hover:#606060;
+  --esc-overlay:   rgba(22,22,22,.7);
+  --esc-row-hover: #4c4c4c;
+  --esc-tag-bg:    var(--esc-color-primary-800);
+  --esc-tag-fg:    var(--esc-color-primary-200);
+}
+
+/* ============================================================
+   SEMANTIC ELEMENT STYLES — base typography
+   ============================================================ */
+html, body {
+  font-family: var(--esc-font-sans);
+  font-weight: var(--esc-fw-regular);
+  font-size: var(--esc-fs-body);
+  line-height: var(--esc-lh-normal);
+  color: var(--esc-text-primary);
+  background: var(--esc-background);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--esc-font-sans-condensed);
+  font-weight: var(--esc-fw-regular);
+  line-height: var(--esc-lh-tight);
+  margin: 0;
+}
+h1 { font-size: var(--esc-fs-h1); }
+h2 { font-size: var(--esc-fs-h2); }   /* matches `> h2 { font-size: 16pt; }` from login/_index.scss */
+h3 { font-size: var(--esc-fs-h3); }   /* matches `> h3 { font-size: 15pt; }` */
+h4 { font-size: var(--esc-fs-h4); }
+
+p { margin: 0 0 var(--esc-spacing-04) 0; }
+
+a {
+  color: var(--esc-link-primary);
+  text-decoration: none;
+}
+a:hover { color: var(--esc-link-primary-hover); text-decoration: underline; }
+
+code, kbd, pre, samp {
+  font-family: var(--esc-font-mono);
+  font-size: var(--esc-fs-code);
+}
+
+/* Long-form prose / Terms-of-Service style — uses Quattrocento serif */
+.prose, article.tos {
+  font-family: var(--esc-font-serif);
+  line-height: var(--esc-lh-relaxed);
+}
+.prose h3, article.tos h3 {
+  font-family: var(--esc-font-sans);
+}
+
+/* CTA buttons / action labels are uppercase, condensed (login/_index.scss) */
+.actions > button,
+.actions > a,
+.esc--btn--cta {
+  font-family: var(--esc-font-sans-condensed);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}

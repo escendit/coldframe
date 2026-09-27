@@ -49,7 +49,7 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
   - **success:** The invitee gets the Membership on acceptance (on the home network); every Site always keeps at least one Owner; a Member's attempt to change Devices, Thresholds, Calibration, Pause, or Memberships is rejected; a Role on one Site grants nothing on another.
 - **CAP-8**
   - **intent:** Any Member sees the latest Reading of every Sensor grouped by Lot, a 30-day history chart, and each Device's last-seen, battery, and charging state.
-  - **success:** Each Lot shows exactly one status (*needs water*, *OK*, *unknown* with time since last Reading, *paused*); Lots needing water list first; a stale Reading is never shown as current; the apps say when the Server is unreachable and how old the data is.
+  - **success:** Each Lot shows exactly one status (*needs water*, *needs calibration*, *OK*, *unknown* with time since last Reading, *paused*, *no Node*); Lots needing water list first; a stale Reading is never shown as current; the apps say when the Server is unreachable and how old the data is.
 - **CAP-9**
   - **intent:** An Administrator calibrates a `calibration: true` Sensor with a *dry* and a *wet* reference point.
   - **success:** Thresholds and calibrated Readings show in 0–100 %; recalibration changes only new Readings and leaves Threshold % values unchanged.
@@ -103,6 +103,7 @@ CAP-N matches PRD FR-N. Line-item acceptance criteria and defaults per capabilit
 - **Room for irrigation (NFR-9):** data and command paths allow later Device commands (e.g. open a valve) without reworking the V1 model; commands can require confirmation, can be stopped manually, and are blocked by Pause.
 - **TLS everywhere (NFR-10):** all IP traffic between apps, web, Hub, Server, and identity provider uses TLS, including on the LAN; no plain-HTTP endpoints.
 - **Reach (NFR-11):** a Node reports reliably from the author's farthest Lot, where home Wi-Fi is unusable.
+- **Test-first:** every capability is built test-first, with acceptance criteria written as failing automated tests before implementation. Firmware is tested host-side only; there are no on-device tests in CI.
 - **Hardware baseline:** Node and Hub run Rust firmware on ESP32-S3 (coexistence validated, see `device-hardware.md`); the air-quality Sensor reports raw gas resistance (Ω) from a BME680.
 - **Approximate soil moisture:** V1 soil moisture is approximate. A separate analog (ADC) capacitive probe uses two-point linear Calibration with no temperature compensation. Temperature Readings from the same Node wake are recorded alongside, so the temperature effect can be analysed later and compensation added without migrating history (spine AD-9 keeps raw values). Probe model and sealing are chosen in the Node/hardware epic against NFR-5.
 

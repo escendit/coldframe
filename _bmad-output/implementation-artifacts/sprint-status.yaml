@@ -1,0 +1,119 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 09-27-2026 21:48
+last_updated: 09-27-2026 21:48
+project: coldframe
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-monorepo-scaffold-ci-and-local-dev-stack: backlog
+  1-2-event-journal-migrations-and-projection-pipeline: backlog
+  1-3-design-tokens-and-themes: backlog
+  1-4-sign-in-on-the-web: backlog
+  1-5-sign-in-on-ios-and-android: backlog
+  1-6-create-a-site-on-the-server-with-per-site-authorization: backlog
+  1-7-reconcile-identity-changes-from-keycloak: backlog
+  1-8-create-site-and-the-empty-garden-in-the-apps: backlog
+  1-9-manage-my-site-and-lots: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-container-images-published-per-release: backlog
+  2-2-helm-charts-with-a-fixed-secret-contract: backlog
+  2-3-database-cluster-with-off-node-backups-and-tested-restore: backlog
+  2-4-tls-with-public-certificates-on-my-home-network: backlog
+  2-5-gitops-deployment-to-my-rke2-server: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-wire-and-crypto-contracts-with-shared-test-vectors: backlog
+  3-2-hub-firmware-foundation-with-a-hardware-bound-identity: backlog
+  3-3-server-side-device-enrolment: backlog
+  3-4-hub-ble-setup-service: backlog
+  3-5-hub-joins-wi-fi-and-heartbeats-to-the-server: backlog
+  3-6-add-a-hub-from-my-phone: backlog
+  3-7-see-my-hub-in-devices: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-node-firmware-foundation-wake-measure-sleep: backlog
+  4-2-node-pairing-setup-mode-enrolment-and-lot-assignment: backlog
+  4-3-add-a-node-from-my-phone: backlog
+  4-4-esp-now-transport-from-node-to-hub: backlog
+  4-5-server-ingestion-and-acknowledgements: backlog
+  4-6-sensor-specifications-and-sensor-grains: backlog
+  4-7-lot-status-and-the-site-overview: backlog
+  4-8-lot-detail-with-history-and-device-status: backlog
+  4-9-move-or-unassign-a-node: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-calibration-on-the-server: backlog
+  5-2-calibrate-from-the-app: backlog
+  5-3-thresholds-on-the-server: backlog
+  5-4-set-thresholds-in-the-app-and-see-them-on-the-chart: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-threshold-alerts-open-and-close: backlog
+  6-2-see-alerts-in-the-apps: backlog
+  6-3-my-notification-settings-and-the-site-reminder-cadence: backlog
+  6-4-delivery-timing-windows-summaries-and-reminders: backlog
+  6-5-push-notifications-on-my-phone: backlog
+  6-6-browser-notifications-and-live-updates-on-the-web: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-silent-device-alert-on-the-server: backlog
+  7-2-silence-in-the-apps-and-silence-window-settings: backlog
+  7-3-low-battery-alert: backlog
+  7-4-uncalibrated-sensor-alert: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-pause-and-resume-on-the-server: backlog
+  8-2-pause-and-resume-in-the-apps: backlog
+  epic-8-retrospective: optional
+
+  epic-9: backlog
+  9-1-invite-someone-to-my-site: backlog
+  9-2-change-and-remove-roles-always-keeping-an-owner: backlog
+  epic-9-retrospective: optional
+
+  epic-10: backlog
+  10-1-releases-with-one-version-and-firmware-binaries: backlog
+  10-2-build-a-node-and-a-hub-from-the-docs: backlog
+  10-3-deploy-coldframe-at-home-and-build-my-own-apps: backlog
+  10-4-firmware-learning-reference: backlog
+  10-5-someone-else-reproduces-coldframe: backlog
+  epic-10-retrospective: optional
