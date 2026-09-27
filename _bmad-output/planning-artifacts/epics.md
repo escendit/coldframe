@@ -1795,3 +1795,78 @@ So that I don't forget the step that makes its Readings meaningful.
 **Given** TestCluster tests
 **When** they run
 **Then** they cover open on assignment, close on calibration, close on unassignment, and no Threshold Alerts while uncalibrated
+
+## Epic 8: Pause for maintenance and winter
+
+Simon pauses a Device or the whole Site, optionally until a date, without false alarms. It resumes automatically.
+
+### Story 8.1: Pause and resume on the Server
+
+As an Administrator,
+I want to pause a Device or the whole Site, optionally until a date,
+So that maintenance and winter storage never raise false Alerts.
+
+**Acceptance Criteria:**
+
+**Given** a Device
+**When** an Administrator pauses it
+**Then** the Device grain adds `device` to its `pausedBy` set, with an optional end date (FR18, AD-8)
+
+**Given** a Site
+**When** an Administrator pauses it
+**Then** the Site grain owns the Site Pause and its end date, and propagates it idempotently to every Device in its roster, re-delivering from persisted state until acknowledged
+**And** a Device enrolled into a paused Site starts paused, with `pausedBy` = site
+
+**Given** a Device becomes paused
+**When** the new evaluation epoch reaches its Sensor grains
+**Then** each Sensor grain closes its own open Alerts with reason `paused` and resets streaks, and the Device grain closes its `silent` and `battery` Alerts
+**And** Readings from the paused Device are acknowledged and discarded (AD-8, AD-9), and no Alert opens
+
+**Given** a Device paused both individually and by its Site
+**When** only one source is lifted
+**Then** it stays paused; it resumes only when both are lifted
+
+**Given** a Pause end date
+**When** it is set
+**Then** it resolves to 00:00 on that date in the time zone of the User who set the Pause, stored as a UTC `due-at`, and resumes automatically even across a silo restart (AD-6)
+
+**Given** a resume
+**When** it happens
+**Then** the Silence Window restarts from the moment of resume (FR18), and the LotStatus projection shows *paused* with `pausedBy` while paused
+
+**Given** a Member caller
+**When** they try to pause or resume
+**Then** it is rejected with 403, and the endpoints are in the authorization matrix
+
+**Given** TestCluster tests with a fake clock
+**When** they run
+**Then** they cover Device pause and resume, Site pause propagating to all Devices, redelivery after a failure, both sources held, an end date across a restart, Alerts closing on pause, no false silence after resume, and a Device added to a paused Site starting paused
+
+### Story 8.2: Pause and resume in the apps
+
+As Simon in October,
+I want to pause the whole Site from the overview and see clearly that it's paused,
+So that I know the silence over winter is intentional.
+
+**Acceptance Criteria:**
+
+**Given** an Administrator or Owner
+**When** I choose Pause from Lot detail (Device), a Devices row, or the Site menu (Site)
+**Then** the Pause sheet opens, with the scope (this Device / whole Site) and an optional "Until" date (UX-DR46, UX-DR70)
+
+**Given** the Site is paused
+**When** the overview renders
+**Then** every tile shows the purple-outline *paused* variant, and the headline reads "Paused until 1 Mar" (or "Paused"), with "No Alerts are sent while paused." (UX-DR83)
+**And** a Device paused only by the Site shows "Paused by Site" (from `pausedBy`)
+
+**Given** the Site is paused
+**When** I choose Resume from the Site menu (or the Pause ends automatically)
+**Then** the tiles return to their live statuses
+
+**Given** a Member
+**When** they view a paused Site
+**Then** they see the paused state but no Pause or Resume controls (UX-DR84)
+
+**Given** a Playwright end-to-end test of UJ-4 (pause the Site until a date; no Health Alerts arrive while Nodes are silent; it resumes automatically on the date), with a fake clock, plus snapshot tests
+**When** they run
+**Then** they pass in light and dark themes
