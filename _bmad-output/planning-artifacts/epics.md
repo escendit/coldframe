@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - _bmad-output/specs/spec-coldframe/SPEC.md
   - _bmad-output/specs/spec-coldframe/acceptance-criteria.md
