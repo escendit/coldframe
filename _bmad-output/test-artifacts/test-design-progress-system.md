@@ -174,3 +174,4 @@ The highest risks sit on **the device data path** (R-01, R-02), **timing correct
 
 ### Change (Simon, 2026-09-27)
 - The S3 stand-in for tests is **RustFS** (Apache-2.0, S3-compatible; latest stable 1.0.0, previews 1.0.1-preview.x), replacing MinIO. It is used in the k3d backup and restore CI test (Story 2.3), and optionally as a local S3 in the Aspire AppHost.
+- The enablers TC-1, TC-2, TC-3 and TC-8 are now in the spine (AD-6, AD-7, AD-24, source tree) and in Stories 1.2, 3.1, 3.2 and 6.4 (Simon approved).
