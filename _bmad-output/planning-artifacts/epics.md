@@ -178,7 +178,7 @@ NFR16: **Test-first, tested by default.**
 These come from the architecture spine. There is **no starter template**. Epic 1 Story 1 is the **monorepo scaffold**, following AD-15 and AD-23:
 
 - `apps/`, `packages/`, `aspire/`, `deploy/`, `hardware/` and `docs/`
-- the Aspire AppHost for the local dev stack
+- the Aspire AppHost for the local dev stack, which also serves as the Server integration-test host via `Aspire.Hosting.Testing`
 - GitHub Actions CI
 - Central Package Management
 

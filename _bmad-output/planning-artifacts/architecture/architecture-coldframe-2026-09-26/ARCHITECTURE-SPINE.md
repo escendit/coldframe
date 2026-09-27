@@ -265,7 +265,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 - **Binds:** NFR-1, NFR-3, NFR-7, NFR-8
 - **Prevents:** state stranded in pods, unreproducible installs, secrets in Git, and unrecoverable data loss on a single node.
 - **Rule:**
-  - **Platform:** single-node RKE2, with Fleet pulling the Helm charts in `deploy/`. The Compose file is a reference example only. Environments are local (Aspire AppHost, dev only) and the reference deployment; there is no staging.
+  - **Platform:** single-node RKE2, with Fleet pulling the Helm charts in `deploy/`. The Compose file is a reference example only. Environments are local (Aspire AppHost, for development and as the Server integration-test host via `Aspire.Hosting.Testing`; it generates no deployment artifacts) and the reference deployment; there is no staging.
   - **State:** Server pods are stateless. All durable state lives in one CloudNativePG cluster, with separate databases for Server/Orleans, Temporal, and Keycloak. JetStream is disposable.
   - **Backups:** CNPG backups (Barman Cloud) with WAL archiving go to an adopter-provided S3-compatible target off the node. Restore is documented and tested. After a restore, the Server advances every Device's replay window by a safety margin (AD-17).
   - **Secrets:** Kubernetes Secrets with fixed names and keys, listed in `deploy/`, created by the adopter out of band. Charts never template secret values. Nothing secret is in Git.
@@ -354,7 +354,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 
 - **Binds:** NFR-6, AD-4, AD-10, AD-12, AD-21
 - **Prevents:** contract drift and authorization regressions that the single field-tested Site would never reveal.
-- **Rule:** Development is **test-first**: each story's acceptance criteria become failing tests before implementation. Firmware is tested host-side only, with hardware behind traits; there are no on-device tests in CI, and hardware is verified manually against a checklist. These CI checks gate every merge:
+- **Rule:** Development is **test-first**: each story's acceptance criteria become failing tests before implementation. Server integration tests run on the Aspire AppHost through `Aspire.Hosting.Testing`. Firmware is tested host-side only, with hardware behind traits; there are no on-device tests in CI, and hardware is verified manually against a checklist. These CI checks gate every merge:
   - the generated authorization matrix (AD-4)
   - crypto test vectors in Rust and C# (AD-12)
   - Protobuf and OpenAPI/AsyncAPI compatibility checks against the previous release (AD-10)
@@ -417,7 +417,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 | SvelteKit / Svelte | 2.70.3 / 5.57.1 |
 | @escendit/sveltekit-auth-keycloak + @escendit/sveltekit-session | 0.1.0-rc.12 |
 | Kotlin / Kable / kotlin-multiplatform-oidc | 2.4.20 / 0.45.0 / 0.18.3 |
-| Aspire (dev AppHost) | 13.5.4 |
+| Aspire (dev AppHost + `Aspire.Hosting.Testing`) | 13.5.4 |
 | RKE2 (stable channel) | v1.36.4+rke2r1 |
 | Ingress | RKE2-bundled Traefik |
 | cert-manager | 1.21.2 |
