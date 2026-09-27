@@ -109,6 +109,44 @@ const WIFI_SCAN_ALL: bool = match option_env!("SPIKE_WIFI_SCAN") {
     Some(s) => !matches!(s.as_bytes(), b"fast"),
     None => true,
 };
+/// Forced roam for channel-following tests: after `SPIKE_ROAM_AT_S` seconds of uptime the Hub
+/// disconnects and re-associates pinned to `SPIKE_ROAM_BSSID` (e.g. another mesh AP on a
+/// different channel). Unset = never roam.
+const ROAM_BSSID: Option<&str> = option_env!("SPIKE_ROAM_BSSID");
+const ROAM_AT_S: u32 = parse_u32(option_env!("SPIKE_ROAM_AT_S"), 0);
+
+fn parse_mac(s: &str) -> Option<[u8; 6]> {
+    let mut out = [0u8; 6];
+    let mut n = 0;
+    for part in s.split(':') {
+        if n == 6 {
+            return None;
+        }
+        out[n] = u8::from_str_radix(part, 16).ok()?;
+        n += 1;
+    }
+    (n == 6).then_some(out)
+}
+
+fn station_config(bssid: Option<[u8; 6]>) -> WifiConfig {
+    let mut c = StationConfig::default()
+        .with_ssid(SSID.try_into().unwrap())
+        .with_scan_method(if WIFI_SCAN_ALL {
+            ScanMethod::AllChannels
+        } else {
+            ScanMethod::Fast
+        })
+        .with_authentication(if PASSWORD.is_empty() {
+            AuthenticationMethodConfig::Open
+        } else {
+            AuthenticationMethodConfig::Wpa2Personal(PASSWORD.try_into().unwrap())
+        });
+    if let Some(b) = bssid {
+        c = c.with_bssid(b);
+    }
+    WifiConfig::Station(c)
+}
+
 /// Wi-Fi modem power save: `none` (default) or `min` / `max`.
 const WIFI_PS: &str = match option_env!("SPIKE_WIFI_PS") {
     Some(s) => s,
@@ -319,20 +357,7 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     // ---- Wi-Fi STA -------------------------------------------------------
-    let station_config = WifiConfig::Station(
-        StationConfig::default()
-            .with_ssid(SSID.try_into().unwrap())
-            .with_scan_method(if WIFI_SCAN_ALL {
-                ScanMethod::AllChannels
-            } else {
-                ScanMethod::Fast
-            })
-            .with_authentication(if PASSWORD.is_empty() {
-                AuthenticationMethodConfig::Open
-            } else {
-                AuthenticationMethodConfig::Wpa2Personal(PASSWORD.try_into().unwrap())
-            }),
-    );
+    let station_config = station_config(None);
     let mut controller = WifiController::new(
         peripherals.WIFI,
         ControllerConfig::default().with_initial_config(station_config),
@@ -385,6 +410,7 @@ async fn main(spawner: Spawner) -> ! {
 
 #[embassy_executor::task]
 async fn wifi_task(mut controller: WifiController<'static>) {
+    let mut roamed = false;
     loop {
         info!("WIFI connecting to '{}'", SSID);
         match controller.connect_async().await {
@@ -414,6 +440,24 @@ async fn wifi_task(mut controller: WifiController<'static>) {
                             break;
                         }
                         Either::Second(()) => {
+                            if !roamed
+                                && ROAM_AT_S > 0
+                                && Instant::now().as_secs() >= ROAM_AT_S as u64
+                            {
+                                roamed = true;
+                                if let Some(mac) = ROAM_BSSID.and_then(parse_mac) {
+                                    warn!("WIFI forced roam to bssid={} (uptime {} s)", Mac(&mac), Instant::now().as_secs());
+                                    if let Err(e) = controller.set_config(&station_config(Some(mac))) {
+                                        warn!("WIFI roam set_config failed: {:?}", e);
+                                    }
+                                    let _ = controller.disconnect_async().await;
+                                    WIFI_UP.store(false, Relaxed);
+                                    WIFI_DISCONNECTS.fetch_add(1, Relaxed);
+                                    break;
+                                } else {
+                                    warn!("WIFI roam requested but SPIKE_ROAM_BSSID missing/invalid");
+                                }
+                            }
                             if let Ok(rssi) = controller.rssi() {
                                 WIFI_RSSI.store(rssi, Relaxed);
                             }

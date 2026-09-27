@@ -212,6 +212,32 @@ Warm HTTPS request latency at the Hub: p50 45 ms, p95 99 ms, max 270 ms. Cold (w
    - A 2-hour stability run.
    - A better Hub placement (−84 dBm is marginal).
 
+### Phase B main run (2026-09-27, 13:51 to 15:53, 2 h 2 min)
+
+**Setup:**
+- Default Hub build: BLE on, server mode, all-channel scan (joined `AP-near`, channel 11, −39 to −46 dBm).
+- **Forced roam at uptime 5,404 s** to the channel-6 AP `AP-far` (−90 dBm), using `SPIKE_ROAM_BSSID` and `SPIKE_ROAM_AT_S`.
+  - This replaces the router channel change, because the AP settings are fixed. From the Node's side it is the same event: the Hub leaves its channel and reappears on another one, with no Hub reboot.
+- The phone (nRF Connect) wrote over BLE and ran 12 connect/disconnect cycles. The `I` write for immediate mode did not arrive, so immediate mode is covered by Phase A only.
+
+| Criterion | Result | Pass |
+| --- | --- | --- |
+| Resets, panics, Guru meditations | 0 on both boards | ✅ |
+| ESP-NOW loss (no ack at all) | **3 of 7,304 (0.04 %)**, all three during the roam; **0** in the 90 min before and the 30 min after | ✅ (< 1 %) |
+| Wi-Fi | 1 disconnect, which was the forced roam; re-associated on channel 6 in about 1 s | ✅ |
+| Heartbeats | **243/243** | ✅ (≥ 99 %) |
+| TLS | 7,538 OK, 1 failed (`NoNetwork` while roaming); re-handshake 627 ms | ✅ |
+| BLE | 12 connects, 12 disconnects, 12 writes, 0 advertising errors | ✅ |
+| Heap | minimum free **63.6 KB**, flat for 2 h (71.9 KB free at the start and at the end), no leak | ✅ (≥ 32 KiB) |
+| Channel-following recovery | Node: the roam frame timed out, then 2 radio-level failures, then "3 consecutive failures on channel 11: re-scanning", then **found the Hub on channel 6 in 613 ms**, and every later frame was acked. End to end about 13 s, dominated by the spike's 10 s per-frame ack timeout. With a 300 ms window it would be about 2 s. | ✅ (< 60 s) |
+| RTT, server mode, n = 7,301 | p50 **38 ms**, p95 **81 ms**, max 788 ms (the single frame right after the roam); **1 of 7,301 over 300 ms** | — |
+
+**Phase B findings:**
+1. **Coexistence is stable over 2 hours:** Wi-Fi, ESP-NOW, BLE (with churn) and TLS together, with no crashes, no heap drift, and no loss outside the roam.
+2. **Channel following works.** The Node's re-scan on 3 consecutive failures finds the Hub on its new channel in under a second. The production Node should re-scan after the ack window expires (AD-17), not after a long timeout.
+3. **After the roam, the Hub ran 30 minutes at −90 dBm with 0 radio-level failures.** A weak link alone therefore does not fully explain Phase 0's 8.7 %. That run combined a weak link with an active BLE connection. The cause of Phase 0's radio-level failures is not isolated beyond "weak link, possibly with BLE activity", but in every run they caused ≤ 0.3 % real loss, which retry covers.
+4. **The 300 ms ack window covers 99.99 % of acknowledgements** in 2 hours (1 of 7,301 slower, right after a roam).
+
 ### Phase A and BLE control (2026-09-27, 3 × 20 min)
 
 The Hub board sat about 1 m from an access point. The router SSID is served by at least two BSSIDs:
@@ -333,15 +359,21 @@ The window W is how long the Node listens after its last send. Use Phase B, serv
 
 ## 10. Decision
 
-*To be filled in after the hardware run.*
-
 | Outcome | When | Consequence |
 | --- | --- | --- |
 | **GO** (S3 as specified) | All of C1–C6 and C8 pass | Close PRD Open Question 1. Put W into AD-17 via the Hub/Node epics. Keep the S3. |
 | **GO-WITH-CAVEATS** | All pass except bounded, explainable deviations, for example: loss 1–3 % only during BLE churn; modem sleep required, which raises RTT; BLE and TLS handshakes collide. A firmware-level mitigation exists (retry, scheduling, `PowerSaveMode::Minimum`, pausing BLE advertising while associated and provisioned). | Record each caveat and its mitigation as a Hub-epic story. Keep the S3. Re-test the mitigations. |
 | **NO-GO** | Any crash or driver assert under coex that is not fixable in the spike, sustained loss ≥ 3 %, Wi-Fi that will not stay associated with BLE active, or a heap margin below 16 KiB | Consider the ESP32-C3 fallback (addendum): rerun this spike unchanged on a C3 (the firmware only needs the chip features swapped). Alternatively, consider a design change: BLE only during provisioning, with the Wi-Fi/BLE overlap limited to setup. |
 
-**Decision:** _pending_
+**Decision (2026-09-27): GO. Keep the ESP32-S3 as specified.** PRD Open Question 1 is closed.
+
+Across Phase 0, Phase A, the BLE control and Phase B (about 3 h 45 min of runs on two boards), every criterion passed: no crash, loss well under 1 %, stable heap, heartbeats at 100 %, and channel following recovered. Carry these into the Hub and Node epics as requirements, not caveats:
+
+- **H-1:** the Hub scans all channels and joins the strongest BSSID (`ScanMethod::AllChannels`), and re-evaluates on RSSI degradation (mesh networks).
+- **H-2:** the Hub's TLS enables certificate-date checks (`tls-time-check`), and the firmware CI image gets cmake and ninja.
+- **H-3:** WPA3-only networks are not supported by esp-radio 1.0.0-beta.1. Document it for FR-1, and track upstream.
+- **N-1:** the Node treats only the sealed application acknowledgement as delivery. It ignores radio-level send status, and resends and re-scans on ack-window expiry.
+- **N-2:** AD-17 acknowledgement window **W = 300 ms**, to be re-measured against the real LAN Server.
 
 **Follow-ups:** update AD-17 with W. Update PRD Open Question 1 and addendum Risk (a).
 Decide whether `tls-time-check` (F-3) becomes the Hub default and add cmake + ninja to

@@ -284,7 +284,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
   - **Resend:** every transmission is freshly sealed with a new counter, including a resend. A buffered Reading keeps its payload (`reading_seq`, `measured_at`, value), not its sealed bytes. `reading_seq` is a per-Device counter persisted the same way.
   - **Replay window:** the Server accepts an authentic frame whose counter is above the Device's high-water mark, or inside an unseen slot of a 64-entry window below it. Anything else is `rejected_replay`.
   - **Duplicates:** duplicate *Readings* are caught by the AD-9 key, never by the counter.
-  - **Acknowledgement window:** the Node waits for its downlink acknowledgement for a bounded window, set by the Node/Hub epics from the radio spike. If it misses the window, it collects the acknowledgement on its next wake from the Hub's volatile downlink slot.
+  - **Acknowledgement window:** the Node waits **300 ms** for its downlink acknowledgement. This value comes from the Hub radio spike (`docs/spikes/hub-radio-coexistence.md`) and will be re-measured against the real Server. Only the sealed acknowledgement counts as delivery; the radio-level send status is ignored. If the Node misses the window, it collects the acknowledgement on its next wake from the Hub's volatile downlink slot, and it re-scans channels after repeated misses.
 
 ### AD-18 — Relationship and invariant ownership
 
@@ -377,7 +377,7 @@ Arrows are the only allowed dependency and call directions. Grains never call th
 
 | Name | Version |
 | --- | --- |
-| esp-hal (ESP32-S3; `unstable` for HMAC/AES/SHA) | 1.2.2 |
+| esp-hal (ESP32-S3; `unstable` for HMAC/AES/SHA; Wi-Fi + BLE + ESP-NOW coexistence validated by the spike) | 1.2.2 |
 | esp-radio (Wi-Fi, BLE, ESP-NOW, coex) | 1.0.0-beta.1 |
 | trouble-host (BLE host; bt-hci 0.9 to match esp-radio) | 0.7.0 |
 | mbedtls-rs (Hub TLS client) | 0.3.0 |
@@ -555,7 +555,6 @@ coldframe/
 
 | Item | Why it can wait |
 | --- | --- |
-| Hub radio coexistence (Wi-Fi + BLE + ESP-NOW on S3; PRD OQ1) | A spike gate before the Hub epic. A C3 fallback changes only the firmware target; the spike also sets the AD-17 acknowledgement window. |
 | BLE provisioning protocol choice (PRD OQ2) | Decided by the first epic that needs it. AD-10 already binds it to one protocol for Hub and Node, defined in `packages/proto`. |
 | Soil probe, sealing, temperature compensation (PRD OQ4) | Hardware. AD-9 stores raw values with a Calibration ID, so a compensation model can be added later. |
 | DS-peripheral (RSA) asymmetric identity; secure boot; flash encryption | Hardening after V1. AD-12's versioned labels leave room. Each is an irreversible eFuse decision per board. |

@@ -14,7 +14,7 @@ Depth that belongs to architecture and solution design, carried from the product
 
 - Firmware in **Rust on ESP32-S3** for both Devices: `coldframe-node` (Sensors → ESP-NOW, deep sleep) and `coldframe-hub` (ESP-NOW ⇄ Wi-Fi, BLE provisioning). Two ESP32-S3 boards on hand.
 - **ESP-NOW** chosen for garden distance beyond Wi-Fi reach.
-- **Risk (a):** esp-radio lists S3 BLE/coexistence with caveats; the Hub needs Wi-Fi + BLE + ESP-NOW together — validate early (PRD Open Question 1). The S3 decision stands; C3 is a candidate fallback suggested by research (not decided) if validation fails.
+- **Risk (a):** esp-radio lists S3 BLE/coexistence with caveats; the Hub needs Wi-Fi + BLE + ESP-NOW together — **validated by the Hub radio spike (2026-09-27): GO, S3 kept** (`docs/spikes/hub-radio-coexistence.md`). The C3 fallback is no longer needed. The spike's Hub requirements: join the strongest BSSID (scan all channels); enable TLS certificate-date checks (needs cmake and ninja); WPA3-only networks are unsupported in esp-radio 1.0.0-beta.1.
 - **Risk (b):** ESP-NOW and Wi-Fi STA share one channel; the Node must follow the router's channel (drives the FR-4 channel-change criterion).
 
 ## Node
