@@ -212,6 +212,42 @@ Warm HTTPS request latency at the Hub: p50 45 ms, p95 99 ms, max 270 ms. Cold (w
    - A 2-hour stability run.
    - A better Hub placement (−84 dBm is marginal).
 
+### Phase A and BLE control (2026-09-27, 3 × 20 min)
+
+The Hub board sat about 1 m from an access point. The router SSID is served by at least two BSSIDs:
+- `AP-near`: channel 11, −39 to −46 dBm. This is the AP 1 m away.
+- `AP-far`: channel 6, −84 to −90 dBm. A farther AP or mesh node.
+
+With esp-radio's default `ScanMethod::Fast`, the Hub joins the **first** matching BSSID it finds, whatever its signal. That was the far AP in Phase 0 and in A2. Firmware `SPIKE_WIFI_SCAN` now defaults to `ScanMethod::AllChannels`, which joins the strongest AP; the control run used it.
+
+| Run | BLE | AP (channel, RSSI) | Ack mode | Frames | Radio-level send failures at Node | No ack at all | RTT p50 / p95 / max | Min free heap |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Phase 0 | on, phone connected | ch 6, −84 dBm | server | 1,355 | 118 (8.7 %) | ≈4 | 52 / 111 / 277 ms | 54.2 KB |
+| A1 | off | ch 11, −43 dBm | server | 1,186 | **0** | **0** | 15 / 68 / 90 ms | 94.3 KB |
+| A2 | off | ch 6, −90 dBm | immediate | 1,185 | 5 (0.4 %) | 3 | 3 / 13 / 58 ms | 95.6 KB |
+| Control | on, advertising only | ch 11, −39 dBm | server | 1,191 | **0** | **0** | 31 / 76 / 252 ms | 63.7 KB |
+
+All four runs had no resets or panics, no Wi-Fi disconnects, no TLS failures, and 100 % heartbeat success.
+
+**Findings:**
+1. **BLE does not cause ESP-NOW loss.** With a good AP, BLE on and BLE off both lost 0 of about 1,190 frames. The Phase 0 radio-level failures came from the Hub being associated to a **distant AP at −84 dBm**.
+2. **BLE costs latency and memory, not reliability.**
+   - With BLE advertising, server-mode RTT roughly doubled at p50 (15 → 31 ms), p95 rose from 68 to 76 ms, and the max rose from 90 to 252 ms, from radio time-slicing.
+   - The BLE stack costs about 30 KB of heap (94 KB → 64 KB minimum free).
+3. **Hub requirement (Hub epic):**
+   - Scan all channels and join the **strongest** BSSID for the SSID (`ScanMethod::AllChannels`), never the first found.
+   - On mesh networks, re-evaluate when RSSI degrades.
+   - A Hub on a weak AP is what raises Node-visible failures.
+4. **AD-17 ack window:**
+   - With BLE on and a good AP, W = max(2 × 76, 252) ≈ 250 ms. The Phase 0 estimate of about 300 ms stays the conservative value.
+   - Recommendation: **300 ms**, confirmed against the real LAN Server later.
+   - The Hub-side `ack_max` outliers of about 4 s in A1 and the control run are Hub-internal and never reached the Node (Node max ≤ 252 ms). They are most likely the cold TLS handshake on the first relayed frame.
+5. **Verdict so far: GO for the ESP32-S3 as specified.** Open caveats:
+   - the 2-hour Phase B stability run
+   - recovery after a router channel change
+   - WPA3-only networks (not supported by esp-radio beta.1)
+   - certificate-date checking needs the mbedTLS C build (cmake and ninja)
+
 ### Environment
 
 | Item | Value |

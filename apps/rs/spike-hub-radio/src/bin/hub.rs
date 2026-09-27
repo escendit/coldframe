@@ -54,7 +54,8 @@ use esp_radio::{
     esp_now::{EspNow, EspNowWifiInterface, PeerInfo},
     wifi::{
         AuthenticationMethodConfig, Config as WifiConfig, ControllerConfig, Interface,
-        PowerSaveMode, WifiController, sta::StationConfig,
+        PowerSaveMode, WifiController,
+        sta::{ScanMethod, StationConfig},
     },
 };
 use log::{error, info, warn};
@@ -101,6 +102,12 @@ const HTTP_METHOD: &str = match option_env!("SPIKE_HTTP_METHOD") {
 const ACK_MODE_DEFAULT_IMMEDIATE: bool = match option_env!("SPIKE_ACK_MODE") {
     Some(s) => str_eq(s, "immediate"),
     None => false,
+};
+/// AP selection: `all` (default, scan all channels and join the strongest AP) or `fast`
+/// (esp-radio default: join the first matching AP found, whatever its signal).
+const WIFI_SCAN_ALL: bool = match option_env!("SPIKE_WIFI_SCAN") {
+    Some(s) => !matches!(s.as_bytes(), b"fast"),
+    None => true,
 };
 /// Wi-Fi modem power save: `none` (default) or `min` / `max`.
 const WIFI_PS: &str = match option_env!("SPIKE_WIFI_PS") {
@@ -315,6 +322,11 @@ async fn main(spawner: Spawner) -> ! {
     let station_config = WifiConfig::Station(
         StationConfig::default()
             .with_ssid(SSID.try_into().unwrap())
+            .with_scan_method(if WIFI_SCAN_ALL {
+                ScanMethod::AllChannels
+            } else {
+                ScanMethod::Fast
+            })
             .with_authentication(if PASSWORD.is_empty() {
                 AuthenticationMethodConfig::Open
             } else {
