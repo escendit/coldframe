@@ -156,7 +156,7 @@ Behavioural. Visual specs live in `DESIGN.md` Components.
 
 | Case | Surface | Copy / recovery |
 |---|---|---|
-| Address unreachable (DNS failure, timeout, refused) — includes being off the home network, which the app cannot tell apart | Sign in, Inline notice | "Can't reach your Coldframe Server. Check that this phone is on your home Wi-Fi." → Try again |
+| Server unreachable (DNS failure, timeout, refused) — includes being off the home network, which the app cannot tell apart | Sign in, Inline notice | "Can't reach your Coldframe Server. Check that this phone is on your home Wi-Fi." → Try again |
 | Certificate / TLS failure | Sign in, Inline notice | "Your Server's certificate isn't trusted, so Coldframe won't connect. The Server needs a valid certificate for its domain." No "continue anyway" (AD-13). |
 | Keycloak cancelled by the user | Sign in | Returns to Sign in; no error. |
 | Keycloak error or unreachable during sign-in | Sign in, Inline notice | "Sign-in didn't finish: your Server's sign-in page returned an error. Nothing was changed." → Try again |
