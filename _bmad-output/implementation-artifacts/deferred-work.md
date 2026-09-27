@@ -1,0 +1,46 @@
+### DW-1: The architecture Stack pins Temporal Server 1.31.3, but no public container image exists for that version; the local stack uses the Temporal CLI development server instead.
+origin: spec-deferred d24a3b6afbf1
+location: _bmad-output/planning-artifacts/architecture/architecture-coldframe-2026-09-26/ARCHITECTURE-SPINE.md (Stack table)
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: low
+reason: Docker Hub temporalio/server lists 1.31.0, 1.31.1, 1.31.2 and 1.32.0 only; temporalio/auto-setup stops at 1.29.7 (checked 2026-09-28).
+status: open
+
+### DW-2: The Escendit hosting packages extend the concrete HostApplicationBuilder only, so an ASP.NET Core host cannot call AddServiceDefaults() or any Orleans extension of Escendit.Extensions.Hosting.Orleans;
+origin: spec-deferred bc3a356a215e
+location: apps/cs/server/Hosting/ServiceDefaultsExtensions.cs
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: medium
+reason: The XML documentation of Escendit.Extensions.Hosting.ServiceDefaults 0.1.0-rc.4 lists AddServiceDefaults(HostApplicationBuilder, ...) and no overload for IHostApplicationBuilder or WebApplicationBuilder. Story 1.2 meets the same limit when it adds AdoNet clustering and NATS streams. Needs an upstream change (target IHostApplicationBuilder) or a decision to keep the shim.
+status: open
+
+### DW-3: No test asserts that the server exports telemetry when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+origin: spec-deferred 5f08a759f34d
+location: apps/cs/server/Hosting/ServiceDefaultsExtensions.cs
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: low
+reason: The integration run executes the branch but asserts nothing about telemetry. An assertion needs an OTLP collector in the test host.
+status: open
+
+### DW-4: The health test may fail on a slow runner when the server process is running but does not listen within the retry budget of the HTTP resilience handler.
+origin: spec-deferred a7f34e0af370
+location: tests/cs/server.integration/ServerHealthTests.cs
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+reason: Not observed in any local run. To settle it, measure the time from the Running state to the first accepted connection on a GitHub runner and compare it with the retry budget of the standard resilience handler.
+status: open
+
+### DW-5: The CI jobs are not required status checks on main, so a failing job does not block a merge.
+origin: spec-deferred eb356faf4c50
+location: .github/workflows/ci.yml
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: medium
+reason: The GitHub API reports no branch protection on main and a ruleset with deletion and non_fast_forward only. This is a repository setting; it is listed under operator_actions.
+status: open
+
+### DW-6: The CI workflow has never run on GitHub; the macOS Swift job and the Docker-based .NET and secrets jobs are verified only by running their commands locally.
+origin: spec-deferred 7c23aad3bce0
+location: .github/workflows/ci.yml
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: medium
+reason: This run may not push or open a pull request. It is listed under operator_actions.
+status: open

@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/cs/">
+    <Project Path="apps/cs/server/Coldframe.Server.csproj" />
+  </Folder>
+  <Folder Name="/aspire/">
+    <Project Path="aspire/Coldframe.AppHost/Coldframe.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/cs/">
+    <Project Path="tests/cs/server.integration/Coldframe.Server.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

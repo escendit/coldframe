@@ -1,0 +1,51 @@
+<Project>
+  <!--
+    Central Package Management (AD-15). Every version lives here; no PackageReference carries one.
+    Transitive pinning is on, so an entry below also fixes that package when it arrives transitively.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <!-- Aspire: local AppHost and integration-test host -->
+  <ItemGroup>
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.5.4" />
+    <PackageVersion Include="Aspire.Hosting.Nats" Version="13.5.4" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.5.4" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.5.4" />
+  </ItemGroup>
+  <!-- Escendit service defaults (AD-15) -->
+  <ItemGroup>
+    <PackageVersion Include="Escendit.AspNetCore.Builder.Core" Version="0.1.0-rc.0" />
+    <PackageVersion Include="Escendit.AspNetCore.Builder.Orleans" Version="0.1.0-rc.0" />
+    <PackageVersion Include="Escendit.AspNetCore.Diagnostics.HealthChecks" Version="0.1.0-rc.0" />
+    <PackageVersion Include="Escendit.Extensions.Hosting.Orleans" Version="0.1.0-rc.4" />
+    <PackageVersion Include="Escendit.Extensions.Hosting.ServiceDefaults" Version="0.1.0-rc.4" />
+  </ItemGroup>
+  <!--
+    Orleans. The Escendit packages only floor Orleans at 10.1.0, and NATS.Net 3.x must not be
+    resolved, so every Orleans package and the NATS client are pinned here.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Orleans.Client" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Clustering.AdoNet" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Clustering.Redis" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.EventSourcing" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Hosting.Kubernetes" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Persistence.AdoNet" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Reminders.AdoNet" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Reminders.Redis" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Server" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Streaming.NATS" Version="10.3.1-alpha.1" />
+    <PackageVersion Include="NATS.Net" Version="2.8.2" />
+  </ItemGroup>
+  <!-- Telemetry and HTTP resilience. The OpenTelemetry version follows the Escendit service defaults. -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
+  </ItemGroup>
+  <!-- Tests -->
+  <ItemGroup>
+    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+  </ItemGroup>
+</Project>

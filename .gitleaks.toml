@@ -1,0 +1,13 @@
+# Secret scanning for CI (the "secrets" job) and for local checks, see docs/quickstart.md.
+title = "Coldframe"
+
+[extend]
+useDefault = true
+
+# Vendored BMAD tooling trips the generic API key rule with file hashes and documentation examples.
+[[allowlists]]
+description = "Vendored BMAD tooling"
+paths = [
+  '''^_bmad/_config/files-manifest\.csv$''',
+  '''^\.claude/skills/[^/]+/resources/knowledge/api-testing-patterns\.md$''',
+]

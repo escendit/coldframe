@@ -1,0 +1,16 @@
+# Integration tests for coldframe-hal. Cargo discovers every file in tests/ on its own.
+[package]
+name = "coldframe-hal-tests"
+description = "Integration tests for coldframe-hal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+coldframe-hal = { path = "../../../packages/rs/hal" }
+
+[lints]
+workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "coldframe-hal"
+description = "Hardware abstraction traits for Coldframe firmware, with mocks for host-side tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

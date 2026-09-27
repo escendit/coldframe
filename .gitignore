@@ -147,8 +147,8 @@ ipch/
 *.vspx
 *.sap
 
-# Visual Studio Trace Files
-*.e2e
+# The template's "*.e2e" rule (Visual Studio trace files) is removed on purpose:
+# end-to-end test folders are named "<app>.e2e", such as tests/ts/web.e2e.
 
 # TFS 2012 Local Workspace
 $tf/
@@ -226,12 +226,8 @@ PublishScripts/
 *.nupkg
 # NuGet Symbol Packages
 *.snupkg
-# The packages folder can be ignored because of Package Restore
-**/[Pp]ackages/*
-# except build/, which is used as an MSBuild target.
-!**/[Pp]ackages/build/
-# Uncomment if necessary however generally it will be regenerated when needed
-#!**/[Pp]ackages/repositories.config
+# The template's "**/[Pp]ackages/*" rule is removed on purpose: packages/ is a source
+# folder of this monorepo, and NuGet restores into the global packages folder.
 # NuGet v3's project.json files produces more ignorable files
 *.nuget.props
 *.nuget.targets
@@ -438,3 +434,27 @@ _bmad/render/
 _bmad/config.user.toml
 _bmad/config.user.yaml
 _bmad/memory/
+
+# Rust
+target/
+
+# Node, pnpm, Vite, Vitest
+.pnpm-store/
+*.tsbuildinfo
+coverage/
+
+# Gradle, Kotlin
+.gradle/
+.kotlin/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# SwiftPM, Xcode
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# macOS
+.DS_Store

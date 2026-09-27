@@ -1,0 +1,205 @@
+# Builds, tests and lints every language in the monorepo, and scans for committed secrets.
+# The jobs are meant to be required status checks on main (AD-24). That is configured in the
+# repository settings, not in this file.
+#
+# Actions are pinned to a commit; the comment names the release. Images and toolchains are
+# pinned to an explicit version here or in the file the step reads.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore in locked mode
+        run: dotnet restore --locked-mode
+
+      - name: Build
+        run: dotnet build --no-restore -warnaserror
+
+      - name: Lint
+        run: dotnet format --verify-no-changes --no-restore
+
+      # Starts the Aspire AppHost on the runner's Docker engine.
+      - name: Test
+        run: dotnet test --no-build
+
+  rust:
+    name: Rust
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the toolchain named in rust-toolchain.toml.
+      - name: Set up Rust
+        run: rustup toolchain install
+
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+
+      - name: Lint
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  kotlin:
+    name: Kotlin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # "check" compiles, runs the tests and runs ktlint.
+      - name: Build, test and lint
+        run: ./gradlew check
+
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the pnpm version named in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm -r lint
+
+      - name: Test
+        run: pnpm -r test
+
+  swift:
+    name: Swift
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      - name: Lint
+        run: swift format lint --strict --recursive .
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Proves that the scan below can fail: the same image and configuration must reject
+      # a throwaway repository that holds a generated fake key.
+      - name: Self-test
+        shell: bash
+        run: |
+          probe="${RUNNER_TEMP}/gitleaks-self-test"
+          mkdir -p "${probe}"
+          git -C "${probe}" init --quiet
+          cp .gitleaks.toml "${probe}/"
+          printf 'token = "ghp_%s"\n' "$(openssl rand -hex 18)" > "${probe}/settings.toml"
+          git -C "${probe}" add --all
+          git -C "${probe}" -c user.name=ci -c user.email=ci@example.invalid \
+            commit --quiet --message "test: fake key"
+
+          if docker run --rm --volume "${probe}:/repo:ro" "${GITLEAKS_IMAGE}" \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --no-color; then
+            echo "::error::gitleaks accepted a repository with a committed fake key."
+            exit 1
+          fi
+
+      # gitleaks exits 0 when it finds no commits, so the commit count is checked as well.
+      - name: Scan the history with gitleaks
+        shell: bash
+        run: |
+          docker run --rm --volume "${GITHUB_WORKSPACE}:/repo:ro" "${GITLEAKS_IMAGE}" \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --no-color \
+            2>&1 | tee "${RUNNER_TEMP}/gitleaks.log"
+
+          if ! grep --quiet --extended-regexp '[1-9][0-9]* commits scanned' "${RUNNER_TEMP}/gitleaks.log"; then
+            echo "::error::gitleaks scanned no commits."
+            exit 1
+          fi
