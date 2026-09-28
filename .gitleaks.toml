@@ -11,3 +11,11 @@ paths = [
   '''^_bmad/_config/files-manifest\.csv$''',
   '''^\.claude/skills/[^/]+/resources/knowledge/api-testing-patterns\.md$''',
 ]
+
+# The shared crypto test vectors hold fixed, public test keys (RFC anchors and derived vectors), never
+# real secrets.
+[[allowlists]]
+description = "Crypto test vectors"
+paths = [
+  '''^packages/crypto-spec/vectors\.json$''',
+]

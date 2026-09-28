@@ -5,6 +5,66 @@
  */
 
 export type paths = {
+    "/device/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A Hub reports that it is alive
+         * @description Authenticated as a Device (security scheme deviceHmac), never with a Keycloak token. The Server rejects a bad signature, a timestamp more than 300000 ms off its clock and a replayed nonce; a valid heartbeat updates the Device's last-seen time. The Hub adopts serverTime for its own timing only and never stamps data with it.
+         */
+        post: operations["deviceHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/device/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A Hub relays sealed Node frames (placeholder)
+         * @description Placeholder until Epic 4 defines the envelope and the per-frame statuses (AD-9). Authenticated as a Device (security scheme deviceHmac).
+         */
+        post: operations["deviceIngest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrolment-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the Server's X25519 enrolment public key
+         * @description The app shows the fingerprint and writes the key to the Device over BLE; the Device seals K_dev to it with HPKE (AD-12).
+         */
+        get: operations["getEnrolmentKey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites": {
         parameters: {
             query?: never;
@@ -48,6 +108,26 @@ export type paths = {
          * @description Only an Owner. The Server sets the Keycloak Organization displayName first, then records the rename. Renaming to the current name changes nothing.
          */
         patch: operations["renameSite"];
+        trace?: never;
+    };
+    "/sites/{siteId}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enrol a Device on the Site
+         * @description The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. Idempotent per caller and Idempotency-Key for 24 h. Nothing is persisted on any error.
+         */
+        post: operations["enrolDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/sites/{siteId}/lots": {
@@ -159,13 +239,50 @@ export type components = {
             /** @description The Lot name. Trimmed; 1 to 100 characters after trimming. */
             name: string;
         };
+        /** @description The Device ID, derived from the Device's eFuse-bound identity: 16 lowercase hex digits. */
+        DeviceId: string;
+        /** @enum {string} */
+        DeviceKind: "hub" | "node";
+        HeartbeatRequest: {
+            /** @description The Device's wire major. */
+            protocolVersion: number;
+            /** @description Milliseconds since the Device booted. */
+            uptimeMs?: number;
+        };
+        HeartbeatResponse: {
+            /**
+             * Format: date-time
+             * @description The Server clock, ISO-8601 UTC with Z.
+             */
+            serverTime: string;
+        };
+        EnrolmentKey: {
+            /** @description The raw 32-byte X25519 enrolment public key, base64url without padding. */
+            publicKey: string;
+            /** @description Lowercase hex SHA-256 of the raw public key. The app shows it to the user; the Device checks it against the key as an integrity check only, since it travels with the key. Authenticity comes from fetching this over TLS and the fingerprint the user sees. */
+            fingerprint: string;
+        };
+        EnrolDeviceRequest: {
+            deviceId: components["schemas"]["DeviceId"];
+            kind: components["schemas"]["DeviceKind"];
+            /** @description The HPKE encapsulated key (32 bytes), base64url without padding. */
+            enc: string;
+            /** @description K_dev sealed with HPKE (48 bytes), base64url without padding. */
+            ciphertext: string;
+        };
+        Device: {
+            id: components["schemas"]["DeviceId"];
+            kind: components["schemas"]["DeviceKind"];
+            /**
+             * Format: uuid
+             * @description The Site the Device is enrolled on.
+             */
+            siteId: string;
+        };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
-            /**
-             * @description Stable: urn:coldframe:problem:<slug>.
-             * @enum {string}
-             */
-            type: "urn:coldframe:problem:unauthorized" | "urn:coldframe:problem:forbidden" | "urn:coldframe:problem:site-not-found" | "urn:coldframe:problem:lot-not-found" | "urn:coldframe:problem:validation" | "urn:coldframe:problem:idempotency-key-missing" | "urn:coldframe:problem:idempotency-key-reused" | "urn:coldframe:problem:identity-provider-unavailable" | "urn:coldframe:problem:lot-claimed";
+            /** @description Stable: urn:coldframe:problem:<slug>. The set grows as operations are added, so it is an x-extensible-enum: a client handles a type it does not know by its status. */
+            type: string;
             title: string;
             status: number;
             detail?: string;
@@ -236,6 +353,24 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
+        /** @description urn:coldframe:problem:device-unauthorized: the Device authentication failed (unknown Device, bad signature, timestamp more than 300000 ms off, or a replayed nonce). */
+        DeviceUnauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. Nothing was persisted. */
+        DeviceOnAnotherSite: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
         /** @description urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached. The request stays pending; retry with the same Idempotency-Key. */
         IdentityProviderUnavailable: {
             headers: {
@@ -253,6 +388,12 @@ export type components = {
         IdempotencyKey: string;
         /** @description The Lot ID, a UUIDv7. */
         LotId: string;
+        /** @description The calling Device's ID, 16 lowercase hex digits. */
+        DeviceIdHeader: components["schemas"]["DeviceId"];
+        /** @description The request time, Unix milliseconds UTC; rejected when more than 300000 ms off the Server clock. */
+        DeviceTimestampHeader: string;
+        /** @description 16 random bytes as 32 lowercase hex digits; a replayed nonce is rejected. */
+        DeviceNonceHeader: string;
     };
     requestBodies: never;
     headers: never;
@@ -260,6 +401,91 @@ export type components = {
 };
 export type $defs = Record<string, never>;
 export interface operations {
+    deviceHeartbeat: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The calling Device's ID, 16 lowercase hex digits. */
+                "X-Coldframe-Device": components["parameters"]["DeviceIdHeader"];
+                /** @description The request time, Unix milliseconds UTC; rejected when more than 300000 ms off the Server clock. */
+                "X-Coldframe-Timestamp": components["parameters"]["DeviceTimestampHeader"];
+                /** @description 16 random bytes as 32 lowercase hex digits; a replayed nonce is rejected. */
+                "X-Coldframe-Nonce": components["parameters"]["DeviceNonceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description The heartbeat is recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeartbeatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceUnauthorized"];
+        };
+    };
+    deviceIngest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The calling Device's ID, 16 lowercase hex digits. */
+                "X-Coldframe-Device": components["parameters"]["DeviceIdHeader"];
+                /** @description The request time, Unix milliseconds UTC; rejected when more than 300000 ms off the Server clock. */
+                "X-Coldframe-Timestamp": components["parameters"]["DeviceTimestampHeader"];
+                /** @description 16 random bytes as 32 lowercase hex digits; a replayed nonce is rejected. */
+                "X-Coldframe-Nonce": components["parameters"]["DeviceNonceHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The frames are accepted for processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["DeviceUnauthorized"];
+        };
+    };
+    getEnrolmentKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The enrolment key. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrolmentKey"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     listSites: {
         parameters: {
             query?: never;
@@ -370,6 +596,42 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SiteNotFound"];
             503: components["responses"]["IdentityProviderUnavailable"];
+        };
+    };
+    enrolDevice: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrolDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description The Device is enrolled on the Site. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+            409: components["responses"]["DeviceOnAnotherSite"];
+            422: components["responses"]["IdempotencyKeyReused"];
         };
     };
     listLots: {

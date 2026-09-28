@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Device simulator (AD-24): every Server and end-to-end test drives the Device path through it,
+    never through hand-built payloads. Built only on packages/proto and packages/crypto-spec.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Coldframe.DeviceSimulator</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\packages\cs\crypto\Coldframe.Crypto.csproj" />
+    <ProjectReference Include="..\..\..\packages\cs\protocol\Coldframe.Protocol.csproj" />
+  </ItemGroup>
+</Project>

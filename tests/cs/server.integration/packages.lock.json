@@ -260,11 +260,6 @@
         "resolved": "7.3.0",
         "contentHash": "2bETFWLBc8b7Ut2SVi+bxhGVwiSpknHYGBh2PADyGWONLkTxT7bKyDRhF8ao+XUv90tq8Fl7GTPxSI5bacIRJw=="
       },
-      "Google.Protobuf": {
-        "type": "Transitive",
-        "resolved": "3.34.1",
-        "contentHash": "212vdYxRuVopGE5bess6Jg5oXWyizA6hcLPTI7G+qA4PthQEvfeof3njT+7VSY5v/+O0P22xTydiP5fSJJpGEA=="
-      },
       "Grpc.AspNetCore": {
         "type": "Transitive",
         "resolved": "2.80.0",
@@ -322,11 +317,6 @@
         "dependencies": {
           "Grpc.Core.Api": "2.80.0"
         }
-      },
-      "Grpc.Tools": {
-        "type": "Transitive",
-        "resolved": "2.80.0",
-        "contentHash": "NS1AxwVZnrdbBoMf5L5ruGjBjoLBej9avhqxWNsgfu2GU6FhpxEVJOwLJsdljlDCjvquJiAH2zf/WodIWMvf2w=="
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -1940,6 +1930,18 @@
           "FluentMigrator.Extensions.Postgres": "8.0.1",
           "FluentMigrator.Runner.Core": "8.0.1"
         }
+      },
+      "Google.Protobuf": {
+        "type": "CentralTransitive",
+        "requested": "[3.36.2, )",
+        "resolved": "3.36.2",
+        "contentHash": "Ci1q1iJg74qAE5riTA2FbMS0wPbpruPQI/JQ9DrAsRo2VsSxgt1e/pmxGxgrci+pXJEgrSYg2vPl8rrStZkclQ=="
+      },
+      "Grpc.Tools": {
+        "type": "CentralTransitive",
+        "requested": "[2.84.0, )",
+        "resolved": "2.84.0",
+        "contentHash": "SarjdfpQYU/mmdu/fWgSW8kEHQ54jiyG2+I4THu9eubtAud+QJf+1iJdGtoKTJ/ZRaI0qAG+7ttsK2WUTao2OQ=="
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
         "type": "CentralTransitive",

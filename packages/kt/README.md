@@ -27,4 +27,8 @@ Member read-only notice, one `Idempotency-Key` per create attempt) and the Lots 
 Server's order; Android reads `AndroidSignIn.lots`, iOS the flat `LotsSnapshot` through
 `IosSignIn.lots`. `design-tokens/` builds for the JVM and Android; iOS uses the
 Swift package in [`packages/swift/design-tokens`](../swift/design-tokens).
+`core/generated/` holds `crypto/CryptoSpec`, the Device crypto constants written by
+[`packages/crypto-spec`](../crypto-spec) into `commonMain`; `tests/kt/core/jvmTest/.../crypto`
+reproduces the shared vectors with them on the JDK's providers. The multiplatform crypto itself
+arrives with BLE setup (Story 3.6).
 Tests live in [`tests/kt`](../../tests/kt).

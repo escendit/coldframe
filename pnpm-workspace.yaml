@@ -2,6 +2,7 @@ packages:
   - apps/ts/*
   - packages/ts/*
   - packages/design-tokens
+  - packages/crypto-spec
   - tests/ts/*
 
 packageExtensions:

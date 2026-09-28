@@ -1,0 +1,41 @@
+// Sealed Device frames and downlinks (AD-9, AD-12, AD-16, AD-17).
+//
+// The Hub relays both as opaque bytes: it can neither read nor forge them. The ciphertext is
+// ChaCha20-Poly1305 as packages/crypto-spec defines it: uplink frames are sealed with the
+// seal/v1 key, downlinks with the ack/v1 key; nonce = device_id[0..4] || counter_u64_be and
+// AAD = u8 protocol_major || device_id || counter_u64_be.
+//
+// Within a major version changes are additive only. A field number is never reused; reserve a
+// removed field's number and name.
+syntax = "proto3";
+
+package coldframe.device.v1;
+
+option csharp_namespace = "Coldframe.Protocol.Device.V1";
+
+// One sealed message from or to a Device.
+message SealedEnvelope {
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // The 8-byte Device ID.
+  bytes device_id = 2;
+  // The per-direction counter; never repeats for the life of the key.
+  uint64 counter = 3;
+  // The sealed payload followed by the 16-byte tag.
+  bytes ciphertext = 4;
+}
+
+// What the Server tells a Device, sealed with its ack/v1 key.
+message Downlink {
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // The counter of the frame this acknowledges.
+  uint64 acked_counter = 2;
+  // The Server clock, Unix milliseconds UTC; the Node sets its RTC only from this (AD-11).
+  int64 server_time_ms = 3;
+  // Device commands (AD-16). V1 defines none, so the list is always empty.
+  repeated Command commands = 4;
+}
+
+// A future Device command, issued only by the Device grain (AD-8, AD-16). Reserved: no fields in V1.
+message Command {}

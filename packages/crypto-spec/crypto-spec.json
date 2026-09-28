@@ -1,0 +1,98 @@
+{
+  "$comment": "The normative Device crypto contract (AD-12, AD-17, AD-25). Every label, size and header name here is generated into Rust, C# and Kotlin by scripts/generate.ts; no language types one by hand. Changing a value is a wire break: bump the label version instead.",
+  "protocolMajor": 1,
+  "keyHierarchy": {
+    "rootKeyLength": 32,
+    "deviceKey": {
+      "algorithm": "HMAC-SHA256",
+      "construction": "K_dev = HMAC-SHA256(key = root, msg = label)",
+      "label": "coldframe/device/v1",
+      "length": 32
+    },
+    "purposeKeys": {
+      "algorithm": "HKDF-SHA256",
+      "construction": "HKDF-SHA256(salt = empty, ikm = K_dev, info = label, L = length)",
+      "length": 32,
+      "labels": {
+        "seal": "seal/v1",
+        "ack": "ack/v1",
+        "hubAuth": "hub-auth/v1"
+      }
+    },
+    "deviceId": {
+      "algorithm": "HKDF-SHA256",
+      "construction": "HKDF-SHA256(salt = empty, ikm = K_dev, info = label, L = length); text form is lowercase hex",
+      "label": "device-id/v1",
+      "length": 8
+    }
+  },
+  "aead": {
+    "algorithm": "ChaCha20-Poly1305",
+    "keyLength": 32,
+    "nonceLength": 12,
+    "tagLength": 16
+  },
+  "frame": {
+    "nonceLayout": "device_id[0..4] || counter_u64_be",
+    "nonceDeviceIdPrefixLength": 4,
+    "aadLayout": "u8 protocol_major || device_id(8) || counter_u64_be",
+    "aadLength": 17,
+    "replayWindow": 64,
+    "keys": "uplink frames are sealed with seal/v1, downlinks with ack/v1"
+  },
+  "enrolment": {
+    "hpke": {
+      "mode": 0,
+      "kemId": 32,
+      "kdfId": 1,
+      "aeadId": 3,
+      "versionLabel": "HPKE-v1",
+      "labels": {
+        "dkpPrk": "dkp_prk",
+        "sk": "sk",
+        "eaePrk": "eae_prk",
+        "sharedSecret": "shared_secret",
+        "pskIdHash": "psk_id_hash",
+        "infoHash": "info_hash",
+        "secret": "secret",
+        "key": "key",
+        "baseNonce": "base_nonce"
+      }
+    },
+    "construction": "RFC 9180 base mode, single-shot Seal at sequence 0: pt = K_dev, aad = device_id",
+    "info": "coldframe/enrolment/v1",
+    "x25519KeyLength": 32,
+    "encLength": 32,
+    "fingerprint": "lowercase hex SHA-256 of the raw 32-byte X25519 public key"
+  },
+  "setup": {
+    "construction": "okm = HKDF-SHA256(salt = UTF-8(uppercase PoP code), ikm = X25519(own, peer), info = label || app_pub || hub_pub, L = okmLength)",
+    "label": "coldframe/setup/v1",
+    "okmLength": 64,
+    "appToHubKeyOffset": 0,
+    "hubToAppKeyOffset": 32,
+    "keyLength": 32,
+    "maxCodeLength": 64,
+    "code": "the PoP code is ASCII, 1 to maxCodeLength characters; it is uppercased (ASCII only) before use",
+    "nonceLayout": "0x00000000 || counter_u64_be, one counter per direction",
+    "noncePrefixLength": 4,
+    "firstCounter": 0,
+    "aadLayout": "u8 protocol_major",
+    "wrongCode": "the first message that fails to open means a wrong PoP code"
+  },
+  "heartbeat": {
+    "algorithm": "HMAC-SHA256",
+    "key": "hub-auth/v1",
+    "canonical": "METHOD \\n PATH \\n hex(SHA-256(body)) \\n TIMESTAMP_MS \\n NONCE_HEX, lowercase hex, no trailing newline; METHOD is uppercase and PATH is the absolute request path without query string, exactly as sent (for example /device/heartbeat)",
+    "separator": "\n",
+    "signature": "lowercase hex HMAC-SHA256(hub-auth key, canonical)",
+    "headers": {
+      "device": "X-Coldframe-Device",
+      "timestamp": "X-Coldframe-Timestamp",
+      "nonce": "X-Coldframe-Nonce",
+      "signature": "X-Coldframe-Signature"
+    },
+    "nonceLength": 16,
+    "maxSkewMs": 300000
+  }
+}

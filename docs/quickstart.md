@@ -202,7 +202,10 @@ dotnet format --verify-no-changes
 dotnet test
 ```
 
-`dotnet test` runs two projects. `tests/cs/server.tests` needs no containers: event registry and
+`dotnet test` runs three test projects. `tests/cs/crypto.tests` needs nothing else: it reproduces every
+vector of `packages/crypto-spec/vectors.json` (including the RFC anchors) with `Coldframe.Crypto`, runs
+the negative cases (wrong setup code, tampering, replay) and checks the Device simulator
+(`tests/cs/device-simulator`) against the same vectors. `tests/cs/server.tests` needs no containers: event registry and
 upcasters, the replay of the fixture journal, time substitution, the wall-clock ban, and the Edge API
 rules (access decisions, request validation, and the check that every endpoint declares one access
 rule matching the OpenAPI contract).
@@ -225,7 +228,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
+`tests/rs/crypto` reproduces every vector of `packages/crypto-spec/vectors.json`, including the RFC
+anchors, and runs the negative cases. Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
 member of the workspace. Cargo discovers every file in its `tests/` folder; a new file needs no
 registration.
 
@@ -241,6 +245,7 @@ pnpm -r lint
 pnpm -r typecheck
 pnpm -r test
 pnpm --filter @coldframe/design-tokens run check
+pnpm --filter @coldframe/crypto-spec run check
 ```
 
 The Playwright install is needed once per machine. `pnpm -r test` includes the web app's tests:
@@ -267,6 +272,25 @@ contrast table. Colours, typography, spacing, radii, Carbon icons and fonts have
 `pnpm --filter @coldframe/design-tokens run generate` and commit the CSS, TypeScript, Swift
 (`packages/swift/design-tokens`) and Kotlin (`packages/kt/design-tokens`) outputs together.
 
+The crypto-spec check fails when the constants generated from
+[`packages/crypto-spec/crypto-spec.json`](../packages/crypto-spec) for Rust, C# and Kotlin, or
+`vectors.json`, are stale; after changing the spec, run
+`pnpm --filter @coldframe/crypto-spec run generate` and commit every output. `tests/ts/crypto-spec`
+checks the same freshness and that the vectors carry the RFC anchors verbatim.
+
+### Contracts
+
+```sh
+packages/proto/install-tools.sh "$HOME/.local/bin"
+packages/proto/check-compat.sh --self-test
+packages/proto/check-compat.sh
+```
+
+`install-tools.sh` installs the pinned `buf` and `oasdiff` (Linux x86_64, sha256-checked).
+`check-compat.sh` lints `packages/proto` and fails on a breaking `.proto` or OpenAPI change against the
+merge base with `origin/main` (or `--base <git-ref>`); `--self-test` proves that it can fail. See
+[`packages/proto`](../packages/proto/README.md#checks).
+
 ### Kotlin
 
 ```sh
@@ -275,7 +299,8 @@ contrast table. Colours, typography, spacing, radii, Carbon icons and fonts have
 
 `check` compiles, runs the tests and runs ktlint and Android lint. It needs the Android SDK (see
 [Run the Android app](#run-the-android-app)). The shared core's tests in `tests/kt/core` run on the
-JVM with the network mocked; the Android app's tests in `tests/kt/android` run under Robolectric.
+JVM with the network mocked, including the crypto vector runner in `tests/kt/core/jvmTest/.../crypto`
+on the JDK's providers; the Android app's tests in `tests/kt/android` run under Robolectric.
 On Linux the iOS targets of the core compile but do not link:
 
 ```sh
