@@ -30,6 +30,8 @@
   <string name="devices_title">Devices</string>
   <string name="settings_title">Settings</string>
 
+  <string name="settings_site_settings">Site settings</string>
+  <string name="settings_site_settings_helper">Name and Lots of %1$s</string>
   <string name="settings_appearance">Appearance</string>
   <string name="settings_appearance_helper">Theme for this phone</string>
   <string name="settings_account">Account</string>
@@ -112,4 +114,36 @@
   <string name="garden_step_calibrate">Calibrate</string>
   <string name="garden_step_set_threshold">Set a low Threshold</string>
   <string name="garden_member_notice">Only Owners and Administrators can add Devices.</string>
+  <string name="garden_lots">Lots</string>
+  <string name="lot_tile_no_node">no Node</string>
+  <string name="lot_tile_no_node_value">+</string>
+  <string name="lot_tile_add_node">add a Node</string>
+  <string name="lot_tile_description_no_node">%1$s, no Node, add a Node</string>
+
+  <string name="site_settings_title">Site settings</string>
+  <string name="site_settings_site_name">Site name</string>
+  <string name="site_settings_site_name_helper">Up to 100 characters.</string>
+  <string name="site_settings_rename_site">Rename Site</string>
+  <string name="site_settings_renaming_site">Renaming Site…</string>
+  <string name="site_settings_lots">Lots</string>
+  <string name="site_settings_no_lots">No Lots yet.</string>
+  <string name="site_settings_lot_name">Lot name</string>
+  <string name="site_settings_lot_name_helper">For example Tomatoes. Up to 100 characters.</string>
+  <string name="site_settings_lot_name_blank">Enter a name for the Lot.</string>
+  <string name="site_settings_create_lot">Create Lot</string>
+  <string name="site_settings_creating_lot">Creating Lot…</string>
+  <string name="site_settings_rename_lot">Rename Lot</string>
+  <string name="site_settings_renaming_lot">Renaming Lot…</string>
+  <string name="site_settings_remove_lot">Remove Lot</string>
+  <string name="site_settings_removing_lot">Removing Lot…</string>
+  <string name="site_settings_remove_lot_question">Remove Lot %1$s?</string>
+  <string name="site_settings_remove_lot_detail">Its history stays in Coldframe.</string>
+  <string name="site_settings_cancel">Cancel</string>
+  <string name="site_settings_read_only">Only Owners and Administrators can change Lots.</string>
+  <string name="site_settings_forbidden">You can\'t change this on %1$s. Ask an Owner or Administrator.</string>
+  <string name="site_settings_lot_claimed">Move or unassign the Node on %1$s first.</string>
+  <string name="site_settings_lot_not_found">That Lot no longer exists. Nothing was changed.</string>
+  <string name="site_settings_rename_site_unavailable">The Site was not renamed: your Server\'s sign-in service didn\'t answer. Try again.</string>
+  <string name="site_settings_key_reused">The Lot was not created. Try again.</string>
+  <string name="site_settings_unexpected">Nothing was changed: your Server returned an error. Try again.</string>
 </resources>

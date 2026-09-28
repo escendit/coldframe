@@ -3,7 +3,7 @@ import { e2eTestsRoot, filesUnder, read, unitTestsRoot } from './helpers.ts';
 
 /** The UX-DR ids the stories so far name (Story 1.4, then Story 1.8: 21, 22, 23, 54, 61, 62, 82). */
 const storyIds = [
-  15, 16, 21, 22, 23, 34, 35, 36, 53, 54, 56, 58, 59, 60, 61, 62, 71, 75, 76, 82, 92, 93, 100, 101, 102, 104, 111, 113, 114, 124, 125, 126, 127, 130, 131,
+  15, 16, 18, 20, 21, 22, 23, 34, 35, 36, 53, 54, 56, 58, 59, 60, 61, 62, 71, 74, 75, 76, 82, 84, 92, 93, 100, 101, 102, 104, 111, 113, 114, 124, 125, 126, 127, 130, 131,
 ].map((id) => `UX-DR${String(id)}`);
 
 /** Names of tests and suites that start with a UX-DR id, with every id they mention. */

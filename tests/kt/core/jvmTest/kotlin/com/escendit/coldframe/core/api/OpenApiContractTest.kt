@@ -101,8 +101,52 @@ class OpenApiContractTest {
         assertEquals("header", header["in"]!!.jsonPrimitive.content)
     }
 
+    private fun parameterNames(operation: JsonObject): List<String> =
+        (operation["parameters"] as JsonArray).map { parameter ->
+            val reference = parameter.jsonObject["\$ref"]!!.jsonPrimitive.content
+            contract["components"]!!
+                .jsonObject["parameters"]!!
+                .jsonObject[reference.substringAfterLast('/')]!!
+                .jsonObject["name"]!!
+                .jsonPrimitive.content
+        }
+
+    @Test
+    fun theSiteAndLotOperationsExistWithTheirIdsAndParameters() {
+        val expected =
+            listOf(
+                Triple("/sites/{siteId}", "patch", "renameSite") to listOf("siteId"),
+                Triple("/sites/{siteId}/lots", "get", "listLots") to listOf("siteId"),
+                Triple("/sites/{siteId}/lots", "post", "createLot") to listOf("siteId", ColdframeApi.IDEMPOTENCY_KEY),
+                Triple("/sites/{siteId}/lots/{lotId}", "patch", "renameLot") to listOf("siteId", "lotId"),
+                Triple("/sites/{siteId}/lots/{lotId}", "delete", "removeLot") to listOf("siteId", "lotId"),
+            )
+        for ((key, parameters) in expected) {
+            val (path, method, id) = key
+            val operation = operation(path, method)
+            assertEquals(id, operation["operationId"]!!.jsonPrimitive.content)
+            assertEquals(parameters, parameterNames(operation), "$method $path")
+        }
+        assertNotNull(operation("/sites/{siteId}/lots/{lotId}", "delete")["responses"]!!.jsonObject["204"])
+    }
+
+    @Test
+    fun theLotStatusesAreTheContractValuesInTheServerOrder() {
+        val statuses = schema("LotStatus")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(
+            com.escendit.coldframe.core.lots.LotStatus.entries
+                .map { it.key },
+            statuses,
+        )
+    }
+
     @Test
     fun theDtosMirrorTheSchemas() {
+        assertMirrors("RenameSiteRequest", RenameRequestDto.serializer().descriptor)
+        assertMirrors("RenameLotRequest", RenameRequestDto.serializer().descriptor)
+        assertMirrors("CreateLotRequest", CreateLotRequestDto.serializer().descriptor)
+        assertMirrors("Lot", LotDto.serializer().descriptor)
+        assertMirrors("LotList", LotListDto.serializer().descriptor)
         assertMirrors("Site", SiteDto.serializer().descriptor)
         assertMirrors("SiteList", SiteListDto.serializer().descriptor)
         assertMirrors("CreateSiteRequest", CreateSiteRequestDto.serializer().descriptor)
@@ -125,5 +169,8 @@ class OpenApiContractTest {
                 .jsonArray
                 .map { it.jsonPrimitive.content }
         assertTrue(ColdframeApi.PROBLEM_VALIDATION in types)
+        for (slug in listOf("forbidden", "site-not-found", "lot-not-found", "lot-claimed", "idempotency-key-reused")) {
+            assertTrue("urn:coldframe:problem:$slug" in types, slug)
+        }
     }
 }

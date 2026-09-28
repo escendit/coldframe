@@ -188,23 +188,28 @@
     }
   }
 
-  /// The empty Garden (UX-DR62, UX-DR82): the Site summary header with the switcher and the
-  /// Site menu, "No Readings yet", the four first-run tiles (UX-DR54) and the Member notice.
+  /// The Garden (UX-DR62, UX-DR82): the Site summary header with the switcher and the Site
+  /// menu, "No Readings yet", the four first-run tiles (UX-DR54) and the Member notice, then the
+  /// Site's Lot tiles in the Server's order (UX-DR18, UX-DR20). The Site menu's Site settings
+  /// opens Site settings (UX-DR74).
   public struct GardenView: View {
     let presentation: GardenPresentation
+    let lots: LotsPresentation
     let actions: SitesActions
-    let onOpenTab: (AppTab) -> Void
+    let lotsActions: LotsActions
     @State private var switching = false
+    @State private var openingSiteSettings = false
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     public init(
-      presentation: GardenPresentation, actions: SitesActions,
-      onOpenTab: @escaping (AppTab) -> Void
+      presentation: GardenPresentation, lots: LotsPresentation = .waiting,
+      actions: SitesActions, lotsActions: LotsActions = .none
     ) {
       self.presentation = presentation
+      self.lots = lots
       self.actions = actions
-      self.onOpenTab = onOpenTab
+      self.lotsActions = lotsActions
     }
 
     public var body: some View {
@@ -215,10 +220,14 @@
           if let notice = presentation.memberNotice {
             InlineNotice(message: notice)
           }
+          LotGrid(lots: lots, onTryAgain: lotsActions.load)
         }
         .padding(Spacing.gutterMobile)
       }
       .background(palette.background)
+      .navigationDestination(isPresented: $openingSiteSettings) {
+        SiteSettingsView(presentation: lots, actions: lotsActions)
+      }
       .sheet(isPresented: $switching) {
         SiteSwitcherSheet(
           rows: presentation.switcherRows,
@@ -255,7 +264,7 @@
           Spacer(minLength: 0)
           SiteMenu(
             siteName: presentation.siteName, items: presentation.menuItems,
-            enabled: presentation.menuEnabled, onOpenTab: onOpenTab)
+            enabled: presentation.menuEnabled, onOpenSiteSettings: { openingSiteSettings = true })
         }
         presentation.headline.text.role(Typography.headline).foregroundStyle(palette.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
@@ -378,29 +387,29 @@
   }
 
   /// The Site menu (UX-DR22): a native `Menu` behind the `overflow-menu--vertical` trigger.
-  /// Story 1.8 renders only Site settings, which opens the Settings index.
+  /// It renders Site settings, which opens Site settings (Story 1.9).
   public struct SiteMenu: View {
     let siteName: String
     let items: [SiteMenuItem]
     let enabled: Bool
-    let onOpenTab: (AppTab) -> Void
+    let onOpenSiteSettings: () -> Void
     @Environment(\.palette) private var palette
 
     public init(
       siteName: String, items: [SiteMenuItem], enabled: Bool,
-      onOpenTab: @escaping (AppTab) -> Void
+      onOpenSiteSettings: @escaping () -> Void
     ) {
       self.siteName = siteName
       self.items = items
       self.enabled = enabled
-      self.onOpenTab = onOpenTab
+      self.onOpenSiteSettings = onOpenSiteSettings
     }
 
     public var body: some View {
       Menu {
         ForEach(items, id: \.self) { item in
           Button {
-            if let tab = item.opensTab { onOpenTab(tab) }
+            if item.opensSiteSettings { onOpenSiteSettings() }
           } label: {
             if item == .siteSettings {
               item.label.text

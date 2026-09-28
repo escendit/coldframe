@@ -28,6 +28,16 @@ public static class EdgeProblems
     public const string SiteNotFound = "urn:coldframe:problem:site-not-found";
 
     /// <summary>
+    /// 404: the Site has no such Lot (or, for a rename, the Lot was removed).
+    /// </summary>
+    public const string LotNotFound = "urn:coldframe:problem:lot-not-found";
+
+    /// <summary>
+    /// 409: a Node is assigned to the Lot, so it cannot be removed.
+    /// </summary>
+    public const string LotClaimed = "urn:coldframe:problem:lot-claimed";
+
+    /// <summary>
     /// 400: the request is malformed.
     /// </summary>
     public const string Validation = "urn:coldframe:problem:validation";

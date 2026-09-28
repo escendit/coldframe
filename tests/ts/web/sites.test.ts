@@ -100,7 +100,9 @@ describe('Server calls (AD-14)', () => {
     [422, 'idempotency-key-reused', 'keyReused'],
     [503, 'identity-provider-unavailable', 'unavailable'],
     [500, 'internal', 'unexpected'],
-    [404, 'site-not-found', 'unexpected'],
+    [403, 'forbidden', 'forbidden'],
+    [404, 'site-not-found', 'notFound'],
+    [409, 'lot-claimed', 'lotClaimed'],
   ] as const)('a %i answer maps to %s → %s', async (status, slug, error) => {
     const fake = server(() => problem(status, slug));
     expect(await createSite(locals, 'Home', 'k', { serverUrl, fetch: fake.fetch })).toEqual({ error });
@@ -363,7 +365,7 @@ describe('Garden and Site menu models', () => {
     expect(siteMenuItems('Owner', { pauseAvailable: true }).map((item) => item.action)).toEqual(['pause', 'settings']);
     expect(siteMenuItems('Administrator', { pauseAvailable: true, paused: true }).map((item) => item.action)).toEqual(['resume', 'settings']);
     expect(siteMenuItems('Member', { pauseAvailable: true }).map((item) => item.action)).toEqual(['settings']);
-    expect(siteMenuItems('Owner')[0]).toEqual({ action: 'settings', label: 'siteMenu.settings', disabled: false, href: '/settings' });
+    expect(siteMenuItems('Owner')[0]).toEqual({ action: 'settings', label: 'siteMenu.settings', disabled: false, href: '/settings/site' });
   });
 
   test('UX-DR22 in stale mode every item is disabled with Needs your Server', () => {

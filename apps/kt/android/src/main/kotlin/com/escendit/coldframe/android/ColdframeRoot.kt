@@ -18,11 +18,13 @@ import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.shell.AppShell
 import com.escendit.coldframe.android.ui.signin.SignInScreen
 import com.escendit.coldframe.android.ui.sites.CreateSiteScreen
+import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.sites.loadMessage
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
@@ -42,13 +44,15 @@ fun ColdframeRoot(
     onSelectTheme: (ThemePreference) -> Unit,
     sitesActions: SitesActions = SitesActions.None,
     systemIsDark: Boolean = isSystemInDarkTheme(),
+    lots: LotsState = LotsState.Idle,
+    lotsActions: LotsActions = LotsActions.None,
 ) {
     ColdframeTheme(isDark = theme.isDark(systemIsDark)) {
         when (state) {
             SignInState.Restoring -> Background()
             SignInState.Working -> SignInScreen(notice = null, working = true, onSignIn = onSignIn)
             is SignInState.SignedOut -> SignInScreen(notice = state.notice, working = false, onSignIn = onSignIn)
-            is SignInState.SignedIn -> SignedIn(sites, theme, onSignOut, onSelectTheme, sitesActions)
+            is SignInState.SignedIn -> SignedIn(sites, theme, onSignOut, onSelectTheme, sitesActions, lots, lotsActions)
         }
     }
 }
@@ -60,6 +64,8 @@ private fun SignedIn(
     onSignOut: () -> Unit,
     onSelectTheme: (ThemePreference) -> Unit,
     actions: SitesActions,
+    lots: LotsState,
+    lotsActions: LotsActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -105,6 +111,8 @@ private fun SignedIn(
                     onSelectTheme = onSelectTheme,
                     onSignOut = onSignOut,
                     actions = actions,
+                    lots = lots,
+                    lotsActions = lotsActions,
                 )
             }
         }

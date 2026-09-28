@@ -2,6 +2,7 @@ package com.escendit.coldframe.core.signin
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesWiring
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -33,11 +34,12 @@ public class AndroidSignIn private constructor(
             scope = scope,
         )
 
+    private val api = SitesWiring.api(config, OkHttp.create(), engine)
+
     /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
     public val sites: SitesEngine =
         SitesWiring.engine(
-            config = config,
-            httpEngine = OkHttp.create(),
+            api = api,
             signIn = engine,
             settings =
                 SharedPreferencesSettings(
@@ -45,6 +47,9 @@ public class AndroidSignIn private constructor(
                 ),
             scope = scope,
         )
+
+    /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
+    public val lots: LotsEngine = SitesWiring.lots(api, sites, scope)
 
     /** Call in every `onCreate` of the activity that starts sign-in, before it is started. */
     public fun registerActivity(activity: ComponentActivity) {

@@ -25,6 +25,20 @@ class FakeSitesApi : SitesApi {
     val created = mutableListOf<Pair<String, String>>()
     var lists = 0
     var createGate: CompletableDeferred<Unit>? = null
+    val renamed = mutableListOf<Pair<String, String>>()
+    var renameFailure: ApiFailure? = null
+
+    override suspend fun renameSite(
+        siteId: String,
+        name: String,
+    ): ApiResult<SiteDto> {
+        renamed += siteId to name
+        renameFailure?.let { return ApiResult.Failed(it) }
+        val index = sites.indexOfFirst { it.id == siteId }
+        if (index < 0) return ApiResult.Failed(ApiFailure.NotFound)
+        sites[index] = sites[index].copy(name = name)
+        return ApiResult.Ok(sites[index])
+    }
 
     override suspend fun listSites(): ApiResult<SiteListDto> {
         lists++
@@ -500,5 +514,56 @@ class SitesEngineTest {
             runCurrent()
 
             assertEquals(listOf("Home" to "key-1"), api.created)
+        }
+
+    @Test
+    fun uxDr74RenameSiteRenamesTheCurrentSiteAndListsTheSitesAgain() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            val engine = signedIn()
+            val listsBefore = api.lists
+
+            val result = engine.renameSite("Home garden")
+
+            assertEquals(ApiResult.Ok(SiteDto("a", "Home garden", "Owner")), result)
+            assertEquals(listOf("a" to "Home garden"), api.renamed)
+            assertEquals(listsBefore + 1, api.lists)
+            val ready = assertIs<SitesState.Ready>(engine.state.value)
+            assertEquals(SiteSummary("a", "Home garden", SiteRole.Owner), ready.current)
+            assertEquals(listOf("Home garden", "Allotment"), ready.sites.map { it.name })
+        }
+
+    @Test
+    fun uxDr74ARenameWhoseListFailsStillShowsTheNewName() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            val engine = signedIn()
+            api.listFailure = ApiFailure.Unreachable
+
+            engine.renameSite("Home garden")
+
+            val ready = assertIs<SitesState.Ready>(engine.state.value)
+            assertEquals("Home garden", ready.current.name)
+            assertEquals(listOf("Home garden", "Allotment"), ready.sites.map { it.name })
+        }
+
+    @Test
+    fun uxDr84AFailedRenameChangesNothing() =
+        runTest {
+            api.sites += listOf(home)
+            val engine = signedIn()
+            api.renameFailure = ApiFailure.Forbidden
+
+            assertEquals(ApiResult.Failed(ApiFailure.Forbidden), engine.renameSite("Home garden"))
+            assertEquals("Home", assertIs<SitesState.Ready>(engine.state.value).current.name)
+        }
+
+    @Test
+    fun renameSiteWithoutACurrentSiteSendsNothing() =
+        runTest {
+            val engine = engine()
+
+            assertEquals(ApiResult.Failed(ApiFailure.Unexpected), engine.renameSite("Home garden"))
+            assertTrue(api.renamed.isEmpty())
         }
 }

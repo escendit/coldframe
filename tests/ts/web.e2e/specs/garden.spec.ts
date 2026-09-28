@@ -1,46 +1,11 @@
-import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { appUrl } from '../fixtures/ports.ts';
-import { resetSites, serverSites, setMode, signInButton, useTheme } from './helpers.ts';
+import { axeClean, largestText, nothingClipped, resetSites, serverSites, setMode, signInButton, useTheme } from './helpers.ts';
 
 const themes = ['light', 'dark'] as const;
 
 // A fixed zone keeps the detected time zone, and so the screenshots, the same on every machine.
 test.use({ timezoneId: 'Europe/Zurich' });
-
-/** The largest text size on the web: 200 % zoom (UX-DR126), on a 1280 × 800 window. */
-async function largestText(page: Page): Promise<void> {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.addStyleTag({ content: 'html { zoom: 2 }' });
-}
-
-async function axeClean(page: Page, label: string): Promise<void> {
-  const results = await new AxeBuilder({ page }).analyze();
-  const blocking = results.violations
-    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
-    .map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target.join(' ')).join(', ')}`);
-  expect(blocking, label).toEqual([]);
-}
-
-/** Nothing sticks out of the page sideways, and no text is clipped by its box. */
-async function nothingClipped(page: Page, label: string): Promise<void> {
-  const problems = await page.evaluate(() => {
-    const found: string[] = [];
-    if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) {
-      found.push('page scrolls sideways');
-    }
-    for (const element of document.querySelectorAll<HTMLElement>('main *, header *')) {
-      const style = getComputedStyle(element);
-      if (style.overflowX === 'hidden' || style.overflowY === 'hidden' || style.textOverflow === 'ellipsis') {
-        if (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1) {
-          found.push(element.outerHTML.slice(0, 80));
-        }
-      }
-    }
-    return found;
-  });
-  expect(problems, label).toEqual([]);
-}
 
 test.beforeEach(async () => {
   await setMode('normal');
@@ -139,7 +104,7 @@ test.describe('Create Site and the empty Garden', () => {
     await expect(trigger).toBeFocused();
     await trigger.click();
     await menu.getByRole('menuitem', { name: 'Site settings' }).click();
-    await expect(page).toHaveURL(/\/settings$/u);
+    await expect(page).toHaveURL(/\/settings\/site$/u);
 
     await page.getByRole('tab', { name: 'New Site' }).click();
     await expect(page).toHaveURL(/\/sites\/new$/u);

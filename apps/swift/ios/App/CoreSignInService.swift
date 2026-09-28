@@ -2,8 +2,9 @@ import ColdframeCore
 import ColdframeIOS
 import Foundation
 
-/// Adapts `IosSignIn` of the shared Kotlin core to `SignInService`. With `CoreSitesService`, the
-/// only files of the app that import `ColdframeCore`; no token crosses this boundary.
+/// Adapts `IosSignIn` of the shared Kotlin core to `SignInService`. With `CoreSitesService` and
+/// `CoreLotsService`, the only files of the app that import `ColdframeCore`; no token crosses
+/// this boundary.
 @MainActor
 final class CoreSignInService: SignInService {
   private let core: IosSignIn
@@ -33,6 +34,9 @@ final class CoreSignInService: SignInService {
 
   /// The Sites half of the same core instance, for `CoreSitesService`.
   var sites: IosSites { core.sites }
+
+  /// The Lots half of the same core instance, for `CoreLotsService`.
+  var lots: IosLots { core.lots }
 
   func signIn() { core.signIn() }
 

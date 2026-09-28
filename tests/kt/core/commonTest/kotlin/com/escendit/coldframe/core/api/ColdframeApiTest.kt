@@ -137,6 +137,19 @@ class ColdframeApiTest {
         }
 
     @Test
+    fun a401OnASiteSettingsCallEndsTheSession() =
+        runTest {
+            answer = { respond(problem("unauthorized"), HttpStatusCode.Unauthorized, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().renameSite("s", "Home garden"))
+            assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().listLots("s"))
+            assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().createLot("s", "Beans", "k"))
+            assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().renameLot("s", "l", "Peppers"))
+            assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().removeLot("s", "l"))
+            assertEquals(5, unauthorized)
+        }
+
+    @Test
     fun noSessionSendsNothing() =
         runTest {
             token = null
@@ -176,5 +189,116 @@ class ColdframeApiTest {
             answer = { respond("""{"sites":"no"}""", HttpStatusCode.OK, json) }
 
             assertEquals(ApiResult.Failed(ApiFailure.Unexpected), api().listSites())
+        }
+
+    private fun HttpRequestData.text(): String = (body as OutgoingContent.ByteArrayContent).bytes().decodeToString()
+
+    @Test
+    fun uxDr74RenameSiteIsAPatchOfTheSiteWithTheName() =
+        runTest {
+            answer = { respond("""{"id":"a","name":"Home garden","role":"Owner"}""", HttpStatusCode.OK, json) }
+
+            val result = api().renameSite("a", "Home garden")
+
+            assertEquals(ApiResult.Ok(SiteDto("a", "Home garden", "Owner")), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Patch, request.method)
+            assertEquals("https://server.example/sites/a", request.url.toString())
+            assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+            assertEquals("""{"name":"Home garden"}""", request.text())
+        }
+
+    @Test
+    fun uxDr20ListLotsKeepsTheServerOrderAndStatus() =
+        runTest {
+            answer = {
+                respond(
+                    """{"lots":[{"id":"l2","name":"Beans","status":"unknown"},{"id":"l1","name":"Tomatoes","status":"noNode"}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listLots("a")
+
+            assertEquals(
+                ApiResult.Ok(LotListDto(listOf(LotDto("l2", "Beans", "unknown"), LotDto("l1", "Tomatoes", "noNode")))),
+                result,
+            )
+            assertEquals(HttpMethod.Get, requests.single().method)
+            assertEquals("https://server.example/sites/a/lots", requests.single().url.toString())
+        }
+
+    @Test
+    fun uxDr74CreateLotSendsTheIdempotencyKeyAndTheName() =
+        runTest {
+            answer = { respond("""{"id":"l1","name":"Tomatoes","status":"noNode"}""", HttpStatusCode.Created, json) }
+
+            val result = api().createLot("a", "Tomatoes", "key-1")
+
+            assertEquals(ApiResult.Ok(LotDto("l1", "Tomatoes", "noNode")), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("https://server.example/sites/a/lots", request.url.toString())
+            assertEquals("key-1", request.headers[ColdframeApi.IDEMPOTENCY_KEY])
+            assertEquals("""{"name":"Tomatoes"}""", request.text())
+        }
+
+    @Test
+    fun uxDr74RenameLotIsAPatchOfTheLot() =
+        runTest {
+            answer = { respond("""{"id":"l1","name":"Peppers","status":"noNode"}""", HttpStatusCode.OK, json) }
+
+            val result = api().renameLot("a", "l1", "Peppers")
+
+            assertEquals(ApiResult.Ok(LotDto("l1", "Peppers", "noNode")), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Patch, request.method)
+            assertEquals("https://server.example/sites/a/lots/l1", request.url.toString())
+            assertEquals("""{"name":"Peppers"}""", request.text())
+        }
+
+    @Test
+    fun uxDr74RemoveLotIsADeleteAnswered204() =
+        runTest {
+            answer = { respond("", HttpStatusCode.NoContent) }
+
+            val result = api().removeLot("a", "l1")
+
+            assertEquals(ApiResult.Ok(Unit), result)
+            assertEquals(HttpMethod.Delete, requests.single().method)
+            assertEquals("https://server.example/sites/a/lots/l1", requests.single().url.toString())
+        }
+
+    @Test
+    fun uxDr84A403IsForbidden() =
+        runTest {
+            answer = { respond(problem("forbidden"), HttpStatusCode.Forbidden, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.Forbidden), api().renameSite("a", "Home garden"))
+        }
+
+    @Test
+    fun a404IsNotFound() =
+        runTest {
+            answer = { respond(problem("lot-not-found"), HttpStatusCode.NotFound, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.NotFound), api().renameLot("a", "l1", "Peppers"))
+        }
+
+    @Test
+    fun a409IsLotClaimed() =
+        runTest {
+            answer = { respond(problem("lot-claimed"), HttpStatusCode.Conflict, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.LotClaimed), api().removeLot("a", "l1"))
+        }
+
+    @Test
+    fun aRenameSite503IsIdentityProviderUnavailable() =
+        runTest {
+            answer = { respond(problem("identity-provider-unavailable"), HttpStatusCode.ServiceUnavailable, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.IdentityProviderUnavailable), api().renameSite("a", "Home garden"))
         }
 }

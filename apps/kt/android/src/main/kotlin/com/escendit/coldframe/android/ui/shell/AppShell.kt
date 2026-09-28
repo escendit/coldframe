@@ -34,12 +34,15 @@ import androidx.compose.ui.unit.dp
 import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.settings.AppearanceScreen
 import com.escendit.coldframe.android.ui.settings.SettingsScreen
+import com.escendit.coldframe.android.ui.settings.SiteSettingsScreen
 import com.escendit.coldframe.android.ui.sites.GardenScreen
+import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
@@ -60,8 +63,8 @@ enum class Tab(
  * The signed-in shell (UX-DR57, UX-DR110): Material 3 `NavigationBar` with Carbon icons and a
  * `TopAppBar` heading per screen. The selected tab uses `primary-text` plus the M3 indicator as
  * its non-colour cue and is exposed as selected. Garden shows the current Site (Story 1.8);
- * Alerts and Devices show their heading only; Settings leads to Appearance, and
- * system/predictive back returns. The Site menu's "Site settings" opens the Settings index.
+ * Alerts and Devices show their heading only; Settings leads to Site settings and Appearance,
+ * and system/predictive back returns. The Site menu's "Site settings" opens Site settings.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,13 +75,22 @@ fun AppShell(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     actions: SitesActions = SitesActions.None,
+    lots: LotsState = LotsState.Idle,
+    lotsActions: LotsActions = LotsActions.None,
 ) {
     val colors = Coldframe.colors
     var tab by rememberSaveable { mutableStateOf(Tab.Garden) }
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
+    var siteSettingsOpen by rememberSaveable { mutableStateOf(false) }
     val showingAppearance = tab == Tab.Settings && appearanceOpen
+    val showingSiteSettings = tab == Tab.Settings && siteSettingsOpen && !appearanceOpen
+    val showingSub = showingAppearance || showingSiteSettings
+    val closeSub = {
+        appearanceOpen = false
+        siteSettingsOpen = false
+    }
 
-    BackHandler(enabled = showingAppearance) { appearanceOpen = false }
+    BackHandler(enabled = showingSub) { closeSub() }
 
     // The bar grows with the heading's line height, so a scaled title never clips (UX-DR96).
     val titleStyle = Typography.title.textStyle()
@@ -98,15 +110,22 @@ fun AppShell(
                 TopAppBar(
                     title = {
                         Text(
-                            text = stringResource(if (showingAppearance) R.string.appearance_title else tab.title),
+                            text =
+                                stringResource(
+                                    when {
+                                        showingAppearance -> R.string.appearance_title
+                                        showingSiteSettings -> R.string.site_settings_title
+                                        else -> tab.title
+                                    },
+                                ),
                             style = titleStyle,
                             modifier = Modifier.semantics { heading() },
                         )
                     },
                     navigationIcon = {
-                        if (showingAppearance) {
+                        if (showingSub) {
                             IconButton(
-                                onClick = { appearanceOpen = false },
+                                onClick = closeSub,
                                 modifier =
                                     Modifier.sizeIn(
                                         minWidth = Spacing.BUTTON_HEIGHT.dp,
@@ -141,7 +160,7 @@ fun AppShell(
                         NavigationBarItem(
                             selected = tab == item,
                             onClick = {
-                                if (tab == item && item == Tab.Settings) appearanceOpen = false
+                                if (tab == item && item == Tab.Settings) closeSub()
                                 tab = item
                             },
                             icon = { Icon(item.icon(), contentDescription = null, modifier = Modifier.size(24.dp)) },
@@ -169,13 +188,23 @@ fun AppShell(
                     actions = actions,
                     onOpenSiteSettings = {
                         appearanceOpen = false
+                        siteSettingsOpen = true
                         tab = Tab.Settings
                     },
+                    lots = lots,
+                    lotsActions = lotsActions,
                 )
             } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)
+            } else if (showingSiteSettings) {
+                SiteSettingsScreen(lots = lots, actions = lotsActions)
             } else if (tab == Tab.Settings) {
-                SettingsScreen(onOpenAppearance = { appearanceOpen = true }, onSignOut = onSignOut)
+                SettingsScreen(
+                    onOpenAppearance = { appearanceOpen = true },
+                    onSignOut = onSignOut,
+                    siteName = sites.current.name,
+                    onOpenSiteSettings = { siteSettingsOpen = true },
+                )
             }
         }
     }

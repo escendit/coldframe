@@ -22,7 +22,7 @@ function text(html: string): string {
 }
 
 function gardenPage(site: Site | null): string {
-  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: site === null ? [] : [site], currentSite: site, sitesNotice: null };
+  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: site === null ? [] : [site], currentSite: site, sitesNotice: null, lots: [], lotsNotice: null };
   return render(GardenPage, { props: { data, params: {} } as never }).body;
 }
 
@@ -109,9 +109,9 @@ describe('Site menu', () => {
     expect(body).not.toContain('role="menu"');
   });
 
-  test('UX-DR22 in Story 1.8 the rendered menu holds only Site settings: Pause is hidden until it exists', () => {
+  test('UX-DR22 UX-DR74 the rendered menu holds only Site settings, which opens Site settings; Pause is hidden until it exists', () => {
     for (const role of ['Owner', 'Administrator', 'Member'] as const) {
-      expect(siteMenuItems(role).map((item) => [item.label, item.href])).toEqual([['siteMenu.settings', '/settings']]);
+      expect(siteMenuItems(role).map((item) => [item.label, item.href])).toEqual([['siteMenu.settings', '/settings/site']]);
     }
   });
 });

@@ -263,6 +263,7 @@ describe('web platform structure', () => {
       'SiteSummaryHeader',
       'FirstRunSteps',
       'TimeZonePanel',
+      'LotTiles',
     ]) {
       expect(existsSync(join(webSrc, 'lib/components', `${name}.svelte`)), name).toBe(true);
     }

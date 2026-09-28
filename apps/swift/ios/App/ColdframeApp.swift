@@ -9,7 +9,7 @@ struct ColdframeApp: App {
     let signIn = CoreSignInService()
     return ShellModel(
       signIn: signIn, appearance: CoreAppearanceService(),
-      sites: CoreSitesService(core: signIn.sites))
+      sites: CoreSitesService(core: signIn.sites), lots: CoreLotsService(core: signIn.lots))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -19,6 +19,8 @@ struct ColdframeApp: App {
         presentation: model.presentation,
         sites: model.sites,
         sitesActions: model.sitesActions,
+        lots: model.lots,
+        lotsActions: model.lotsActions,
         theme: model.theme,
         onSignIn: { model.signIn.signIn() },
         onSignOut: { model.signIn.signOut() },

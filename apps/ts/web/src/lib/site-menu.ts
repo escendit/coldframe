@@ -22,7 +22,7 @@ export interface SiteMenuOptions {
 
 /**
  * Items of the Site menu (UX-DR22): Pause or Resume for Administrator and Owner (hidden for
- * Members, and only once Pause exists), then Site settings. In stale mode every item is disabled.
+ * Members, and only once Pause exists), then Site settings, which opens the Site settings surface. In stale mode every item is disabled.
  */
 export function siteMenuItems(role: Role, options: SiteMenuOptions = {}): readonly SiteMenuItem[] {
   const disabled = options.stale === true;
@@ -34,6 +34,6 @@ export function siteMenuItems(role: Role, options: SiteMenuOptions = {}): readon
         : { action: 'pause', label: 'siteMenu.pause', disabled, href: null },
     );
   }
-  items.push({ action: 'settings', label: 'siteMenu.settings', disabled, href: '/settings' });
+  items.push({ action: 'settings', label: 'siteMenu.settings', disabled, href: '/settings/site' });
   return items;
 }

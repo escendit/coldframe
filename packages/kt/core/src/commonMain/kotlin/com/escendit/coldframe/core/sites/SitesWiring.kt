@@ -1,13 +1,15 @@
 package com.escendit.coldframe.core.sites
 
 import com.escendit.coldframe.core.api.ColdframeApi
+import com.escendit.coldframe.core.lots.LotsApi
+import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.signin.CoreConfig
 import com.escendit.coldframe.core.signin.SignInEngine
 import com.russhwolf.settings.Settings
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
 
-/** Builds the Sites engine over the Server API, with tokens from the sign-in engine. */
+/** Builds the Sites and Lots engines over the Server API, with tokens from the sign-in engine. */
 public object SitesWiring {
     public fun engine(
         config: CoreConfig,
@@ -15,13 +17,28 @@ public object SitesWiring {
         signIn: SignInEngine,
         settings: Settings,
         scope: CoroutineScope,
+    ): SitesEngine = engine(api(config, httpEngine, signIn), signIn, settings, scope)
+
+    /** The Sites engine over an [api] shared with the Lots engine. */
+    public fun engine(
+        api: ColdframeApi,
+        signIn: SignInEngine,
+        settings: Settings,
+        scope: CoroutineScope,
     ): SitesEngine =
         SitesEngine(
-            api = api(config, httpEngine, signIn),
+            api = api,
             choices = DeviceChoices(settings),
             scope = scope,
             signIn = signIn.state,
         )
+
+    /** The Lots engine, following the current Site of [sites]. */
+    public fun lots(
+        api: LotsApi,
+        sites: SitesEngine,
+        scope: CoroutineScope,
+    ): LotsEngine = LotsEngine(api = api, sites = sites, scope = scope)
 
     /** The API client, authorised by [signIn]; a 401 ends the session. */
     public fun api(

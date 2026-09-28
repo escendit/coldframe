@@ -31,6 +31,7 @@ public sealed class MigrationTests(AppHostFixture fixture)
         "projection_checkpoints",
         "identity_sites",
         "identity_memberships",
+        "lots",
     ];
 
     [Fact]

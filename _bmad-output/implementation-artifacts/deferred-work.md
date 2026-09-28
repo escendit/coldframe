@@ -191,7 +191,8 @@ location: apps/ts/web/src/lib/components/SiteMenu.svelte, apps/kt/android/src/ma
 source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: low
 reason: The Site settings surface arrives in Story 1.9; point the item at it there.
-status: open
+status: resolved
+resolution: Story 1.9 (`spec-1-9-manage-my-site-and-lots.md`): the Site menu item opens Site settings on every client (web `/settings/site`, Android and iOS the Site settings sub-screen).
 
 ### DW-26: The first-run step tiles are never actionable (flowAvailable = false on every client).
 origin: spec-deferred 501fdb82f35d
@@ -230,4 +231,52 @@ origin: spec-deferred 6c80305c2a33
 location: apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift (GardenView onNewSite), apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (ColdframeRootView .sheet)
 source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 reason: Unverified (maybe-false): SwiftUI often drops a sheet presentation requested during another sheet's dismissal. If it does, `creating` stays set and `newSite()` then ignores every tap, so Create Site cannot be reached until the app restarts. Settle it on a Mac or iPhone: open the switcher, tap New Site, and check that Create Site appears. If it does not, call actions.newSite() from the switcher sheet's onDismiss. SwiftUI cannot compile or run on Linux.
+status: open
+
+### DW-31: Lot tiles are not tappable: no Lot detail, and a no-Node tile does not start Add a Node (UX-DR20 tap behaviour).
+origin: spec-deferred story-1-9-1
+location: apps/ts/web/src/lib/components/LotTiles.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/LotTile.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SiteSettingsViews.swift (LotTile)
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Lot detail and the Add a Node flow arrive in Epic 4. The web tile is exposed as role="img" so it reads as one element; switch it to a link or button (and Android/iOS to a button role) when tiles become tappable.
+status: open
+
+### DW-32: Only the no-Node tile variant is drawn; any other LotStatus renders the Lot name alone (UX-DR18 needsWater, needsCalibration, unknown, ok, paused variants).
+origin: spec-deferred story-1-9-2
+location: apps/ts/web/src/lib/components/LotTiles.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/LotTile.kt, apps/swift/ios/Sources/ColdframeIOS/LotsPresentation.swift
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: The other statuses need Readings, Calibration and Pause (Epic 5). In 1.9 the projection sets unknown for a claimed Lot (reachable only through a fixture claim), noNode otherwise.
+status: open
+
+### DW-33: Site settings has no Site Reminder cadence control (UX-DR50, UX-DR74 part).
+origin: spec-deferred story-1-9-3
+location: apps/ts/web/src/routes/(app)/settings/site/+page.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/settings/SiteSettingsScreen.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SiteSettingsViews.swift
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Reminders arrive in a later epic; add the Segmented choice (Owner/Admin) to the same surface then.
+status: open
+
+### DW-34: The Lot grain has no Claim/Release methods; LotClaimed/LotReleased are only journaled by fixtures.
+origin: spec-deferred story-1-9-4
+location: apps/cs/server/Lots/LotGrain.cs, packages/cs/contracts/Lots/LotGrains.cs
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Node assignment arrives in Epic 4 (AD-18); the removal refusal is tested with a fixture LotClaimed event. The Lot read model's refetch on readmodel.changed also waits for that epic; DW-28 stays open.
+status: open
+
+### DW-35: Renaming a Site reads the whole Keycloak Organization and writes it back with the new displayName, so a concurrent Organization edit between the read and the write can be overwritten.
+origin: spec-deferred story-1-9-5
+location: apps/cs/server/Identity/PhaseTwoOrganizations.cs (UpdateDisplayNameAsync)
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Phase Two's organization update takes the full representation. RenameSiteTests checks that the creation tag survives; other attributes are not re-checked. Reconciliation (Story 1.7) repairs displayName drift but not other fields.
+status: open
+
+### DW-36: On Android, the per-row "Rename Lot" and "Remove Lot" buttons in Site settings do not carry the Lot name, so TalkBack reads the same label on every row.
+origin: spec-deferred story-1-9-6
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/settings/SiteSettingsScreen.kt
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Add a content description with the Lot name (new string keys on Android and iOS, parity-checked by StringsTest) and check the web and iOS rows the same way.
 status: open

@@ -1,3 +1,5 @@
+using Coldframe.Contracts.Lots;
+
 namespace Coldframe.Contracts.Sites;
 
 /// <summary>
@@ -61,6 +63,28 @@ public interface ISiteGrain : IGrainWithStringKey
         RosterExpectation? expectation,
         bool acceptUnconfirmed,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames an <see cref="SiteLifecycle.Active"/> Site: sets the Organization's <c>displayName</c> in
+    /// Keycloak, then journals the rename and brings the identity projection up to date (AD-3). The current
+    /// name changes nothing and calls nothing.
+    /// </summary>
+    /// <param name="name">The Site name, already trimmed and validated.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("rename")]
+    Task<SiteRenameResult> Rename(string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a Lot on an <see cref="SiteLifecycle.Active"/> Site, idempotently per caller and key for
+    /// 24 h: the request is journaled with its new Lot ID before the Lot grain is called, so a retry
+    /// resumes with the same Lot.
+    /// </summary>
+    /// <param name="callerId">The caller's User ID (the OIDC <c>sub</c>).</param>
+    /// <param name="idempotencyKey">The request's <c>Idempotency-Key</c>, already validated.</param>
+    /// <param name="name">The Lot name, already trimmed and validated.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("create-lot")]
+    Task<LotCreationResult> CreateLot(string callerId, string idempotencyKey, string name, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -231,3 +255,72 @@ public sealed record RosterExpectation(
     [property: Id(0)] RosterExpectationKind Kind,
     [property: Id(1)] string? UserId = null,
     [property: Id(2)] SiteRole? Role = null);
+
+/// <summary>
+/// How a Site rename ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.site-rename-outcome")]
+public enum SiteRenameOutcome
+{
+    /// <summary>
+    /// The Site has the new name, in Keycloak and in its journal.
+    /// </summary>
+    Renamed = 0,
+
+    /// <summary>
+    /// The Site already had the name. Keycloak was not called; nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>. Nothing changed.
+    /// </summary>
+    NotFound = 2,
+
+    /// <summary>
+    /// Keycloak could not be reached. Nothing was journaled; the Site keeps its name.
+    /// </summary>
+    IdentityProviderUnavailable = 3,
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.Rename"/>.
+/// </summary>
+/// <param name="Outcome">How the rename ended.</param>
+/// <param name="Name">The Site name afterwards, unless <paramref name="Outcome"/> is <see cref="SiteRenameOutcome.NotFound"/>.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-rename-result")]
+public sealed record SiteRenameResult([property: Id(0)] SiteRenameOutcome Outcome, [property: Id(1)] string? Name = null);
+
+/// <summary>
+/// How a Lot creation ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.lot-creation-outcome")]
+public enum LotCreationOutcome
+{
+    /// <summary>
+    /// The Lot exists; <see cref="LotCreationResult.Lot"/> describes it.
+    /// </summary>
+    Created = 0,
+
+    /// <summary>
+    /// The key was used by the same caller for a different name within 24 h. Nothing was created.
+    /// </summary>
+    IdempotencyKeyReused = 1,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>. Nothing was created.
+    /// </summary>
+    NotFound = 2,
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.CreateLot"/>.
+/// </summary>
+/// <param name="Outcome">How the creation ended.</param>
+/// <param name="Lot">The Lot, when <paramref name="Outcome"/> is <see cref="LotCreationOutcome.Created"/>.</param>
+[GenerateSerializer]
+[Alias("coldframe.lot-creation-result")]
+public sealed record LotCreationResult([property: Id(0)] LotCreationOutcome Outcome, [property: Id(1)] LotSummary? Lot = null);

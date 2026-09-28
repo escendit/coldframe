@@ -66,22 +66,27 @@
   /// action or none, never dismissable. Announced when it appears (UX-DR104).
   public struct InlineNotice: View {
     let message: L10n
+    /// Fills the entry's `%@`, such as the Site or Lot the notice names.
+    let subject: String?
     let action: (label: L10n, perform: () -> Void)?
     let announcement: Announcement
     @Environment(\.palette) private var palette
 
     public init(
-      message: L10n, announcement: Announcement = .polite,
+      message: L10n, subject: String? = nil, announcement: Announcement = .polite,
       action: (label: L10n, perform: () -> Void)? = nil
     ) {
       self.message = message
+      self.subject = subject
       self.announcement = announcement
       self.action = action
     }
 
+    private var resolved: String { subject.map { message.string($0) } ?? message.string }
+
     public var body: some View {
       VStack(alignment: .leading, spacing: Spacing.step3) {
-        message.text
+        Text(verbatim: resolved)
           .role(Typography.body)
           .foregroundStyle(palette.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
@@ -97,11 +102,11 @@
       .overlay(alignment: .leading) { Rectangle().fill(palette.borderStrong).frame(width: 3) }
       .accessibilityElement(children: .contain)
       .onAppear { announce() }
-      .onChange(of: message) { announce() }
+      .onChange(of: resolved) { announce() }
     }
 
     private func announce() {
-      var text = AttributedString(message.string)
+      var text = AttributedString(resolved)
       if announcement == .assertive {
         text.accessibilitySpeechAnnouncementPriority = .high
       }

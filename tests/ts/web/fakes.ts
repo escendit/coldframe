@@ -70,3 +70,38 @@ export function fetchFailed(code: string): TypeError {
   const cause = Object.assign(new Error(code), { code });
   return new TypeError('fetch failed', { cause });
 }
+
+/** One request the fake Coldframe Server received. */
+export interface SeenRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly authorization: string | null;
+  readonly key: string | null;
+  readonly body: string;
+}
+
+/** A fake Coldframe Server: records every request and answers from `answer`. */
+export function fakeServer(answer: (request: Request) => Response | Promise<Response>): { fetch: (request: Request) => Promise<Response>; seen: SeenRequest[] } {
+  const seen: SeenRequest[] = [];
+  return {
+    seen,
+    fetch: async (request) => {
+      seen.push({
+        method: request.method,
+        path: new URL(request.url).pathname,
+        authorization: request.headers.get('authorization'),
+        key: request.headers.get('idempotency-key'),
+        body: request.method === 'GET' || request.method === 'DELETE' ? '' : await request.clone().text(),
+      });
+      return answer(request);
+    },
+  };
+}
+
+export function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': status < 400 ? 'application/json' : 'application/problem+json' } });
+}
+
+export function problemResponse(status: number, slug: string): Response {
+  return jsonResponse(status, { type: `urn:coldframe:problem:${slug}`, title: slug, status });
+}

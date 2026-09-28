@@ -2,8 +2,9 @@
  * A small OIDC provider for the e2e tests (Node `http` + `jose`). It does what Keycloak does for
  * the web app's flow — discovery, JWKS, authorize (auto-approve form), token with a PKCE S256
  * check and refresh, end-session — and doubles as the Coldframe Server: `/.well-known/healthz`
- * and an in-memory `GET /sites` / `POST /sites`. Control endpoints switch failure modes, list
- * every token it issued, and reset or seed the Sites.
+ * and an in-memory Site and Lot API (`GET`/`POST /sites`, `PATCH /sites/{id}`, the
+ * `/sites/{id}/lots` routes). Control endpoints switch failure modes, list every token it issued,
+ * and reset or seed the Sites and Lots (a Lot can be seeded as holding a Node).
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -35,6 +36,15 @@ export interface FakeSite {
 export interface FakeSitePost {
   readonly idempotencyKey: string | null;
   readonly body: Record<string, unknown>;
+}
+
+/** A Lot of the fake Server. `claimed` stands in for a Node assigned to it (Epic 4). */
+export interface FakeLot {
+  readonly id: string;
+  readonly siteId: string;
+  readonly name: string;
+  readonly claimed?: boolean;
+  readonly removed?: boolean;
 }
 
 /** Seeded by default, so every spec that signs in still reaches Garden. */
@@ -110,6 +120,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let sites: FakeSite[] = [...defaultSites];
   let posts: FakeSitePost[] = [];
   const created = new Map<string, FakeSite>();
+  let lots: FakeLot[] = [];
+  let lotPosts: FakeSitePost[] = [];
+  const createdLots = new Map<string, FakeLot>();
 
   /** The fake Server accepts only access tokens this provider issued. */
   function bearerOk(request: IncomingMessage): boolean {
@@ -177,13 +190,16 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     if (path === '/control/sites' && request.method === 'POST') {
       const body = await readJson(request);
       sites = Array.isArray(body.sites) ? (body.sites as FakeSite[]) : [...defaultSites];
+      lots = Array.isArray(body.lots) ? (body.lots as FakeLot[]) : [];
       posts = [];
+      lotPosts = [];
       created.clear();
-      send(response, 200, { sites });
+      createdLots.clear();
+      send(response, 200, { sites, lots });
       return;
     }
     if (path === '/control/sites') {
-      send(response, 200, { sites, posts });
+      send(response, 200, { sites, posts, lots, lotPosts });
       return;
     }
 
@@ -219,6 +235,141 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       created.set(key, site);
       sites = [...sites, site];
       send(response, 201, site, { location: `/sites/${site.id}` });
+      return;
+    }
+
+    // Story 1.9: rename a Site (Owner) and the Lot routes, in memory.
+    const siteMatch = /^\/sites\/([^/]+)(\/lots(?:\/([^/]+))?)?$/u.exec(path);
+    if (siteMatch !== null) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(siteMatch[1] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      const rank = { Member: 1, Administrator: 2, Owner: 3 } as const;
+      const allowed = (minimum: keyof typeof rank): boolean => rank[site.role] >= rank[minimum];
+      const lotView = (lot: FakeLot): Record<string, unknown> => ({
+        id: lot.id,
+        name: lot.name,
+        status: lot.claimed === true ? 'unknown' : 'noNode',
+        ...(lot.removed === true ? { removed: true } : {}),
+      });
+      const nameOf = (body: Record<string, unknown>): string | null => {
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        return name === '' || name.length > 100 ? null : name;
+      };
+
+      if (siteMatch[2] === undefined) {
+        if (request.method !== 'PATCH') {
+          send(response, 405, { error: 'method' });
+          return;
+        }
+        if (!allowed('Owner')) {
+          problem(response, 403, 'forbidden');
+          return;
+        }
+        const name = nameOf(await readJson(request));
+        if (name === null) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        const renamed: FakeSite = { ...site, name };
+        sites = sites.map((candidate) => (candidate.id === siteId ? renamed : candidate));
+        send(response, 200, renamed);
+        return;
+      }
+
+      const lotId = siteMatch[3] === undefined ? null : decodeURIComponent(siteMatch[3]);
+      if (lotId === null) {
+        if (request.method === 'GET') {
+          // The Server's order: status (unknown before noNode), then creation.
+          const live = lots.filter((lot) => lot.siteId === siteId && lot.removed !== true);
+          const ordered = [...live.filter((lot) => lot.claimed === true), ...live.filter((lot) => lot.claimed !== true)];
+          send(response, 200, { lots: ordered.map(lotView) });
+          return;
+        }
+        if (request.method !== 'POST') {
+          send(response, 405, { error: 'method' });
+          return;
+        }
+        if (!allowed('Administrator')) {
+          problem(response, 403, 'forbidden');
+          return;
+        }
+        const body = await readJson(request);
+        const keyHeader = request.headers['idempotency-key'];
+        const key = typeof keyHeader === 'string' ? keyHeader : null;
+        lotPosts.push({ idempotencyKey: key, body });
+        if (key === null || key === '') {
+          problem(response, 400, 'idempotency-key-missing');
+          return;
+        }
+        const name = nameOf(body);
+        if (name === null) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        const existing = createdLots.get(key);
+        if (existing !== undefined) {
+          if (existing.name === name) {
+            send(response, 201, lotView(existing));
+          } else {
+            problem(response, 422, 'idempotency-key-reused');
+          }
+          return;
+        }
+        const lot: FakeLot = { id: randomUUID(), siteId, name };
+        createdLots.set(key, lot);
+        lots = [...lots, lot];
+        send(response, 201, lotView(lot), { location: `/sites/${siteId}/lots/${lot.id}` });
+        return;
+      }
+
+      const lot = lots.find((candidate) => candidate.id === lotId && candidate.siteId === siteId);
+      if (request.method === 'GET') {
+        if (lot === undefined) {
+          problem(response, 404, 'lot-not-found');
+        } else {
+          send(response, 200, lotView(lot));
+        }
+        return;
+      }
+      if (request.method !== 'PATCH' && request.method !== 'DELETE') {
+        send(response, 405, { error: 'method' });
+        return;
+      }
+      if (!allowed('Administrator')) {
+        problem(response, 403, 'forbidden');
+        return;
+      }
+      if (request.method === 'DELETE') {
+        if (lot === undefined) {
+          problem(response, 404, 'lot-not-found');
+        } else if (lot.claimed === true) {
+          problem(response, 409, 'lot-claimed');
+        } else {
+          lots = lots.map((candidate) => (candidate.id === lot.id ? { ...candidate, removed: true } : candidate));
+          send(response, 204, '');
+        }
+        return;
+      }
+      if (lot === undefined || lot.removed === true) {
+        problem(response, 404, 'lot-not-found');
+        return;
+      }
+      const name = nameOf(await readJson(request));
+      if (name === null) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      const renamed: FakeLot = { ...lot, name };
+      lots = lots.map((candidate) => (candidate.id === lot.id ? renamed : candidate));
+      send(response, 200, lotView(renamed));
       return;
     }
 

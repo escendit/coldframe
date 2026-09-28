@@ -67,3 +67,29 @@ public sealed record SiteOwnerlessEditRefused([property: Id(0)] IReadOnlyList<st
 [GenerateSerializer]
 [Alias("coldframe.site-ownerless-edit-resolved")]
 public sealed record SiteOwnerlessEditResolved;
+
+/// <summary>
+/// A caller asked the Site to create a Lot. Persisted before the Lot grain is called, so a retry with the
+/// same key resumes with the same Lot ID.
+/// </summary>
+/// <param name="Key">The idempotency key, scoped to its caller: <c>{sub}:{Idempotency-Key}</c>.</param>
+/// <param name="LotId">The Lot ID chosen for the request, a UUIDv7.</param>
+/// <param name="Name">The requested Lot name.</param>
+/// <param name="RequestedAt">When the request was received; the key expires 24 h later once completed.</param>
+[EventType("site.lot-creation-requested")]
+[GenerateSerializer]
+[Alias("coldframe.site-lot-creation-requested")]
+public sealed record LotCreationRequested(
+    [property: Id(0)] string Key,
+    [property: Id(1)] string LotId,
+    [property: Id(2)] string Name,
+    [property: Id(3)] DateTimeOffset RequestedAt);
+
+/// <summary>
+/// The Lot requested under <paramref name="Key"/> exists.
+/// </summary>
+/// <param name="Key">The idempotency key, scoped to its caller: <c>{sub}:{Idempotency-Key}</c>.</param>
+[EventType("site.lot-creation-completed")]
+[GenerateSerializer]
+[Alias("coldframe.site-lot-creation-completed")]
+public sealed record LotCreationCompleted([property: Id(0)] string Key);

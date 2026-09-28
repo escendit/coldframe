@@ -3,6 +3,21 @@ using Coldframe.Contracts.Sites;
 namespace Coldframe.Server.Identity;
 
 /// <summary>
+/// One Lot creation a caller asked the Site for, by caller-scoped idempotency key.
+/// </summary>
+/// <param name="LotId">The Lot ID chosen for the request.</param>
+/// <param name="Name">The requested Lot name.</param>
+/// <param name="RequestedAt">When the request was received.</param>
+/// <param name="Completed">Whether the Lot exists.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-lot-creation")]
+public sealed record LotCreation(
+    [property: Id(0)] string LotId,
+    [property: Id(1)] string Name,
+    [property: Id(2)] DateTimeOffset RequestedAt,
+    [property: Id(3)] bool Completed);
+
+/// <summary>
 /// The state of the Site grain: lifecycle, name, Memberships, former members and whether an ownerless
 /// edit is being refused.
 /// </summary>
@@ -15,6 +30,9 @@ public sealed class SiteState
 
     [Id(3)]
     private readonly HashSet<string> _formerMembers = new(StringComparer.Ordinal);
+
+    [Id(5)]
+    private readonly Dictionary<string, LotCreation> _lotCreations = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Where the Site is in its lifecycle.
@@ -49,6 +67,22 @@ public sealed class SiteState
     /// </summary>
     [Id(4)]
     public bool OwnerlessEditRefused { get; private set; }
+
+    /// <summary>
+    /// The Lot creations by caller-scoped idempotency key (<c>{sub}:{key}</c>).
+    /// </summary>
+    public IReadOnlyDictionary<string, LotCreation> LotCreations => _lotCreations;
+
+    /// <summary>
+    /// Returns the Lot creation that still holds <paramref name="key"/> at <paramref name="now"/>. A completed
+    /// request expires 24 h after it was received; a pending one never does, because its Lot may exist and a
+    /// retry must resume it (as <see cref="UserState.FindLive"/> does for Sites).
+    /// </summary>
+    public LotCreation? FindLiveLotCreation(string key, DateTimeOffset now) =>
+        _lotCreations.TryGetValue(key, out var creation)
+        && (!creation.Completed || now - creation.RequestedAt < UserState.IdempotencyKeyLifetime)
+            ? creation
+            : null;
 
     public void Apply(SiteCreated @event)
     {
@@ -98,5 +132,21 @@ public sealed class SiteState
     {
         ArgumentNullException.ThrowIfNull(@event);
         OwnerlessEditRefused = false;
+    }
+
+    public void Apply(LotCreationRequested @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _lotCreations[@event.Key] = new LotCreation(@event.LotId, @event.Name, @event.RequestedAt, Completed: false);
+    }
+
+    public void Apply(LotCreationCompleted @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        if (_lotCreations.TryGetValue(@event.Key, out var creation))
+        {
+            _lotCreations[@event.Key] = creation with { Completed = true };
+        }
     }
 }

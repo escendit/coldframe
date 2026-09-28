@@ -24,6 +24,7 @@ object ColdframeIcons {
     val view: ImageVector get() = of(CarbonIcon.VIEW)
     val chevronDown: ImageVector get() = of(CarbonIcon.CHEVRON_DOWN)
     val overflowMenuVertical: ImageVector get() = of(CarbonIcon.OVERFLOW_MENU_VERTICAL)
+    val add: ImageVector get() = of(CarbonIcon.ADD)
 
     private fun build(icon: CarbonIcon): ImageVector =
         ImageVector

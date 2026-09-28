@@ -7,8 +7,22 @@ import { createColdframeClient, type Site } from '@coldframe/api-client';
 import { classifyFailure } from './failures';
 import { getConfig } from './runtime';
 
-/** `unavailable` is a 503 (Keycloak down, retry with the same key); `unexpected` any other answer. */
-export type SitesError = 'validation' | 'unavailable' | 'unexpected' | 'keyReused' | 'unreachable' | 'certificate' | 'unauthorized';
+/**
+ * `unavailable` is a 503 (Keycloak down, retry with the same key); `forbidden` a 403 (the Role is
+ * missing or too low, e.g. it changed since the page loaded); `notFound` a 404 (the Site or Lot is
+ * gone); `lotClaimed` a 409 (a Node holds the Lot); `unexpected` any other answer.
+ */
+export type SitesError =
+  | 'validation'
+  | 'unavailable'
+  | 'unexpected'
+  | 'keyReused'
+  | 'unreachable'
+  | 'certificate'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'notFound'
+  | 'lotClaimed';
 
 export type SitesResult<T> = { readonly ok: T } | { readonly error: SitesError };
 
@@ -33,6 +47,12 @@ function statusError(status: number): SitesError {
       return 'validation';
     case 401:
       return 'unauthorized';
+    case 403:
+      return 'forbidden';
+    case 404:
+      return 'notFound';
+    case 409:
+      return 'lotClaimed';
     case 422:
       return 'keyReused';
     case 503:
@@ -42,7 +62,15 @@ function statusError(status: number): SitesError {
   }
 }
 
-async function call<T>(locals: Locals, dependencies: SitesDependencies, run: (client: ReturnType<typeof createColdframeClient>) => Promise<{ data?: T; response: Response }>): Promise<SitesResult<T>> {
+/**
+ * Runs one Server call with the session's token and turns the answer into a value. A 204 is `ok`
+ * with no body. Shared by the Site and Lot calls.
+ */
+export async function call<T>(
+  locals: Locals,
+  dependencies: SitesDependencies,
+  run: (client: ReturnType<typeof createColdframeClient>) => Promise<{ data?: T; response: Response }>,
+): Promise<SitesResult<T>> {
   const accessToken = accessTokenOf(locals);
   if (accessToken === null) {
     return { error: 'unauthorized' };
@@ -53,6 +81,9 @@ async function call<T>(locals: Locals, dependencies: SitesDependencies, run: (cl
     const { data, response } = await run(client);
     if (response.ok && data !== undefined) {
       return { ok: data };
+    }
+    if (response.status === 204) {
+      return { ok: undefined as T };
     }
     return { error: statusError(response.status) };
   } catch (error) {
@@ -74,4 +105,9 @@ export function createSite(locals: Locals, name: string, idempotencyKey: string,
       body: { name },
     }),
   );
+}
+
+/** Renames a Site (Owner). The Server sets the Keycloak Organization name first (AD-3). */
+export function renameSite(locals: Locals, siteId: string, name: string, dependencies: SitesDependencies = {}): Promise<SitesResult<Site>> {
+  return call(locals, dependencies, (client) => client.PATCH('/sites/{siteId}', { params: { path: { siteId } }, body: { name } }));
 }

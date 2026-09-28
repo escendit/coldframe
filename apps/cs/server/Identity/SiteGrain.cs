@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Identity.Reconciliation;
 using Coldframe.Server.Journal;
@@ -125,6 +126,91 @@ public sealed partial class SiteGrain(
         return Result(changed ? SiteReconciliationOutcome.Changed : SiteReconciliationOutcome.Unchanged);
     }
 
+    /// <inheritdoc />
+    public async Task<SiteRenameResult> Rename(string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new SiteRenameResult(SiteRenameOutcome.NotFound);
+        }
+
+        if (string.Equals(State.Name, name, StringComparison.Ordinal))
+        {
+            return new SiteRenameResult(SiteRenameOutcome.Unchanged, State.Name);
+        }
+
+        // Keycloak first (AD-3): a rename journaled without it would be reverted by the next reconciliation.
+        using (var budget = new CancellationTokenSource(options.Value.OperationBudget, Clock))
+        using (var linked = CancellationTokenSource.CreateLinkedTokenSource(budget.Token, cancellationToken))
+        {
+            try
+            {
+                await organizations.UpdateDisplayNameAsync(SiteId, name, linked.Token);
+            }
+            catch (Exception exception) when (exception is IdentityProviderUnavailableException or OperationCanceledException)
+            {
+                LogRenameUnavailable(logger, SiteId, exception);
+                return new SiteRenameResult(SiteRenameOutcome.IdentityProviderUnavailable);
+            }
+        }
+
+        RaiseEvent(new SiteRenamed(name));
+        await ConfirmEvents();
+
+        // Not cancelled by the caller: the rename is journaled, so the projection follows.
+        await CatchUpIdentityAsync(CancellationToken.None);
+
+        return new SiteRenameResult(SiteRenameOutcome.Renamed, State.Name);
+    }
+
+    /// <inheritdoc />
+    public async Task<LotCreationResult> CreateLot(string callerId, string idempotencyKey, string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(callerId);
+        ArgumentException.ThrowIfNullOrEmpty(idempotencyKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new LotCreationResult(LotCreationOutcome.NotFound);
+        }
+
+        var key = $"{callerId}:{idempotencyKey}";
+        var now = Clock.GetUtcNow();
+        var creation = State.FindLiveLotCreation(key, now);
+
+        if (creation is not null && !string.Equals(creation.Name, name, StringComparison.Ordinal))
+        {
+            return new LotCreationResult(LotCreationOutcome.IdempotencyKeyReused);
+        }
+
+        if (creation is null)
+        {
+            // Persisted before the Lot grain is called, so a retry resumes with the same Lot ID.
+            RaiseEvent(new LotCreationRequested(key, Guid.CreateVersion7(now).ToString(), name, now));
+            await ConfirmEvents();
+            creation = State.LotCreations[key];
+        }
+
+        // Idempotent for this Site: a completed request answers with the Lot as it is now.
+        var created = await GrainFactory.GetGrain<ILotGrain>(creation.LotId).Create(SiteId, creation.Name, cancellationToken);
+
+        if (created is not { Outcome: LotOutcome.Created, Lot: { } lot })
+        {
+            throw new InvalidOperationException($"Lot {creation.LotId} refused to be created on Site {SiteId}: {created.Outcome}.");
+        }
+
+        if (!creation.Completed)
+        {
+            RaiseEvent(new LotCreationCompleted(key));
+            await ConfirmEvents();
+        }
+
+        return new LotCreationResult(LotCreationOutcome.Created, lot);
+    }
+
     // Does the pulled roster show what the event says? A missing Organization shows no member and no role.
     private static bool Shows(PhaseTwoRoster? roster, RosterExpectation expectation)
     {
@@ -210,6 +296,9 @@ public sealed partial class SiteGrain(
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Keycloak is unavailable while reconciling Site {SiteId}; nothing was journaled.")]
     private static partial void LogReconciliationUnavailable(ILogger logger, string siteId, Exception exception);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Warning, Message = "Keycloak is unavailable while renaming Site {SiteId}; nothing was journaled.")]
+    private static partial void LogRenameUnavailable(ILogger logger, string siteId, Exception exception);
 
     [LoggerMessage(
         EventId = OwnerlessEditRefusedEventId,

@@ -27,6 +27,33 @@ public data class CreateSiteRequestDto(
     val name: String,
 )
 
+/** `RenameSiteRequest` and `RenameLotRequest`: the new name. */
+@Serializable
+public data class RenameRequestDto(
+    val name: String,
+)
+
+/** `Lot`: [status] is a `LotStatus` value computed by the Server (AD-14); [removed] only on a removed Lot. */
+@Serializable
+public data class LotDto(
+    val id: String,
+    val name: String,
+    val status: String,
+    val removed: Boolean? = null,
+)
+
+/** `LotList`: the Site's live Lots in the Server's order. */
+@Serializable
+public data class LotListDto(
+    val lots: List<LotDto>,
+)
+
+/** `CreateLotRequest`: only the name. */
+@Serializable
+public data class CreateLotRequestDto(
+    val name: String,
+)
+
 /** `ProblemDetails` (RFC 9457). */
 @Serializable
 public data class ProblemDto(

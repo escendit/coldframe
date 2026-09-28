@@ -103,6 +103,11 @@ Things to know:
   `Idempotency-Key`, body `{"name":"Home"}`) creates a Site with the caller as Owner, and
   `GET /sites/{siteId}` reads it. `GET /sites` lists the caller's Active Sites with their Role, oldest
   first; the apps use it to find out whether the user has a Membership and to fill the Site switcher.
+  `PATCH /sites/{siteId}` (Owner, body `{"name":"Home garden"}`) renames a Site; the Server sets the
+  Keycloak Organization's display name first. Lots live under `/sites/{siteId}/lots`: `GET` lists the
+  live Lots in the Server's order (Member), `POST` creates one (Administrator, `Idempotency-Key`),
+  and `GET`, `PATCH` and `DELETE /sites/{siteId}/lots/{lotId}` read (a removed Lot too, with
+  `removed: true`), rename and remove one (a Lot holding a Node answers 409 `lot-claimed`).
   All need an access token from the `coldframe` realm. The contract is
   [`packages/openapi/coldframe.openapi.json`](../packages/openapi/coldframe.openapi.json); how to add an
   endpoint is described in [`apps/cs/README.md`](../apps/cs/README.md#add-an-endpoint).
@@ -250,9 +255,10 @@ The TypeScript API client in [`packages/ts/api-client`](../packages/ts/api-clien
 the OpenAPI contract; after changing `packages/openapi/coldframe.openapi.json`, run
 `pnpm --filter @coldframe/api-client generate` and commit `src/schema.ts`. Its tests fail when the
 committed schema is stale. The end-to-end fake in `tests/ts/web.e2e/fixtures` also stands in for the
-Server's `GET /sites` and `POST /sites`. `specs/garden.spec.ts` compares screenshots of Create Site and
-the empty Garden with the baselines next to it (Linux, Chromium); after a deliberate visual change,
-rebuild and rerun it with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test garden --update-snapshots` and
+Server's Sites and Lots endpoints. `specs/garden.spec.ts` compares screenshots of Create Site and
+the empty Garden, and `specs/site-settings.spec.ts` those of Site settings and Garden with Lots, with
+the baselines next to them (Linux, Chromium); after a deliberate visual change, rebuild and rerun
+them with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test garden site-settings --update-snapshots` and
 commit the new PNGs.
 
 The last command fails when a generated design-token output is stale and prints the recomputed
@@ -276,7 +282,7 @@ On Linux the iOS targets of the core compile but do not link:
 ./gradlew :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64
 ```
 
-The Android app's snapshot tests (Roborazzi) compare Create Site and the empty Garden, in light and
+The Android app's snapshot tests (Roborazzi) compare Create Site, Garden (with Lots) and Site settings, in light and
 dark at font scale 2, with the PNGs in `tests/kt/android/snapshots`; `check` fails on a difference.
 After a deliberate visual change, record new baselines with `./gradlew :android:recordRoborazziDebug`
 and commit them. The core's `OpenApiContractTest` fails when an operation, header or property the

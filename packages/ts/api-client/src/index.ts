@@ -11,6 +11,12 @@ export type Site = components['schemas']['Site'];
 export type SiteList = components['schemas']['SiteList'];
 export type SiteRole = components['schemas']['SiteRole'];
 export type CreateSiteRequest = components['schemas']['CreateSiteRequest'];
+export type RenameSiteRequest = components['schemas']['RenameSiteRequest'];
+export type Lot = components['schemas']['Lot'];
+export type LotList = components['schemas']['LotList'];
+export type LotStatus = components['schemas']['LotStatus'];
+export type CreateLotRequest = components['schemas']['CreateLotRequest'];
+export type RenameLotRequest = components['schemas']['RenameLotRequest'];
 export type ProblemDetails = components['schemas']['ProblemDetails'];
 
 export type ColdframeClient = Client<paths>;

@@ -222,14 +222,14 @@ func memberNotice() {
   #expect(owner?.memberNotice == nil)
 }
 
-@Test("UX-DR22 the Site menu holds Site settings, which opens the Settings index")
+@Test("UX-DR22 UX-DR74 the Site menu holds Site settings, which opens Site settings")
 func siteMenu() {
   let garden = garden(snapshot())
 
   #expect(garden?.menuItems == [.siteSettings])
   #expect(garden?.menuEnabled == true)
   #expect(SiteMenuItem.siteSettings.label == .siteMenuSettings)
-  #expect(SiteMenuItem.siteSettings.opensTab == .settings)
+  #expect(SiteMenuItem.siteSettings.opensSiteSettings)
 }
 
 @Test("UX-DR22 Pause and Resume keep their labels and are hidden unless the core lists them")
@@ -239,5 +239,6 @@ func siteMenuPause() {
   #expect(paused?.menuItems == [.resume, .siteSettings])
   #expect(paused?.menuEnabled == false)
   #expect(SiteMenuItem.pause.label == .siteMenuPause)
-  #expect(SiteMenuItem.pause.opensTab == nil)
+  #expect(!SiteMenuItem.pause.opensSiteSettings)
+  #expect(!SiteMenuItem.resume.opensSiteSettings)
 }

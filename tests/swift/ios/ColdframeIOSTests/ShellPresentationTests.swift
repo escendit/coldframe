@@ -36,10 +36,15 @@ func appearanceOptions() {
   #expect(themeSegments(selected: .system)[0].isSelected)
 }
 
-@Test("UX-DR71 Settings lists Appearance, then Account")
+@Test("UX-DR71 UX-DR74 Settings lists Site settings, then Appearance, then Account")
 func settingsIndex() {
-  #expect(SettingsRow.allCases == [.appearance, .account])
-  #expect(SettingsRow.allCases.map(\.title) == [.settingsAppearance, .settingsAccount])
+  #expect(SettingsRow.allCases == [.siteSettings, .appearance, .account])
+  #expect(
+    SettingsRow.allCases.map(\.title) == [
+      .settingsSiteSettings, .settingsAppearance, .settingsAccount,
+    ])
+  #expect(SettingsRow.siteSettings.helper == .settingsSiteSettingsHelper)
+  #expect(SettingsRow.account.helper == nil)
 }
 
 @Test("UX-DR113 UX-DR76 sign out confirms in one native dialog that names the result")

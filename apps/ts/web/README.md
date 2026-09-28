@@ -82,6 +82,18 @@ every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachabl
   without actions, with the note that adding a Hub or Node needs the mobile app (Members see the
   read-only note instead). The Site menu sits after the Site tabs and holds only Site settings until
   the Pause story turns Pause/Resume on (`siteMenuItems` in [`src/lib/site-menu.ts`](src/lib/site-menu.ts)).
+  Below the first-run tiles, the Site's Lots show as tiles in the Server's order
+  ([`LotTiles.svelte`](src/lib/components/LotTiles.svelte)): a *no Node* tile has the dotted border,
+  `add`, "+" and "add a Node"; other statuses show the name only until their variants arrive. Tiles
+  are not tappable yet.
+- **Site settings** (`/settings/site`, first row of the Settings index and the Site menu item).
+  [`src/lib/server/site-settings.ts`](src/lib/server/site-settings.ts) loads the current Site's Lots
+  ([`src/lib/server/lots.ts`](src/lib/server/lots.ts)) and runs the named actions `renameSite`
+  (Owner), `createLot`, `renameLot` and `removeLot` (Owner and Administrator). Controls a Role cannot
+  use are hidden; Members see the Lots read-only with one notice. Create Lot keeps one
+  `Idempotency-Key` per attempt (kept after a 503 or network failure, replaced after a 422 or
+  success). Remove asks in a Modal naming the Lot. A 403 says the change is not allowed on the
+  Site; a 409 says to move or unassign the Node first.
 
 ## Copy
 
@@ -98,8 +110,10 @@ UX-DR92 copy, so the catalogue uses it verbatim until the design decides one.
 Unit tests are in [`tests/ts/web`](../../../tests/ts/web), end-to-end tests in
 [`tests/ts/web.e2e`](../../../tests/ts/web.e2e). See the quickstart.
 
-The e2e fake IdP doubles as an in-memory Server (`GET /sites`, `POST /sites`; `POST /control/sites`
-resets or seeds the Sites, one Site by default). `specs/garden.spec.ts` signs in with no Site,
+The e2e fake IdP doubles as an in-memory Server (`GET /sites`, `POST /sites`, `PATCH /sites/{id}`
+and the Lot routes; `POST /control/sites` resets or seeds the Sites, one Site by default, and can
+seed a Lot as holding a Node). `specs/site-settings.spec.ts` renames the Site, creates, renames and
+removes Lots, checks the 409 copy and the Member view, with screenshots. `specs/garden.spec.ts` signs in with no Site,
 creates "Home" and checks the empty Garden in light and dark at 200 % zoom, with axe and committed
 screenshots (Linux Chromium) under `specs/garden.spec.ts-snapshots/`. Run the e2e tests with
 `pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots

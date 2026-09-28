@@ -131,5 +131,68 @@
     "alias": "user.site-membership-changed",
     "schemaVersion": 1,
     "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 4,
+    "alias": "site.lot-creation-requested",
+    "schemaVersion": 1,
+    "payload": { "key": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:lk1", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01", "name": "Tomatoes", "requestedAt": "2026-09-28T12:05:00+00:00" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 5,
+    "alias": "site.lot-creation-completed",
+    "schemaVersion": 1,
+    "payload": { "key": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:lk1" }
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01",
+    "version": 1,
+    "alias": "lot.created",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "name": "Tomatoes" }
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01",
+    "version": 2,
+    "alias": "lot.renamed",
+    "schemaVersion": 1,
+    "payload": { "name": "Tomatoes east" }
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01",
+    "version": 3,
+    "alias": "lot.claimed",
+    "schemaVersion": 1,
+    "payload": { "nodeId": "7C19" }
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01",
+    "version": 4,
+    "alias": "lot.released",
+    "schemaVersion": 1,
+    "payload": { "nodeId": "7C19" }
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01",
+    "version": 5,
+    "alias": "lot.removed",
+    "schemaVersion": 1,
+    "payload": {}
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02",
+    "version": 1,
+    "alias": "lot.created",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "name": "Beans" }
+  },
+  {
+    "streamId": "lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02",
+    "version": 2,
+    "alias": "lot.claimed",
+    "schemaVersion": 1,
+    "payload": { "nodeId": "7C20" }
   }
 ]

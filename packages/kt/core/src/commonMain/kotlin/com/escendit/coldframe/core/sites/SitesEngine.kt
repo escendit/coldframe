@@ -15,13 +15,18 @@ import kotlinx.coroutines.launch
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
-/** The two Server calls the Sites surfaces need; [com.escendit.coldframe.core.api.ColdframeApi] in the apps. */
+/** The Server calls the Sites surfaces need; [com.escendit.coldframe.core.api.ColdframeApi] in the apps. */
 public interface SitesApi {
     public suspend fun listSites(): ApiResult<SiteListDto>
 
     public suspend fun createSite(
         name: String,
         idempotencyKey: String,
+    ): ApiResult<SiteDto>
+
+    public suspend fun renameSite(
+        siteId: String,
+        name: String,
     ): ApiResult<SiteDto>
 }
 
@@ -150,6 +155,48 @@ public class SitesEngine(
         }
     }
 
+    /**
+     * Renames the current Site (Owner; the caller gates the control, the Server enforces it).
+     * On success the Sites are listed again, so the switcher and the Garden header show the new
+     * name; the current Site stays current. Nothing is sent when no Site is current.
+     */
+    public suspend fun renameSite(name: String): ApiResult<SiteDto> {
+        val ready = mutableState.value as? SitesState.Ready ?: return ApiResult.Failed(ApiFailure.Unexpected)
+        val started = session
+        val result = api.renameSite(ready.current.id, name)
+        if (started != session) return result
+        if (result is ApiResult.Ok) {
+            val renamed = result.value.toSummary().copy(role = ready.current.role)
+            // The Server's order after the write; the projection is updated before 200.
+            val listed = api.listSites()
+            if (started != session) return result
+            val latest = mutableState.value as? SitesState.Ready ?: return result
+            val sites =
+                when (listed) {
+                    is ApiResult.Ok -> {
+                        listed.value.sites.map { it.toSummary() }
+                    }
+
+                    is ApiResult.Failed -> {
+                        latest.sites.map {
+                            if (it.id ==
+                                renamed.id
+                            ) {
+                                it.copy(name = renamed.name)
+                            } else {
+                                it
+                            }
+                        }
+                    }
+                }
+            val current =
+                sites.firstOrNull { it.id == latest.current.id }
+                    ?: latest.current.let { if (it.id == renamed.id) it.copy(name = renamed.name) else it }
+            mutableState.value = latest.copy(sites = sites, current = current)
+        }
+        return result
+    }
+
     private suspend fun created(
         site: SiteSummary,
         started: Int,
@@ -239,10 +286,20 @@ public class SitesEngine(
         private fun noticeOf(failure: ApiFailure): SitesNotice =
             when (failure) {
                 ApiFailure.Unreachable -> SitesNotice.Unreachable
+
                 ApiFailure.Certificate -> SitesNotice.Certificate
+
                 ApiFailure.IdentityProviderUnavailable -> SitesNotice.IdentityProviderUnavailable
+
                 ApiFailure.KeyReused -> SitesNotice.KeyReused
-                ApiFailure.Validation, ApiFailure.Unauthorized, ApiFailure.Unexpected -> SitesNotice.Unexpected
+
+                ApiFailure.Validation,
+                ApiFailure.Unauthorized,
+                ApiFailure.Forbidden,
+                ApiFailure.NotFound,
+                ApiFailure.LotClaimed,
+                ApiFailure.Unexpected,
+                -> SitesNotice.Unexpected
             }
 
         private fun SiteDto.toSummary(): SiteSummary = SiteSummary(id, name, SiteRole.fromServer(role))

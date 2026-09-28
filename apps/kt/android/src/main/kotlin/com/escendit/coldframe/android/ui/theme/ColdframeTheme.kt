@@ -40,6 +40,8 @@ data class ColdframeColors(
     val supportErrorText: Color,
     val supportWarning: Color,
     val overlay: Color,
+    val statusNoNodeBorder: Color,
+    val statusNoNodeInk: Color,
 ) {
     companion object {
         /** Resolves every token for [isDark]; nothing else in the app names a colour. */
@@ -68,6 +70,8 @@ data class ColdframeColors(
                 supportErrorText = ColorTokens.supportErrorText.color(),
                 supportWarning = ColorTokens.supportWarning.color(),
                 overlay = ColorTokens.overlay.color(),
+                statusNoNodeBorder = ColorTokens.statusNoNodeBorder.color(),
+                statusNoNodeInk = ColorTokens.statusNoNodeInk.color(),
             )
         }
     }

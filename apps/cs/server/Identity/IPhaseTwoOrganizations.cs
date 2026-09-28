@@ -40,8 +40,8 @@ public sealed record PhaseTwoRoster(
 /// <remarks>
 /// Every method throws <see cref="IdentityProviderUnavailableException"/> when Keycloak cannot be reached,
 /// times out, or answers with a server error, and <see cref="InvalidOperationException"/> on any other
-/// unexpected answer. Only the User grain creates Organizations; only the Site grain writes Memberships
-/// and Roles (AD-1).
+/// unexpected answer. Only the User grain creates Organizations; only the Site grain writes Memberships,
+/// Roles and the display name (AD-1).
 /// </remarks>
 public interface IPhaseTwoOrganizations
 {
@@ -80,6 +80,12 @@ public interface IPhaseTwoOrganizations
     /// Grants a member an Organization role. Idempotent; the User must be a member already.
     /// </summary>
     Task GrantRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sets the Organization's display name, which is the Site name, and keeps everything else. Only the
+    /// Site grain calls it.
+    /// </summary>
+    Task UpdateDisplayNameAsync(string organizationId, string displayName, CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads the Organization's display name, members and the holders of the roles in

@@ -351,12 +351,12 @@ class SitesScreensTest {
         compose.onAllNodesWithText("Pause Home garden").assertCountEquals(0)
         compose.onAllNodesWithText("Resume Home garden").assertCountEquals(0)
         compose.onNodeWithText("Site settings").performClick()
-        compose.onNode(isHeading().and(hasText("Settings"))).assertExists()
+        compose.onNode(isHeading().and(hasText("Site settings"))).assertExists()
         assertTrue(calls.isEmpty())
     }
 
     @Test
-    fun `UX-DR22 an Owner's Site menu holds only Site settings in this story, which opens Settings`() {
+    fun `UX-DR22 UX-DR74 an Owner's Site menu holds only Site settings, which opens Site settings`() {
         assertSiteMenuHoldsOnlySiteSettings(SiteRole.Owner)
     }
 

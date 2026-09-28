@@ -43,7 +43,60 @@ export type paths = {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Rename a Site
+         * @description Only an Owner. The Server sets the Keycloak Organization displayName first, then records the rename. Renaming to the current name changes nothing.
+         */
+        patch: operations["renameSite"];
+        trace?: never;
+    };
+    "/sites/{siteId}/lots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Site's Lots
+         * @description Only live Lots; removed Lots are absent. In the Server's order: status (needsWater, needsCalibration, unknown, ok, paused, noNode), then creation time, then Lot ID. Clients show them in this order and never re-sort.
+         */
+        get: operations["listLots"];
+        put?: never;
+        /**
+         * Create a Lot on the Site
+         * @description Idempotent per caller and Idempotency-Key for 24 h: a retry returns the original Lot, and a key reused with a different name is refused. Lot names need not be unique.
+         */
+        post: operations["createLot"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/sites/{siteId}/lots/{lotId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a Lot, including a removed one
+         * @description A removed Lot stays resolvable and carries removed: true.
+         */
+        get: operations["getLot"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a Lot
+         * @description Refused while a Node is assigned to the Lot. The Lot's ID and history stay resolvable. Removing a removed Lot changes nothing.
+         */
+        delete: operations["removeLot"];
+        options?: never;
+        head?: never;
+        /** Rename a Lot */
+        patch: operations["renameLot"];
         trace?: never;
     };
 };
@@ -73,13 +126,46 @@ export type components = {
             /** @description In the Server's order: creation time, then Site ID. */
             sites: components["schemas"]["Site"][];
         };
+        RenameSiteRequest: {
+            /** @description The Site name. Trimmed; 1 to 100 characters after trimming. */
+            name: string;
+        };
+        /**
+         * @description Computed by the Server (AD-14); clients never compute it.
+         * @enum {string}
+         */
+        LotStatus: "needsWater" | "needsCalibration" | "unknown" | "ok" | "paused" | "noNode";
+        Lot: {
+            /**
+             * Format: uuid
+             * @description The Lot ID, a UUIDv7.
+             */
+            id: string;
+            /** @description The Lot name. Not unique. */
+            name: string;
+            status: components["schemas"]["LotStatus"];
+            /** @description Present and true only for a removed Lot. */
+            removed?: boolean;
+        };
+        LotList: {
+            /** @description In the Server's order: status, then creation time, then Lot ID. */
+            lots: components["schemas"]["Lot"][];
+        };
+        CreateLotRequest: {
+            /** @description The Lot name. Trimmed; 1 to 100 characters after trimming. */
+            name: string;
+        };
+        RenameLotRequest: {
+            /** @description The Lot name. Trimmed; 1 to 100 characters after trimming. */
+            name: string;
+        };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
             /**
              * @description Stable: urn:coldframe:problem:<slug>.
              * @enum {string}
              */
-            type: "urn:coldframe:problem:unauthorized" | "urn:coldframe:problem:forbidden" | "urn:coldframe:problem:site-not-found" | "urn:coldframe:problem:validation" | "urn:coldframe:problem:idempotency-key-missing" | "urn:coldframe:problem:idempotency-key-reused" | "urn:coldframe:problem:identity-provider-unavailable";
+            type: "urn:coldframe:problem:unauthorized" | "urn:coldframe:problem:forbidden" | "urn:coldframe:problem:site-not-found" | "urn:coldframe:problem:lot-not-found" | "urn:coldframe:problem:validation" | "urn:coldframe:problem:idempotency-key-missing" | "urn:coldframe:problem:idempotency-key-reused" | "urn:coldframe:problem:identity-provider-unavailable" | "urn:coldframe:problem:lot-claimed";
             title: string;
             status: number;
             detail?: string;
@@ -123,8 +209,26 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
-        /** @description urn:coldframe:problem:idempotency-key-reused: the key was used within 24 h for a request with a different name. Nothing was created. */
+        /** @description urn:coldframe:problem:lot-not-found: no Lot has this ID on this Site, or it was removed (for rename and remove of an unknown ID). urn:coldframe:problem:site-not-found when the Site does not exist. */
+        LotNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:idempotency-key-reused: the key was used within 24 h for a request with a different body. Nothing was created. */
         IdempotencyKeyReused: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:lot-claimed: a Node is assigned to the Lot. Nothing changed; move or unassign the Node first. */
+        LotClaimed: {
             headers: {
                 [name: string]: unknown;
             };
@@ -147,6 +251,8 @@ export type components = {
         SiteId: string;
         /** @description Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters. */
         IdempotencyKey: string;
+        /** @description The Lot ID, a UUIDv7. */
+        LotId: string;
     };
     requestBodies: never;
     headers: never;
@@ -232,6 +338,189 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SiteNotFound"];
+        };
+    };
+    renameSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed Site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+            503: components["responses"]["IdentityProviderUnavailable"];
+        };
+    };
+    listLots: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Site's Lots. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LotList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+        };
+    };
+    createLot: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLotRequest"];
+            };
+        };
+        responses: {
+            /** @description The Lot exists on the Site. */
+            201: {
+                headers: {
+                    /** @description The Lot, /sites/{siteId}/lots/{lotId}. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+            422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    getLot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Lot ID, a UUIDv7. */
+                lotId: components["parameters"]["LotId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Lot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lot"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["LotNotFound"];
+        };
+    };
+    removeLot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Lot ID, a UUIDv7. */
+                lotId: components["parameters"]["LotId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Lot is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["LotNotFound"];
+            409: components["responses"]["LotClaimed"];
+        };
+    };
+    renameLot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Lot ID, a UUIDv7. */
+                lotId: components["parameters"]["LotId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameLotRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed Lot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["LotNotFound"];
         };
     };
 }

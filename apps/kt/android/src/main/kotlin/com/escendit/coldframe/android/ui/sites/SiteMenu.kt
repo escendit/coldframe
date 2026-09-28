@@ -32,8 +32,8 @@ import com.escendit.coldframe.core.sites.SiteMenu as SiteMenuModel
 
 /**
  * Site menu (UX-DR22): the `overflow-menu--vertical` trigger at the right of the Site summary
- * header opens a Material dropdown with the core's items for the Role. In Story 1.8 that is only
- * "Site settings", which opens the Settings index; Pause arrives with its sheet.
+ * header opens a Material dropdown with the core's items for the Role. For now that is only
+ * "Site settings", which opens Site settings (UX-DR74); Pause arrives with its sheet.
  */
 @Composable
 fun SiteMenu(

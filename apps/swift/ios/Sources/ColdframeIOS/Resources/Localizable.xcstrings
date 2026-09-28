@@ -300,6 +300,17 @@
         }
       }
     },
+    "garden_lots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lots"
+          }
+        }
+      }
+    },
     "garden_member_notice": {
       "extractionState": "manual",
       "localizations": {
@@ -439,6 +450,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "Garden"
+          }
+        }
+      }
+    },
+    "lot_tile_add_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "add a Node"
+          }
+        }
+      }
+    },
+    "lot_tile_description_no_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, no Node, add a Node"
+          }
+        }
+      }
+    },
+    "lot_tile_no_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no Node"
+          }
+        }
+      }
+    },
+    "lot_tile_no_node_value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+"
           }
         }
       }
@@ -674,6 +729,28 @@
         }
       }
     },
+    "settings_site_settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site settings"
+          }
+        }
+      }
+    },
+    "settings_site_settings_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name and Lots of %@"
+          }
+        }
+      }
+    },
     "settings_title": {
       "extractionState": "manual",
       "localizations": {
@@ -758,6 +835,292 @@
           "stringUnit": {
             "state": "translated",
             "value": "Site settings"
+          }
+        }
+      }
+    },
+    "site_settings_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "site_settings_create_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Lot"
+          }
+        }
+      }
+    },
+    "site_settings_creating_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating Lot…"
+          }
+        }
+      }
+    },
+    "site_settings_forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't change this on %@. Ask an Owner or Administrator."
+          }
+        }
+      }
+    },
+    "site_settings_key_reused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Lot was not created. Try again."
+          }
+        }
+      }
+    },
+    "site_settings_lot_claimed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move or unassign the Node on %@ first."
+          }
+        }
+      }
+    },
+    "site_settings_lot_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lot name"
+          }
+        }
+      }
+    },
+    "site_settings_lot_name_blank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a name for the Lot."
+          }
+        }
+      }
+    },
+    "site_settings_lot_name_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For example Tomatoes. Up to 100 characters."
+          }
+        }
+      }
+    },
+    "site_settings_lot_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Lot no longer exists. Nothing was changed."
+          }
+        }
+      }
+    },
+    "site_settings_lots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lots"
+          }
+        }
+      }
+    },
+    "site_settings_no_lots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Lots yet."
+          }
+        }
+      }
+    },
+    "site_settings_read_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Owners and Administrators can change Lots."
+          }
+        }
+      }
+    },
+    "site_settings_remove_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Lot"
+          }
+        }
+      }
+    },
+    "site_settings_remove_lot_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its history stays in Coldframe."
+          }
+        }
+      }
+    },
+    "site_settings_remove_lot_question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Lot %@?"
+          }
+        }
+      }
+    },
+    "site_settings_removing_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing Lot…"
+          }
+        }
+      }
+    },
+    "site_settings_rename_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Lot"
+          }
+        }
+      }
+    },
+    "site_settings_rename_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Site"
+          }
+        }
+      }
+    },
+    "site_settings_rename_site_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Site was not renamed: your Server's sign-in service didn't answer. Try again."
+          }
+        }
+      }
+    },
+    "site_settings_renaming_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming Lot…"
+          }
+        }
+      }
+    },
+    "site_settings_renaming_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming Site…"
+          }
+        }
+      }
+    },
+    "site_settings_site_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site name"
+          }
+        }
+      }
+    },
+    "site_settings_site_name_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to 100 characters."
+          }
+        }
+      }
+    },
+    "site_settings_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site settings"
+          }
+        }
+      }
+    },
+    "site_settings_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was changed: your Server returned an error. Try again."
           }
         }
       }

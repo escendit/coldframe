@@ -11,6 +11,11 @@ public static class EdgeValidation
     public const int MaxSiteNameLength = 100;
 
     /// <summary>
+    /// The longest Lot name, after trimming: the same rule as Site names.
+    /// </summary>
+    public const int MaxLotNameLength = MaxSiteNameLength;
+
+    /// <summary>
     /// The longest <c>Idempotency-Key</c>.
     /// </summary>
     public const int MaxIdempotencyKeyLength = 200;
@@ -76,4 +81,10 @@ public static class EdgeValidation
                 ? null
                 : trimmed;
     }
+
+    /// <summary>
+    /// Trims a Lot name and returns it under the same rule as <see cref="NormalizeSiteName"/>, otherwise
+    /// <see langword="null"/>. Lot names need not be unique.
+    /// </summary>
+    public static string? NormalizeLotName(string? name) => NormalizeSiteName(name);
 }

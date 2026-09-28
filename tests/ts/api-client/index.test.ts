@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { createColdframeClient, type Site } from '@coldframe/api-client';
+import { createColdframeClient, type Lot, type Site } from '@coldframe/api-client';
 import { generateSchema, schemaPath } from '@coldframe/api-client/generate';
 import { describe, expect, test } from 'vitest';
 
@@ -69,5 +69,28 @@ describe('@coldframe/api-client', () => {
     const { error, response } = await client.POST('/sites', { params: { header: { 'Idempotency-Key': 'k' } }, body: { name: 'x' } });
     expect(response.status).toBe(422);
     expect(error?.type).toBe('urn:coldframe:problem:idempotency-key-reused');
+  });
+
+  test('the Lot operations use the contract paths and methods; removeLot answers 204 without a body', async () => {
+    const site = '00000000-0000-4000-8000-00000000000a';
+    const lot: Lot = { id: '0192a000-0000-7000-8000-000000000011', name: 'Tomatoes', status: 'noNode' };
+    const answers = [json(200, { lots: [lot] }), json(201, lot), json(200, { ...lot, name: 'Beans' }), new Response(null, { status: 204 }), json(200, { id: site, name: 'Home garden', role: 'Owner' })];
+    const { fetch, seen } = recording(() => answers.shift() ?? json(500, {}));
+    const client = createColdframeClient({ baseUrl: 'https://server.example', accessToken: 't', fetch });
+    const path = { siteId: site };
+    expect((await client.GET('/sites/{siteId}/lots', { params: { path } })).data?.lots).toEqual([lot]);
+    expect((await client.POST('/sites/{siteId}/lots', { params: { path, header: { 'Idempotency-Key': 'k' } }, body: { name: 'Tomatoes' } })).data).toEqual(lot);
+    expect((await client.PATCH('/sites/{siteId}/lots/{lotId}', { params: { path: { ...path, lotId: lot.id } }, body: { name: 'Beans' } })).data?.name).toBe('Beans');
+    const removed = await client.DELETE('/sites/{siteId}/lots/{lotId}', { params: { path: { ...path, lotId: lot.id } } });
+    expect(removed.response.status).toBe(204);
+    expect((await client.PATCH('/sites/{siteId}', { params: { path }, body: { name: 'Home garden' } })).data?.name).toBe('Home garden');
+    expect(seen.map((request) => `${request.method} ${new URL(request.url).pathname}`)).toEqual([
+      `GET /sites/${site}/lots`,
+      `POST /sites/${site}/lots`,
+      `PATCH /sites/${site}/lots/${lot.id}`,
+      `DELETE /sites/${site}/lots/${lot.id}`,
+      `PATCH /sites/${site}`,
+    ]);
+    expect(seen[1]?.headers.get('idempotency-key')).toBe('k');
   });
 });

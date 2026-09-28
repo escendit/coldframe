@@ -100,8 +100,61 @@
   func gardenAtAccessibility5(dark: Bool) {
     #expect(
       renders(
-        NavigationStack { GardenView(presentation: emptyGarden, actions: .none) { _ in } },
+        NavigationStack { GardenView(presentation: emptyGarden, actions: .none) },
         dark: dark))
+  }
+
+  private let lotsReady = LotsPresentation(
+    surface: "ready", notice: nil, siteId: "a", siteName: "Home garden", role: "owner",
+    canRenameSite: true, canEditLots: true, readOnlyNotice: false,
+    siteNameDraft: "Home garden", siteNameError: nil, siteRenameWorking: false,
+    lotIds: ["t", "b"], lotNames: ["Tomatoes", "Beans"], lotStatuses: ["noNode", "noNode"],
+    newLotName: "Peppers", newLotNameError: "blank", createWorking: true,
+    renamingLotId: nil, renameDraft: "", renameError: nil, renameWorking: false,
+    removingLotId: nil, removingLotName: nil, removeWorking: false,
+    actionNotice: "lotClaimed", actionNoticeSubject: "Tomatoes")
+
+  private let lotsMember = LotsPresentation(
+    surface: "ready", notice: nil, siteId: "a", siteName: "Home garden", role: "member",
+    canRenameSite: false, canEditLots: false, readOnlyNotice: true,
+    siteNameDraft: "Home garden", siteNameError: nil, siteRenameWorking: false,
+    lotIds: ["t", "b"], lotNames: ["Tomatoes", "Beans"], lotStatuses: ["noNode", "unknown"],
+    newLotName: "", newLotNameError: nil, createWorking: false,
+    renamingLotId: nil, renameDraft: "", renameError: nil, renameWorking: false,
+    removingLotId: nil, removingLotName: nil, removeWorking: false,
+    actionNotice: nil, actionNoticeSubject: nil)
+
+  @Test(
+    "UX-DR18 UX-DR20 the Garden with Lots renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func gardenWithLotsAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        NavigationStack {
+          GardenView(presentation: emptyGarden, lots: lotsReady, actions: .none)
+        },
+        dark: dark))
+  }
+
+  @Test(
+    "UX-DR74 Site settings renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func siteSettingsAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        NavigationStack { SiteSettingsView(presentation: lotsReady, actions: .none) },
+        dark: dark))
+  }
+
+  @Test("UX-DR84 Site settings for a Member renders at the largest accessibility text size")
+  @MainActor
+  func siteSettingsMemberAtAccessibility5() {
+    #expect(
+      renders(
+        NavigationStack { SiteSettingsView(presentation: lotsMember, actions: .none) },
+        dark: false))
   }
 
   @Test("UX-DR23 the Site switcher renders at the largest accessibility text size")

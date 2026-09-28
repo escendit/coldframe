@@ -80,6 +80,170 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/SiteNotFound" }
         }
+      },
+      "patch": {
+        "operationId": "renameSite",
+        "summary": "Rename a Site",
+        "description": "Only an Owner. The Server sets the Keycloak Organization displayName first, then records the rename. Renaming to the current name changes nothing.",
+        "x-coldframe-minimum-role": "Owner",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RenameSiteRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed Site.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Site" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" },
+          "503": { "$ref": "#/components/responses/IdentityProviderUnavailable" }
+        }
+      }
+    },
+    "/sites/{siteId}/lots": {
+      "get": {
+        "operationId": "listLots",
+        "summary": "List the Site's Lots",
+        "description": "Only live Lots; removed Lots are absent. In the Server's order: status (needsWater, needsCalibration, unknown, ok, paused, noNode), then creation time, then Lot ID. Clients show them in this order and never re-sort.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The Site's Lots.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LotList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      },
+      "post": {
+        "operationId": "createLot",
+        "summary": "Create a Lot on the Site",
+        "description": "Idempotent per caller and Idempotency-Key for 24 h: a retry returns the original Lot, and a key reused with a different name is refused. Lot names need not be unique.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateLotRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The Lot exists on the Site.",
+            "headers": {
+              "Location": {
+                "description": "The Lot, /sites/{siteId}/lots/{lotId}.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Lot" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" },
+          "422": { "$ref": "#/components/responses/IdempotencyKeyReused" }
+        }
+      }
+    },
+    "/sites/{siteId}/lots/{lotId}": {
+      "get": {
+        "operationId": "getLot",
+        "summary": "Read a Lot, including a removed one",
+        "description": "A removed Lot stays resolvable and carries removed: true.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/LotId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Lot.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Lot" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/LotNotFound" }
+        }
+      },
+      "patch": {
+        "operationId": "renameLot",
+        "summary": "Rename a Lot",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/LotId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RenameLotRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed Lot.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Lot" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/LotNotFound" }
+        }
+      },
+      "delete": {
+        "operationId": "removeLot",
+        "summary": "Remove a Lot",
+        "description": "Refused while a Node is assigned to the Lot. The Lot's ID and history stay resolvable. Removing a removed Lot changes nothing.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/LotId" }
+        ],
+        "responses": {
+          "204": { "description": "The Lot is removed." },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/LotNotFound" },
+          "409": { "$ref": "#/components/responses/LotClaimed" }
+        }
       }
     }
   },
@@ -106,6 +270,13 @@
         "required": true,
         "description": "Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters.",
         "schema": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[\\x20-\\x7E]+$" }
+      },
+      "LotId": {
+        "name": "lotId",
+        "in": "path",
+        "required": true,
+        "description": "The Lot ID, a UUIDv7.",
+        "schema": { "type": "string", "format": "uuid" }
       }
     },
     "schemas": {
@@ -146,6 +317,68 @@
           }
         }
       },
+      "RenameSiteRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The Site name. Trimmed; 1 to 100 characters after trimming.",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "LotStatus": {
+        "type": "string",
+        "description": "Computed by the Server (AD-14); clients never compute it.",
+        "enum": ["needsWater", "needsCalibration", "unknown", "ok", "paused", "noNode"]
+      },
+      "Lot": {
+        "type": "object",
+        "required": ["id", "name", "status"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "The Lot ID, a UUIDv7." },
+          "name": { "type": "string", "description": "The Lot name. Not unique." },
+          "status": { "$ref": "#/components/schemas/LotStatus" },
+          "removed": { "type": "boolean", "description": "Present and true only for a removed Lot." }
+        }
+      },
+      "LotList": {
+        "type": "object",
+        "required": ["lots"],
+        "properties": {
+          "lots": {
+            "type": "array",
+            "description": "In the Server's order: status, then creation time, then Lot ID.",
+            "items": { "$ref": "#/components/schemas/Lot" }
+          }
+        }
+      },
+      "CreateLotRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The Lot name. Trimmed; 1 to 100 characters after trimming.",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "RenameLotRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The Lot name. Trimmed; 1 to 100 characters after trimming.",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "description": "RFC 9457 Problem Details.",
@@ -158,10 +391,12 @@
               "urn:coldframe:problem:unauthorized",
               "urn:coldframe:problem:forbidden",
               "urn:coldframe:problem:site-not-found",
+              "urn:coldframe:problem:lot-not-found",
               "urn:coldframe:problem:validation",
               "urn:coldframe:problem:idempotency-key-missing",
               "urn:coldframe:problem:idempotency-key-reused",
-              "urn:coldframe:problem:identity-provider-unavailable"
+              "urn:coldframe:problem:identity-provider-unavailable",
+              "urn:coldframe:problem:lot-claimed"
             ]
           },
           "title": { "type": "string" },
@@ -188,8 +423,16 @@
         "description": "urn:coldframe:problem:site-not-found: no Site has this ID.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
+      "LotNotFound": {
+        "description": "urn:coldframe:problem:lot-not-found: no Lot has this ID on this Site, or it was removed (for rename and remove of an unknown ID). urn:coldframe:problem:site-not-found when the Site does not exist.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
       "IdempotencyKeyReused": {
-        "description": "urn:coldframe:problem:idempotency-key-reused: the key was used within 24 h for a request with a different name. Nothing was created.",
+        "description": "urn:coldframe:problem:idempotency-key-reused: the key was used within 24 h for a request with a different body. Nothing was created.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "LotClaimed": {
+        "description": "urn:coldframe:problem:lot-claimed: a Node is assigned to the Lot. Nothing changed; move or unassign the Node first.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "IdentityProviderUnavailable": {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
@@ -146,6 +147,33 @@ public sealed class PhaseTwoOrganizations(
             cancellationToken).ConfigureAwait(false);
 
         EnsureStatus(response, $"grant role {role} to {userId} in Organization {organizationId}", HttpStatusCode.Created, HttpStatusCode.NoContent, HttpStatusCode.OK);
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateDisplayNameAsync(string organizationId, string displayName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+
+        // Phase Two replaces the Organization with the PUT body, so the body is the Organization as it is,
+        // every field kept, with only the display name changed.
+        JsonObject organization;
+
+        using (var read = await SendAuthorizedAsync(HttpMethod.Get, $"orgs/{Escape(organizationId)}", null, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            EnsureStatus(read, $"read Organization {organizationId}", HttpStatusCode.OK);
+
+            organization = await read.Content.ReadFromJsonAsync<JsonObject>(Json, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Phase Two returned no Organization {organizationId}.");
+        }
+
+        organization["displayName"] = displayName;
+
+        using var response = await SendAuthorizedAsync(HttpMethod.Put, $"orgs/{Escape(organizationId)}", organization, cancellationToken)
+            .ConfigureAwait(false);
+
+        EnsureStatus(response, $"rename Organization {organizationId}", HttpStatusCode.NoContent, HttpStatusCode.OK);
     }
 
     /// <inheritdoc />

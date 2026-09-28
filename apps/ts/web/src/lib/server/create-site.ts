@@ -83,6 +83,9 @@ export async function createSiteAction(
     case 'unavailable':
       return fail(503, { name, nameError: null, notice: 'unavailable', idempotencyKey });
     case 'unexpected':
+    case 'forbidden':
+    case 'notFound':
+    case 'lotClaimed':
       return fail(502, { name, nameError: null, notice: 'unexpected', idempotencyKey });
     case 'unreachable':
     case 'certificate':

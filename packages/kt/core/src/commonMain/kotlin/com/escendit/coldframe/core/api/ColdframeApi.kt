@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.api
 
+import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.signin.isCertificateError
 import com.escendit.coldframe.core.sites.SitesApi
 import io.ktor.client.HttpClient
@@ -9,8 +10,10 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -18,6 +21,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
@@ -39,7 +43,8 @@ public class ColdframeApi(
     private val accessToken: suspend () -> String?,
     private val onUnauthorized: suspend () -> Unit,
     private val certificateError: (Throwable) -> Boolean = ::isCertificateError,
-) : SitesApi {
+) : SitesApi,
+    LotsApi {
     private val base = serverUrl.trimEnd('/')
 
     /** `GET /sites` (`listSites`). */
@@ -59,6 +64,62 @@ public class ColdframeApi(
                 setBody(CreateSiteRequestDto(name))
             }
         }) { it.body<SiteDto>() }
+
+    /** `PATCH /sites/{siteId}` (`renameSite`, Owner). */
+    override suspend fun renameSite(
+        siteId: String,
+        name: String,
+    ): ApiResult<SiteDto> =
+        call({
+            http.patch("$base/sites/${siteId.encoded()}") {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(RenameRequestDto(name))
+            }
+        }) { it.body<SiteDto>() }
+
+    /** `GET /sites/{siteId}/lots` (`listLots`): live Lots in the Server's order. */
+    override suspend fun listLots(siteId: String): ApiResult<LotListDto> =
+        call({ http.get(lots(siteId)) { it() } }) { it.body<LotListDto>() }
+
+    /** `POST /sites/{siteId}/lots` (`createLot`) with the attempt's [idempotencyKey]. */
+    override suspend fun createLot(
+        siteId: String,
+        name: String,
+        idempotencyKey: String,
+    ): ApiResult<LotDto> =
+        call({
+            http.post(lots(siteId)) {
+                it()
+                header(IDEMPOTENCY_KEY, idempotencyKey)
+                contentType(ContentType.Application.Json)
+                setBody(CreateLotRequestDto(name))
+            }
+        }) { it.body<LotDto>() }
+
+    /** `PATCH /sites/{siteId}/lots/{lotId}` (`renameLot`). */
+    override suspend fun renameLot(
+        siteId: String,
+        lotId: String,
+        name: String,
+    ): ApiResult<LotDto> =
+        call({
+            http.patch("${lots(siteId)}/${lotId.encoded()}") {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(RenameRequestDto(name))
+            }
+        }) { it.body<LotDto>() }
+
+    /** `DELETE /sites/{siteId}/lots/{lotId}` (`removeLot`): 204 without a body. */
+    override suspend fun removeLot(
+        siteId: String,
+        lotId: String,
+    ): ApiResult<Unit> = call({ http.delete("${lots(siteId)}/${lotId.encoded()}") { it() } }) { }
+
+    private fun lots(siteId: String): String = "$base/sites/${siteId.encoded()}/lots"
+
+    private fun String.encoded(): String = encodeURLPathPart()
 
     private suspend fun <T> call(
         send: suspend (HttpRequestBuilder.() -> Unit) -> HttpResponse,
@@ -98,6 +159,18 @@ public class ColdframeApi(
 
             HttpStatusCode.BadRequest -> {
                 if (problemType(response) == PROBLEM_VALIDATION) ApiFailure.Validation else ApiFailure.Unexpected
+            }
+
+            HttpStatusCode.Forbidden -> {
+                ApiFailure.Forbidden
+            }
+
+            HttpStatusCode.NotFound -> {
+                ApiFailure.NotFound
+            }
+
+            HttpStatusCode.Conflict -> {
+                ApiFailure.LotClaimed
             }
 
             HttpStatusCode.UnprocessableEntity -> {

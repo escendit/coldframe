@@ -171,8 +171,9 @@ public enum SiteMenuItem: String, CaseIterable, Sendable {
     }
   }
 
-  /// Site settings opens the Settings index until its own surface arrives (Story 1.9).
-  public var opensTab: AppTab? { self == .siteSettings ? .settings : nil }
+  /// Site settings opens its own surface (Story 1.9, closes DW-25); Pause and Resume open the
+  /// Pause sheet in a later story.
+  public var opensSiteSettings: Bool { self == .siteSettings }
 }
 
 /// One first-run step (UX-DR54).

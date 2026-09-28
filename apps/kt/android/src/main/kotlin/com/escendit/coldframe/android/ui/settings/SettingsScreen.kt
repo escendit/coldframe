@@ -33,39 +33,34 @@ import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
 /**
- * Settings index (UX-DR71). In this story only Appearance and Account exist; My notifications,
- * Members and Site settings join above them, in that order, with their stories.
+ * Settings index (UX-DR71): Site settings for the current Site (UX-DR74), Appearance and Account.
+ * My notifications and Members join above them with their stories.
  */
 @Composable
 fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
+    siteName: String? = null,
+    onOpenSiteSettings: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = Spacing.BUTTON_HEIGHT.dp)
-                    .clickable(role = Role.Button, onClick = onOpenAppearance)
-                    .padding(horizontal = Spacing.GUTTER_MOBILE.dp, vertical = Spacing.STEP_4.dp),
-            verticalArrangement = Arrangement.spacedBy(Spacing.STEP_1.dp),
-        ) {
-            Text(
-                stringResource(R.string.settings_appearance),
-                style = Typography.bodyLg.textStyle(),
-                color = colors.textPrimary,
+        if (siteName != null) {
+            SettingsRow(
+                label = stringResource(R.string.settings_site_settings),
+                helper = stringResource(R.string.settings_site_settings_helper, siteName),
+                onClick = onOpenSiteSettings,
             )
-            Text(
-                stringResource(R.string.settings_appearance_helper),
-                style = Typography.helper.textStyle(),
-                color = colors.textHelper,
-            )
+            HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
         }
+        SettingsRow(
+            label = stringResource(R.string.settings_appearance),
+            helper = stringResource(R.string.settings_appearance_helper),
+            onClick = onOpenAppearance,
+        )
         HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
         Column(
             modifier = Modifier.padding(Spacing.GUTTER_MOBILE.dp).padding(top = Spacing.STEP_5.dp),
@@ -127,5 +122,26 @@ fun SettingsScreen(
             textContentColor = colors.textPrimary,
             tonalElevation = 0.dp,
         )
+    }
+}
+
+@Composable
+private fun SettingsRow(
+    label: String,
+    helper: String,
+    onClick: () -> Unit,
+) {
+    val colors = Coldframe.colors
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = Spacing.BUTTON_HEIGHT.dp)
+                .clickable(role = Role.Button, onClick = onClick)
+                .padding(horizontal = Spacing.GUTTER_MOBILE.dp, vertical = Spacing.STEP_4.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.STEP_1.dp),
+    ) {
+        Text(label, style = Typography.bodyLg.textStyle(), color = colors.textPrimary)
+        Text(helper, style = Typography.helper.textStyle(), color = colors.textHelper)
     }
 }

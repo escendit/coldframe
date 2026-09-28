@@ -54,26 +54,31 @@
 
   /// The signed-in shell (UX-DR57, UX-DR109): native `TabView` with a `NavigationStack` per tab
   /// and Carbon icons; the selected tab uses the native selected state and `primary-text` tint.
-  /// The Garden tab shows the current Site's empty Garden (Story 1.8).
+  /// The Garden tab shows the current Site's Garden with its Lots (Stories 1.8 and 1.9).
   public struct AppTabView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
     let onSignOut: () -> Void
     let garden: GardenPresentation?
     let sitesActions: SitesActions
+    let lots: LotsPresentation
+    let lotsActions: LotsActions
     @State private var selection: AppTab = .garden
     @Environment(\.palette) private var palette
 
     public init(
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
       onSignOut: @escaping () -> Void, garden: GardenPresentation? = nil,
-      sitesActions: SitesActions = .none
+      sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
+      lotsActions: LotsActions = .none
     ) {
       self.theme = theme
       self.onSelectTheme = onSelectTheme
       self.onSignOut = onSignOut
       self.garden = garden
       self.sitesActions = sitesActions
+      self.lots = lots
+      self.lotsActions = lotsActions
     }
 
     public var body: some View {
@@ -100,10 +105,13 @@
     private func content(for tab: AppTab) -> some View {
       switch tab {
       case .settings:
-        SettingsView(theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut)
+        SettingsView(
+          theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut,
+          siteName: garden?.siteName, lots: lots, lotsActions: lotsActions)
       case .garden:
         if let garden {
-          GardenView(presentation: garden, actions: sitesActions) { selection = $0 }
+          GardenView(
+            presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions)
         } else {
           palette.background.ignoresSafeArea()
         }
@@ -114,27 +122,48 @@
     }
   }
 
-  /// Settings index (UX-DR71): Appearance, then Account with Sign out, confirmed in a native
-  /// dialog that names the result (UX-DR113).
+  /// Settings index (UX-DR71): Site settings of the current Site, Appearance, then Account with
+  /// Sign out, confirmed in a native dialog that names the result (UX-DR113).
   public struct SettingsView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
     let onSignOut: () -> Void
+    let siteName: String?
+    let lots: LotsPresentation
+    let lotsActions: LotsActions
     @State private var confirmingSignOut = false
     @Environment(\.palette) private var palette
 
     public init(
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
-      onSignOut: @escaping () -> Void
+      onSignOut: @escaping () -> Void, siteName: String? = nil,
+      lots: LotsPresentation = .waiting, lotsActions: LotsActions = .none
     ) {
       self.theme = theme
       self.onSelectTheme = onSelectTheme
       self.onSignOut = onSignOut
+      self.siteName = siteName
+      self.lots = lots
+      self.lotsActions = lotsActions
     }
 
     public var body: some View {
       let confirmation = ConfirmationPresentation.signOut
       List {
+        if let siteName {
+          NavigationLink {
+            SiteSettingsView(presentation: lots, actions: lotsActions)
+          } label: {
+            VStack(alignment: .leading, spacing: Spacing.step1) {
+              SettingsRow.siteSettings.title.text.role(Typography.bodyLg)
+                .foregroundStyle(palette.textPrimary)
+              Text(verbatim: L10n.settingsSiteSettingsHelper.string(siteName))
+                .role(Typography.helper)
+                .foregroundStyle(palette.textHelper)
+            }
+            .frame(minHeight: TouchTarget.minimum)
+          }
+        }
         NavigationLink {
           AppearanceView(theme: theme, onSelectTheme: onSelectTheme)
         } label: {
@@ -197,6 +226,8 @@
     let presentation: SignInPresentation
     let sites: SitesPresentation
     let sitesActions: SitesActions
+    let lots: LotsPresentation
+    let lotsActions: LotsActions
     let theme: ThemePreference
     let onSignIn: () -> Void
     let onSignOut: () -> Void
@@ -205,13 +236,16 @@
 
     public init(
       presentation: SignInPresentation, sites: SitesPresentation = .waiting,
-      sitesActions: SitesActions = .none, theme: ThemePreference,
+      sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
+      lotsActions: LotsActions = .none, theme: ThemePreference,
       onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void,
       onSelectTheme: @escaping (ThemePreference) -> Void
     ) {
       self.presentation = presentation
       self.sites = sites
       self.sitesActions = sitesActions
+      self.lots = lots
+      self.lotsActions = lotsActions
       self.theme = theme
       self.onSignIn = onSignIn
       self.onSignOut = onSignOut
@@ -248,7 +282,7 @@
       case .garden(let garden, let creating):
         AppTabView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
-          sitesActions: sitesActions
+          sitesActions: sitesActions, lots: lots, lotsActions: lotsActions
         )
         .sheet(
           isPresented: Binding(
@@ -269,24 +303,34 @@
     @Published public private(set) var presentation = SignInPresentation.restoring
     @Published public private(set) var theme = ThemePreference.system
     @Published public private(set) var sites = SitesPresentation.waiting
+    @Published public private(set) var lots = LotsPresentation.waiting
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
+    public let lotsService: LotsService?
 
     public init(
-      signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil
+      signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
+      lots: LotsService? = nil
     ) {
       self.signIn = signIn
       self.appearance = appearance
       self.sitesService = sites
+      self.lotsService = lots
       signIn.observe { [weak self] in self?.presentation = $0 }
       appearance.observe { [weak self] in self?.theme = $0 }
       sites?.observe { [weak self] in self?.sites = $0 }
+      lots?.observe { [weak self] in self?.lots = $0 }
     }
 
     /// The Sites actions for the views; nothing happens without a service.
     public var sitesActions: SitesActions {
       sitesService.map(SitesActions.init(service:)) ?? .none
+    }
+
+    /// The Lots actions for the views; nothing happens without a service.
+    public var lotsActions: LotsActions {
+      lotsService.map(LotsActions.init(service:)) ?? .none
     }
   }
 #endif

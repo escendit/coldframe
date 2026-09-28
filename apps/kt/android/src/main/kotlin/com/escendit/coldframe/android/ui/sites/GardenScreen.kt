@@ -32,12 +32,15 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
+import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.components.dashedBorder
 import com.escendit.coldframe.android.ui.components.styledText
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
+import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.sites.FirstRunSteps
 import com.escendit.coldframe.core.sites.FirstRunTile
 import com.escendit.coldframe.core.sites.SitesState
@@ -46,9 +49,11 @@ import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
 /**
- * The Garden of an empty Site (UX-DR62, UX-DR82): the Site summary header, "No Readings yet"
- * and the four first-run step tiles. In Story 1.8 no tile starts a flow; Members also see the
- * read-only notice. The Site switcher and the Site menu hang off the header.
+ * The Garden of a Site without Readings (UX-DR62, UX-DR82): the Site summary header, "No
+ * Readings yet" and the four first-run step tiles; no tile starts a flow yet, and Members also
+ * see the read-only notice. Below them, the Site's Lots as tiles in the Server's order
+ * (UX-DR18, UX-DR20); a failed Lot load shows its notice in place of the grid. The Site
+ * switcher and the Site menu hang off the header.
  */
 @Composable
 fun GardenScreen(
@@ -56,6 +61,8 @@ fun GardenScreen(
     actions: SitesActions,
     onOpenSiteSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    lots: LotsState = LotsState.Idle,
+    lotsActions: LotsActions = LotsActions.None,
 ) {
     val colors = Coldframe.colors
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
@@ -78,6 +85,7 @@ fun GardenScreen(
         if (steps.memberNotice) {
             InlineNotice(message = stringResource(R.string.garden_member_notice))
         }
+        GardenLots(lots, siteId = sites.current.id, actions = lotsActions)
     }
     if (switcherOpen) {
         SiteSwitcherSheet(
@@ -224,6 +232,38 @@ private fun StepTile(
                 style = Typography.statusLabel.textStyle(),
                 color = ink,
             )
+        }
+    }
+}
+
+@Composable
+private fun GardenLots(
+    lots: LotsState,
+    siteId: String,
+    actions: LotsActions,
+) {
+    when (lots) {
+        is LotsState.Ready -> {
+            if (lots.siteId == siteId && lots.lots.isNotEmpty()) LotTiles(lots.lots)
+        }
+
+        is LotsState.Failed -> {
+            if (lots.site.id == siteId) {
+                InlineNotice(
+                    message = stringResource(lots.notice.loadMessage()),
+                    action =
+                        if (lots.notice.tryAgain) {
+                            NoticeActionUi(stringResource(R.string.notice_try_again), actions.load)
+                        } else {
+                            null
+                        },
+                    announcement = Announcement.Polite,
+                )
+            }
+        }
+
+        LotsState.Idle, is LotsState.Loading -> {
+            Unit
         }
     }
 }

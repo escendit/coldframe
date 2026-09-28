@@ -1,7 +1,9 @@
 using System.Text.Json;
+using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Journal;
+using Coldframe.Server.Lots;
 using Coldframe.Server.Tests.Samples;
 
 namespace Coldframe.Server.Tests.Journal;
@@ -20,6 +22,7 @@ public sealed class FixtureJournalReplayTests
     // Each alias prefix names the state its events apply to. A new aggregate adds its state here.
     private static readonly Dictionary<string, Func<object>> States = new(StringComparer.Ordinal)
     {
+        ["lot"] = () => new LotState(),
         ["sample"] = () => new SampleState(),
         ["site"] = () => new SiteState(),
         ["user"] = () => new UserState(),
@@ -59,6 +62,19 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal("Home", site.Name);
         Assert.Equal(["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"], site.Owners);
         Assert.Equal(SiteRole.Member, site.Members["8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
+        var lotCreation = site.LotCreations["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:lk1"];
+        Assert.Equal(("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01", "Tomatoes", true), (lotCreation.LotId, lotCreation.Name, lotCreation.Completed));
+
+        // Created, renamed, claimed and released by a Node, then removed: the tombstone keeps name and Site.
+        var removed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01"]);
+        Assert.Equal(LotLifecycle.Removed, removed.Lifecycle);
+        Assert.Equal("Tomatoes east", removed.Name);
+        Assert.Equal("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", removed.SiteId);
+        Assert.Null(removed.ClaimedBy);
+
+        var claimed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02"]);
+        Assert.Equal(LotLifecycle.Active, claimed.Lifecycle);
+        Assert.Equal("7C20", claimed.ClaimedBy);
 
         // Reconciled from Keycloak: renamed, an ownerless episode refused and resolved, a member revoked,
         // then deleted. Deletion keeps the Members.

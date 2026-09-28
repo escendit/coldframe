@@ -10,6 +10,7 @@ public enum SiteWrite
     EnsureRole,
     AddMember,
     GrantRole,
+    UpdateDisplayName,
 }
 
 /// <summary>
@@ -326,6 +327,20 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
             }
 
             _grants.Add((organizationId, role, userId));
+        }
+    }
+
+    public async Task UpdateDisplayNameAsync(string organizationId, string displayName, CancellationToken cancellationToken)
+    {
+        ThrowIfUnavailable();
+        await StallIfDueAsync(SiteWrite.UpdateDisplayName, cancellationToken);
+        Interlocked.Increment(ref _writes);
+
+        lock (_lock)
+        {
+            ThrowIfFailingOnce(SiteWrite.UpdateDisplayName);
+            RequireOrganization(organizationId);
+            _organizations[organizationId] = _organizations[organizationId] with { DisplayName = displayName };
         }
     }
 

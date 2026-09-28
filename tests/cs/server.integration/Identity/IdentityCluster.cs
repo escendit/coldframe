@@ -1,7 +1,9 @@
+using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Identity;
 using Coldframe.Server.IntegrationTests.Journal;
 using Coldframe.Server.Journal;
+using Coldframe.Server.Lots;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
@@ -12,7 +14,7 @@ using Orleans.TestingHost;
 namespace Coldframe.Server.IntegrationTests.Identity;
 
 /// <summary>
-/// A one-silo <see cref="TestCluster"/> with the User and Site grains, the identity projector, a
+/// A one-silo <see cref="TestCluster"/> with the User, Site and Lot grains, the identity and lots projectors, a
 /// <see cref="FakePhaseTwoOrganizations"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
 /// </summary>
@@ -45,6 +47,10 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public IUserGrain User(string userId) => Cluster.GrainFactory.GetGrain<IUserGrain>(userId);
 
     public ISiteGrain Site(string siteId) => Cluster.GrainFactory.GetGrain<ISiteGrain>(siteId);
+
+    public ILotGrain Lot(string lotId) => Cluster.GrainFactory.GetGrain<ILotGrain>(lotId);
+
+    public LotsReadModel Lots => SiloServices.GetRequiredService<LotsReadModel>();
 
     /// <summary>
     /// The User grain's Site set, replayed from its journal stream.
@@ -136,6 +142,7 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddJournal(connectionString, options => options.PollInterval = PollInterval);
             siloBuilder.Services.AddProjector<IdentityProjector>();
             siloBuilder.Services.AddSingleton<IdentityReadModel>();
+            siloBuilder.Services.AddLots();
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
             siloBuilder.Services.AddSingleton<IPhaseTwoOrganizations>(provider => provider.GetRequiredService<FakePhaseTwoOrganizations>());

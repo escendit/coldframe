@@ -189,7 +189,14 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     /// Appends events to a fresh stream of the Server's journal, exactly as a grain would.
     /// </summary>
     /// <returns>The global position of the last appended event.</returns>
-    public async Task<long> AppendAsync(string streamId, IReadOnlyList<object> events, CancellationToken cancellationToken)
+    public Task<long> AppendAsync(string streamId, IReadOnlyList<object> events, CancellationToken cancellationToken) =>
+        AppendAsync(streamId, 0, events, cancellationToken);
+
+    /// <summary>
+    /// Appends <paramref name="events"/> to <paramref name="streamId"/> after <paramref name="expectedVersion"/>
+    /// events and returns the global position of the last one.
+    /// </summary>
+    public async Task<long> AppendAsync(string streamId, int expectedVersion, IReadOnlyList<object> events, CancellationToken cancellationToken)
     {
         var store = new JournalStore(
             Database,
@@ -197,7 +204,9 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
             TimeProvider.System,
             new OutboxWakeup());
 
-        Assert.True(await store.AppendAsync(streamId, 0, events, cancellationToken), $"The stream {streamId} exists already.");
+        Assert.True(
+            await store.AppendAsync(streamId, expectedVersion, events, cancellationToken),
+            $"The stream {streamId} does not have {expectedVersion} events.");
 
         var appended = await store.ReadStreamAsync(streamId, cancellationToken);
         return appended[^1].Position;
@@ -206,15 +215,35 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     /// <summary>
     /// Waits until the Server's identity projector has applied the journal up to <paramref name="position"/>.
     /// </summary>
-    public Task WaitForIdentityCheckpointAsync(long position) =>
+    public Task WaitForIdentityCheckpointAsync(long position) => WaitForProjectionCheckpointAsync("identity", position);
+
+    /// <summary>
+    /// Waits until the Server's projector <paramref name="projector"/> has applied the journal up to
+    /// <paramref name="position"/>.
+    /// </summary>
+    public Task WaitForProjectionCheckpointAsync(string projector, long position) =>
         Journal.JournalWait.UntilAsync(
             async () =>
             {
                 await using var command = Database.CreateCommand(
-                    "SELECT COALESCE((SELECT position FROM projection_checkpoints WHERE projector = 'identity'), 0)");
+                    "SELECT COALESCE((SELECT position FROM projection_checkpoints WHERE projector = @projector), 0)");
+                command.Parameters.AddWithValue("projector", projector);
                 return (long)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))! >= position;
             },
-            $"the identity checkpoint reaches position {position}");
+            $"the {projector} checkpoint reaches position {position}");
+
+    /// <summary>
+    /// Seeds a Lot of <paramref name="siteId"/> on a fresh <c>lot/{uuidv7}</c> stream, with any further events,
+    /// and waits for the lots projection.
+    /// </summary>
+    /// <returns>The Lot ID.</returns>
+    public async Task<string> SeedLotAsync(string siteId, string name, CancellationToken cancellationToken, params object[] more)
+    {
+        var lotId = Guid.CreateVersion7().ToString();
+        var last = await AppendAsync($"lot/{lotId}", [new Coldframe.Contracts.Lots.LotCreated(siteId, name), .. more], cancellationToken);
+        await WaitForProjectionCheckpointAsync("lots", last);
+        return lotId;
+    }
 
     /// <summary>
     /// The aliases of a stream's events in the Server's journal, in version order.

@@ -2,6 +2,9 @@
   import Button from '$lib/components/Button.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { t } from '$lib/i18n';
+  import type { PageProps } from './$types';
+
+  let { data }: PageProps = $props();
 
   let confirmSignOut = $state(false);
 </script>
@@ -13,6 +16,14 @@
 <h1 class="cf-page-title">{t('settings.title')}</h1>
 
 <ul class="cf-settings">
+  {#if data.currentSite !== null}
+    <li>
+      <a class="cf-settings__row" href="/settings/site">
+        <span class="cf-settings__name">{t('settings.siteSettings')}</span>
+        <span class="cf-settings__helper">{t('settings.siteSettingsHelper', { siteName: data.currentSite.name })}</span>
+      </a>
+    </li>
+  {/if}
   <li>
     <a class="cf-settings__row" href="/settings/appearance">
       <span class="cf-settings__name">{t('settings.appearance')}</span>
