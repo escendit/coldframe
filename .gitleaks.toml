@@ -19,3 +19,13 @@ description = "Crypto test vectors"
 paths = [
   '''^packages/crypto-spec/vectors\.json$''',
 ]
+
+# Story 2-4's spec names the Secret coldframe-dns01 next to "Cloudflare API token"; the generic API key
+# rule reads the name as a key. Only that commit and file are allowed.
+[[allowlists]]
+description = "Story 2-4 spec names a Secret, not a key"
+condition = "AND"
+commits = ["b515f4c91cd5d75c24d4e244b9671efc7e475f26"]
+paths = [
+  '''^_bmad-output/implementation-artifacts/spec-2-4-tls-with-public-certificates-on-my-home-network\.md$''',
+]
