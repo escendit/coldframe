@@ -1,0 +1,1 @@
+{ "architecture": "arm64", "os": "linux", "config": { "User": "1000" } }

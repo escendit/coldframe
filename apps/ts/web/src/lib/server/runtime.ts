@@ -14,3 +14,8 @@ export function getConfig(): WebConfig {
   }
   return current;
 }
+
+/** Whether `init` has loaded the configuration; the readiness probe reports it. */
+export function isConfigLoaded(): boolean {
+  return current !== undefined;
+}

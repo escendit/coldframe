@@ -1,0 +1,29 @@
+# container-structure-test for ghcr.io/escendit/coldframe/web (deploy/images/README.md).
+schemaVersion: 2.0.0
+
+metadataTest:
+  entrypoint: ["node", "build"]
+  cmd: []
+  workdir: /app
+  # Numeric, so Kubernetes runAsNonRoot can verify it without an /etc/passwd lookup.
+  user: "1000"
+  exposedPorts: ["3000"]
+  envVars:
+    - key: PORT
+      value: "3000"
+    - key: NODE_ENV
+      value: production
+
+fileExistenceTests:
+  - name: server entry point
+    path: /app/build/index.js
+    shouldExist: true
+  - name: package manifest (declares ES modules)
+    path: /app/package.json
+    shouldExist: true
+  - name: production dependencies
+    path: /app/node_modules
+    shouldExist: true
+  - name: no workspace sources
+    path: /app/src
+    shouldExist: false

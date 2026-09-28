@@ -1,0 +1,89 @@
+# Verifies the three container images (Story 2.1): builds every Dockerfile for each platform its
+# final base image provides, runs the container-structure tests and the smoke run against real
+# dependencies. CI calls it on every pull request, and the release workflow calls it before any
+# image is pushed. It pushes nothing.
+#
+# Actions are pinned to a commit; the comment names the release. container-structure-test is
+# pinned to a release and its download is checked against a sha256.
+name: Images verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build, structure-test and smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CST_VERSION: v1.22.1
+      # sha256 of container-structure-test-linux-amd64 v1.22.1 (the release's checksums.txt).
+      CST_SHA256: fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca
+      COMPONENTS: server:apps/cs/server/Dockerfile web:apps/ts/web/Dockerfile migrations:apps/cs/migrations/Dockerfile
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the release scripts
+        run: deploy/images/test.sh
+
+      - name: Install container-structure-test
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          mkdir -p "${bin}"
+          curl --fail --silent --show-error --location --output "${bin}/container-structure-test" \
+            "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${CST_VERSION}/container-structure-test-linux-amd64"
+          echo "${CST_SHA256}  ${bin}/container-structure-test" | sha256sum --check --strict
+          chmod +x "${bin}/container-structure-test"
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      # Build stages run on the runner's platform and final stages only copy, so arm64 needs no QEMU.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker-container
+
+      # Every platform the release would push, kept in the builder's cache only.
+      - name: Build for every release platform
+        shell: bash
+        run: |
+          for entry in ${COMPONENTS}; do
+            component="${entry%%:*}"
+            dockerfile="${entry#*:}"
+            echo "::group::${component}"
+            platforms=$(deploy/images/platforms.sh "${dockerfile}")
+            echo "Platforms: ${platforms}"
+            docker buildx build --platform "${platforms}" --file "${dockerfile}" .
+            echo "::endgroup::"
+          done
+
+      - name: Load linux/amd64 images
+        shell: bash
+        run: |
+          for entry in ${COMPONENTS}; do
+            component="${entry%%:*}"
+            dockerfile="${entry#*:}"
+            echo "::group::${component}"
+            docker buildx build --platform linux/amd64 --file "${dockerfile}" \
+              --tag "coldframe/${component}:ci" --load .
+            echo "::endgroup::"
+          done
+
+      - name: Structure tests
+        shell: bash
+        run: |
+          for entry in ${COMPONENTS}; do
+            component="${entry%%:*}"
+            container-structure-test test --image "coldframe/${component}:ci" \
+              --config "deploy/images/${component}.cst.yaml"
+          done
+
+      # CST cannot probe HTTP: the health endpoints and the migration exit codes are checked here.
+      - name: Smoke run
+        run: deploy/images/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci

@@ -1,0 +1,146 @@
+# Publishes the container images of a release (Story 2.1, AD-23). A tag vX.Y.Z (or
+# vX.Y.Z-<pre-release>) pushes ghcr.io/escendit/coldframe/{server,web,migrations}:X.Y.Z as
+# linux/amd64 and linux/arm64 manifest lists, only after the same verification CI runs.
+# Only the exact version tag is pushed, never "latest".
+#
+# A component whose final base image lacks a platform is pushed for the platforms it has; the
+# run warns and the step summary names the missing architecture.
+#
+# Actions are pinned to a commit; the comment names the release. Registry auth uses only
+# GITHUB_TOKEN, and only the publish job may write packages.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate the tag
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! version=$(deploy/images/release-version.sh "${TAG}"); then
+            echo "::error::Tag '${TAG}' is not a release tag: expected vX.Y.Z or vX.Y.Z-<pre-release>. Nothing is pushed."
+            exit 1
+          fi
+          echo "Release version: ${version}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  verify:
+    name: Verify
+    needs: version
+    uses: ./.github/workflows/images-verify.yml
+
+  publish:
+    name: Publish ${{ matrix.component }}
+    needs: [version, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: server
+            dockerfile: apps/cs/server/Dockerfile
+          - component: web
+            dockerfile: apps/ts/web/Dockerfile
+          - component: migrations
+            dockerfile: apps/cs/migrations/Dockerfile
+    env:
+      COMPONENT: ${{ matrix.component }}
+      DOCKERFILE: ${{ matrix.dockerfile }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker-container
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve platforms
+        id: platforms
+        shell: bash
+        run: |
+          if ! platforms=$(deploy/images/platforms.sh "${DOCKERFILE}" 2>"${RUNNER_TEMP}/missing.txt"); then
+            cat "${RUNNER_TEMP}/missing.txt" >&2
+            echo "::error::${COMPONENT}: could not resolve the platforms of ${DOCKERFILE}; see the output above."
+            exit 1
+          fi
+          missing=$(sed -n 's/^missing://p' "${RUNNER_TEMP}/missing.txt" | paste -sd, -)
+          for platform in ${missing//,/ }; do
+            echo "::warning::${COMPONENT}: the final base image has no ${platform}; the image is pushed without it."
+          done
+          echo "platforms=${platforms}" >> "${GITHUB_OUTPUT}"
+          echo "missing=${missing}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push
+        id: push
+        shell: bash
+        env:
+          PLATFORMS: ${{ steps.platforms.outputs.platforms }}
+          REVISION: ${{ github.sha }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/${COMPONENT}:${VERSION}"
+          docker buildx build \
+            --platform "${PLATFORMS}" \
+            --file "${DOCKERFILE}" \
+            --tag "${image}" \
+            --label "org.opencontainers.image.source=${SOURCE}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --label "org.opencontainers.image.revision=${REVISION}" \
+            --label "org.opencontainers.image.licenses=Apache-2.0" \
+            --push \
+            .
+          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summary
+        shell: bash
+        env:
+          IMAGE: ${{ steps.push.outputs.image }}
+          MISSING: ${{ steps.platforms.outputs.missing }}
+        run: |
+          pushed=$(docker buildx imagetools inspect --raw "${IMAGE}" \
+            | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' \
+            | sort -u | paste -sd, -)
+          {
+            echo "| Component | Image | Platforms | Missing |"
+            echo "| --- | --- | --- | --- |"
+            echo "| ${COMPONENT} | \`${IMAGE}\` | ${pushed} | ${MISSING:-none} |"
+          } >> "${GITHUB_STEP_SUMMARY}"

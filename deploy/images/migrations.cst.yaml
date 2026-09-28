@@ -1,0 +1,21 @@
+# container-structure-test for ghcr.io/escendit/coldframe/migrations (deploy/images/README.md).
+# The job has no port and no health endpoint; its health is its exit code (deploy/images/smoke.sh).
+schemaVersion: 2.0.0
+
+metadataTest:
+  entrypoint: ["dotnet", "Coldframe.Migrations.dll"]
+  cmd: []
+  workdir: /app
+  # Numeric, so Kubernetes runAsNonRoot can verify it without an /etc/passwd lookup.
+  user: "1654"
+
+fileExistenceTests:
+  - name: entry assembly
+    path: /app/Coldframe.Migrations.dll
+    shouldExist: true
+  - name: runtime configuration
+    path: /app/Coldframe.Migrations.runtimeconfig.json
+    shouldExist: true
+  - name: no native app host for the build platform
+    path: /app/Coldframe.Migrations
+    shouldExist: false

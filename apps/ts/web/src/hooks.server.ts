@@ -5,6 +5,7 @@ import type { Handle, ServerInit } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { createAuthHandle } from '$lib/server/auth-handle';
 import { loadConfig } from '$lib/server/config';
+import { healthHandle } from '$lib/server/health';
 import { diagnoseCallback } from '$lib/server/probe';
 import { setConfig } from '$lib/server/runtime';
 import { themeHandle } from '$lib/server/theme';
@@ -45,4 +46,5 @@ const auth: Handle = (input) => {
   return authHandle(input);
 };
 
-export const handle = sequence(auth, themeHandle);
+// The health probes come first: they need no session and must not trigger OIDC discovery.
+export const handle = sequence(healthHandle, auth, themeHandle);

@@ -234,6 +234,11 @@ jobs:
           xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
           -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
+  # Builds every Dockerfile, runs the container-structure tests and the smoke run (Story 2.1).
+  images:
+    name: Images
+    uses: ./.github/workflows/images-verify.yml
+
   secrets:
     name: Secrets
     runs-on: ubuntu-24.04
