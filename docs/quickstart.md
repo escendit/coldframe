@@ -62,6 +62,12 @@ Things to know:
 - **The Keycloak administrator is `admin`.** Its password is generated on every start. Read it in
   the dashboard from the parameter `keycloak-admin-password`. It is valid for this run only and is
   never written to the repository.
+- **Keycloak imports the realm `coldframe` on start** from
+  [`aspire/keycloak/realms/coldframe-realm.json`](../aspire/keycloak/realms/coldframe-realm.json):
+  registration and Organizations on, and the confidential client `coldframe-web` for the web app
+  (standard flow only, PKCE S256, redirect `http://localhost:5173/.oidc/signin/callback`). Its
+  client secret is generated on every start; read it in the dashboard from the parameter
+  `coldframe-web-client-secret`. The file is copied into the container, so it works under SELinux.
 - **Keycloak is built, not pulled.** [`aspire/keycloak/Dockerfile`](../aspire/keycloak/Dockerfile)
   compiles the extension from its public source and adds it to the Phase Two image. To use the
   listener in a realm, add `temporal` under *Realm settings → Events → Event listeners*.
@@ -73,6 +79,29 @@ Things to know:
 - **The Server never changes the schema.** Every table comes from the migration job in
   [`apps/cs/migrations`](../apps/cs/migrations). How to add a migration, an event type, an upcaster or
   a projector is described in [`apps/cs/README.md`](../apps/cs/README.md).
+
+## Run the web app
+
+The web app in [`apps/ts/web`](../apps/ts/web) is a SvelteKit backend-for-frontend. It signs in
+through Keycloak on the server side; the browser only ever holds a session cookie. Start the local
+stack first, then, from the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+COLDFRAME_SERVER_URL=http://localhost:5080 \
+KEYCLOAK_ISSUER=http://localhost:<keycloak port>/realms/coldframe \
+KEYCLOAK_CLIENT_ID=coldframe-web \
+KEYCLOAK_CLIENT_SECRET=<coldframe-web-client-secret> \
+KEYCLOAK_ALLOW_INSECURE_HTTP=true \
+pnpm --filter @coldframe/web dev
+```
+
+Open `http://localhost:5173`. Take the Keycloak port from the `http` endpoint of `keycloak` in the
+dashboard and the secret from the parameter `coldframe-web-client-secret`; both change on every
+start. The port 5173 must stay as it is, because it is the client's registered redirect. Create a
+user through *Register* on the Keycloak sign-in page. The variables can also go in
+`apps/ts/web/.env`, which git ignores. [`apps/ts/web/README.md`](../apps/ts/web/README.md) lists
+every variable.
 
 ## Run the tests and lints
 
@@ -117,11 +146,20 @@ and its own README.
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm --filter @coldframe/web-e2e exec playwright install --with-deps chromium
 pnpm -r lint
 pnpm -r typecheck
 pnpm -r test
 pnpm --filter @coldframe/design-tokens run check
 ```
+
+The Playwright install is needed once per machine. `pnpm -r test` includes the web app's tests:
+`tests/ts/web` holds the unit tests (Vitest, including server-side renders of every component and
+a check that no `.svelte` file hard-codes copy), `tests/ts/web.e2e` the end-to-end tests
+(Playwright, Chromium). The end-to-end run builds the app and starts three `node build` instances
+against a fake OIDC provider in `tests/ts/web.e2e/fixtures`, so it needs no containers. A test for a
+UX requirement starts its name with the requirement's id, such as `UX-DR56 …`; a coverage test
+fails when an id of the story is named by no test.
 
 The last command fails when a generated design-token output is stale and prints the recomputed
 contrast table. Colours, typography, spacing, radii, Carbon icons and fonts have one source,
@@ -195,7 +233,7 @@ docs/       guides and references
 | --- | --- | --- |
 | C# | `Directory.Packages.props`; a `PackageReference` never carries a version | Run `dotnet restore` and commit the changed `packages.lock.json` files |
 | Rust | The crate's `Cargo.toml` | Commit `Cargo.lock` |
-| TypeScript | `package.json`, as an exact version | Run `pnpm install` and commit `pnpm-lock.yaml` |
+| TypeScript | `package.json`, as an exact version | Run `pnpm install` and commit `pnpm-lock.yaml`. The `@escendit` scope is pinned to npmjs in `.npmrc`, and `pnpm-workspace.yaml` adds `base58-js` to `@escendit/sveltekit-session@0.1.0-rc.12`, which forgot to declare it; remove that extension with the next release |
 | Kotlin | `gradle/libs.versions.toml` | |
 | Containers | `aspire/Coldframe.AppHost/AppHost.cs` and `aspire/keycloak/Dockerfile` | |
 | CI actions | `.github/workflows/ci.yml`, as a commit with the release in a comment | |

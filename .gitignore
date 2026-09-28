@@ -443,6 +443,11 @@ target/
 *.tsbuildinfo
 coverage/
 
+# SvelteKit, Playwright
+.svelte-kit/
+test-results/
+playwright-report/
+
 # Gradle, Kotlin
 .gradle/
 .kotlin/

@@ -68,3 +68,26 @@ source_spec: `spec-1-3-design-tokens-and-themes.md`
 severity: low
 reason: google/fonts ufl/ubuntucondensed ships only UbuntuCondensed-Regular.ttf; generated fonts.css has no Ubuntu Condensed 300 face. The token copies DESIGN.md faithfully; the design needs a decision (use 400, or Ubuntu Light for values).
 status: open
+
+### DW-10: No test drives a real authorization-code exchange between apps/ts/web and the coldframe realm in Keycloak; e2e tests use a fake OIDC provider and the realm is checked only as configuration.
+origin: spec-deferred 7ffd886da898
+location: aspire/keycloak/realms/coldframe-realm.json, tests/ts/web.e2e/fixtures/fake-idp.ts
+source_spec: `spec-1-4-sign-in-on-the-web.md`
+reason: Unverified (maybe-false). KeycloakTests.cs asserts the discovery document and the coldframe-web client settings; every browser test targets tests/ts/web.e2e/fixtures/fake-idp.ts. To settle it, sign in to the web app against the Aspire stack's Keycloak (docs/quickstart.md "Run the web app") with a registered user, or add an AppHost-hosted e2e run.
+status: open
+
+### DW-11: The CI workflow, including the new Playwright install and report-upload steps, has not run on GitHub; it is verified only by running the same commands locally.
+origin: spec-deferred 9a6aaa58a7b5
+location: .github/workflows/ci.yml
+source_spec: `spec-1-4-sign-in-on-the-web.md`
+severity: low
+reason: Pre-existing and already tracked as DW-6 (spec-1-1). This run does not push.
+status: open
+
+### DW-12: The UX-DR92 unreachable notice says "Check that this phone is on your home Wi-Fi." on the web too; EXPERIENCE.md has no web variant.
+origin: spec-deferred 1ad0b8ebf510
+location: apps/ts/web/src/lib/i18n/en.json
+source_spec: `spec-1-4-sign-in-on-the-web.md`
+severity: low
+reason: EXPERIENCE.md lines 155-164 give one copy for all platforms; the catalogue uses it verbatim. Changing it needs a UX decision in EXPERIENCE.md, which this story may not edit.
+status: open

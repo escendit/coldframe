@@ -3,3 +3,10 @@ packages:
   - packages/ts/*
   - packages/design-tokens
   - tests/ts/*
+
+packageExtensions:
+  # rc.12 imports base58-js (dist/DefaultSessionHasher.js:1) but declares it only as a
+  # devDependency; fixed upstream on an unreleased branch. Remove with the next release.
+  '@escendit/sveltekit-session@0.1.0-rc.12':
+    dependencies:
+      base58-js: 3.0.3

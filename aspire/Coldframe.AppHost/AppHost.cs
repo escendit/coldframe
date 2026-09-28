@@ -38,13 +38,24 @@ var keycloakAdminPassword = builder.AddParameter(
     new GenerateParameterDefault { MinLength = 24, Special = false },
     secret: true);
 
+// The secret of the coldframe-web client. Keycloak substitutes it into the imported realm file.
+var coldframeWebClientSecret = builder.AddParameter(
+    "coldframe-web-client-secret",
+    new GenerateParameterDefault { MinLength = 32, Special = false },
+    secret: true);
+
 // Phase Two Keycloak with keycloak-temporal-extensions, built from ../keycloak/Dockerfile.
 var postgresEndpoint = postgres.GetEndpoint("tcp");
 var temporalEndpoint = temporal.GetEndpoint("grpc");
 
 var keycloak = builder
     .AddDockerfile("keycloak", "../keycloak")
-    .WithArgs("start", "--optimized")
+    .WithArgs("start", "--optimized", "--import-realm")
+    // The coldframe realm and its coldframe-web client. A realm that already exists is left as it is.
+    // The files are copied into the container rather than bind-mounted, so SELinux labels on the
+    // host directory cannot hide them from Keycloak.
+    .WithContainerFiles("/opt/keycloak/data/import", "../keycloak/realms")
+    .WithEnvironment("COLDFRAME_WEB_CLIENT_SECRET", coldframeWebClientSecret)
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_USERNAME", keycloakAdminUsername)
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", keycloakAdminPassword)
     .WithEnvironment("KC_DB_URL_HOST", postgresEndpoint.Property(EndpointProperty.Host))

@@ -14,6 +14,11 @@ public sealed class KeycloakTests(AppHostFixture fixture)
     private const string AdminEventWorkflow = "IdentityAdminEvent";
     private const string AdminUserParameter = "keycloak-admin-username";
     private const string AdminPasswordParameter = "keycloak-admin-password";
+    private const string WebClientSecretParameter = "coldframe-web-client-secret";
+    private const string Realm = "coldframe";
+    private const string WebClientId = "coldframe-web";
+    private const string WebSignInCallback = "http://localhost:5173/.oidc/signin/callback";
+    private const string WebSignOutCallback = "http://localhost:5173/.oidc/signout/callback";
 
     private static readonly string[] EventListeners = ["jboss-logging", "temporal"];
     private static readonly TimeSpan WorkflowTimeout = TimeSpan.FromMinutes(1);
@@ -95,6 +100,117 @@ public sealed class KeycloakTests(AppHostFixture fixture)
                 $"No '{AdminEventWorkflow}' workflow appeared in the Temporal namespace " +
                 $"'{TemporalNamespace}' within {WorkflowTimeout.TotalSeconds:0} seconds.");
         }
+    }
+
+    [Fact]
+    public async Task ColdframeRealmPublishesADiscoveryDocumentWithPkce()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var client = fixture.App.CreateHttpClient(KeycloakResource, "http");
+        using var discovery = await GetJsonAsync(
+            client,
+            $"/realms/{Realm}/.well-known/openid-configuration",
+            timeout.Token);
+        var document = discovery.RootElement;
+
+        var issuer = document.GetProperty("issuer").GetString();
+        Assert.NotNull(issuer);
+        Assert.EndsWith($"/realms/{Realm}", issuer, StringComparison.Ordinal);
+
+        var methods = document.GetProperty("code_challenge_methods_supported")
+            .EnumerateArray()
+            .Select(method => method.GetString());
+        Assert.Contains("S256", methods);
+
+        foreach (var endpoint in (string[])["authorization_endpoint", "token_endpoint", "end_session_endpoint"])
+        {
+            Assert.False(
+                string.IsNullOrEmpty(document.GetProperty(endpoint).GetString()),
+                $"The discovery document has no '{endpoint}'.");
+        }
+    }
+
+    [Fact]
+    public async Task ColdframeRealmHasTheConfidentialWebClient()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var keycloak = await CreateAdminClientAsync(timeout.Token);
+
+        using (var realm = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}", timeout.Token))
+        {
+            Assert.True(realm.RootElement.GetProperty("enabled").GetBoolean(), "The realm is disabled.");
+            Assert.True(
+                realm.RootElement.GetProperty("registrationAllowed").GetBoolean(),
+                "The realm does not allow registration.");
+            Assert.True(
+                realm.RootElement.GetProperty("organizationsEnabled").GetBoolean(),
+                "The realm does not have Organizations enabled.");
+        }
+
+        string id;
+
+        using (var clients = await GetJsonAsync(
+            keycloak,
+            $"/admin/realms/{Realm}/clients?clientId={WebClientId}",
+            timeout.Token))
+        {
+            var client = Assert.Single(clients.RootElement.EnumerateArray().ToArray());
+
+            Assert.Equal(WebClientId, client.GetProperty("clientId").GetString());
+            Assert.True(client.GetProperty("enabled").GetBoolean(), "The client is disabled.");
+            Assert.False(client.GetProperty("publicClient").GetBoolean(), "The client is public.");
+            Assert.False(client.GetProperty("bearerOnly").GetBoolean(), "The client is bearer-only.");
+            Assert.True(client.GetProperty("standardFlowEnabled").GetBoolean(), "The standard flow is disabled.");
+            Assert.False(client.GetProperty("implicitFlowEnabled").GetBoolean(), "The implicit flow is enabled.");
+            Assert.False(
+                client.GetProperty("directAccessGrantsEnabled").GetBoolean(),
+                "Direct access grants are enabled.");
+            Assert.False(
+                client.GetProperty("serviceAccountsEnabled").GetBoolean(),
+                "Service accounts are enabled.");
+            Assert.Equal("client-secret", client.GetProperty("clientAuthenticatorType").GetString());
+
+            var redirectUris = client.GetProperty("redirectUris")
+                .EnumerateArray()
+                .Select(uri => uri.GetString());
+            Assert.Equal([WebSignInCallback], redirectUris);
+
+            var attributes = client.GetProperty("attributes");
+            Assert.Equal("S256", attributes.GetProperty("pkce.code.challenge.method").GetString());
+            Assert.Equal(WebSignOutCallback, attributes.GetProperty("post.logout.redirect.uris").GetString());
+
+            id = client.GetProperty("id").GetString()
+                ?? throw new InvalidOperationException("The client has no id.");
+        }
+
+        // The realm file holds a placeholder; Keycloak substitutes the generated parameter on import.
+        using var secret = await GetJsonAsync(
+            keycloak,
+            $"/admin/realms/{Realm}/clients/{id}/client-secret",
+            timeout.Token);
+        Assert.Equal(
+            await GetParameterValueAsync(WebClientSecretParameter, timeout.Token),
+            secret.RootElement.GetProperty("value").GetString());
+    }
+
+    private static async Task<JsonDocument> GetJsonAsync(
+        HttpClient client,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(new Uri(path, UriKind.Relative), cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+        return await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
     }
 
     private static async Task<bool> HasAdminEventWorkflowAsync(HttpClient temporal, CancellationToken cancellationToken)

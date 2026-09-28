@@ -39,7 +39,7 @@ development_status:
   1-1-monorepo-scaffold-ci-and-local-dev-stack: awaiting-operator
   1-2-event-journal-migrations-and-projection-pipeline: done
   1-3-design-tokens-and-themes: done
-  1-4-sign-in-on-the-web: backlog
+  1-4-sign-in-on-the-web: done
   1-5-sign-in-on-ios-and-android: backlog
   1-6-create-a-site-on-the-server-with-per-site-authorization: backlog
   1-7-reconcile-identity-changes-from-keycloak: backlog

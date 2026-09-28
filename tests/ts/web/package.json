@@ -1,0 +1,21 @@
+{
+  "name": "@coldframe/web-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Unit tests for @coldframe/web",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "pnpm --filter @coldframe/web exec svelte-kit sync && tsc --project tsconfig.json",
+    "test": "pnpm --filter @coldframe/web exec svelte-kit sync && vitest run"
+  },
+  "devDependencies": {
+    "@coldframe/design-tokens": "workspace:*",
+    "@coldframe/web": "workspace:*",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "24.19.0",
+    "svelte": "5.57.1"
+  }
+}
