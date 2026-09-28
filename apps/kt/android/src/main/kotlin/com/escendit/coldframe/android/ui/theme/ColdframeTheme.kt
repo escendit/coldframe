@@ -38,6 +38,7 @@ data class ColdframeColors(
     val inkOnBright: Color,
     val supportError: Color,
     val supportErrorText: Color,
+    val supportWarning: Color,
     val overlay: Color,
 ) {
     companion object {
@@ -65,6 +66,7 @@ data class ColdframeColors(
                 inkOnBright = ColorTokens.inkOnBright.color(),
                 supportError = ColorTokens.supportError.color(),
                 supportErrorText = ColorTokens.supportErrorText.color(),
+                supportWarning = ColorTokens.supportWarning.color(),
                 overlay = ColorTokens.overlay.color(),
             )
         }

@@ -1,9 +1,11 @@
 <script lang="ts" module>
   import add from '@coldframe/design-tokens/icons/add.svg?raw';
   import checkmark from '@coldframe/design-tokens/icons/checkmark.svg?raw';
+  import chevronDown from '@coldframe/design-tokens/icons/chevron--down.svg?raw';
   import errorFilled from '@coldframe/design-tokens/icons/error--filled.svg?raw';
   import grid from '@coldframe/design-tokens/icons/grid.svg?raw';
   import notification from '@coldframe/design-tokens/icons/notification.svg?raw';
+  import overflowMenuVertical from '@coldframe/design-tokens/icons/overflow-menu--vertical.svg?raw';
   import box from '@coldframe/design-tokens/icons/box.svg?raw';
   import settings from '@coldframe/design-tokens/icons/settings.svg?raw';
   import view from '@coldframe/design-tokens/icons/view.svg?raw';
@@ -11,9 +13,11 @@
   const sources = {
     add,
     checkmark,
+    'chevron--down': chevronDown,
     'error--filled': errorFilled,
     grid,
     notification,
+    'overflow-menu--vertical': overflowMenuVertical,
     box,
     settings,
     view,

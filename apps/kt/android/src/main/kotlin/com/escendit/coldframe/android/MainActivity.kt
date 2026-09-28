@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.escendit.coldframe.android.ui.sites.SitesActions
 
 /** Registers the Custom Tabs flow, resumes the session on every foreground, renders the root. */
 class MainActivity : ComponentActivity() {
@@ -21,9 +22,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val engine = app.signIn.engine
         val appearance = app.appearance
+        val sites = app.signIn.sites
+        val sitesActions = SitesActions.of(sites)
         setContent {
             val state by engine.state.collectAsStateWithLifecycle()
             val theme by appearance.theme.collectAsStateWithLifecycle()
+            val sitesState by sites.state.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDark = theme.isDark(systemIsDark)
             // System bar icons follow the app's theme, which may differ from the OS appearance.
@@ -40,10 +44,12 @@ class MainActivity : ComponentActivity() {
             LifecycleEventEffect(Lifecycle.Event.ON_START) { engine.resume() }
             ColdframeRoot(
                 state = state,
+                sites = sitesState,
                 theme = theme,
                 onSignIn = engine::signIn,
                 onSignOut = engine::signOut,
                 onSelectTheme = appearance::select,
+                sitesActions = sitesActions,
                 systemIsDark = systemIsDark,
             )
         }

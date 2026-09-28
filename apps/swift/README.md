@@ -9,8 +9,13 @@ Swift runtimes.
 - `ios/Sources/ColdframeIOS` is the part of the app without Kotlin: presentation models, the
   String Catalog and, where SwiftUI exists, the views. It is a SwiftPM target of the
   `Package.swift` in the repository root, so it builds and tests without Xcode. The views talk to
-  the core only through the `SignInService` and `AppearanceService` protocols.
-- `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`, the
+  the core only through the `SignInService`, `AppearanceService` and `SitesService` protocols.
+  `SitesService` (Story 1.8) carries the Sites of the signed-in user as a `SitesPresentation`
+  (Create Site, the empty Garden, the Site switcher and the Site menu) built from the core's flat
+  `SitesSnapshot`, plus the actions `load`, `select`, `newSite`, `cancelNewSite`, `setName`,
+  `confirmTimeZone`, `changeTimeZone`, `pickTimeZone`, `submit` and `availableTimeZones`.
+- `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
+  (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
 - `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
   is not committed. `ios/Config` holds the build-time configuration and the Info.plists.

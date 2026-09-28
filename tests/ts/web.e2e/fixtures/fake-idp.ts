@@ -1,8 +1,9 @@
 /**
  * A small OIDC provider for the e2e tests (Node `http` + `jose`). It does what Keycloak does for
  * the web app's flow — discovery, JWKS, authorize (auto-approve form), token with a PKCE S256
- * check and refresh, end-session — and doubles as the Coldframe Server's `/.well-known/healthz`.
- * A control endpoint switches failure modes and lists every token it issued.
+ * check and refresh, end-session — and doubles as the Coldframe Server: `/.well-known/healthz`
+ * and an in-memory `GET /sites` / `POST /sites`. Control endpoints switch failure modes, list
+ * every token it issued, and reset or seed the Sites.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -22,6 +23,22 @@ interface PendingCode {
   readonly nonce: string | null;
   readonly sid: string;
 }
+
+/** A Site of the fake Server, as `GET /sites` returns it. */
+export interface FakeSite {
+  readonly id: string;
+  readonly name: string;
+  readonly role: 'Owner' | 'Administrator' | 'Member';
+}
+
+/** One `POST /sites` the fake Server received. */
+export interface FakeSitePost {
+  readonly idempotencyKey: string | null;
+  readonly body: Record<string, unknown>;
+}
+
+/** Seeded by default, so every spec that signs in still reaches Garden. */
+export const defaultSites: readonly FakeSite[] = [{ id: '0192a000-0000-7000-8000-000000000001', name: 'Home garden', role: 'Owner' }];
 
 export interface FakeIdp {
   readonly issuer: string;
@@ -90,6 +107,19 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   const codes = new Map<string, PendingCode>();
   const refreshTokens = new Map<string, string>();
   const issued: string[] = [];
+  let sites: FakeSite[] = [...defaultSites];
+  let posts: FakeSitePost[] = [];
+  const created = new Map<string, FakeSite>();
+
+  /** The fake Server accepts only access tokens this provider issued. */
+  function bearerOk(request: IncomingMessage): boolean {
+    const header = request.headers.authorization;
+    return header?.startsWith('Bearer ') === true && issued.includes(header.slice(7));
+  }
+
+  function problem(response: ServerResponse, status: number, slug: string): void {
+    send(response, status, { type: `urn:coldframe:problem:${slug}`, title: slug, status }, { 'content-type': 'application/problem+json' });
+  }
 
   async function sign(claims: Record<string, unknown>, lifetimeSeconds: number, key: CryptoKey = privateKey): Promise<string> {
     const token = await new SignJWT(claims)
@@ -144,6 +174,54 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       send(response, 200, { mode });
       return;
     }
+    if (path === '/control/sites' && request.method === 'POST') {
+      const body = await readJson(request);
+      sites = Array.isArray(body.sites) ? (body.sites as FakeSite[]) : [...defaultSites];
+      posts = [];
+      created.clear();
+      send(response, 200, { sites });
+      return;
+    }
+    if (path === '/control/sites') {
+      send(response, 200, { sites, posts });
+      return;
+    }
+
+    // The Coldframe Server's Site API (Story 1.6 and 1.8), in memory.
+    if (path === '/sites' && (request.method === 'GET' || request.method === 'POST')) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      if (request.method === 'GET') {
+        send(response, 200, { sites });
+        return;
+      }
+      const body = await readJson(request);
+      const keyHeader = request.headers['idempotency-key'];
+      const key = typeof keyHeader === 'string' ? keyHeader : null;
+      posts.push({ idempotencyKey: key, body });
+      if (key === null || key === '') {
+        problem(response, 400, 'idempotency-key-missing');
+        return;
+      }
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (name === '' || name.length > 100) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      const existing = created.get(key);
+      if (existing !== undefined) {
+        send(response, existing.name === name ? 201 : 422, existing.name === name ? existing : { type: 'urn:coldframe:problem:idempotency-key-reused', title: 'reused', status: 422 });
+        return;
+      }
+      const site: FakeSite = { id: randomUUID(), name, role: 'Owner' };
+      created.set(key, site);
+      sites = [...sites, site];
+      send(response, 201, site, { location: `/sites/${site.id}` });
+      return;
+    }
+
     if (path === '/control/tokens') {
       send(response, 200, { tokens: issued });
       return;

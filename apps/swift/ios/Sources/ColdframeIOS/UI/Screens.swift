@@ -54,20 +54,26 @@
 
   /// The signed-in shell (UX-DR57, UX-DR109): native `TabView` with a `NavigationStack` per tab
   /// and Carbon icons; the selected tab uses the native selected state and `primary-text` tint.
+  /// The Garden tab shows the current Site's empty Garden (Story 1.8).
   public struct AppTabView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
     let onSignOut: () -> Void
+    let garden: GardenPresentation?
+    let sitesActions: SitesActions
     @State private var selection: AppTab = .garden
     @Environment(\.palette) private var palette
 
     public init(
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
-      onSignOut: @escaping () -> Void
+      onSignOut: @escaping () -> Void, garden: GardenPresentation? = nil,
+      sitesActions: SitesActions = .none
     ) {
       self.theme = theme
       self.onSelectTheme = onSelectTheme
       self.onSignOut = onSignOut
+      self.garden = garden
+      self.sitesActions = sitesActions
     }
 
     public var body: some View {
@@ -95,8 +101,14 @@
       switch tab {
       case .settings:
         SettingsView(theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut)
+      case .garden:
+        if let garden {
+          GardenView(presentation: garden, actions: sitesActions) { selection = $0 }
+        } else {
+          palette.background.ignoresSafeArea()
+        }
       default:
-        // Garden, Alerts and Devices carry their heading only until their stories.
+        // Alerts and Devices carry their heading only until their stories.
         palette.background.ignoresSafeArea()
       }
     }
@@ -183,6 +195,8 @@
   /// Maps the core's presentation to a surface; the only state the views know.
   public struct ColdframeRootView: View {
     let presentation: SignInPresentation
+    let sites: SitesPresentation
+    let sitesActions: SitesActions
     let theme: ThemePreference
     let onSignIn: () -> Void
     let onSignOut: () -> Void
@@ -190,10 +204,14 @@
     @Environment(\.colorScheme) private var systemScheme
 
     public init(
-      presentation: SignInPresentation, theme: ThemePreference, onSignIn: @escaping () -> Void,
-      onSignOut: @escaping () -> Void, onSelectTheme: @escaping (ThemePreference) -> Void
+      presentation: SignInPresentation, sites: SitesPresentation = .waiting,
+      sitesActions: SitesActions = .none, theme: ThemePreference,
+      onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void,
+      onSelectTheme: @escaping (ThemePreference) -> Void
     ) {
       self.presentation = presentation
+      self.sites = sites
+      self.sitesActions = sitesActions
       self.theme = theme
       self.onSignIn = onSignIn
       self.onSignOut = onSignOut
@@ -209,12 +227,39 @@
         case .signIn:
           SignInView(presentation: presentation, onSignIn: onSignIn)
         case .signedIn:
-          AppTabView(theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut)
+          signedIn(isDark: isDark)
         }
       }
       .environment(\.palette, ColdframePalette(isDark: isDark))
       .preferredColorScheme(theme.forcedDark.map { $0 ? .dark : .light })
       .transaction { $0.animation = nil }
+    }
+
+    /// No Membership: Create Site replaces the tab shell; "New Site" puts it over the shell.
+    @ViewBuilder
+    private func signedIn(isDark: Bool) -> some View {
+      switch sites.surface {
+      case .waiting:
+        ColdframePalette(isDark: isDark).background.ignoresSafeArea()
+      case .failed(let notice):
+        SitesFailedView(notice: notice, onTryAgain: sitesActions.load)
+      case .createSite(let form):
+        CreateSiteView(presentation: form, actions: sitesActions)
+      case .garden(let garden, let creating):
+        AppTabView(
+          theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
+          sitesActions: sitesActions
+        )
+        .sheet(
+          isPresented: Binding(
+            get: { creating != nil }, set: { if !$0 { sitesActions.cancelNewSite() } })
+        ) {
+          if let creating {
+            CreateSiteView(presentation: creating, actions: sitesActions)
+              .environment(\.palette, ColdframePalette(isDark: isDark))
+          }
+        }
+      }
     }
   }
 
@@ -223,14 +268,25 @@
   public final class ShellModel: ObservableObject {
     @Published public private(set) var presentation = SignInPresentation.restoring
     @Published public private(set) var theme = ThemePreference.system
+    @Published public private(set) var sites = SitesPresentation.waiting
     public let signIn: SignInService
     public let appearance: AppearanceService
+    public let sitesService: SitesService?
 
-    public init(signIn: SignInService, appearance: AppearanceService) {
+    public init(
+      signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil
+    ) {
       self.signIn = signIn
       self.appearance = appearance
+      self.sitesService = sites
       signIn.observe { [weak self] in self?.presentation = $0 }
       appearance.observe { [weak self] in self?.theme = $0 }
+      sites?.observe { [weak self] in self?.sites = $0 }
+    }
+
+    /// The Sites actions for the views; nothing happens without a service.
+    public var sitesActions: SitesActions {
+      sitesService.map(SitesActions.init(service:)) ?? .none
     }
   }
 #endif

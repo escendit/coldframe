@@ -5,6 +5,7 @@ The REST contract, written before the code that serves it (AD-10):
 
 | Operation | Access (`x-coldframe-minimum-role`) | Since |
 | --- | --- | --- |
+| `GET /sites` | `Authenticated` | Story 1.8 |
 | `POST /sites` | `Authenticated` | Story 1.6 |
 | `GET /sites/{siteId}` | `Member` | Story 1.6 |
 
@@ -29,4 +30,14 @@ The Device endpoints `POST /device/ingest` and `POST /device/heartbeat` arrive i
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID.
 
 The Server's tests compare the endpoints it maps with the operations here, including each access
-rule, so the two cannot drift. Clients are generated from this file (Story 1.8).
+rule, so the two cannot drift.
+
+## Clients
+
+- **TypeScript** (`packages/ts/api-client`): `src/schema.ts` is generated from this file by
+  `openapi-typescript`; regenerate with `pnpm --filter @coldframe/api-client generate`. A test fails
+  when the committed schema is stale.
+- **Kotlin** (`packages/kt/core`, `api/`): the DTOs are hand-written (openapi-generator's
+  multiplatform output does not fit `explicitApi()`, Ktor 3.6 and the value-result style). A jvmTest
+  parses this file and fails if an operation, path, method, header or property the core uses is
+  missing here.

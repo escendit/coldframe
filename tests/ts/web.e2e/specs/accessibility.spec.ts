@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { appUrl, unreachableUrl, untrustedUrl } from '../fixtures/ports.ts';
-import { setMode, shellPages, signIn, signInButton, useTheme } from './helpers.ts';
+import { resetSites, setMode, shellPages, signIn, signInButton, useTheme } from './helpers.ts';
 
 const themes = ['light', 'dark'] as const;
 
@@ -23,6 +23,10 @@ async function everyPage(page: Page, theme: 'light' | 'dark', check: (label: str
   await signIn(page);
   for (const path of shellPages) {
     await page.goto(path);
+    if (path === '/sites/new') {
+      // The time-zone panel asks the browser once the page is interactive.
+      await expect(page.getByText(/^Is your time zone /u)).toBeVisible();
+    }
     await check(`${path} (${theme})`);
   }
 }
@@ -65,6 +69,7 @@ async function tabThrough(page: Page, count: number): Promise<Stop[]> {
 
 test.beforeEach(async () => {
   await setMode('normal');
+  await resetSites();
 });
 
 test.describe('Accessibility', () => {
@@ -185,7 +190,7 @@ test.describe('Accessibility', () => {
     await page.setViewportSize({ width: 375, height: 800 });
     await signIn(page);
     const nav = page.getByRole('navigation', { name: 'Main' });
-    const menu = page.getByRole('button', { name: 'Menu' });
+    const menu = page.getByRole('button', { name: 'Menu', exact: true });
     await expect(nav).toBeHidden();
     await expect(menu).toHaveAttribute('aria-expanded', 'false');
     await menu.click();

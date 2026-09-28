@@ -40,6 +40,7 @@ class SignInScreenTest {
         compose.setContent {
             ColdframeRoot(
                 state = state,
+                sites = readySites(),
                 theme = ThemePreference.Light,
                 onSignIn = { signIns++ },
                 onSignOut = {},

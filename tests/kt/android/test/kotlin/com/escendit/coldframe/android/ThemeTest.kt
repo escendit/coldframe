@@ -49,6 +49,7 @@ class ThemeTest {
             val theme by store.theme.collectAsState()
             ColdframeRoot(
                 state = SignInState.SignedIn(null),
+                sites = readySites(),
                 theme = theme,
                 onSignIn = {},
                 onSignOut = {},

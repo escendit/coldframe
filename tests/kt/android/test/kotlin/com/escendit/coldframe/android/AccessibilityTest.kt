@@ -22,7 +22,6 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.GraphicsMode
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlin.test.fail
 
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -50,37 +49,12 @@ class AccessibilityTest {
     private fun Root(state: SignInState) =
         ColdframeRoot(
             state = state,
+            sites = readySites(),
             theme = ThemePreference.Light,
             onSignIn = {},
             onSignOut = {},
             onSelectTheme = {},
         )
-
-    private fun assertNothingOverflows(screen: String) {
-        compose.waitForIdle()
-        val texts = compose.allNodes().flatMap { node -> node.textLayouts().map { node to it } }
-        assertTrue(texts.isNotEmpty(), "$screen has text")
-        for ((node, layout) in texts) {
-            val text = layout.layoutInput.text.text
-            // Clipped: cut off at the bottom, more lines than allowed, an ellipsis, or a line wider
-            // than the node that shows it. (didOverflowWidth compares against the layout width.)
-            if (layout.didOverflowHeight ||
-                layout.multiParagraph.didExceedMaxLines
-            ) {
-                fail("$screen: \"$text\" is cut off")
-            }
-            for (line in 0 until layout.lineCount) {
-                if (layout.isLineEllipsized(line)) fail("$screen: \"$text\" is truncated")
-                val right = layout.getLineRight(line)
-                if (right >
-                    layout.size.width + 1f
-                ) {
-                    fail("$screen: \"$text\" is wider than its node ($right > ${layout.size.width})")
-                }
-            }
-            assertTrue(node.size.height > 0, "$screen: \"$text\" is laid out")
-        }
-    }
 
     private fun assertControlsAreLabelledWithRole(screen: String) {
         val controls = compose.allNodes().filter { it.isClickable }
@@ -112,24 +86,24 @@ class AccessibilityTest {
     @Test
     fun `UX-DR96 at font scale 2 nothing on the Sign-in surface is truncated or clipped`() {
         show(SignInState.SignedOut(Notice.Certificate), fontScale = 2f)
-        assertNothingOverflows("Sign in with a notice")
+        compose.assertNothingOverflows("Sign in with a notice")
     }
 
     @Test
     fun `UX-DR96 UX-DR126 at font scale 2 the working label and Try again grow instead of clipping`() {
         show(SignInState.SignedOut(Notice.Unreachable), fontScale = 2f)
-        assertNothingOverflows("Sign in, unreachable")
+        compose.assertNothingOverflows("Sign in, unreachable")
         show(SignInState.Working)
         compose.onNodeWithText("SIGNING IN…").assertExists()
-        assertNothingOverflows("Sign in, working")
+        compose.assertNothingOverflows("Sign in, working")
     }
 
     @Test
     fun `UX-DR96 at font scale 2 nothing in the shell or Settings is truncated or clipped`() {
         show(SignInState.SignedIn(null), fontScale = 2f)
-        assertNothingOverflows("Garden")
+        compose.assertNothingOverflows("Garden")
         compose.onNodeWithText("Settings").performClick()
-        assertNothingOverflows("Settings")
+        compose.assertNothingOverflows("Settings")
     }
 
     @Test
@@ -137,7 +111,7 @@ class AccessibilityTest {
         show(SignInState.SignedIn(null), fontScale = 2f)
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Appearance").performClick()
-        assertNothingOverflows("Appearance")
+        compose.assertNothingOverflows("Appearance")
     }
 
     @Test

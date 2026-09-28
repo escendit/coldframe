@@ -168,3 +168,66 @@ location: apps/cs/server/Identity/SiteGrain.cs (Reconcile, RaiseDeleted)
 source_spec: `spec-1-7-reconcile-identity-changes-from-keycloak.md`
 reason: Unverified: whether Phase Two answers 404 (not 403) to GET /orgs/{id} when the coldframe-server service account lacks view-organizations. If it does, one event per Site would move every touched Site to Deleted (terminal, AD-20). Settle it on a live container by removing the role and calling the endpoint.
 status: open
+
+### DW-23: The time zone confirmed on Create Site is kept per device (web cookie cf_time_zone, mobile DeviceChoices) and never reaches the Server.
+origin: spec-deferred f53f05a8f999
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/DeviceChoices.kt, apps/ts/web/src/lib/server/create-site.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: AD-11 and FR16 make the time zone a User preference; POST /sites takes only {name}. The Notification Window story (epics.md 1667-1696, UX-DR48) adds the User time-zone endpoint and must send the stored per-device choice once, then read it from the Server.
+status: open
+
+### DW-24: The Site menu renders only Site settings; Pause/Resume and the stale-mode disabled state exist only in the menu models (core SiteMenu.items, web site-menu.ts).
+origin: spec-deferred fb1a514d4b3c
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/SiteMenu.kt, apps/ts/web/src/lib/site-menu.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: medium
+reason: UX-DR22 in full needs the Pause sheet (UX-DR46/70) and stale mode, which arrive in later epics; rendering a Pause item that does nothing would break controls-you-cannot-use-are-hidden. Turn on pauseAvailable with the Pause story and stale with stale mode, and render the Needs your Server state on all three clients.
+status: open
+
+### DW-25: Site settings in the Site menu opens the Settings index, not a Site settings surface.
+origin: spec-deferred cd4566c213ff
+location: apps/ts/web/src/lib/components/SiteMenu.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/SiteMenu.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: The Site settings surface arrives in Story 1.9; point the item at it there.
+status: open
+
+### DW-26: The first-run step tiles are never actionable (flowAvailable = false on every client).
+origin: spec-deferred 501fdb82f35d
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/FirstRunSteps.kt, apps/ts/web/src/lib/first-run.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: medium
+reason: The Add a Hub flow is a later epic. When it lands, pass flowAvailable = true on mobile so the next step starts the flow for Administrators and Owners; the tile states and the Member notice are already real. Done steps (checkmark) also need Hub/Node data.
+status: open
+
+### DW-27: The Kotlin API client and DTOs are hand-written instead of generated from coldframe.openapi.json (AD-10 deviation).
+origin: spec-deferred ec8f62ba78ca
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/api/
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: openapi-generator's multiplatform output does not fit explicitApi(), Ktor 3.6 and the value-result style. OpenApiContractTest (tests/kt/core/jvmTest) fails when an operation, path, method, header or DTO property the core uses is missing from the contract; it does not detect new contract fields the core ignores. Revisit if a generator fits later.
+status: open
+
+### DW-28: Pull-to-refresh on the mobile Garden and refetch on focus on the web (UX-DR62) are not built.
+origin: spec-deferred 1d32e1d55b52
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/GardenScreen.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift, apps/ts/web/src/routes/(app)/+layout.server.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: Story 1.8 forbids a polling loop and has no Lot data to refresh yet; the Sites list reloads on sign-in (mobile) and on every navigation (web). Add refresh with the Lot grid.
+status: open
+
+### DW-29: On iOS, "New Site" in the Site switcher may never open Create Site, because the Create Site sheet is requested while the switcher sheet is still closing.
+origin: spec-deferred review-1-8-ios-sheet
+location: apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift (GardenView onNewSite), apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (ColdframeRootView .sheet)
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: medium (unverified)
+reason: Unverified: SwiftUI often drops a sheet presentation requested during another sheet's dismissal, and `creating` would then stay set, so later New Site taps are ignored. Settle it on a Mac or iPhone; if it happens, call actions.newSite() from the switcher sheet's onDismiss.
+status: open
+
+### DW-30: On iOS, "New Site" in the switcher may never open Create Site, because the root view asks for the Create Site sheet while GardenView's switcher sheet is still closing.
+origin: spec-deferred 6c80305c2a33
+location: apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift (GardenView onNewSite), apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (ColdframeRootView .sheet)
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+reason: Unverified (maybe-false): SwiftUI often drops a sheet presentation requested during another sheet's dismissal. If it does, `creating` stays set and `newSite()` then ignores every tap, so Create Site cannot be reached until the app restarts. Settle it on a Mac or iPhone: open the switcher, tap New Site, and check that Create Site appears. If it does not, call actions.newSite() from the switcher sheet's onDismiss. SwiftUI cannot compile or run on Linux.
+status: open

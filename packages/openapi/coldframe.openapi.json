@@ -8,6 +8,23 @@
   "security": [{ "bearer": [] }],
   "paths": {
     "/sites": {
+      "get": {
+        "operationId": "listSites",
+        "summary": "List the Sites the caller holds a Membership on, with the caller's Role",
+        "description": "Only Active Sites. Ordered by creation (oldest first, then by Site ID); clients show them in this order and never re-sort. An empty list means the caller has no Membership.",
+        "x-coldframe-minimum-role": "Authenticated",
+        "responses": {
+          "200": {
+            "description": "The caller's Sites.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SiteList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
       "post": {
         "operationId": "createSite",
         "summary": "Create a Site with the caller as its Owner",
@@ -116,6 +133,17 @@
           "id": { "type": "string", "format": "uuid", "description": "The Site ID." },
           "name": { "type": "string", "description": "The Site name." },
           "role": { "$ref": "#/components/schemas/SiteRole" }
+        }
+      },
+      "SiteList": {
+        "type": "object",
+        "required": ["sites"],
+        "properties": {
+          "sites": {
+            "type": "array",
+            "description": "In the Server's order: creation time, then Site ID.",
+            "items": { "$ref": "#/components/schemas/Site" }
+          }
         }
       },
       "ProblemDetails": {

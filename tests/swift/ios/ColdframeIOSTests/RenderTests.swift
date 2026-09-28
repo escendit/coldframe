@@ -61,4 +61,53 @@
   func noticeRenders() {
     #expect(renders(InlineNotice(message: .noticeKeycloak, announcement: .assertive)))
   }
+  @MainActor
+  private func renders<Content: View>(_ view: Content, dark: Bool) -> Bool {
+    renders(
+      view.environment(\.palette, ColdframePalette(isDark: dark))
+        .environment(\.colorScheme, dark ? .dark : .light))
+  }
+
+  private let createSite = CreateSitePresentation(
+    name: "Home", nameError: .tooLong, working: false, notice: .identityProviderUnavailable,
+    cancellable: true,
+    timeZone: TimeZonePanelPresentation(detected: "Europe/Zurich", chosen: nil, changing: false))
+
+  private let emptyGarden = GardenPresentation(
+    siteName: "Home garden", role: .member,
+    tiles: FirstRunStepKind.allCases.enumerated().map {
+      FirstRunTilePresentation(step: $1, number: $0 + 1, state: $0 == 0 ? .next : .later)
+    },
+    tilesActionable: false,
+    switcherRows: [
+      SiteSwitcherRow(siteId: "a", name: "Home garden", role: .member, isSelected: true),
+      .newSite,
+    ],
+    menuItems: [.siteSettings], menuEnabled: true, showsMemberNotice: true)
+
+  @Test(
+    "UX-DR61 Create Site renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func createSiteAtAccessibility5(dark: Bool) {
+    #expect(renders(CreateSiteView(presentation: createSite, actions: .none), dark: dark))
+  }
+
+  @Test(
+    "UX-DR21 UX-DR54 UX-DR62 UX-DR82 the empty Garden renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func gardenAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        NavigationStack { GardenView(presentation: emptyGarden, actions: .none) { _ in } },
+        dark: dark))
+  }
+
+  @Test("UX-DR23 the Site switcher renders at the largest accessibility text size")
+  @MainActor
+  func switcherAtAccessibility5() {
+    #expect(
+      renders(SiteSwitcherSheet(rows: emptyGarden.switcherRows, onSelect: { _ in }, onNewSite: {})))
+  }
 #endif

@@ -25,6 +25,9 @@ public sealed class AuthorizationMatrixTests(EdgeApiFixture edge) : IClassFixtur
     /// </summary>
     private static readonly Dictionary<string, Sample> Samples = new(StringComparer.Ordinal)
     {
+        ["GET /sites"] = new(
+            (server, _, cancellationToken) => server.GetAsync(new Uri("/sites", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
         ["POST /sites"] = new(
             (server, _, cancellationToken) => EdgeApiTests.PostSiteAsync(server, Guid.NewGuid().ToString(), new { name = "Matrix" }, cancellationToken),
             HttpStatusCode.Created),

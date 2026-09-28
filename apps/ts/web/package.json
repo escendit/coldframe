@@ -13,6 +13,7 @@
     "lint": "svelte-kit sync && eslint --max-warnings 0 ."
   },
   "dependencies": {
+    "@coldframe/api-client": "workspace:*",
     "@escendit/sveltekit-auth-keycloak": "0.1.0-rc.12",
     "@escendit/sveltekit-session": "0.1.0-rc.12"
   },

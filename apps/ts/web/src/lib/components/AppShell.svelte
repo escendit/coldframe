@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { Site } from '$lib/sites';
   import type { DisplayUser } from '$lib/user';
   import AppHeader from './AppHeader.svelte';
   import SideNav from './SideNav.svelte';
@@ -7,16 +8,19 @@
   interface Props {
     user: DisplayUser;
     currentPath: string;
+    /** The user's Sites in the Server's order, and the one this browser shows. */
+    sites?: readonly Site[];
+    currentSite?: Site | null;
     children: Snippet;
   }
 
-  let { user, currentPath, children }: Props = $props();
+  let { user, currentPath, sites = [], currentSite = null, children }: Props = $props();
 
   let menuOpen = $state(false);
 </script>
 
 <div class="cf-app-shell">
-  <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} />
+  <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} {sites} {currentSite} {currentPath} />
   <div class="cf-app-shell__body">
     <SideNav {currentPath} open={menuOpen} onnavigate={() => (menuOpen = false)} />
     <main id="cf-main" class="cf-app-shell__main">

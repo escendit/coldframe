@@ -1,11 +1,15 @@
 package com.escendit.coldframe.core.signin
 
 import com.escendit.coldframe.core.Watch
+import com.escendit.coldframe.core.sites.IosSites
+import com.escendit.coldframe.core.sites.SitesWiring
 import com.escendit.coldframe.core.watch
+import com.russhwolf.settings.NSUserDefaultsSettings
 import io.ktor.client.engine.darwin.Darwin
 import kotlinx.coroutines.MainScope
 import org.publicvalue.multiplatform.oidc.appsupport.IosCodeAuthFlowFactory
 import org.publicvalue.multiplatform.oidc.tokenstore.IosKeychainTokenStore
+import platform.Foundation.NSUserDefaults
 
 /**
  * The iOS side of the core: `ASWebAuthenticationSession` (not ephemeral) for the browser flow,
@@ -24,6 +28,19 @@ public class IosSignIn private constructor(
             store = IosKeychainTokenStore(),
             authFlowFactory = { authFlowFactory },
             scope = scope,
+        )
+
+    /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
+    public val sites: IosSites =
+        IosSites(
+            SitesWiring.engine(
+                config = config,
+                httpEngine = Darwin.create(),
+                signIn = engine,
+                settings = NSUserDefaultsSettings(NSUserDefaults.standardUserDefaults),
+                scope = scope,
+            ),
+            scope,
         )
 
     /** Calls [onEach] on the main thread with the current snapshot and every change. */

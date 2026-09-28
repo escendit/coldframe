@@ -171,9 +171,26 @@ describe('App shell', () => {
     expect(body).toContain('id="cf-side-nav"');
   });
 
-  test('UX-DR58 Site tabs, Site menu and Alerts counts are not part of this story', () => {
-    const { body } = render(AppShell, { props: { user, currentPath: '/garden', children } });
-    expect(body).not.toMatch(/New Site|role="tablist"/u);
+  test('UX-DR23 the header holds Site tabs in the Server order with the Role, the current one selected, New Site last', () => {
+    const sites = [
+      { id: 'b', name: 'Allotment', role: 'Member' as const },
+      { id: 'a', name: 'Home', role: 'Owner' as const },
+    ];
+    const { body } = render(AppShell, { props: { user, currentPath: '/garden', sites, currentSite: sites[1] ?? null, children } });
+    const header = body.slice(body.indexOf('cf-app-header'), body.indexOf('<nav'));
+    expect(header).toMatch(/role="tablist"/u);
+    const tabs = [...header.matchAll(/<a[^>]*role="tab"[^>]*>([\s\S]*?)<\/a>/gu)].map((match) => (match[1] ?? '').replace(/<[^>]*>/gu, '').replace(/\s+/gu, ' ').trim());
+    expect(tabs).toEqual(['Allotment · Member', 'Home · Owner', 'New Site']);
+    expect(count(header, /aria-selected="true"/u)).toBe(1);
+    expect(header).toMatch(/<a[^>]*aria-selected="true"[^>]*href="\/garden\?site=a"|<a[^>]*href="\/garden\?site=a"[^>]*aria-selected="true"/u);
+    expect(header).toMatch(/href="\/sites\/new"/u);
+    expect(header).toContain('aria-label="Site menu for Home"');
+  });
+
+  test('UX-DR23 with no Site the tabs still offer New Site, and there is no Site menu', () => {
+    const { body } = render(AppShell, { props: { user, currentPath: '/sites/new', children } });
+    expect(body).toMatch(/<a[^>]*role="tab"[^>]*aria-selected="true"[^>]*href="\/sites\/new"/u);
+    expect(body).not.toContain('Site menu');
   });
 });
 
@@ -241,6 +258,11 @@ describe('web platform structure', () => {
       'Icon',
       'LiveRegions',
       'SignInCard',
+      'SiteTabs',
+      'SiteMenu',
+      'SiteSummaryHeader',
+      'FirstRunSteps',
+      'TimeZonePanel',
     ]) {
       expect(existsSync(join(webSrc, 'lib/components', `${name}.svelte`)), name).toBe(true);
     }

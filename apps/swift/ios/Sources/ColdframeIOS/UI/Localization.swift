@@ -17,5 +17,10 @@
     public func string(_ arguments: Int...) -> String {
       String(format: string, locale: .current, arguments: arguments.map { $0 as CVarArg })
     }
+
+    /// An entry with text placeholders (`%@`), such as a Site name or a time-zone ID.
+    public func string(_ arguments: String...) -> String {
+      String(format: string, locale: .current, arguments: arguments.map { $0 as CVarArg })
+    }
   }
 #endif

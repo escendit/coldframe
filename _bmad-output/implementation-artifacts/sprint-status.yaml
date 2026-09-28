@@ -43,7 +43,7 @@ development_status:
   1-5-sign-in-on-ios-and-android: awaiting-operator
   1-6-create-a-site-on-the-server-with-per-site-authorization: done
   1-7-reconcile-identity-changes-from-keycloak: done
-  1-8-create-site-and-the-empty-garden-in-the-apps: backlog
+  1-8-create-site-and-the-empty-garden-in-the-apps: awaiting-operator
   1-9-manage-my-site-and-lots: backlog
   epic-1-retrospective: optional
 

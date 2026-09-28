@@ -1,14 +1,22 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { siteMenuItems } from '$lib/site-menu';
+  import type { Site } from '$lib/sites';
   import type { DisplayUser } from '$lib/user';
+  import SiteMenu from './SiteMenu.svelte';
+  import SiteTabs from './SiteTabs.svelte';
 
   interface Props {
     user: DisplayUser;
     menuOpen: boolean;
     onmenu: () => void;
+    /** The user's Sites in the Server's order, and the one this browser shows. */
+    sites?: readonly Site[];
+    currentSite?: Site | null;
+    currentPath?: string;
   }
 
-  let { user, menuOpen, onmenu }: Props = $props();
+  let { user, menuOpen, onmenu, sites = [], currentSite = null, currentPath = '' }: Props = $props();
 </script>
 
 <header class="cf-app-header">
@@ -16,6 +24,13 @@
     {t('shell.menu')}
   </button>
   <a class="cf-app-header__mark" href="/garden" aria-label={t('shell.home')}>{t('app.name')}</a>
+  <div class="cf-app-header__sites">
+    <SiteTabs {sites} {currentSite} {currentPath} />
+    {#if currentSite !== null && currentPath !== '/sites/new'}
+      <!-- The Site menu belongs to the current Site tab (UX-DR22); a tablist may hold only tabs, so it follows it. -->
+      <SiteMenu siteName={currentSite.name} items={siteMenuItems(currentSite.role)} />
+    {/if}
+  </div>
   <span class="cf-app-header__spacer"></span>
   <span class="cf-app-header__initials" role="img" aria-label={t('shell.user', { name: user.displayName })}>{user.initials}</span>
 </header>
@@ -30,6 +45,7 @@
     top: 0;
     z-index: 1;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--cf-spacing-3);
     min-height: var(--cf-spacing-header-height);
@@ -72,6 +88,13 @@
     font-size: var(--cf-type-section-font-size);
     line-height: var(--cf-type-section-line-height);
     text-decoration: none;
+  }
+
+  .cf-app-header__sites {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-width: 0;
   }
 
   .cf-app-header__spacer {

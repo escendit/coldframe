@@ -4,7 +4,8 @@ The Coldframe web app: a SvelteKit 2 backend-for-frontend on `adapter-node` (AD-
 Authorization Code + PKCE on the server through
 [`@escendit/sveltekit-auth-keycloak`](https://github.com/escendit/sveltekit-extensions). The
 browser holds only the package's httpOnly session cookie; access, refresh and ID tokens never reach
-page data, HTML or browser storage. Layout data carries only the display name and initials.
+page data, HTML or browser storage. Layout data carries only the display name and initials and
+the caller's Sites (ID, name, Role).
 
 How to run it against the local stack is in [`docs/quickstart.md`](../../../docs/quickstart.md#run-the-web-app).
 
@@ -58,6 +59,30 @@ signed out. Sign in again to see live data."
   `<html>`, so the first paint has no flash; System means no attribute, and `tokens.css` follows
   `prefers-color-scheme`.
 
+## Sites
+
+The web app is the only caller of the Server; the browser never calls it (AD-14).
+[`src/lib/server/sites.ts`](src/lib/server/sites.ts) calls `GET /sites` and `POST /sites` through
+[`@coldframe/api-client`](../../../packages/ts/api-client) with the session's access token and turns
+every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachable`, `certificate`,
+`unauthorized`).
+
+- **Shell load.** Every app page loads the caller's Sites (`GET /sites`, in the Server's order, each
+  with the caller's Role from the Server). No Membership → 303 to `/sites/new`. The current Site is
+  the first-party httpOnly cookie `cf_site` on this browser; an unknown or stale ID falls back to the
+  first Site. The Site tabs in the AppHeader link to `?site=<id>`, which sets the cookie and redirects
+  to the same page without the query. A 401 from the Server signs the session out and lands on Sign
+  in with the signed-out notice.
+- **Create Site** (`/sites/new`). The form carries an `Idempotency-Key` made when it opens; a 503 or a
+  network failure keeps it for the retry, a 422 `idempotency-key-reused` replaces it. The name is
+  checked (1 to 100 characters after trimming) before any request. The time zone is proposed from
+  the browser and, once confirmed or picked, stored only in the httpOnly cookie `cf_time_zone`; it is
+  never sent to the Server (AD-11), so the request body stays `{name}`.
+- **Garden** shows the Site summary header, "No Readings yet" and the four first-run step tiles
+  without actions, with the note that adding a Hub or Node needs the mobile app (Members see the
+  read-only note instead). The Site menu sits after the Site tabs and holds only Site settings until
+  the Pause story turns Pause/Resume on (`siteMenuItems` in [`src/lib/site-menu.ts`](src/lib/site-menu.ts)).
+
 ## Copy
 
 Every user-visible string, including `<title>` and `aria-label`, comes from
@@ -72,3 +97,10 @@ UX-DR92 copy, so the catalogue uses it verbatim until the design decides one.
 
 Unit tests are in [`tests/ts/web`](../../../tests/ts/web), end-to-end tests in
 [`tests/ts/web.e2e`](../../../tests/ts/web.e2e). See the quickstart.
+
+The e2e fake IdP doubles as an in-memory Server (`GET /sites`, `POST /sites`; `POST /control/sites`
+resets or seeds the Sites, one Site by default). `specs/garden.spec.ts` signs in with no Site,
+creates "Home" and checks the empty Garden in light and dark at 200 % zoom, with axe and committed
+screenshots (Linux Chromium) under `specs/garden.spec.ts-snapshots/`. Run the e2e tests with
+`pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots
+with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test --update-snapshots`.

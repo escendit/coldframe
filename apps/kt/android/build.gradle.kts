@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.roborazzi)
 }
 
 // Build-time configuration (AD-23): `-Pcoldframe.serverUrl=… -Pcoldframe.keycloakIssuer=…`, or the
@@ -135,6 +136,8 @@ dependencies {
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
@@ -145,4 +148,10 @@ dependencies {
 
 ktlint {
     version.set(libs.versions.ktlint.cli)
+}
+
+// Snapshot baselines are committed under tests/kt/android/snapshots. `check` compares against them
+// (roborazzi.test.verify in gradle.properties); `./gradlew :android:recordRoborazziDebug` rewrites them.
+roborazzi {
+    outputDir.set(testRoot.resolve("snapshots"))
 }

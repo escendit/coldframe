@@ -23,6 +23,7 @@ object ColdframeIcons {
     val errorFilled: ImageVector get() = of(CarbonIcon.ERROR_FILLED)
     val view: ImageVector get() = of(CarbonIcon.VIEW)
     val chevronDown: ImageVector get() = of(CarbonIcon.CHEVRON_DOWN)
+    val overflowMenuVertical: ImageVector get() = of(CarbonIcon.OVERFLOW_MENU_VERTICAL)
 
     private fun build(icon: CarbonIcon): ImageVector =
         ImageVector

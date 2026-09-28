@@ -5,14 +5,20 @@ import SwiftUI
 /// on every return to the foreground.
 @main
 struct ColdframeApp: App {
-  @StateObject private var model = ShellModel(
-    signIn: CoreSignInService(), appearance: CoreAppearanceService())
+  @StateObject private var model: ShellModel = {
+    let signIn = CoreSignInService()
+    return ShellModel(
+      signIn: signIn, appearance: CoreAppearanceService(),
+      sites: CoreSitesService(core: signIn.sites))
+  }()
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some Scene {
     WindowGroup {
       ColdframeRootView(
         presentation: model.presentation,
+        sites: model.sites,
+        sitesActions: model.sitesActions,
         theme: model.theme,
         onSignIn: { model.signIn.signIn() },
         onSignOut: { model.signIn.signOut() },

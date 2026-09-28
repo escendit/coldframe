@@ -1,7 +1,35 @@
 /**
- * The REST client is generated from `packages/openapi` once the contract exists.
- * Until then the package holds only what proves that the workspace builds, tests and lints.
+ * The Coldframe REST client. Types come only from `src/schema.ts`, which openapi-typescript
+ * generates from `packages/openapi` (AD-10); nothing here restates an API type by hand.
  */
+import createClient, { type Client } from 'openapi-fetch';
+import type { components, paths } from './schema';
 
-/** Name of this package. */
-export const packageName = '@coldframe/api-client';
+export type { components, operations, paths } from './schema';
+
+export type Site = components['schemas']['Site'];
+export type SiteList = components['schemas']['SiteList'];
+export type SiteRole = components['schemas']['SiteRole'];
+export type CreateSiteRequest = components['schemas']['CreateSiteRequest'];
+export type ProblemDetails = components['schemas']['ProblemDetails'];
+
+export type ColdframeClient = Client<paths>;
+
+export interface ColdframeClientOptions {
+  /** The Server's base URL. */
+  readonly baseUrl: string | URL;
+  /** The caller's Keycloak access token, sent as `Authorization: Bearer`. */
+  readonly accessToken: string;
+  /** Injectable for tests and for SvelteKit's `fetch`. */
+  readonly fetch?: (request: Request) => Promise<Response>;
+}
+
+/** A typed client for one caller. Every request carries the caller's bearer token. */
+export function createColdframeClient(options: ColdframeClientOptions): ColdframeClient {
+  const baseUrl = typeof options.baseUrl === 'string' ? options.baseUrl : options.baseUrl.href;
+  return createClient<paths>({
+    baseUrl: baseUrl.replace(/\/+$/u, ''),
+    headers: { authorization: `Bearer ${options.accessToken}` },
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  });
+}

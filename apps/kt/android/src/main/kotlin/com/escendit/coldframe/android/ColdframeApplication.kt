@@ -7,7 +7,10 @@ import com.escendit.coldframe.core.appearance.AppearanceStore
 import com.escendit.coldframe.core.signin.AndroidSignIn
 import com.escendit.coldframe.core.signin.CoreConfig
 
-/** Holds the one sign-in engine and theme store of the process, so they outlive activities. */
+/**
+ * Holds the one sign-in engine (with its Sites engine, `signIn.sites`) and theme store of the
+ * process, so they outlive activities.
+ */
 class ColdframeApplication : Application() {
     lateinit var signIn: AndroidSignIn
         private set

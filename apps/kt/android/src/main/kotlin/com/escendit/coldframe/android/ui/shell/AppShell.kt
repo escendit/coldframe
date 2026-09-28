@@ -34,10 +34,13 @@ import androidx.compose.ui.unit.dp
 import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.settings.AppearanceScreen
 import com.escendit.coldframe.android.ui.settings.SettingsScreen
+import com.escendit.coldframe.android.ui.sites.GardenScreen
+import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
@@ -56,16 +59,19 @@ enum class Tab(
 /**
  * The signed-in shell (UX-DR57, UX-DR110): Material 3 `NavigationBar` with Carbon icons and a
  * `TopAppBar` heading per screen. The selected tab uses `primary-text` plus the M3 indicator as
- * its non-colour cue and is exposed as selected. Garden, Alerts and Devices show their heading
- * only in this story; Settings leads to Appearance, and system/predictive back returns.
+ * its non-colour cue and is exposed as selected. Garden shows the current Site (Story 1.8);
+ * Alerts and Devices show their heading only; Settings leads to Appearance, and
+ * system/predictive back returns. The Site menu's "Site settings" opens the Settings index.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppShell(
+    sites: SitesState.Ready,
     theme: ThemePreference,
     onSelectTheme: (ThemePreference) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
+    actions: SitesActions = SitesActions.None,
 ) {
     val colors = Coldframe.colors
     var tab by rememberSaveable { mutableStateOf(Tab.Garden) }
@@ -156,8 +162,17 @@ fun AppShell(
         },
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Garden, Alerts and Devices carry their heading only until their stories.
-            if (showingAppearance) {
+            // Alerts and Devices carry their heading only until their stories.
+            if (tab == Tab.Garden) {
+                GardenScreen(
+                    sites = sites,
+                    actions = actions,
+                    onOpenSiteSettings = {
+                        appearanceOpen = false
+                        tab = Tab.Settings
+                    },
+                )
+            } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)
             } else if (tab == Tab.Settings) {
                 SettingsScreen(onOpenAppearance = { appearanceOpen = true }, onSignOut = onSignOut)

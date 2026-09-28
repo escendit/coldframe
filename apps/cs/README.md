@@ -99,6 +99,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 
 | Endpoint | Access | What it does |
 | --- | --- | --- |
+| `GET /sites` | any authenticated User | Lists the caller's `Active` Sites with the caller's Role from the identity projection, oldest first then by Site ID: 200 `{sites: [{id, name, role}]}`; `[]` without a Membership |
 | `POST /sites` | any authenticated User | `User(sub).CreateSite(key, name)`: 201 `{id, name, role}` with `Location: /sites/{id}` |
 | `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection; 404 once the Site is `Deleted` |
 

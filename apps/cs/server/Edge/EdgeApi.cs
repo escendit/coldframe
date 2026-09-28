@@ -22,6 +22,12 @@ public sealed record CreateSiteRequest(string? Name);
 public sealed record SiteResponse(string Id, string Name, SiteRole Role);
 
 /// <summary>
+/// The body of <c>GET /sites</c>: the caller's Sites in the Server's order.
+/// </summary>
+/// <param name="Sites">The Sites, oldest first, then by Site ID.</param>
+public sealed record SiteListResponse(IReadOnlyList<SiteResponse> Sites);
+
+/// <summary>
 /// The Edge API endpoints, contract-first from <c>packages/openapi/coldframe.openapi.json</c> (AD-10).
 /// </summary>
 /// <remarks>
@@ -42,6 +48,10 @@ public static class EdgeApi
     public static IEndpointRouteBuilder MapEdgeApi(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
+
+        endpoints.MapGet("/sites", ListSitesAsync)
+            .WithName("listSites")
+            .RequireAuthenticatedCaller();
 
         endpoints.MapPost("/sites", CreateSiteAsync)
             .WithName("createSite")
@@ -121,6 +131,16 @@ public static class EdgeApi
                 "The Site was not created yet. Try again with the same Idempotency-Key."),
             _ => throw new InvalidOperationException($"Unexpected Site creation result {result}."),
         };
+    }
+
+    private static async Task<IResult> ListSitesAsync(
+        HttpContext httpContext,
+        [FromServices] IdentityReadModel readModel)
+    {
+        var userId = httpContext.User.FindFirst(EdgeAuthentication.UserIdClaim)!.Value;
+        var sites = await readModel.ListSitesAsync(userId, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return TypedResults.Ok(new SiteListResponse([.. sites.Select(site => new SiteResponse(site.SiteId, site.Name, site.Role))]));
     }
 
     private static async Task<IResult> GetSiteAsync(

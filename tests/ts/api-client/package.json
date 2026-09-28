@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@coldframe/api-client": "workspace:*"
+    "@coldframe/api-client": "workspace:*",
+    "@types/node": "24.19.0"
   }
 }

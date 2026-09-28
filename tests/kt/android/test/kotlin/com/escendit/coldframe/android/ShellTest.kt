@@ -38,6 +38,7 @@ class ShellTest {
             val theme by appearance.theme.collectAsState()
             ColdframeRoot(
                 state = SignInState.SignedIn("Simon Novak"),
+                sites = readySites(),
                 theme = theme,
                 onSignIn = {},
                 onSignOut = { signOuts++ },

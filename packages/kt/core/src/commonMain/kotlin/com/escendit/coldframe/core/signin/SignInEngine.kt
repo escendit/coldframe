@@ -75,6 +75,43 @@ public class SignInEngine(
         }
     }
 
+    /**
+     * The access token for a Server call, for the core's API client only: the stored token,
+     * refreshed first when it has expired. `null` when signed out, or when Keycloak refused the
+     * refresh (which signs out with the SignedOut notice).
+     */
+    internal suspend fun accessToken(): String? =
+        mutex.withLock {
+            if (mutableState.value !is SignInState.SignedIn) return@withLock null
+            val tokens = attempt { vault.read() } ?: return@withLock null
+            if (!isExpired(tokens)) return@withLock tokens.access_token
+            when (val outcome = identity.refresh(tokens)) {
+                is RefreshOutcome.Refreshed -> {
+                    outcome.tokens.access_token
+                }
+
+                RefreshOutcome.Rejected -> {
+                    attempt { vault.clear() }
+                    mutableState.value = SignInState.SignedOut(Notice.SignedOut)
+                    null
+                }
+
+                // Keycloak did not answer; the Server decides whether the old token still counts.
+                RefreshOutcome.Transient -> {
+                    tokens.access_token
+                }
+            }
+        }
+
+    /** The Server answered 401: the session is over. Shows the SignedOut notice. */
+    internal suspend fun signOutExpired() {
+        mutex.withLock {
+            if (mutableState.value !is SignInState.SignedIn) return@withLock
+            attempt { vault.clear() }
+            mutableState.value = SignInState.SignedOut(Notice.SignedOut)
+        }
+    }
+
     private suspend fun runSignIn() {
         mutableState.value = SignInState.Working
         val failure = probe.probeSignIn()

@@ -61,4 +61,55 @@
   <string name="duration_hours">%1$d h</string>
   <string name="duration_hours_minutes">%1$d h %2$d min</string>
   <string name="duration_days">%1$d d</string>
+
+  <!-- Story 1.8: Sites, Create Site and the empty Garden. -->
+  <string name="role_owner">Owner</string>
+  <string name="role_administrator">Administrator</string>
+  <string name="role_member">Member</string>
+
+  <string name="sites_title">Sites</string>
+  <string name="sites_new">New Site</string>
+  <string name="sites_open_switcher">%1$s, switch Site</string>
+  <string name="sites_unexpected">Your Server couldn\'t list your Sites. Nothing was changed.</string>
+
+  <string name="site_menu_open">Site menu for %1$s</string>
+  <string name="site_menu_settings">Site settings</string>
+  <string name="site_menu_pause">Pause %1$s</string>
+  <string name="site_menu_resume">Resume %1$s</string>
+  <string name="site_menu_needs_server">Needs your Server</string>
+
+  <string name="create_site_title">Create Site</string>
+  <string name="create_site_intro">Name the Site. You become its Owner.</string>
+  <string name="create_site_name">Site name</string>
+  <string name="create_site_name_helper">For example Home garden. Up to 100 characters.</string>
+  <string name="create_site_name_blank">Enter a name for the Site.</string>
+  <string name="create_site_name_too_long">Use at most 100 characters.</string>
+  <string name="create_site_action">Create Site</string>
+  <string name="create_site_working">Creating Site…</string>
+  <string name="create_site_unavailable">The Site was not created: your Server\'s sign-in service didn\'t answer. Try again.</string>
+  <string name="create_site_key_reused">The Site was not created. Try again.</string>
+  <string name="create_site_unexpected">The Site was not created: your Server returned an error. Try again.</string>
+
+  <string name="time_zone_legend">Time zone</string>
+  <string name="time_zone_question">Is your time zone %1$s?</string>
+  <string name="time_zone_chosen">Your time zone is %1$s.</string>
+  <string name="time_zone_helper">Used for your Notification Window on this phone.</string>
+  <string name="time_zone_confirm">Confirm</string>
+  <string name="time_zone_change">Change</string>
+  <string name="time_zone_filter">Search time zones</string>
+  <string name="time_zone_filter_helper">Type part of a city or region, for example Zurich.</string>
+  <string name="time_zone_none">No time zone matches.</string>
+
+  <string name="garden_no_readings">No Readings yet</string>
+  <string name="garden_no_readings_detail">Nothing is measuring, so there\'s no status to show.</string>
+  <string name="garden_steps">First steps</string>
+  <string name="garden_step">Step %1$d</string>
+  <string name="garden_step_next">Next</string>
+  <string name="garden_step_later">Later</string>
+  <string name="garden_step_done">Done</string>
+  <string name="garden_step_add_hub">Add a Hub</string>
+  <string name="garden_step_add_node">Add a Node</string>
+  <string name="garden_step_calibrate">Calibrate</string>
+  <string name="garden_step_set_threshold">Set a low Threshold</string>
+  <string name="garden_member_notice">Only Owners and Administrators can add Devices.</string>
 </resources>

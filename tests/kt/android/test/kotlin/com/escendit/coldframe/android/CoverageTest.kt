@@ -4,22 +4,29 @@ import org.junit.Test
 import java.io.File
 import kotlin.test.assertTrue
 
-/** Every UX requirement this story names has at least one test named after it. */
+/** Every UX requirement stories 1.5 and 1.8 name has at least one test named after it. */
 class CoverageTest {
     private val storyIds =
         listOf(
             15,
+            21,
+            22,
+            23,
             34,
             35,
             36,
             53,
+            54,
             56,
             57,
             59,
             60,
+            61,
+            62,
             71,
             75,
             76,
+            82,
             92,
             93,
             96,
@@ -40,7 +47,34 @@ class CoverageTest {
         )
 
     /** Named in Swift too (the iOS shell builds these components and surfaces). */
-    private val iosIds = listOf(34, 35, 36, 56, 71, 75, 76, 100, 101, 104, 109, 113, 114, 125, 126, 127, 130, 131)
+    private val iosIds =
+        listOf(
+            21,
+            22,
+            23,
+            34,
+            35,
+            36,
+            54,
+            56,
+            61,
+            62,
+            71,
+            75,
+            76,
+            82,
+            100,
+            101,
+            104,
+            109,
+            113,
+            114,
+            125,
+            126,
+            127,
+            130,
+            131,
+        )
 
     private fun filesUnder(
         path: String,
