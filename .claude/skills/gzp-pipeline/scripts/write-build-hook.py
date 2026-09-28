@@ -3,9 +3,14 @@
 # requires-python = ">=3.9"
 # dependencies = ["tomlkit"]
 # ///
-"""Enable or disable the gzp-pipeline auto-track hook in _bmad/custom/bmad-build.toml.
+"""Enable or disable the gzp-pipeline auto-track hook in a BMad build skill's customize override.
 
-Writes two fields into the [workflow] table of a bmad-build customize override:
+Targets _bmad/custom/bmad-build.toml by default; pass --skill-name bmad-build-auto
+(with that skill's --target/--customize-toml paths and --unattended) to hook the
+unattended development loop instead. The two skills read separate override files,
+so each needs its own hook.
+
+Writes two fields into the [workflow] table of the customize override:
 - activation_steps_prepend: an entry telling Build to hand task/time tracking to
   gzp-pipeline before its own steps run.
 - on_complete: an instruction telling Build to hand completion (GitHub Flow, Zoho
@@ -50,6 +55,31 @@ ON_COMPLETE_TEXT = (
     "Zoho directly from Build's own steps — gzp-pipeline owns that lifecycle end to end.\n"
 )
 
+# Unattended variants (bmad-build-auto): same ownership prefixes, plus the rule that
+# nothing in the handoff may wait on a human.
+UNATTENDED_PREPEND_ENTRY = (
+    "Invoke the gzp-pipeline skill before any other work: gzp-pipeline is the sole owner of "
+    "Zoho task status and time-log sessions. Let it resume in-flight state or start tracking "
+    "for this iteration before this workflow proceeds to its own steps. This run is "
+    "unattended: gzp-pipeline must not ask questions or wait for a human — if it cannot "
+    "proceed (required config unresolved, or a prior task's PR still awaiting merge), it "
+    "reports the blocker and this workflow must HALT with status blocked, naming that blocker. "
+    "Do not duplicate task/time tracking here."
+)
+
+UNATTENDED_ON_COMPLETE_TEXT = (
+    "Invoke the gzp-pipeline skill to hand off completion of this iteration's work: it drives "
+    "code-touching changes through GitHub Flow (tracking issue when configured, branch, commit, "
+    "push, PR — self-assigned, labeled) if that has not already happened, updates the Zoho "
+    "task's status, and closes out the time-log session opened at activation. This run is "
+    "unattended: at the merge gate gzp-pipeline accepts its own PR — it merges once checks "
+    "are green (loop auto-merge, on by default) — and when the merge is blocked or loop "
+    "auto-merge is off it leaves the PR open and returns; it never waits for a human and "
+    "never forces a merge. Do not commit, "
+    "push, open a PR, or touch Zoho directly from this workflow's own steps — gzp-pipeline "
+    "owns that lifecycle end to end.\n"
+)
+
 # Marker prefix identifying entries this script owns, so re-runs replace rather
 # than duplicate, and disable can find what to remove.
 _OWNED_PREPEND_PREFIX = "Invoke the gzp-pipeline skill before any other work:"
@@ -58,13 +88,29 @@ _OWNED_ON_COMPLETE_PREFIX = "Invoke the gzp-pipeline skill to hand off completio
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Enable/disable the gzp-pipeline hook in a bmad-build customize override."
+        description="Enable/disable the gzp-pipeline hook in a BMad build skill's customize override."
     )
-    parser.add_argument("--target", required=True, help="Path to _bmad/custom/bmad-build.toml")
     parser.add_argument(
-        "--bmad-build-customize-toml",
+        "--target",
         required=True,
-        help="Path to the installed bmad-build skill's customize.toml — existence gates the write.",
+        help="Path to the override file, e.g. _bmad/custom/bmad-build.toml or _bmad/custom/bmad-build-auto.toml",
+    )
+    parser.add_argument(
+        "--customize-toml",
+        "--bmad-build-customize-toml",
+        dest="customize_toml",
+        required=True,
+        help="Path to the installed target skill's customize.toml — existence gates the write.",
+    )
+    parser.add_argument(
+        "--skill-name",
+        default="bmad-build",
+        help="Name of the skill being hooked, used in messages (default: bmad-build).",
+    )
+    parser.add_argument(
+        "--unattended",
+        action="store_true",
+        help="Write the unattended hook variants (for bmad-build-auto): never ask, never wait on a human.",
     )
     parser.add_argument(
         "--action",
@@ -98,18 +144,21 @@ def reject_unresolved_paths(named_paths: list[tuple[str, str]]) -> None:
 def main():
     args = parse_args()
     reject_unresolved_paths(
-        [("--target", args.target), ("--bmad-build-customize-toml", args.bmad_build_customize_toml)]
+        [("--target", args.target), ("--customize-toml", args.customize_toml)]
     )
 
     target = Path(args.target)
-    bmad_build_present = Path(args.bmad_build_customize_toml).exists()
+    skill_present = Path(args.customize_toml).exists()
+    prepend_entry = UNATTENDED_PREPEND_ENTRY if args.unattended else PREPEND_ENTRY
+    on_complete_text = UNATTENDED_ON_COMPLETE_TEXT if args.unattended else ON_COMPLETE_TEXT
 
-    if not bmad_build_present:
+    if not skill_present:
         print(
             json.dumps(
                 {
                     "status": "skipped",
-                    "reason": "bmad-build is not installed in this project — nothing to hook.",
+                    "reason": f"{args.skill_name} is not installed in this project — nothing to hook.",
+                    "skill": args.skill_name,
                     "target": str(target),
                 },
                 indent=2,
@@ -136,12 +185,12 @@ def main():
                 [str(v) for v in prepend if not str(v).startswith(_OWNED_PREPEND_PREFIX)]
             )
             prepend.multiline(True)
-        prepend.append(PREPEND_ENTRY)
+        prepend.append(prepend_entry)
         workflow["activation_steps_prepend"] = prepend
 
         existing_on_complete = str(workflow.get("on_complete", "")).strip()
         if not existing_on_complete or existing_on_complete.startswith(_OWNED_ON_COMPLETE_PREFIX):
-            workflow["on_complete"] = ON_COMPLETE_TEXT
+            workflow["on_complete"] = on_complete_text
         else:
             on_complete_conflict = True
 
@@ -152,6 +201,8 @@ def main():
             json.dumps(
                 {
                     "status": "conflict" if on_complete_conflict else "success",
+                    "skill": args.skill_name,
+                    "mode": "unattended" if args.unattended else "interactive",
                     "target": str(target.resolve()),
                     "activation_steps_prepend": "written",
                     "on_complete": "skipped (existing custom content preserved)"
