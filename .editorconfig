@@ -36,4 +36,6 @@ dotnet_style_qualification_for_event = false:warning
 # Kotlin (ktlint reads this file)
 [*.{kt,kts}]
 ktlint_code_style = ktlint_official
+# Composables are named like types (PascalCase), as Jetpack Compose requires.
+ktlint_function_naming_ignore_when_annotated_with = Composable
 max_line_length = 120

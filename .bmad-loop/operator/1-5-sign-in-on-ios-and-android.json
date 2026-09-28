@@ -1,0 +1,15 @@
+{
+  "actions": [
+    "On a Mac with Xcode 26.6, run `swift build && swift test && swift format lint --strict -r .` at the repository root and fix any compile or test failure in the never-compiled SwiftUI code under apps/swift/ios/Sources/ColdframeIOS/UI.",
+    "On that Mac, install XcodeGen 2.46.0, run `xcodegen generate` in apps/swift/ios, then `xcodebuild build -scheme Coldframe -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO`, and confirm ColdframeCore links into the app.",
+    "Push the branch and confirm the GitHub Actions kotlin (with the Android SDK step), swift and new ios jobs pass.",
+    "Register the public client coldframe-mobile (standard flow, PKCE S256, redirect com.escendit.coldframe:/signin/callback, post-logout com.escendit.coldframe:/signout/callback) in the coldframe realm of your TLS-served Keycloak, and delete or re-import the local Aspire realm so it picks up the new client.",
+    "Build the Android app with -Pcoldframe.serverUrl and -Pcoldframe.keycloakIssuer pointing at your Server and Keycloak, install it on a phone, and verify: sign-in through Custom Tabs lands on the Garden tab, cancel returns silently, Server off shows the unreachable notice, and Sign out returns to Sign in.",
+    "Set the Server URL and issuer in apps/swift/ios/Config/Coldframe.xcconfig, run the iOS app on an iPhone, and verify the same sign-in, cancel, notice and sign-out behaviour through ASWebAuthenticationSession.",
+    "On both phones, at the largest system text size with TalkBack or VoiceOver on, check that the Sign-in, tab shell, Settings and Appearance screens clip nothing and that each control is read with its role and state."
+  ],
+  "parked_at": "2026-09-28",
+  "run_id": "20260927-235655-b4dd",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-1-5-sign-in-on-ios-and-android.md",
+  "story_key": "1-5-sign-in-on-ios-and-android"
+}

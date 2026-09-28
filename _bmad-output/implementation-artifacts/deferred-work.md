@@ -91,3 +91,65 @@ source_spec: `spec-1-4-sign-in-on-the-web.md`
 severity: low
 reason: EXPERIENCE.md lines 155-164 give one copy for all platforms; the catalogue uses it verbatim. Changing it needs a UX decision in EXPERIENCE.md, which this story may not edit.
 status: open
+
+### DW-13: The iOS tab bar marks the selected tab with the native selected state and the primary-text tint, not the filled icon DESIGN.md asks for.
+origin: spec-deferred fba6f0588ff2
+location: apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (AppTabView)
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: The vendored Carbon set in packages/design-tokens has no filled variants of grid, notification, box or settings. Needs filled glyphs added to the token subset or a UX decision; the spec forbids inventing glyphs.
+status: open
+
+### DW-14: The Android app and the Android targets compile against API 37 (platform android-37.0), not the compileSdk 36 the story names; targetSdk stays 36.
+origin: spec-deferred 333a9b4f984d
+location: gradle/libs.versions.toml (android-compile-sdk)
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: Compose 1.12.1 from BOM 2026.09.00, Lifecycle 2.11.0 and OkHttp 5.5.0 (through Ktor 3.6.0) declare minCompileSdk 37 in their AAR metadata, so checkDebugAarMetadata fails at 36. Every pinned version was kept; CI installs platforms;android-37.0.
+status: open
+
+### DW-15: kotlin-multiplatform-oidc 0.18.3 falls back to a WebView on Android when no Custom Tabs browser is installed, even with useWebView = false.
+origin: spec-deferred 9396e567c2cc
+location: packages/kt/core/src/androidMain/kotlin/com/escendit/coldframe/core/signin/AndroidSignIn.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: medium
+reason: AndroidCodeAuthFlowFactory.createWebFlow picks WebViewFlow when getCustomTabProviders() is empty. The story forbids WebView sign-in. Needs an upstream option, a wrapper factory that refuses to start without a Custom Tabs provider (and a notice for that case), or a UX decision.
+status: open
+
+### DW-16: The Android and iOS apps have no app icon; DESIGN.md says the icon uses the Coldframe mark, and no mark asset exists in packages/design-tokens.
+origin: spec-deferred 819e72a47758
+location: apps/kt/android/src/main/AndroidManifest.xml, apps/swift/ios/project.yml
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: Android lint reports MissingApplicationIcon (warning). The web app renders the mark as the word Coldframe in the headline role. Needs the mark as a vector asset.
+status: open
+
+### DW-17: Material 3 NavigationBar and AlertDialog animate their indicator, ripple and entry internally; UX-DR101 asks for no animations.
+origin: spec-deferred 8b023ac942ea
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/shell/AppShell.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: The shell's own code has no animation (source-scan test). The Material components honour the system animator duration scale (Remove animations) but cannot be switched off per app without replacing them.
+status: open
+
+### DW-18: The iOS certificate classifier (CertificateErrors.ios.kt, NSURLErrorDomain -1200...-1206) has no test, and it is unverified whether a DarwinHttpRequestException stays in the cause chain after the
+origin: spec-deferred 9b6d4d207d17
+location: packages/kt/core/src/iosMain/kotlin/com/escendit/coldframe/core/signin/CertificateErrors.ios.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+reason: Unverified (maybe-false). Only the JVM classifier is tested; iOS tests cannot run on Linux and the ios CI job only runs xcodebuild build. Settle it with an iosTest mirroring CertificateErrorsTest run via ./gradlew :core:iosSimulatorArm64Test on macOS, and a real untrusted-certificate sign-in on an iPhone.
+status: open
+
+### DW-19: If the browser flow never returns (activity destroyed mid-flow, lost ASWebAuthenticationSession callback), the engine may stay in Working with SIGN IN disabled and signOut waiting on the mutex.
+origin: spec-deferred 285c44893882
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/signin/SignInEngine.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+reason: Unverified (maybe-false). Depends on whether kotlin-multiplatform-oidc's flows always resume or throw when the hosting activity/session goes away; process death is covered by canContinueLogin. Settle it by rotating/backgrounding the app during the Custom Tab on a device and by reading PlatformCodeAuthFlow's suspension handling.
+status: open
+
+### DW-20: The iOS UX-DR104 and UX-DR126 render tests only assert that ImageRenderer produces an image; they do not check the announcement text/priority or clipping.
+origin: spec-deferred 4f517ad1edcd
+location: tests/swift/ios/ColdframeIOSTests/RenderTests.swift, apps/swift/ios/Sources/ColdframeIOS/UI/Components.swift
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: RenderTests.swift asserts renders(...) == true only; deleting .onAppear { announce() } in Components.swift breaks no test. Needs a macOS-only seam (e.g. a tested builder for the announcement AttributedString).
+status: open

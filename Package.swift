@@ -2,6 +2,16 @@
 
 import PackageDescription
 
+// The String Catalog needs Apple's resource tooling, which Linux toolchains lack; on Linux the
+// catalogue is left out and the code that reads it is compiled only where SwiftUI exists.
+#if os(Linux)
+  let iosResources: [Resource] = []
+  let iosExcludes = ["Resources"]
+#else
+  let iosResources: [Resource] = [.process("Resources")]
+  let iosExcludes: [String] = []
+#endif
+
 // Swift code keeps the monorepo layout: sources under apps/swift or packages/swift, tests under
 // tests/swift.
 let package = Package(
@@ -14,11 +24,14 @@ let package = Package(
   targets: [
     .target(
       name: "ColdframeIOS",
-      path: "apps/swift/ios/Sources/ColdframeIOS"
+      dependencies: ["ColdframeDesignTokens"],
+      path: "apps/swift/ios/Sources/ColdframeIOS",
+      exclude: iosExcludes,
+      resources: iosResources
     ),
     .testTarget(
       name: "ColdframeIOSTests",
-      dependencies: ["ColdframeIOS"],
+      dependencies: ["ColdframeIOS", "ColdframeDesignTokens"],
       path: "tests/swift/ios/ColdframeIOSTests"
     ),
     // Colours, typography, spacing, radii and icons; Sources/.../Generated is written by

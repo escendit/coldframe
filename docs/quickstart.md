@@ -16,6 +16,8 @@ Install only what you need for the language you work on. The local stack needs t
 | pnpm | 12.6.0 | TypeScript packages | `package.json` |
 | JDK | 25 | Kotlin modules; the wrapper downloads Gradle 9.8.0 | `packages/kt/core/build.gradle.kts` |
 | Swift | 6.0 or later | Swift packages; Xcode 26 on macOS, a container on Linux | `Package.swift` |
+| Android SDK | Platform `android-37.0`, Build-Tools 36.0.0 | Android app and the Android targets of the Kotlin modules | `gradle/libs.versions.toml` |
+| Xcode and XcodeGen | Xcode 26, XcodeGen 2.46.0 | iOS app (macOS only) | `apps/swift/ios/project.yml` |
 
 Nothing needs an account or a token. Every dependency comes from a public registry or repository.
 
@@ -67,7 +69,12 @@ Things to know:
   registration and Organizations on, and the confidential client `coldframe-web` for the web app
   (standard flow only, PKCE S256, redirect `http://localhost:5173/.oidc/signin/callback`). Its
   client secret is generated on every start; read it in the dashboard from the parameter
-  `coldframe-web-client-secret`. The file is copied into the container, so it works under SELinux.
+  `coldframe-web-client-secret`. It also holds the public client `coldframe-mobile` for the iOS
+  and Android apps (standard flow only, PKCE S256, no secret, redirect
+  `com.escendit.coldframe:/signin/callback`, post-logout `com.escendit.coldframe:/signout/callback`).
+  The file is copied into the container, so it works under SELinux. A realm that already exists is
+  left as it is: if your Keycloak database outlives a run and lacks a client, remove the realm (or
+  the database) so the file is imported again.
 - **Keycloak is built, not pulled.** [`aspire/keycloak/Dockerfile`](../aspire/keycloak/Dockerfile)
   compiles the extension from its public source and adds it to the Phase Two image. To use the
   listener in a realm, add `temporal` under *Realm settings → Events → Event listeners*.
@@ -102,6 +109,55 @@ start. The port 5173 must stay as it is, because it is the client's registered r
 user through *Register* on the Keycloak sign-in page. The variables can also go in
 `apps/ts/web/.env`, which git ignores. [`apps/ts/web/README.md`](../apps/ts/web/README.md) lists
 every variable.
+
+## Run the Android app
+
+The Android app in [`apps/kt/android`](../apps/kt/android) is a Jetpack Compose shell over the
+shared Kotlin core. Point Gradle at the Android SDK once, in `local.properties` in the repository
+root (git ignores it), or through `ANDROID_HOME`:
+
+```properties
+sdk.dir=/path/to/Android/Sdk
+```
+
+The Server URL and Keycloak issuer are fixed at build time (AD-23); users cannot enter them. Pass
+them as Gradle properties, or put the same keys in `~/.gradle/gradle.properties`:
+
+```sh
+./gradlew :android:installDebug \
+  -Pcoldframe.serverUrl=http://10.0.2.2:5080 \
+  -Pcoldframe.keycloakIssuer=http://10.0.2.2:<keycloak port>/realms/coldframe
+```
+
+`coldframe.keycloakClientId` defaults to `coldframe-mobile`. Unset values fall back to
+never-resolvable `.invalid` addresses, so an unconfigured build shows "Can't reach your Coldframe
+Server". `10.0.2.2` is the host as seen from the Android emulator; only the debug build allows
+plain HTTP, and only to `10.0.2.2` and `localhost`. Release builds trust public certificates only.
+Sign-in opens Keycloak in a Custom Tab; create a user through *Register* there.
+
+## Run the iOS app
+
+The iOS app in [`apps/swift/ios`](../apps/swift/ios) is a SwiftUI shell over the same core, which
+Gradle builds as the static framework `ColdframeCore`. On macOS, with Xcode 26 and XcodeGen:
+
+```sh
+cd apps/swift/ios
+xcodegen generate
+open Coldframe.xcodeproj
+```
+
+Set the build-time configuration in `apps/swift/ios/Config/Coldframe.local.xcconfig` (git ignores
+it). `//` starts a comment in an xcconfig, so write URLs with `/$()/`:
+
+```text
+COLDFRAME_SERVER_URL = http:/$()/localhost:5080
+COLDFRAME_KEYCLOAK_ISSUER = http:/$()/localhost:<keycloak port>/realms/coldframe
+```
+
+The build runs `./gradlew :core:embedAndSignAppleFrameworkForXcode` first, so it needs JDK 25 and,
+because Gradle configures every project, the Android SDK. Only the Debug configuration allows
+plain HTTP to local-network hosts (`NSAllowsLocalNetworking`); Release uses the default App
+Transport Security. Sign-in opens Keycloak in `ASWebAuthenticationSession`.
 
 ## Run the tests and lints
 
@@ -173,8 +229,16 @@ contrast table. Colours, typography, spacing, radii, Carbon icons and fonts have
 ./gradlew check
 ```
 
-`check` compiles, runs the tests and runs ktlint. `./gradlew ktlintFormat` fixes what ktlint can
-fix on its own.
+`check` compiles, runs the tests and runs ktlint and Android lint. It needs the Android SDK (see
+[Run the Android app](#run-the-android-app)). The shared core's tests in `tests/kt/core` run on the
+JVM with the network mocked; the Android app's tests in `tests/kt/android` run under Robolectric.
+On Linux the iOS targets of the core compile but do not link:
+
+```sh
+./gradlew :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64
+```
+
+`./gradlew ktlintFormat` fixes what ktlint can fix on its own.
 
 ### Swift
 
@@ -186,7 +250,9 @@ swift test
 swift format lint --strict -r .
 ```
 
-On Linux, run the same commands in the Swift container:
+The SwiftUI views and the tests that render them build only where SwiftUI exists; on Linux the
+presentation models and the String Catalog checks still run. On Linux, run the same commands in
+the Swift container:
 
 ```sh
 docker run --rm -v "$PWD":/work -w /work swift:6.3.3 \

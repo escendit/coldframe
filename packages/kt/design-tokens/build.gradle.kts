@@ -1,5 +1,8 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.ktlint)
 }
 
@@ -13,8 +16,24 @@ kotlin {
     explicitApi()
     jvmToolchain(25)
 
-    // Android and iOS targets arrive with the mobile sign-in story, as in :core.
+    // The JVM target runs the tests; the Android app depends on the Android target. iOS uses the
+    // Swift tokens package (packages/swift/design-tokens), so there is no iOS target here.
     jvm()
+
+    android {
+        namespace = "com.escendit.coldframe.designtokens"
+        compileSdk =
+            libs.versions.android.compile.sdk
+                .get()
+                .toInt()
+        minSdk =
+            libs.versions.android.min.sdk
+                .get()
+                .toInt()
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
 
     sourceSets {
         commonMain {

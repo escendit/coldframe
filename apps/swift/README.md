@@ -4,8 +4,16 @@ Swift runtimes.
 
 | Folder | What | Arrives in |
 | --- | --- | --- |
-| `ios/` | The iOS app, a SwiftUI shell over the shared core | Epic 1, with sign-in on iOS |
+| `ios/` | The iOS app, a SwiftUI shell over the shared core | Story 1.5 |
 
-`ios/Sources/ColdframeIOS` is the part of the app without UI. It is a SwiftPM target of the
-`Package.swift` in the repository root, so it builds and tests without Xcode.
-Tests live in [`tests/swift`](../../tests/swift).
+- `ios/Sources/ColdframeIOS` is the part of the app without Kotlin: presentation models, the
+  String Catalog and, where SwiftUI exists, the views. It is a SwiftPM target of the
+  `Package.swift` in the repository root, so it builds and tests without Xcode. The views talk to
+  the core only through the `SignInService` and `AppearanceService` protocols.
+- `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`, the
+  static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
+- `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
+  is not committed. `ios/Config` holds the build-time configuration and the Info.plists.
+
+Tests live in [`tests/swift`](../../tests/swift). Build and run the app as described in
+[`docs/quickstart.md`](../../docs/quickstart.md#run-the-ios-app).

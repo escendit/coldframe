@@ -19,6 +19,9 @@ public sealed class KeycloakTests(AppHostFixture fixture)
     private const string WebClientId = "coldframe-web";
     private const string WebSignInCallback = "http://localhost:5173/.oidc/signin/callback";
     private const string WebSignOutCallback = "http://localhost:5173/.oidc/signout/callback";
+    private const string MobileClientId = "coldframe-mobile";
+    private const string MobileSignInCallback = "com.escendit.coldframe:/signin/callback";
+    private const string MobileSignOutCallback = "com.escendit.coldframe:/signout/callback";
 
     private static readonly string[] EventListeners = ["jboss-logging", "temporal"];
     private static readonly TimeSpan WorkflowTimeout = TimeSpan.FromMinutes(1);
@@ -199,6 +202,44 @@ public sealed class KeycloakTests(AppHostFixture fixture)
         Assert.Equal(
             await GetParameterValueAsync(WebClientSecretParameter, timeout.Token),
             secret.RootElement.GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public async Task ColdframeRealmHasThePublicMobileClient()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var keycloak = await CreateAdminClientAsync(timeout.Token);
+        using var clients = await GetJsonAsync(
+            keycloak,
+            $"/admin/realms/{Realm}/clients?clientId={MobileClientId}",
+            timeout.Token);
+        var client = Assert.Single(clients.RootElement.EnumerateArray().ToArray());
+
+        Assert.Equal(MobileClientId, client.GetProperty("clientId").GetString());
+        Assert.True(client.GetProperty("enabled").GetBoolean(), "The client is disabled.");
+        Assert.True(client.GetProperty("publicClient").GetBoolean(), "The client is confidential.");
+        Assert.False(client.GetProperty("bearerOnly").GetBoolean(), "The client is bearer-only.");
+        Assert.True(client.GetProperty("standardFlowEnabled").GetBoolean(), "The standard flow is disabled.");
+        Assert.False(client.GetProperty("implicitFlowEnabled").GetBoolean(), "The implicit flow is enabled.");
+        Assert.False(
+            client.GetProperty("directAccessGrantsEnabled").GetBoolean(),
+            "Direct access grants are enabled.");
+        Assert.False(
+            client.GetProperty("serviceAccountsEnabled").GetBoolean(),
+            "Service accounts are enabled.");
+
+        var redirectUris = client.GetProperty("redirectUris")
+            .EnumerateArray()
+            .Select(uri => uri.GetString());
+        Assert.Equal([MobileSignInCallback], redirectUris);
+
+        var attributes = client.GetProperty("attributes");
+        Assert.Equal("S256", attributes.GetProperty("pkce.code.challenge.method").GetString());
+        Assert.Equal(MobileSignOutCallback, attributes.GetProperty("post.logout.redirect.uris").GetString());
     }
 
     private static async Task<JsonDocument> GetJsonAsync(

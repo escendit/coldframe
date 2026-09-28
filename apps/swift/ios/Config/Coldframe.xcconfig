@@ -1,0 +1,13 @@
+// Build-time configuration of the iOS app (AD-23). Users never enter or change it.
+//
+// "//" starts a comment in an xcconfig, so write URLs as https:/$()/host, for example:
+//   COLDFRAME_SERVER_URL = https:/$()/coldframe.example.com
+//   COLDFRAME_KEYCLOAK_ISSUER = https:/$()/id.example.com/realms/coldframe
+// Put your values in Coldframe.local.xcconfig next to this file (not committed). Empty values
+// fall back to never-resolvable defaults, so an unconfigured build shows the Unreachable notice.
+
+COLDFRAME_SERVER_URL =
+COLDFRAME_KEYCLOAK_ISSUER =
+COLDFRAME_KEYCLOAK_CLIENT_ID = coldframe-mobile
+
+#include? "Coldframe.local.xcconfig"

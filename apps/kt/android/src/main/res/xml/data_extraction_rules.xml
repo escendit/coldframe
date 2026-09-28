@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing leaves the phone: the token store is encrypted with a Keystore key that does not move,
+  so neither cloud backup nor device-to-device transfer (Android 12+) may copy app data.
+-->
+<data-extraction-rules>
+  <cloud-backup>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+  </cloud-backup>
+  <device-transfer>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+  </device-transfer>
+</data-extraction-rules>

@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        google()
         gradlePluginPortal()
         mavenCentral()
     }
@@ -8,6 +9,7 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
     repositories {
+        google()
         mavenCentral()
     }
 }
@@ -20,3 +22,6 @@ project(":core").projectDir = file("packages/kt/core")
 
 include(":design-tokens")
 project(":design-tokens").projectDir = file("packages/kt/design-tokens")
+
+include(":android")
+project(":android").projectDir = file("apps/kt/android")

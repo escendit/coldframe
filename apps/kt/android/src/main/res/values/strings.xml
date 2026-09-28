@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Every user-visible string of the Android app (UX-DR124). The iOS catalogue
+  (apps/swift/ios/Sources/ColdframeIOS/Resources/Localizable.xcstrings) carries the same keys and
+  English values; a test in tests/kt/android keeps them identical. Uppercase comes from style only.
+  Glossary terms are proper nouns: Site, Lot, Node, Hub, Sensor, Reading, Threshold, Alert,
+  Reminder, Notification Window, Silence Window, Pause, Calibration.
+-->
+<resources>
+  <string name="app_name">Coldframe</string>
+
+  <string name="signin_action">Sign in</string>
+  <string name="signin_working">Signing in…</string>
+
+  <string name="notice_unreachable">Can\'t reach your Coldframe Server. Check that this phone is on your home Wi-Fi.</string>
+  <string name="notice_certificate">Your Server\'s certificate isn\'t trusted, so Coldframe won\'t connect. The Server needs a valid certificate for its domain.</string>
+  <string name="notice_keycloak">Sign-in didn\'t finish: your Server\'s sign-in page returned an error. Nothing was changed.</string>
+  <string name="notice_signed_out">You\'re signed out. Sign in again to see live data.</string>
+  <string name="notice_try_again">Try again</string>
+  <string name="notice_sign_in">Sign in</string>
+
+  <string name="nav_garden">Garden</string>
+  <string name="nav_alerts">Alerts</string>
+  <string name="nav_devices">Devices</string>
+  <string name="nav_settings">Settings</string>
+  <string name="nav_back">Back</string>
+
+  <string name="garden_title">Garden</string>
+  <string name="alerts_title">Alerts</string>
+  <string name="devices_title">Devices</string>
+  <string name="settings_title">Settings</string>
+
+  <string name="settings_appearance">Appearance</string>
+  <string name="settings_appearance_helper">Theme for this phone</string>
+  <string name="settings_account">Account</string>
+  <string name="settings_sign_out">Sign out</string>
+  <string name="settings_sign_out_question">Sign out of Coldframe on this phone?</string>
+  <string name="settings_sign_out_detail">Your Site and its Lots stay as they are. Sign in again to see live data.</string>
+
+  <string name="appearance_title">Appearance</string>
+  <string name="appearance_theme">Theme</string>
+  <string name="appearance_theme_helper">Applies at once and only on this phone.</string>
+  <string name="theme_system">System</string>
+  <string name="theme_light">Light</string>
+  <string name="theme_dark">Dark</string>
+
+  <string name="field_show_password">Show password</string>
+  <string name="field_hide_password">Hide password</string>
+  <string name="modal_cancel">Cancel</string>
+
+  <plurals name="count_lots_need_water">
+    <item quantity="one">%1$d Lot needs water</item>
+    <item quantity="other">%1$d Lots need water</item>
+  </plurals>
+  <plurals name="count_open_alerts">
+    <item quantity="one">Alerts, %1$d open</item>
+    <item quantity="other">Alerts, %1$d open</item>
+  </plurals>
+
+  <string name="duration_minutes">%1$d min</string>
+  <string name="duration_hours">%1$d h</string>
+  <string name="duration_hours_minutes">%1$d h %2$d min</string>
+  <string name="duration_days">%1$d d</string>
+</resources>

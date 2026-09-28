@@ -82,7 +82,7 @@ jobs:
   kotlin:
     name: Kotlin
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,9 +98,17 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
-      # "check" compiles, runs the tests and runs ktlint.
+      # The Android app and the Android targets compile against API 37 (see libs.versions.toml).
+      - name: Install Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
+
+      # "check" compiles, runs the tests (core on the JVM, the Android app under Robolectric) and
+      # runs ktlint and Android lint.
       - name: Build, test and lint
         run: ./gradlew check
+
+      - name: Compile the core for iOS
+        run: ./gradlew :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64
 
   typescript:
     name: TypeScript
@@ -178,6 +186,53 @@ jobs:
 
       - name: Lint
         run: swift format lint --strict --recursive .
+
+  ios:
+    name: iOS app
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version
+
+      # Gradle configures every project, so the Android SDK must be present for the core's build.
+      - name: Install Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
+
+      # Homebrew serves one version; the check fails the job when it moves on from the pinned one.
+      - name: Install XcodeGen
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install xcodegen
+          xcodegen --version | grep -Fx "Version: 2.46.0"
+
+      - name: Generate the Xcode project
+        working-directory: apps/swift/ios
+        run: xcodegen generate
+
+      # The pre-build script builds ColdframeCore with Gradle, then Xcode builds the SwiftUI app.
+      - name: Build
+        working-directory: apps/swift/ios
+        run: >
+          xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
+          -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
   secrets:
     name: Secrets

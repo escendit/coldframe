@@ -1,0 +1,57 @@
+import ColdframeCore
+import ColdframeIOS
+import Foundation
+
+/// Adapts `IosSignIn` of the shared Kotlin core to `SignInService`. The only file of the app,
+/// with `CoreAppearanceService`, that imports `ColdframeCore`; no token crosses this boundary.
+@MainActor
+final class CoreSignInService: SignInService {
+  private let core: IosSignIn
+  private var watch: Watch?
+
+  /// Server URL, issuer and client id come from Info.plist, set by `Config/Coldframe.xcconfig`
+  /// (AD-23). Empty values fall back to the core's never-resolvable defaults.
+  init(bundle: Bundle = .main) {
+    func value(_ key: String) -> String? { bundle.object(forInfoDictionaryKey: key) as? String }
+    core = IosSignIn.companion.create(
+      serverUrl: value("ColdframeServerURL"),
+      keycloakIssuer: value("ColdframeKeycloakIssuer"),
+      clientId: value("ColdframeKeycloakClientId"))
+  }
+
+  func observe(_ onChange: @escaping @MainActor (SignInPresentation) -> Void) {
+    watch?.close()
+    watch = core.watch { snapshot in
+      MainActor.assumeIsolated {
+        onChange(
+          SignInPresentation(
+            restoring: snapshot.restoring, working: snapshot.working,
+            signedIn: snapshot.signedIn, notice: snapshot.notice, action: snapshot.action))
+      }
+    }
+  }
+
+  func signIn() { core.signIn() }
+
+  func resume() { core.resume() }
+
+  func signOut() { core.signOut() }
+}
+
+/// Adapts `IosAppearance` of the shared Kotlin core to `AppearanceService`.
+@MainActor
+final class CoreAppearanceService: AppearanceService {
+  private let core = IosAppearance()
+  private var watch: Watch?
+
+  func observe(_ onChange: @escaping @MainActor (ThemePreference) -> Void) {
+    watch?.close()
+    watch = core.watch { stored in
+      MainActor.assumeIsolated { onChange(ThemePreference(stored: stored)) }
+    }
+  }
+
+  func select(_ preference: ThemePreference) {
+    core.select(storedValue: preference.rawValue)
+  }
+}

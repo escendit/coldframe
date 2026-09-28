@@ -1,0 +1,51 @@
+package com.escendit.coldframe.android
+
+import android.graphics.Color
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/** Registers the Custom Tabs flow, resumes the session on every foreground, renders the root. */
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        val app = application as ColdframeApplication
+        app.signIn.registerActivity(this)
+        super.onCreate(savedInstanceState)
+        val engine = app.signIn.engine
+        val appearance = app.appearance
+        setContent {
+            val state by engine.state.collectAsStateWithLifecycle()
+            val theme by appearance.theme.collectAsStateWithLifecycle()
+            val systemIsDark = isSystemInDarkTheme()
+            val isDark = theme.isDark(systemIsDark)
+            // System bar icons follow the app's theme, which may differ from the OS appearance.
+            DisposableEffect(isDark) {
+                val style =
+                    if (isDark) {
+                        SystemBarStyle.dark(Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose {}
+            }
+            LifecycleEventEffect(Lifecycle.Event.ON_START) { engine.resume() }
+            ColdframeRoot(
+                state = state,
+                theme = theme,
+                onSignIn = engine::signIn,
+                onSignOut = engine::signOut,
+                onSelectTheme = appearance::select,
+                systemIsDark = systemIsDark,
+            )
+        }
+    }
+}
