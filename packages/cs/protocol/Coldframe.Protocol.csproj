@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Protobuf types generated at build time from packages/proto (AD-10). -->
+  <PropertyGroup>
+    <RootNamespace>Coldframe.Protocol</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Protobuf Include="..\..\proto\coldframe\**\*.proto" ProtoRoot="..\..\proto" GrpcServices="None" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+# buf v2 module: the Device wire contract (AD-10). `buf lint` holds the files to the STANDARD style;
+# `buf breaking` (FILE rules) runs in check-compat.sh against the base of every change.
+version: v2
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

@@ -5,11 +5,15 @@ namespace Coldframe.Server.Tests.Edge;
 
 /// <summary>
 /// Every Edge API endpoint declares exactly one access rule, and the mapped endpoints are exactly the
-/// operations of the contract, with the same rules (AD-4, AD-10, AD-24).
+/// operations of the contract, with the same rules (AD-4, AD-10, AD-24). An operation marked
+/// <c>x-coldframe-planned</c> is in the contract ahead of the Server and must not be mapped yet; the story
+/// that serves it removes the mark.
 /// </summary>
 public sealed class EdgeEndpointDiscoveryTests
 {
     private const string MinimumRoleExtension = "x-coldframe-minimum-role";
+
+    private const string PlannedExtension = "x-coldframe-planned";
 
     private static readonly string ContractPath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "coldframe.openapi.json");
 
@@ -52,10 +56,22 @@ public sealed class EdgeEndpointDiscoveryTests
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        Assert.Equal(ReadContractOperations(), mapped);
+        Assert.Equal(ReadContractOperations(planned: false), mapped);
     }
 
-    private static List<string> ReadContractOperations()
+    [Fact]
+    public void NoPlannedOperationIsMappedYet()
+    {
+        var planned = ReadContractOperations(planned: true);
+        Assert.NotEmpty(planned);
+
+        var mapped = EdgeEndpointCatalog.Describe().Select(operation => operation.Key).ToHashSet(StringComparer.Ordinal);
+        var early = planned.Select(operation => string.Join(' ', operation.Split(' ').Take(2))).Where(mapped.Contains).ToList();
+
+        Assert.True(early.Count == 0, $"Mapped before the contract drops {PlannedExtension}: {string.Join(", ", early)}.");
+    }
+
+    private static List<string> ReadContractOperations(bool planned)
     {
         using var stream = File.OpenRead(ContractPath);
         using var contract = JsonDocument.Parse(stream);
@@ -70,7 +86,10 @@ public sealed class EdgeEndpointDiscoveryTests
                     operation.Value.TryGetProperty(MinimumRoleExtension, out var rule),
                     $"{operation.Name.ToUpperInvariant()} {path.Name} in the contract has no {MinimumRoleExtension}.");
 
-                operations.Add($"{operation.Name.ToUpperInvariant()} {path.Name} {rule.GetString()}");
+                if (operation.Value.TryGetProperty(PlannedExtension, out _) == planned)
+                {
+                    operations.Add($"{operation.Name.ToUpperInvariant()} {path.Name} {rule.GetString()}");
+                }
             }
         }
 

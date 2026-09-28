@@ -233,6 +233,12 @@ importers:
         specifier: 4.7.6
         version: 4.7.6(picomatch@4.0.7)(svelte@5.57.1(@typescript-eslint/types@8.70.1))(typescript@6.0.3)
 
+  packages/crypto-spec:
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.0
+        version: 24.19.0
+
   packages/design-tokens:
     devDependencies:
       '@types/node':
@@ -260,6 +266,15 @@ importers:
       '@coldframe/api-client':
         specifier: workspace:*
         version: link:../../../packages/ts/api-client
+      '@types/node':
+        specifier: 24.19.0
+        version: 24.19.0
+
+  tests/ts/crypto-spec:
+    devDependencies:
+      '@coldframe/crypto-spec':
+        specifier: workspace:*
+        version: link:../../../packages/crypto-spec
       '@types/node':
         specifier: 24.19.0
         version: 24.19.0

@@ -3,10 +3,93 @@
   "info": {
     "title": "Coldframe Edge API",
     "version": "0.1.0",
-    "description": "The Server's REST API. Every request carries a Keycloak access token with audience coldframe-server and is authorized per Site from the identity projection, never from token claims. Each operation declares its access rule in x-coldframe-minimum-role: a SiteRole on the Site named by siteId, or Authenticated for any signed-in User. Every error is RFC 9457 Problem Details with a stable type."
+    "description": "The Server's REST API. Every request except the Device endpoints carries a Keycloak access token with audience coldframe-server and is authorized per Site from the identity projection, never from token claims; Devices authenticate as Devices (security scheme deviceHmac). Each operation declares its access rule in x-coldframe-minimum-role: a SiteRole on the Site named by siteId, Authenticated for any signed-in User, or Device. An operation with x-coldframe-planned is in the contract ahead of the Server; the value names the story that serves it. Every error is RFC 9457 Problem Details with a stable type."
   },
   "security": [{ "bearer": [] }],
   "paths": {
+    "/device/heartbeat": {
+      "post": {
+        "operationId": "deviceHeartbeat",
+        "summary": "A Hub reports that it is alive",
+        "description": "Authenticated as a Device (security scheme deviceHmac), never with a Keycloak token. The Server rejects a bad signature, a timestamp more than 300000 ms off its clock and a replayed nonce; a valid heartbeat updates the Device's last-seen time. The Hub adopts serverTime for its own timing only and never stamps data with it.",
+        "x-coldframe-minimum-role": "Device",
+        "x-coldframe-planned": "3.5",
+        "security": [{ "deviceHmac": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/DeviceIdHeader" },
+          { "$ref": "#/components/parameters/DeviceTimestampHeader" },
+          { "$ref": "#/components/parameters/DeviceNonceHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/HeartbeatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The heartbeat is recorded.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HeartbeatResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/DeviceUnauthorized" }
+        }
+      }
+    },
+    "/device/ingest": {
+      "post": {
+        "operationId": "deviceIngest",
+        "summary": "A Hub relays sealed Node frames (placeholder)",
+        "description": "Placeholder until Epic 4 defines the envelope and the per-frame statuses (AD-9). Authenticated as a Device (security scheme deviceHmac).",
+        "x-coldframe-minimum-role": "Device",
+        "x-coldframe-planned": "4.x",
+        "security": [{ "deviceHmac": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/DeviceIdHeader" },
+          { "$ref": "#/components/parameters/DeviceTimestampHeader" },
+          { "$ref": "#/components/parameters/DeviceNonceHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "contentEncoding": "binary", "description": "Opaque until Epic 4." }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "The frames are accepted for processing." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/DeviceUnauthorized" }
+        }
+      }
+    },
+    "/enrolment-key": {
+      "get": {
+        "operationId": "getEnrolmentKey",
+        "summary": "Read the Server's X25519 enrolment public key",
+        "description": "The app shows the fingerprint and writes the key to the Device over BLE; the Device seals K_dev to it with HPKE (AD-12).",
+        "x-coldframe-minimum-role": "Authenticated",
+        "x-coldframe-planned": "3.3",
+        "responses": {
+          "200": {
+            "description": "The enrolment key.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EnrolmentKey" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/sites": {
       "get": {
         "operationId": "listSites",
@@ -109,6 +192,43 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/SiteNotFound" },
           "503": { "$ref": "#/components/responses/IdentityProviderUnavailable" }
+        }
+      }
+    },
+    "/sites/{siteId}/devices": {
+      "post": {
+        "operationId": "enrolDevice",
+        "summary": "Enrol a Device on the Site",
+        "description": "The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. Idempotent per caller and Idempotency-Key for 24 h. Nothing is persisted on any error.",
+        "x-coldframe-minimum-role": "Administrator",
+        "x-coldframe-planned": "3.3",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/IdempotencyKey" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/EnrolDeviceRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The Device is enrolled on the Site.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" },
+          "409": { "$ref": "#/components/responses/DeviceOnAnotherSite" },
+          "422": { "$ref": "#/components/responses/IdempotencyKeyReused" }
         }
       }
     },
@@ -254,6 +374,12 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "A Keycloak access token of the coldframe realm with audience coldframe-server. The User ID is its sub."
+      },
+      "deviceHmac": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Coldframe-Signature",
+        "description": "Device authentication (AD-12), never a Keycloak token. X-Coldframe-Signature is the lowercase hex HMAC-SHA256, with the Device's hub-auth/v1 key, of METHOD \\n PATH \\n hex(SHA-256(body)) \\n X-Coldframe-Timestamp \\n X-Coldframe-Nonce. METHOD is uppercase; PATH is the absolute request path without query string, exactly as sent (for example /device/heartbeat). The request also carries X-Coldframe-Device (the Device ID), X-Coldframe-Timestamp (Unix ms, within 300000 ms of the Server clock) and X-Coldframe-Nonce (16 random bytes, 32 lowercase hex digits, never reused). packages/crypto-spec defines the format and its test vectors."
       }
     },
     "parameters": {
@@ -277,6 +403,27 @@
         "required": true,
         "description": "The Lot ID, a UUIDv7.",
         "schema": { "type": "string", "format": "uuid" }
+      },
+      "DeviceIdHeader": {
+        "name": "X-Coldframe-Device",
+        "in": "header",
+        "required": true,
+        "description": "The calling Device's ID, 16 lowercase hex digits.",
+        "schema": { "$ref": "#/components/schemas/DeviceId" }
+      },
+      "DeviceTimestampHeader": {
+        "name": "X-Coldframe-Timestamp",
+        "in": "header",
+        "required": true,
+        "description": "The request time, Unix milliseconds UTC; rejected when more than 300000 ms off the Server clock.",
+        "schema": { "type": "string", "pattern": "^[0-9]{1,19}$" }
+      },
+      "DeviceNonceHeader": {
+        "name": "X-Coldframe-Nonce",
+        "in": "header",
+        "required": true,
+        "description": "16 random bytes as 32 lowercase hex digits; a replayed nonce is rejected.",
+        "schema": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
       }
     },
     "schemas": {
@@ -379,6 +526,73 @@
           }
         }
       },
+      "DeviceId": {
+        "type": "string",
+        "description": "The Device ID, derived from the Device's eFuse-bound identity: 16 lowercase hex digits.",
+        "pattern": "^[0-9a-f]{16}$"
+      },
+      "DeviceKind": {
+        "type": "string",
+        "enum": ["hub", "node"]
+      },
+      "HeartbeatRequest": {
+        "type": "object",
+        "required": ["protocolVersion"],
+        "properties": {
+          "protocolVersion": { "type": "integer", "minimum": 1, "description": "The Device's wire major." },
+          "uptimeMs": { "type": "integer", "minimum": 0, "description": "Milliseconds since the Device booted." }
+        }
+      },
+      "HeartbeatResponse": {
+        "type": "object",
+        "required": ["serverTime"],
+        "properties": {
+          "serverTime": { "type": "string", "format": "date-time", "description": "The Server clock, ISO-8601 UTC with Z." }
+        }
+      },
+      "EnrolmentKey": {
+        "type": "object",
+        "required": ["publicKey", "fingerprint"],
+        "properties": {
+          "publicKey": {
+            "type": "string",
+            "description": "The raw 32-byte X25519 enrolment public key, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "Lowercase hex SHA-256 of the raw public key. The app shows it to the user; the Device checks it against the key as an integrity check only, since it travels with the key. Authenticity comes from fetching this over TLS and the fingerprint the user sees.",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "EnrolDeviceRequest": {
+        "type": "object",
+        "required": ["deviceId", "kind", "enc", "ciphertext"],
+        "properties": {
+          "deviceId": { "$ref": "#/components/schemas/DeviceId" },
+          "kind": { "$ref": "#/components/schemas/DeviceKind" },
+          "enc": {
+            "type": "string",
+            "description": "The HPKE encapsulated key (32 bytes), base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "ciphertext": {
+            "type": "string",
+            "description": "K_dev sealed with HPKE (48 bytes), base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{64}$"
+          }
+        }
+      },
+      "Device": {
+        "type": "object",
+        "required": ["id", "kind", "siteId"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/DeviceId" },
+          "kind": { "$ref": "#/components/schemas/DeviceKind" },
+          "siteId": { "type": "string", "format": "uuid", "description": "The Site the Device is enrolled on." }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "description": "RFC 9457 Problem Details.",
@@ -386,8 +600,8 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Stable: urn:coldframe:problem:<slug>.",
-            "enum": [
+            "description": "Stable: urn:coldframe:problem:<slug>. The set grows as operations are added, so it is an x-extensible-enum: a client handles a type it does not know by its status.",
+            "x-extensible-enum": [
               "urn:coldframe:problem:unauthorized",
               "urn:coldframe:problem:forbidden",
               "urn:coldframe:problem:site-not-found",
@@ -396,7 +610,9 @@
               "urn:coldframe:problem:idempotency-key-missing",
               "urn:coldframe:problem:idempotency-key-reused",
               "urn:coldframe:problem:identity-provider-unavailable",
-              "urn:coldframe:problem:lot-claimed"
+              "urn:coldframe:problem:lot-claimed",
+              "urn:coldframe:problem:device-unauthorized",
+              "urn:coldframe:problem:device-on-another-site"
             ]
           },
           "title": { "type": "string" },
@@ -433,6 +649,14 @@
       },
       "LotClaimed": {
         "description": "urn:coldframe:problem:lot-claimed: a Node is assigned to the Lot. Nothing changed; move or unassign the Node first.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "DeviceUnauthorized": {
+        "description": "urn:coldframe:problem:device-unauthorized: the Device authentication failed (unknown Device, bad signature, timestamp more than 300000 ms off, or a replayed nonce).",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "DeviceOnAnotherSite": {
+        "description": "urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. Nothing was persisted.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "IdentityProviderUnavailable": {

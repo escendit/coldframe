@@ -163,6 +163,51 @@ jobs:
       - name: Design tokens
         run: pnpm --filter @coldframe/design-tokens run check
 
+      # Fails when the Rust, C# or Kotlin crypto-spec constants or vectors.json are stale, or when the
+      # reference implementation no longer reproduces the RFC anchors.
+      - name: Crypto spec
+        run: pnpm --filter @coldframe/crypto-spec run check
+
+  # Wire-contract compatibility (AD-10, AD-24): buf lint, buf breaking (FILE) and oasdiff breaking against
+  # the merge base of a pull request, or the previous commit on a push. The self-test first proves that a
+  # removed .proto field, a removed operation and a newly required property fail. Tools are pinned and
+  # checksum-verified by packages/proto/install-tools.sh.
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install buf and oasdiff
+        run: |
+          packages/proto/install-tools.sh "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: Self-test
+        run: packages/proto/check-compat.sh --self-test
+
+      - name: Check compatibility
+        # On a push the baseline is the commit before the whole push, so a break in any of its commits
+        # counts; HEAD^ only when that is unknown (a new branch) or not in the local history.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          elif [[ -n "${BEFORE}" && ! "${BEFORE}" =~ ^0+$ ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            base="${BEFORE}"
+          else
+            base="$(git rev-parse HEAD^)"
+          fi
+          packages/proto/check-compat.sh --base "${base}"
+
   swift:
     name: Swift
     runs-on: macos-26

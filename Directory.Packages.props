@@ -61,6 +61,15 @@
     <PackageVersion Include="Temporalio" Version="1.19.0" />
     <PackageVersion Include="Temporalio.Extensions.Hosting" Version="1.19.0" />
   </ItemGroup>
+  <!--
+    Device contracts (AD-10, AD-12): Protobuf types from packages/proto, and X25519, which .NET does not
+    provide, for packages/crypto-spec. Google.Protobuf follows the architecture's pin.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
+    <PackageVersion Include="Grpc.Tools" Version="2.84.0" />
+  </ItemGroup>
   <!-- Analyzers. BannedSymbols.txt at the root lists what apps/cs and packages/cs must not call. -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0" />

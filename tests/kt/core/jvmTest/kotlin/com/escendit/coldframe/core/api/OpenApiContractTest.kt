@@ -165,7 +165,7 @@ class OpenApiContractTest {
         val types =
             schema("ProblemDetails")["properties"]!!
                 .jsonObject["type"]!!
-                .jsonObject["enum"]!!
+                .jsonObject["x-extensible-enum"]!!
                 .jsonArray
                 .map { it.jsonPrimitive.content }
         assertTrue(ColdframeApi.PROBLEM_VALIDATION in types)

@@ -2,7 +2,7 @@
 # Firmware crates target the ESP32-S3 with their own toolchain and stay outside it.
 [workspace]
 resolver = "3"
-members = ["packages/rs/hal", "tests/rs/hal"]
+members = ["packages/rs/crypto", "packages/rs/hal", "tests/rs/crypto", "tests/rs/hal"]
 exclude = ["apps/rs"]
 
 [workspace.package]

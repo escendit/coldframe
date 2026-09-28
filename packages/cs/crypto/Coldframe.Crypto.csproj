@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Device cryptography as packages/crypto-spec defines it (AD-12, AD-17, AD-25): key hierarchy, frame
+    sealing, HPKE enrolment, the BLE setup session and heartbeat signing. Generated/CryptoSpec.g.cs is
+    written by packages/crypto-spec/scripts/generate.ts.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Coldframe.Crypto</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- X25519 only; HKDF, HMAC, SHA-256 and ChaCha20-Poly1305 come from .NET. -->
+    <PackageReference Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+</Project>

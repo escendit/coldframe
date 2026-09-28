@@ -181,7 +181,8 @@ Settings, section `KeycloakEvents`: `TargetHost` (Temporal frontend, `host:port`
 ### Add an endpoint
 
 1. **Contract.** Add the operation to `packages/openapi/coldframe.openapi.json` with its
-   `x-coldframe-minimum-role`: a `SiteRole` or `Authenticated`.
+   `x-coldframe-minimum-role`: a `SiteRole` or `Authenticated` (or `Device` for `/device/*`). If the
+   contract already has it with `x-coldframe-planned`, remove that mark in the same change.
 2. **Rule.** Map it in `MapEdgeApi()` with exactly one of `.RequireSiteRole(SiteRole.X)` (the route
    must contain `{siteId}`) or `.RequireAuthenticatedCaller()`. Handlers call grains and read only read
    models.

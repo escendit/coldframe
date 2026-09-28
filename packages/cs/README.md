@@ -5,8 +5,12 @@
 | Folder | What |
 | --- | --- |
 | `contracts/` | `Coldframe.Contracts`: event contracts, `EventTypeAttribute`, `IEventUpcaster<TFrom, TTo>`, and the Site and User grain interfaces with their results |
+| `crypto/` | `Coldframe.Crypto`: the Device crypto contract of [`packages/crypto-spec`](../crypto-spec) (key hierarchy, frame sealing and `ReplayWindow`, HPKE `Enrolment`, `SetupSession`, `Heartbeat`); `Generated/CryptoSpec.g.cs` is generated. X25519 comes from BouncyCastle, everything else from .NET |
+| `protocol/` | `Coldframe.Protocol`: Google.Protobuf types compiled at build time from [`packages/proto`](../proto) |
 
-Tests live in [`tests/cs`](../../tests/cs).
+Tests live in [`tests/cs`](../../tests/cs). Server and end-to-end tests drive the Device path through
+the Device simulator in [`tests/cs/device-simulator`](../../tests/cs/device-simulator), never through
+hand-built payloads.
 
 ## Event contracts
 
