@@ -321,9 +321,12 @@ On macOS:
 
 ```sh
 swift build
-swift test
+xcodebuild test -scheme Coldframe-Package -destination 'platform=macOS'
 swift format lint --strict -r .
 ```
+
+`swift test` copies the String Catalog verbatim instead of compiling it, so on macOS the tests
+that read catalogue text (such as the UX-DR125 plurals) pass only under `xcodebuild`.
 
 The SwiftUI views and the tests that render them build only where SwiftUI exists; on Linux the
 presentation models and the String Catalog checks still run. On Linux, run the same commands in

@@ -79,12 +79,16 @@ public sealed class ProjectionTests(SampleClusterWithoutStreams sample) : IClass
     {
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        // Start from a caught-up projector.
+        // Start from a caught-up projector past position 0. The fixture's journal is empty when this test
+        // runs first, and a rebuild re-creates the checkpoint at 0, so a batch read after 0 is correctly
+        // applied and could not show the race.
+        await sample.Grain($"rebuild-base-{Guid.NewGuid():N}").Create("B");
         var before = await sample.LastPositionAsync();
         sample.Wakeup.Wake();
         await JournalWait.UntilCheckpointAsync(sample.Database, SampleProjector.ProjectorName, before);
         await JournalWait.UntilAsync(() => Task.FromResult(sample.Runner.IsWaiting), "the projection runner waits");
         var readAfter = await sample.CheckpointAsync();
+        Assert.True(readAfter > 0);
 
         var grain = sample.Grain($"rebuild-race-{Guid.NewGuid():N}");
         await grain.Create("R");

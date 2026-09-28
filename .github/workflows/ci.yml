@@ -226,8 +226,10 @@ jobs:
       - name: Build
         run: swift build
 
+      # swift test copies the String Catalog verbatim; Xcode's build system compiles it, so the
+      # tests that read catalogue text run under xcodebuild.
       - name: Test
-        run: swift test
+        run: xcodebuild test -scheme Coldframe-Package -destination 'platform=macOS'
 
       - name: Lint
         run: swift format lint --strict --recursive .

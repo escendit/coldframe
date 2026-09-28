@@ -16,6 +16,8 @@ import PackageDescription
 // tests/swift.
 let package = Package(
   name: "Coldframe",
+  // The String Catalog is a localized resource, which needs a default localization.
+  defaultLocalization: "en",
   platforms: [.iOS(.v17), .macOS(.v14)],
   products: [
     .library(name: "ColdframeIOS", targets: ["ColdframeIOS"]),
