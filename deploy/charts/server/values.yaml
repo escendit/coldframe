@@ -1,5 +1,5 @@
 # The Coldframe Server. Credentials are never values: they come from the Secrets
-# coldframe-db-server and coldframe-oidc-clients (deploy/SECRETS.md).
+# coldframe-db-coldframe and coldframe-oidc-clients (deploy/SECRETS.md).
 
 # Resource names default to the release name.
 fullnameOverride: ""

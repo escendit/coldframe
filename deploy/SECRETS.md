@@ -13,20 +13,31 @@ A missing Secret or key does not fall back to anything: the pod stays in
 
 | Secret | Type | Keys | Consumer |
 | --- | --- | --- | --- |
-| `coldframe-db-server` | `kubernetes.io/basic-auth` | `username`, `password` | `server` chart (Server and migration Job); database `coldframe` |
-| `coldframe-db-temporal` | `kubernetes.io/basic-auth` | `username`, `password` | `temporal` chart (server and schema Job); databases `temporal` and `temporal_visibility` |
-| `coldframe-db-keycloak` | `kubernetes.io/basic-auth` | `username`, `password` | `keycloak` chart; database `keycloak` |
+| `coldframe-db-coldframe` | `kubernetes.io/basic-auth` | `username`, `password` | `database` chart: password of the role `coldframe`, owner of the database `coldframe`; `server` chart (Server and migration Job) |
+| `coldframe-db-temporal` | `kubernetes.io/basic-auth` | `username`, `password` | `database` chart: password of the role `temporal`, owner of the databases `temporal` and `temporal_visibility`; `temporal` chart (server and schema Job) |
+| `coldframe-db-keycloak` | `kubernetes.io/basic-auth` | `username`, `password` | `database` chart: password of the role `keycloak`, owner of the database `keycloak`; `keycloak` chart |
 | `coldframe-keycloak-admin` | `Opaque` | `username`, `password` | `keycloak` chart: the temporary bootstrap admin of the master realm. Keycloak creates it on the first start only, but the Deployment reads the Secret on every start, so it must stay |
 | `coldframe-oidc-clients` | `Opaque` | `web-client-secret`, `server-client-secret` | `web` chart (`web-client-secret`), `server` chart (`server-client-secret`), `keycloak` chart (both, substituted into an imported realm) |
 | `coldframe-smtp` | `Opaque` | `host`, `port`, `username`, `password`, `from` | not yet consumed: invitations (Epic 9) |
 | `coldframe-push` | `Opaque` | `apns-key.p8`, `apns-key-id`, `apns-team-id`, `fcm-service-account.json` | not yet consumed: push notifications (Epic 6) |
 | `coldframe-dns01` | `Opaque` | `api-token` | not yet consumed: the cert-manager DNS-01 solver (Story 2.4) |
 | `coldframe-enrolment-key` | `Opaque` | `private-key.pem` | not yet consumed: Device enrolment (Epic 3) |
-| `coldframe-backup-s3` | `Opaque` | `access-key-id`, `secret-access-key` | not yet consumed: CloudNativePG backups (Story 2.3) |
+| `coldframe-backup-s3` | `Opaque` | `access-key-id`, `secret-access-key` | `database` chart: the Barman Cloud `ObjectStore` (WAL archive and base backups, and the source of a restore) |
 
 The three database Secrets have the `kubernetes.io/basic-auth` shape that CloudNativePG consumes
-for managed roles (Story 2.3). The Server composes its connection string from `username` and
-`password`, so the Server's password must not contain `;`.
+for managed roles: the `database` chart creates each role with the password of its Secret and
+keeps it equal to that Secret. Each is named after its role and database (`coldframe-db-<role>`):
+CloudNativePG itself creates `coldframe-db-ca`, `coldframe-db-server`, `coldframe-db-replication`,
+`coldframe-db-app` and `coldframe-db-superuser` for the cluster `coldframe-db`, so no contract
+Secret may take those names. **Each Secret's `username` must equal its role name**, the chart
+values `roles.server`, `roles.temporal` and `roles.keycloak` (defaults `coldframe`, `temporal`,
+`keycloak`); the consumers log in with `username`. Label them `cnpg.io/reload=true` so that
+CloudNativePG applies a changed password at once. The Server composes its connection string from
+`username` and `password`, so the Server's password must not contain `;`.
+
+`coldframe-backup-s3` holds the S3 access key of the backup bucket (`backup.destinationPath` and
+`backup.endpointURL` of the `database` chart). The key needs read, write, list and delete on that
+bucket: the plugin deletes backups past the retention policy.
 
 ## Creating the Secrets
 
@@ -36,7 +47,7 @@ read them from a password manager into variables). `NS` is the namespace of the 
 ```sh
 NS=coldframe
 
-kubectl -n "$NS" create secret generic coldframe-db-server \
+kubectl -n "$NS" create secret generic coldframe-db-coldframe \
   --type=kubernetes.io/basic-auth \
   --from-literal=username=coldframe --from-literal=password='<server-db-password>'
 
@@ -47,6 +58,9 @@ kubectl -n "$NS" create secret generic coldframe-db-temporal \
 kubectl -n "$NS" create secret generic coldframe-db-keycloak \
   --type=kubernetes.io/basic-auth \
   --from-literal=username=keycloak --from-literal=password='<keycloak-db-password>'
+
+kubectl -n "$NS" label secret coldframe-db-coldframe coldframe-db-temporal coldframe-db-keycloak \
+  cnpg.io/reload=true
 
 kubectl -n "$NS" create secret generic coldframe-keycloak-admin \
   --from-literal=username=admin --from-literal=password='<keycloak-admin-password>'
@@ -75,8 +89,7 @@ kubectl -n "$NS" create secret generic coldframe-backup-s3 \
   --from-literal=access-key-id='<s3-access-key-id>' --from-literal=secret-access-key='<s3-secret-access-key>'
 ```
 
-The database roles and the databases themselves belong to the database cluster (Story 2.3); the
-passwords above must be the passwords of those roles. The client secrets must match the
+The `database` chart creates the roles with these passwords and the databases they own. The client secrets must match the
 `coldframe-web` and `coldframe-server` clients of the `coldframe` realm.
 
 After the first start, sign in with the bootstrap admin, create a permanent admin in the master
@@ -87,8 +100,15 @@ Rotating a value: change it at its source first, then update the Secret, then re
 that read it (`kubectl -n "$NS" rollout restart deployment/<release>`). Pods read Secrets only at
 start.
 
-- `coldframe-db-*`: change the role's password in PostgreSQL first (Story 2.3); the Secret alone
-  does not change it.
+- `coldframe-db-*`: update the Secret; CloudNativePG (managed roles of the `database` chart) sets
+  the role's password to the new value, at once when the Secret carries the label
+  `cnpg.io/reload=true`, otherwise at its next reconciliation. Then restart the consumer
+  (`server`, `temporal` or `keycloak`). Do not change the password in PostgreSQL by hand: the
+  operator sets it back to the Secret.
+- `coldframe-backup-s3`: create the new key at the S3 provider and update the Secret. Delete the
+  old key only after a WAL segment and a Backup made after the change have reached the bucket
+  (`ContinuousArchiving` `True` on `cluster/coldframe-db`, a new Backup `completed`; see
+  [`docs/operations/restore.md`](../docs/operations/restore.md#recovery-point)).
 - `coldframe-oidc-clients`: regenerate the client secret in Keycloak first (admin console or admin
   API, clients `coldframe-web` and `coldframe-server`). The realm import never overwrites an
   existing realm, so a new value in the Secret alone breaks sign-in.

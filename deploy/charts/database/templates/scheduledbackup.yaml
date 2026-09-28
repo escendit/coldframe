@@ -1,0 +1,18 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ include "database.clusterName" . }}
+  labels:
+    {{- include "database.labels" . | nindent 4 }}
+spec:
+  cluster:
+    name: {{ include "database.clusterName" . }}
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  # Six fields, seconds first.
+  schedule: {{ .Values.backup.schedule | quote }}
+  # A first base backup as soon as the cluster is ready.
+  immediate: true
+  # The Backup objects belong to this ScheduledBackup and go with it.
+  backupOwnerReference: self

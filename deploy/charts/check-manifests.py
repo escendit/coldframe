@@ -5,7 +5,9 @@
 
 Fails (exit 1), naming each offender, when a document is a Secret, or when a manifest references a
 Secret name or key that the contract table does not list. References are secretKeyRef, envFrom
-secretRef, secret volumes and projected secret sources (with their items), and imagePullSecrets. A reference
+secretRef, secret volumes and projected secret sources (with their items), imagePullSecrets, the
+CloudNativePG role passwordSecret and bootstrap secret, and the Barman Cloud ObjectStore
+s3Credentials entries (with their keys). A reference
 marked optional fails too: a missing Secret must stop the pod, not start it without the credential.
 Needs python3 and PyYAML only.
 """
@@ -17,6 +19,9 @@ import yaml
 
 # Marks an optional Secret reference in the output of references().
 OPTIONAL = object()
+
+# The Secret selectors of a Barman Cloud ObjectStore's s3Credentials.
+S3_CREDENTIALS = ("accessKeyId", "secretAccessKey", "region", "sessionToken")
 
 
 def read_contract(path):
@@ -54,6 +59,15 @@ def references(node, path="$"):
                     yield here, name, None
                 for item in items:
                     yield here, name, item.get("key")
+            elif field == "passwordSecret" and isinstance(value, dict):
+                # CloudNativePG managed role: a kubernetes.io/basic-auth Secret, by name.
+                yield here, value.get("name"), None
+            elif field == "s3Credentials" and isinstance(value, dict):
+                # Barman Cloud ObjectStore: each credential is a {name, key} Secret selector.
+                for entry in S3_CREDENTIALS:
+                    selector = value.get(entry)
+                    if isinstance(selector, dict):
+                        yield f"{here}.{entry}", selector.get("name"), selector.get("key")
             elif field == "imagePullSecrets" and isinstance(value, list):
                 for entry in value:
                     yield here, (entry or {}).get("name"), None

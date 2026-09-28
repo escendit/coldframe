@@ -1,0 +1,59 @@
+# The CloudNativePG cluster of Coldframe (Story 2.3, AD-15, AD-17). Needs CloudNativePG 1.30.1,
+# the Barman Cloud plugin v0.15.0 and cert-manager in the cluster (deploy/charts/dependencies.env),
+# and the Secrets coldframe-db-coldframe, coldframe-db-temporal, coldframe-db-keycloak and
+# coldframe-backup-s3 (deploy/SECRETS.md).
+
+# The CNPG Cluster name. Its read-write Service is "<clusterName>-rw", the host the other charts
+# use (coldframe-db-rw).
+clusterName: coldframe-db
+
+instances: 1
+
+# PostgreSQL 18 operand image (the chart's appVersion is its PostgreSQL version).
+imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+
+storage:
+  size: 10Gi
+  # Empty: the cluster's default StorageClass.
+  storageClass: ""
+
+# Login roles, one per consumer. Each role's password comes from its Secret, whose "username" key
+# must equal the role name (deploy/SECRETS.md).
+roles:
+  # Owns the database "coldframe" (Secret coldframe-db-coldframe).
+  server: coldframe
+  # Owns "temporal" and "temporal_visibility" (Secret coldframe-db-temporal).
+  temporal: temporal
+  # Owns "keycloak" (Secret coldframe-db-keycloak).
+  keycloak: keycloak
+
+resources: {}
+
+# WAL archiving and base backups through the Barman Cloud plugin, to an S3-compatible target.
+# Credentials come from the Secret coldframe-backup-s3.
+backup:
+  # Bucket and prefix, e.g. s3://my-bucket/coldframe/. The placeholder default only renders.
+  destinationPath: s3://coldframe-backups/
+  # The S3 endpoint. The placeholder default only renders: set your provider's endpoint.
+  endpointURL: https://s3.example.invalid
+  # The archive folder below destinationPath. Empty: clusterName. A restored cluster must use a
+  # new folder (see recovery).
+  serverName: ""
+  # PostgreSQL archive_timeout: a WAL segment is archived at least this often, which bounds the
+  # data lost in a restore (docs/operations/restore.md).
+  archiveTimeout: 5min
+  # How long base backups and WAL are kept.
+  retentionPolicy: 30d
+  # Base backups: a 6-field cron (seconds first), UTC. Default: daily at 03:00.
+  schedule: "0 0 3 * * *"
+
+# Recovery mode: bootstraps a fresh cluster from the backups of another serverName in the same
+# object store (docs/operations/restore.md). The fresh cluster then archives to backup.serverName,
+# which must differ from sourceServerName.
+recovery:
+  enabled: false
+  # The archive folder to restore from. Empty: clusterName.
+  sourceServerName: ""
+  # Point in time to recover to (RFC 3339, e.g. "2026-09-28T10:00:00Z"). Empty: the end of the
+  # archived WAL.
+  targetTime: ""

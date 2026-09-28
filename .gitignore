@@ -10,6 +10,8 @@
 *.userosscache
 *.sln.docstates
 *.env
+# ...except the pinned deployment dependencies (versions, URLs, checksums; no secrets)
+!deploy/charts/dependencies.env
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

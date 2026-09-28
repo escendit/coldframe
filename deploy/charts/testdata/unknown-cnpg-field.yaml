@@ -1,0 +1,10 @@
+# Fixture for test.sh: the generated CloudNativePG schema is strict, so a misspelt field fails.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: unknown-field
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  backupz: {}

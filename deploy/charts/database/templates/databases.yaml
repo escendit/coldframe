@@ -1,0 +1,23 @@
+{{- /* The database "coldframe" comes from bootstrap (initdb or recovery); these are the others. */ -}}
+{{- $cluster := include "database.clusterName" . -}}
+{{- $databases := list
+  (dict "resource" "temporal" "name" "temporal" "owner" .Values.roles.temporal)
+  (dict "resource" "temporal-visibility" "name" "temporal_visibility" "owner" .Values.roles.temporal)
+  (dict "resource" "keycloak" "name" "keycloak" "owner" .Values.roles.keycloak) -}}
+{{- range $databases }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ printf "%s-%s" $cluster .resource }}
+  labels:
+    {{- include "database.labels" $ | nindent 4 }}
+spec:
+  cluster:
+    name: {{ $cluster }}
+  name: {{ .name | quote }}
+  owner: {{ .owner | quote }}
+  ensure: present
+  # Deleting the resource (or the release) never drops the database.
+  databaseReclaimPolicy: retain
+{{- end }}

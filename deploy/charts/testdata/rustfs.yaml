@@ -1,0 +1,149 @@
+# RustFS as the S3 backup target for deploy/charts/smoke.sh ONLY. It stands in for the adopter's
+# off-node bucket: the Service is rustfs:9000 (the database chart's ci-values.yaml endpoint), the
+# root credentials are the keys of coldframe-backup-s3 (deploy/SECRETS.md), and the Job creates the
+# bucket "coldframe-backups". No persistence: the store lives as long as the pod.
+#
+# The images are placeholders, replaced by smoke.sh with the pins of dependencies.env:
+# @RUSTFS_IMAGE@ and @AWS_CLI_IMAGE@.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rustfs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rustfs
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # The image's "rustfs" user.
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rustfs
+          image: "@RUSTFS_IMAGE@"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: s3
+              containerPort: 9000
+          env:
+            - name: RUSTFS_ADDRESS
+              value: ":9000"
+            - name: RUSTFS_VOLUMES
+              value: /data
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "false"
+            # Logs to stdout.
+            - name: RUSTFS_OBS_LOG_DIRECTORY
+              value: ""
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-backup-s3
+                  key: access-key-id
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-backup-s3
+                  key: secret-access-key
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            periodSeconds: 2
+            failureThreshold: 60
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: logs
+              mountPath: /logs
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rustfs
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+---
+# Creates the bucket; succeeds when it already exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rustfs-bucket
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bucket
+          image: "@AWS_CLI_IMAGE@"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if aws s3api head-bucket --bucket coldframe-backups; then
+                echo "bucket coldframe-backups exists"
+              else
+                aws s3 mb s3://coldframe-backups
+              fi
+          env:
+            - name: HOME
+              value: /tmp
+            - name: AWS_ENDPOINT_URL
+              value: http://rustfs:9000
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-backup-s3
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-backup-s3
+                  key: secret-access-key
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

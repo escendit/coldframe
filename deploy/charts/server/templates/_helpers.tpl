@@ -40,19 +40,19 @@ capabilities:
 {{- end -}}
 
 {{/*
-The Server database connection string, composed by Kubernetes from the coldframe-db-server
+The Server database connection string, composed by Kubernetes from the coldframe-db-coldframe
 Secret ($(VAR) expansion). The password must not contain ";".
 */}}
 {{- define "server.databaseEnv" -}}
 - name: DB_USERNAME
   valueFrom:
     secretKeyRef:
-      name: coldframe-db-server
+      name: coldframe-db-coldframe
       key: username
 - name: DB_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: coldframe-db-server
+      name: coldframe-db-coldframe
       key: password
 - name: ConnectionStrings__coldframe
   value: {{ printf "Host=%s;Port=%d;Database=%s;Username=$(DB_USERNAME);Password=$(DB_PASSWORD)" .Values.database.host (int .Values.database.port) .Values.database.name | quote }}

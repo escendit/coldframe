@@ -1,0 +1,37 @@
+# Fixture for test.sh: CloudNativePG and Barman Cloud references to documented Secrets and keys
+# pass the check.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: documented
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: coldframe
+      owner: coldframe
+      secret:
+        name: coldframe-db-coldframe
+  managed:
+    roles:
+      - name: temporal
+        login: true
+        passwordSecret:
+          name: coldframe-db-temporal
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: documented
+spec:
+  configuration:
+    destinationPath: s3://bucket/
+    s3Credentials:
+      accessKeyId:
+        name: coldframe-backup-s3
+        key: access-key-id
+      secretAccessKey:
+        name: coldframe-backup-s3
+        key: secret-access-key

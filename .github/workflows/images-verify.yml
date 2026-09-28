@@ -1,6 +1,7 @@
-# Verifies the four container images (Stories 2.1 and 2.2): builds every Dockerfile for each
+# Verifies the four container images (Stories 2.1 to 2.3): builds every Dockerfile for each
 # platform its final base image provides, runs the container-structure tests, the smoke run
-# against real dependencies, and the chart smoke install on a disposable k3d cluster. CI calls it
+# against real dependencies, and the chart smoke install on a disposable k3d cluster, including
+# the database backup-and-restore round trip. CI calls it
 # on every pull request, and the release workflow calls it before any image is pushed. It pushes
 # nothing.
 #
@@ -18,7 +19,7 @@ jobs:
   verify:
     name: Build, structure-test and smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 110
     env:
       CST_VERSION: v1.22.1
       # sha256 of container-structure-test-linux-amd64 v1.22.1 (the release's checksums.txt).
@@ -119,8 +120,10 @@ jobs:
 
           echo "${bin}" >> "${GITHUB_PATH}"
 
-      # Every chart on k3s (pinned in the script) with placeholder Secrets: every pod ready, the
-      # Server healthy, and the migration hook Job gating upgrades.
+      # Every chart on k3s (pinned in the script) with placeholder Secrets, on CloudNativePG with
+      # RustFS as the S3 backup target (deploy/charts/dependencies.env): every pod ready, the
+      # Server healthy, the migration hook Job gating upgrades, and a backup-and-restore round
+      # trip of the database (docs/operations/restore.md).
       - name: Chart smoke install
         run: >
           deploy/charts/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci

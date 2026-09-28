@@ -280,3 +280,26 @@ source_spec: `spec-1-9-manage-my-site-and-lots.md`
 severity: low
 reason: Add a content description with the Lot name (new string keys on Android and iOS, parity-checked by StringsTest) and check the web and iOS rows the same way.
 status: open
+
+### DW-37: Nothing alerts when WAL archiving or base backups fail.
+origin: spec-deferred 3f8131c18a6e
+location: deploy/charts/database/templates/cluster.yaml
+source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md`
+severity: medium
+reason: ContinuousArchiving turning False is only visible through a manual kubectl check in restore.md; no PodMonitor or alert rule exists, and Epic 2 has no monitoring stack.
+status: open
+
+### DW-38: The backup ObjectStore offers no region or endpointCA setting.
+origin: spec-deferred b15e11d2e666
+location: deploy/charts/database/templates/objectstore.yaml
+source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md`
+reason: Unverified: settle by archiving to an S3 provider that requires a non-default signing region (AWS outside us-east-1, some Backblaze or Wasabi endpoints) with only endpointURL set. Adding a region key changes the Secret contract.
+status: open
+
+### DW-39: Password rotation of coldframe-db-* through CNPG managed roles is documented but never exercised.
+origin: spec-deferred c610cc8e55f9
+location: deploy/SECRETS.md
+source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md`
+severity: medium
+reason: SECRETS.md says updating a Secret labelled cnpg.io/reload=true changes the role password; no smoke step rotates a Secret and checks the new password logs in and the old one does not.
+status: open

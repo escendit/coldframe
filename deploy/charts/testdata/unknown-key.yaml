@@ -13,7 +13,7 @@ spec:
   volumes:
     - name: db
       secret:
-        secretName: coldframe-db-server
+        secretName: coldframe-db-coldframe
         items:
           - key: connection-string
             path: connection-string

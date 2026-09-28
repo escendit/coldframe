@@ -1,0 +1,16 @@
+apiVersion: v2
+name: database
+description: >-
+  The Coldframe PostgreSQL 18 cluster, run by CloudNativePG, with the roles and databases of the
+  Server, Temporal and Keycloak, continuous WAL archiving and scheduled base backups to an S3
+  target through the Barman Cloud plugin, and a recovery mode that restores from that target.
+  Credentials come only from the Secrets in deploy/SECRETS.md.
+type: application
+# The chart version equals the release version; the appVersion is the PostgreSQL version.
+version: 0.1.0
+appVersion: "18.6"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe
+  - https://github.com/cloudnative-pg/cloudnative-pg
+  - https://github.com/cloudnative-pg/plugin-barman-cloud

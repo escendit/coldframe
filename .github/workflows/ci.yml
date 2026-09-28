@@ -234,8 +234,10 @@ jobs:
           xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
           -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
-  # Static checks of the Helm charts (Story 2.2): helm lint, helm-unittest, kubeconform and the
-  # Secret contract (deploy/charts/test.sh). The smoke install runs in the images job.
+  # Static checks of the Helm charts (Stories 2.2 and 2.3): helm lint, helm-unittest, kubeconform
+  # (the CloudNativePG and Barman Cloud kinds against strict schemas generated from the CRD
+  # manifests pinned in deploy/charts/dependencies.env, downloaded and sha256-checked by test.sh)
+  # and the Secret contract (deploy/charts/test.sh). The smoke install runs in the images job.
   charts:
     name: Charts
     runs-on: ubuntu-24.04
@@ -293,7 +295,7 @@ jobs:
           deploy/charts/test.sh
 
   # Builds every Dockerfile, runs the container-structure tests, the smoke run (Story 2.1) and the
-  # chart smoke install on k3d (Story 2.2).
+  # chart smoke install on k3d (Stories 2.2 and 2.3), with its database backup-and-restore phase.
   images:
     name: Images
     uses: ./.github/workflows/images-verify.yml

@@ -1,0 +1,6 @@
+# CI overrides (deploy/charts/test.sh and smoke.sh): RustFS (testdata/rustfs.yaml) is the S3 target.
+backup:
+  destinationPath: s3://coldframe-backups/
+  endpointURL: http://rustfs:9000
+storage:
+  size: 1Gi
