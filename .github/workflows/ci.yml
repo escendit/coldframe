@@ -234,7 +234,66 @@ jobs:
           xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
           -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
-  # Builds every Dockerfile, runs the container-structure tests and the smoke run (Story 2.1).
+  # Static checks of the Helm charts (Story 2.2): helm lint, helm-unittest, kubeconform and the
+  # Secret contract (deploy/charts/test.sh). The smoke install runs in the images job.
+  charts:
+    name: Charts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      HELM_VERSION: v4.2.2
+      # sha256 of helm-v4.2.2-linux-amd64.tar.gz (get.helm.sh/<file>.sha256sum).
+      HELM_SHA256: 9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6
+      HELM_UNITTEST_VERSION: 1.1.2
+      # sha256 of helm-unittest-linux-amd64-1.1.2.tgz (the release's helm-unittest-checksum.sha).
+      HELM_UNITTEST_SHA256: de03d6b7ba7683282064702d0b36fbbe812ab2a22691fa3a8b2ce57c2682609c
+      KUBECONFORM_VERSION: v0.8.0
+      # sha256 of kubeconform-linux-amd64.tar.gz v0.8.0 (the release's CHECKSUMS).
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install helm, helm-unittest and kubeconform
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          plugins="${RUNNER_TEMP}/helm-plugins"
+          downloads="${RUNNER_TEMP}/downloads"
+          mkdir -p "${bin}" "${plugins}/unittest" "${downloads}"
+
+          curl --fail --silent --show-error --location --output "${downloads}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${downloads}/helm.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm.tar.gz" --directory "${downloads}" linux-amd64/helm
+          install -m 0755 "${downloads}/linux-amd64/helm" "${bin}/helm"
+
+          curl --fail --silent --show-error --location --output "${downloads}/helm-unittest.tgz" \
+            "https://github.com/helm-unittest/helm-unittest/releases/download/v${HELM_UNITTEST_VERSION}/helm-unittest-linux-amd64-${HELM_UNITTEST_VERSION}.tgz"
+          echo "${HELM_UNITTEST_SHA256}  ${downloads}/helm-unittest.tgz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm-unittest.tgz" --directory "${plugins}/unittest"
+
+          curl --fail --silent --show-error --location --output "${downloads}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  ${downloads}/kubeconform.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/kubeconform.tar.gz" --directory "${bin}" kubeconform
+
+          echo "${bin}" >> "${GITHUB_PATH}"
+          echo "HELM_PLUGINS=${plugins}" >> "${GITHUB_ENV}"
+
+      - name: Check PyYAML
+        run: python3 -c "import yaml" || sudo apt-get install --yes --no-install-recommends python3-yaml
+
+      - name: Test the charts
+        run: |
+          helm version
+          helm plugin list
+          deploy/charts/test.sh
+
+  # Builds every Dockerfile, runs the container-structure tests, the smoke run (Story 2.1) and the
+  # chart smoke install on k3d (Story 2.2).
   images:
     name: Images
     uses: ./.github/workflows/images-verify.yml

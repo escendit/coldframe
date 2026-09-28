@@ -1,0 +1,137 @@
+suite: server Deployment
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: runs exactly one replica, stopped before the next one starts
+    set:
+      replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: is named after the release
+    release:
+      name: coldframe-server
+    asserts:
+      - equal:
+          path: metadata.name
+          value: coldframe-server
+
+  - it: waits longer than the host's shutdown timeout before it kills the pod
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 60
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOTNET_SHUTDOWNTIMEOUTSECONDS
+            value: "45"
+
+  - it: fails when the grace period is not longer than the shutdown timeout
+    set:
+      terminationGracePeriodSeconds: 45
+      shutdownTimeoutSeconds: 45
+    asserts:
+      - failedTemplate:
+          errorPattern: terminationGracePeriodSeconds \(45\) must be greater than shutdownTimeoutSeconds \(45\)
+
+  - it: fails on a plain-HTTP authority while HTTPS metadata is required
+    set:
+      identity.authority: http://keycloak:8080/realms/coldframe
+    asserts:
+      - failedTemplate:
+          errorPattern: identity.authority \(http://keycloak:8080/realms/coldframe\) is plain HTTP while identity.requireHttpsMetadata is true
+
+  - it: accepts a plain-HTTP authority when HTTPS metadata is not required
+    values:
+      - ../ci-values.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: Identity__Authority
+            value: http://keycloak:8080/realms/coldframe
+
+  - it: probes the health endpoints on 8080, with a startup probe for the silo
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /.well-known/healthz/live
+            port: http
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /.well-known/healthz/ready
+            port: http
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /.well-known/healthz/live
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: http
+            containerPort: 8080
+            protocol: TCP
+
+  - it: uses the chart's appVersion as the image tag by default
+    chart:
+      appVersion: 9.8.7
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/escendit/coldframe/server:9.8.7
+
+  - it: lets the image be overridden
+    set:
+      image.repository: localhost/coldframe/server
+      image.tag: smoke
+      image.pullPolicy: Never
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: localhost/coldframe/server:smoke
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Never
+
+  - it: runs as the numeric non-root user with a restricted security context
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1654
+            runAsGroup: 1654
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: points at the other releases by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ConnectionStrings__nats
+            value: nats://nats:4222
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KeycloakEvents__TargetHost
+            value: temporal:7233
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: Identity__RequireHttpsMetadata
+            value: "true"

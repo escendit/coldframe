@@ -1,6 +1,8 @@
-# Publishes the container images of a release (Story 2.1, AD-23). A tag vX.Y.Z (or
-# vX.Y.Z-<pre-release>) pushes ghcr.io/escendit/coldframe/{server,web,migrations}:X.Y.Z as
-# linux/amd64 and linux/arm64 manifest lists, only after the same verification CI runs.
+# Publishes the container images of a release (Stories 2.1 and 2.2, AD-23). A tag vX.Y.Z (or
+# vX.Y.Z-<pre-release>) pushes ghcr.io/escendit/coldframe/{server,web,migrations,keycloak}:X.Y.Z
+# as linux/amd64 and linux/arm64 manifest lists, only after the same verification CI runs. The
+# tag must equal the version of every Helm chart in deploy/charts (and the appVersion of the
+# Coldframe charts), or nothing is pushed.
 # Only the exact version tag is pushed, never "latest".
 #
 # A component whose final base image lacks a platform is pushed for the platforms it has; the
@@ -48,6 +50,16 @@ jobs:
           echo "Release version: ${version}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Check the chart versions
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! deploy/charts/check-version.sh "${VERSION}"; then
+            echo "::error::The Helm charts in deploy/charts are not at ${VERSION}; see the output above. Nothing is pushed."
+            exit 1
+          fi
+
   verify:
     name: Verify
     needs: version
@@ -71,6 +83,8 @@ jobs:
             dockerfile: apps/ts/web/Dockerfile
           - component: migrations
             dockerfile: apps/cs/migrations/Dockerfile
+          - component: keycloak
+            dockerfile: aspire/keycloak/Dockerfile
     env:
       COMPONENT: ${{ matrix.component }}
       DOCKERFILE: ${{ matrix.dockerfile }}

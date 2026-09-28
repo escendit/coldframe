@@ -1,0 +1,138 @@
+suite: web
+templates:
+  - templates/deployment.yaml
+  - templates/service.yaml
+tests:
+  - it: renders no Secret, with default values
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: renders no Secret, with CI values
+    values:
+      - ../ci-values.yaml
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: reads the client secret from the contract
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-oidc-clients
+                key: web-client-secret
+
+  - it: keeps secure defaults and points at the other releases
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_ALLOW_INSECURE_HTTP
+            value: "false"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SESSION_COOKIE_SECURE
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SERVER_URL
+            value: http://server:8080
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_ISSUER
+            value: https://auth.example.invalid/realms/coldframe
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ORIGIN
+          any: true
+
+  - it: fails on a plain-HTTP issuer unless insecure HTTP is allowed
+    template: templates/deployment.yaml
+    set:
+      keycloak.issuer: http://keycloak:8080/realms/coldframe
+    asserts:
+      - failedTemplate:
+          errorPattern: keycloak.issuer \(http://keycloak:8080/realms/coldframe\) is plain HTTP while keycloak.allowInsecureHttp is false
+
+  - it: accepts a plain-HTTP issuer when insecure HTTP is allowed
+    template: templates/deployment.yaml
+    values:
+      - ../ci-values.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_ISSUER
+            value: http://keycloak:8080/realms/coldframe
+
+  - it: sets the public origin when given
+    template: templates/deployment.yaml
+    set:
+      origin: https://coldframe.example.org
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ORIGIN
+            value: https://coldframe.example.org
+
+  - it: probes the health endpoints on 3000
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /.well-known/healthz/live
+            port: http
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /.well-known/healthz/ready
+            port: http
+
+  - it: uses the chart's appVersion as the image tag by default
+    template: templates/deployment.yaml
+    chart:
+      appVersion: 9.8.7
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/escendit/coldframe/web:9.8.7
+
+  - it: runs as the numeric non-root user with a restricted security context
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: is a ClusterIP Service
+    template: templates/service.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP

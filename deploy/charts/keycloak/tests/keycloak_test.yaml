@@ -1,0 +1,211 @@
+suite: keycloak
+templates:
+  - templates/deployment.yaml
+  - templates/service.yaml
+tests:
+  - it: renders no Secret
+    set:
+      realmImport.configMap: coldframe-realm
+      hostname: auth.example.org
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: reads every credential from the contract
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-keycloak
+                key: username
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-keycloak
+                key: password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_BOOTSTRAP_ADMIN_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-keycloak-admin
+                key: username
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_BOOTSTRAP_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-keycloak-admin
+                key: password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_WEB_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-oidc-clients
+                key: web-client-secret
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SERVER_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-oidc-clients
+                key: server-client-secret
+
+  - it: starts optimized without a realm import by default
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - start
+            - --optimized
+      - notExists:
+          path: spec.template.spec.volumes
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts
+
+  - it: imports the realm ConfigMap when one is named
+    template: templates/deployment.yaml
+    set:
+      realmImport.configMap: coldframe-realm
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - start
+            - --optimized
+            - --import-realm
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: realm-import
+              configMap:
+                name: coldframe-realm
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+
+  - it: derives the host name from the request when none is set
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_HOSTNAME_STRICT
+            value: "false"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_HOSTNAME
+          any: true
+
+  - it: uses the configured host name
+    template: templates/deployment.yaml
+    set:
+      hostname: auth.example.org
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_HOSTNAME
+            value: auth.example.org
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_HOSTNAME_STRICT
+          any: true
+
+  - it: serves plain HTTP behind the proxy and sends events to Temporal
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_HTTP_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_PROXY_HEADERS
+            value: xforwarded
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_SPI_EVENTS_LISTENER__TEMPORAL__TARGET_HOST
+            value: temporal:7233
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_SPI_EVENTS_LISTENER__TEMPORAL__NAMESPACE
+            value: coldframe
+
+  - it: probes the management port
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /health/ready
+            port: management
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /health/live
+            port: management
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: management
+            containerPort: 9000
+            protocol: TCP
+
+  - it: uses the chart's appVersion as the image tag by default
+    template: templates/deployment.yaml
+    chart:
+      appVersion: 9.8.7
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/escendit/coldframe/keycloak:9.8.7
+
+  - it: runs as the numeric non-root user with a restricted security context
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 2000
+            runAsGroup: 2000
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: is a ClusterIP Service
+    template: templates/service.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP

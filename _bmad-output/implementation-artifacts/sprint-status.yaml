@@ -49,7 +49,7 @@ development_status:
 
   epic-2: backlog
   2-1-container-images-published-per-release: awaiting-operator
-  2-2-helm-charts-with-a-fixed-secret-contract: backlog
+  2-2-helm-charts-with-a-fixed-secret-contract: awaiting-operator
   2-3-database-cluster-with-off-node-backups-and-tested-restore: backlog
   2-4-tls-with-public-certificates-on-my-home-network: backlog
   2-5-gitops-deployment-to-my-rke2-server: backlog

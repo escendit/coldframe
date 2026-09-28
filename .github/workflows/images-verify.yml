@@ -1,10 +1,11 @@
-# Verifies the three container images (Story 2.1): builds every Dockerfile for each platform its
-# final base image provides, runs the container-structure tests and the smoke run against real
-# dependencies. CI calls it on every pull request, and the release workflow calls it before any
-# image is pushed. It pushes nothing.
+# Verifies the four container images (Stories 2.1 and 2.2): builds every Dockerfile for each
+# platform its final base image provides, runs the container-structure tests, the smoke run
+# against real dependencies, and the chart smoke install on a disposable k3d cluster. CI calls it
+# on every pull request, and the release workflow calls it before any image is pushed. It pushes
+# nothing.
 #
-# Actions are pinned to a commit; the comment names the release. container-structure-test is
-# pinned to a release and its download is checked against a sha256.
+# Actions are pinned to a commit; the comment names the release. container-structure-test, helm
+# and k3d are pinned to a release and their downloads are checked against a sha256.
 name: Images verify
 
 on:
@@ -17,12 +18,22 @@ jobs:
   verify:
     name: Build, structure-test and smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CST_VERSION: v1.22.1
       # sha256 of container-structure-test-linux-amd64 v1.22.1 (the release's checksums.txt).
       CST_SHA256: fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca
-      COMPONENTS: server:apps/cs/server/Dockerfile web:apps/ts/web/Dockerfile migrations:apps/cs/migrations/Dockerfile
+      HELM_VERSION: v4.2.2
+      # sha256 of helm-v4.2.2-linux-amd64.tar.gz (get.helm.sh/<file>.sha256sum).
+      HELM_SHA256: 9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6
+      K3D_VERSION: v5.9.0
+      # sha256 of k3d-linux-amd64 v5.9.0 (the release's checksums.txt).
+      K3D_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+      COMPONENTS: >-
+        server:apps/cs/server/Dockerfile
+        web:apps/ts/web/Dockerfile
+        migrations:apps/cs/migrations/Dockerfile
+        keycloak:aspire/keycloak/Dockerfile
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,3 +98,30 @@ jobs:
       # CST cannot probe HTTP: the health endpoints and the migration exit codes are checked here.
       - name: Smoke run
         run: deploy/images/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
+
+      - name: Install helm and k3d
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          downloads="${RUNNER_TEMP}/downloads"
+          mkdir -p "${bin}" "${downloads}"
+
+          curl --fail --silent --show-error --location --output "${downloads}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${downloads}/helm.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm.tar.gz" --directory "${downloads}" linux-amd64/helm
+          install -m 0755 "${downloads}/linux-amd64/helm" "${bin}/helm"
+
+          curl --fail --silent --show-error --location --output "${bin}/k3d" \
+            "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          echo "${K3D_SHA256}  ${bin}/k3d" | sha256sum --check --strict
+          chmod +x "${bin}/k3d"
+
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      # Every chart on k3s (pinned in the script) with placeholder Secrets: every pod ready, the
+      # Server healthy, and the migration hook Job gating upgrades.
+      - name: Chart smoke install
+        run: >
+          deploy/charts/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
+          coldframe/keycloak:ci

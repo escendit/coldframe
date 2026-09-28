@@ -1,0 +1,75 @@
+{{- if and (hasPrefix "http://" .Values.keycloak.issuer) (not .Values.keycloak.allowInsecureHttp) -}}
+{{- fail (printf "keycloak.issuer (%s) is plain HTTP while keycloak.allowInsecureHttp is false: use an https issuer, or set allowInsecureHttp to true outside production" .Values.keycloak.issuer) -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "web.fullname" . }}
+  labels:
+    {{- include "web.labels" . | nindent 4 }}
+spec:
+  replicas: {{ int .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "web.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "web.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "web.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: web
+          image: {{ include "web.image" (list . .Values.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "web.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: COLDFRAME_SERVER_URL
+              value: {{ .Values.serverUrl | quote }}
+            - name: KEYCLOAK_ISSUER
+              value: {{ .Values.keycloak.issuer | quote }}
+            - name: KEYCLOAK_CLIENT_ID
+              value: {{ .Values.keycloak.clientId | quote }}
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-oidc-clients
+                  key: web-client-secret
+            - name: KEYCLOAK_ALLOW_INSECURE_HTTP
+              value: {{ .Values.keycloak.allowInsecureHttp | toString | quote }}
+            - name: SESSION_COOKIE_SECURE
+              value: {{ .Values.sessionCookieSecure | toString | quote }}
+            {{- with .Values.origin }}
+            - name: ORIGIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /.well-known/healthz/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /.well-known/healthz/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

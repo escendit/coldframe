@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keycloak.fullname" . }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+spec:
+  # One replica is what is supported and tested: the distributed cache that more replicas need is
+  # not configured.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "keycloak.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "keycloak.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: keycloak
+          image: {{ include "keycloak.image" (list . .Values.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - start
+            - --optimized
+            {{- if .Values.realmImport.configMap }}
+            - --import-realm
+            {{- end }}
+          securityContext:
+            {{- include "keycloak.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 9000
+              protocol: TCP
+          env:
+            - name: KC_DB_URL_HOST
+              value: {{ .Values.database.host | quote }}
+            - name: KC_DB_URL_PORT
+              value: {{ int .Values.database.port | quote }}
+            - name: KC_DB_URL_DATABASE
+              value: {{ .Values.database.name | quote }}
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-db-keycloak
+                  key: username
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-db-keycloak
+                  key: password
+            # Used on the first start only, to create the temporary admin of the master realm.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-keycloak-admin
+                  key: username
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-keycloak-admin
+                  key: password
+            # Plain HTTP inside the cluster; TLS ends at the ingress, which sets X-Forwarded-*.
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            {{- if .Values.hostname }}
+            - name: KC_HOSTNAME
+              value: {{ .Values.hostname | quote }}
+            {{- else }}
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            {{- end }}
+            - name: KC_SPI_EVENTS_LISTENER__TEMPORAL__TARGET_HOST
+              value: {{ .Values.temporal.targetHost | quote }}
+            - name: KC_SPI_EVENTS_LISTENER__TEMPORAL__NAMESPACE
+              value: {{ .Values.temporal.namespace | quote }}
+            # Substituted into an imported realm file (aspire/keycloak/realms).
+            - name: COLDFRAME_WEB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-oidc-clients
+                  key: web-client-secret
+            - name: COLDFRAME_SERVER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-oidc-clients
+                  key: server-client-secret
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Health endpoints on the management port (KC_HEALTH_ENABLED is built into the image).
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: management
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- if .Values.realmImport.configMap }}
+          volumeMounts:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.realmImport.configMap }}
+      volumes:
+        - name: realm-import
+          configMap:
+            name: {{ .Values.realmImport.configMap | quote }}
+      {{- end }}

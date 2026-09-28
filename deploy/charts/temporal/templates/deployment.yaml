@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "temporal.fullname" . }}
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  # Frontend, history, matching and worker in one process.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "temporal.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "temporal.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+      annotations:
+        checksum/dynamicconfig: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "temporal.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: temporal
+          image: {{ include "temporal.image" (list . .Values.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "temporal.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: grpc
+              containerPort: 7233
+              protocol: TCP
+          env:
+            - name: DB
+              value: postgres12
+            - name: POSTGRES_SEEDS
+              value: {{ .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ int .Values.database.port | quote }}
+            - name: DBNAME
+              value: {{ .Values.database.name | quote }}
+            - name: VISIBILITY_DBNAME
+              value: {{ .Values.database.visibilityName | quote }}
+            {{- include "temporal.databaseCredentials" (list "POSTGRES_USER" "POSTGRES_PWD") | nindent 12 }}
+            - name: NUM_HISTORY_SHARDS
+              value: {{ int .Values.numHistoryShards | quote }}
+            - name: BIND_ON_IP
+              value: 0.0.0.0
+            - name: TEMPORAL_BROADCAST_ADDRESS
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: DYNAMIC_CONFIG_FILE_PATH
+              value: /etc/temporal/dynamicconfig/dynamicconfig.yaml
+          # The frontend's gRPC health service.
+          startupProbe:
+            grpc:
+              port: 7233
+              service: temporal.api.workflowservice.v1.WorkflowService
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            grpc:
+              port: 7233
+              service: temporal.api.workflowservice.v1.WorkflowService
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            grpc:
+              port: 7233
+              service: temporal.api.workflowservice.v1.WorkflowService
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: dynamicconfig
+              mountPath: /etc/temporal/dynamicconfig
+              readOnly: true
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: dynamicconfig
+          configMap:
+            name: {{ include "temporal.fullname" . }}-dynamicconfig

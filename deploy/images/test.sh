@@ -87,7 +87,7 @@ expect "missing Dockerfile fails" 2 "" "No such Dockerfile" \
 # The rules every component Dockerfile follows (deploy/images/README.md): build stages run on the
 # build platform, and the final stage never runs a command, so arm64 builds need no emulation.
 echo "# component Dockerfiles"
-for dockerfile in apps/cs/server/Dockerfile apps/cs/migrations/Dockerfile apps/ts/web/Dockerfile; do
+for dockerfile in apps/cs/server/Dockerfile apps/cs/migrations/Dockerfile apps/ts/web/Dockerfile aspire/keycloak/Dockerfile; do
   path=${repo}/${dockerfile}
   final_runs=$(awk 'toupper($1) == "FROM" { n = 0; final = NR } toupper($1) == "RUN" && final { n++ } END { print n + 0 }' "${path}")
   if [[ ${final_runs} -eq 0 ]]; then
@@ -109,6 +109,18 @@ for dockerfile in apps/cs/server/Dockerfile apps/cs/migrations/Dockerfile apps/t
     failed "${dockerfile}: numeric USER"
   fi
 done
+
+# The Keycloak Dockerfile names the Phase Two image in the build stage and the final stage; the
+# Quarkus build output is only valid for the same version.
+keycloak_dockerfile=aspire/keycloak/Dockerfile
+keycloak_tags=$(grep -oE 'phasetwo-keycloak:[^[:space:]]+' "${repo}/${keycloak_dockerfile}" | sort -u)
+if [[ -z ${keycloak_tags} ]]; then
+  failed "${keycloak_dockerfile}: every phasetwo-keycloak FROM has the same tag" "no phasetwo-keycloak image found"
+elif [[ $(wc -l <<<"${keycloak_tags}") -eq 1 ]]; then
+  pass "${keycloak_dockerfile}: every phasetwo-keycloak FROM has the same tag"
+else
+  failed "${keycloak_dockerfile}: every phasetwo-keycloak FROM has the same tag" "${keycloak_tags}"
+fi
 
 echo "# ${passes} passed, ${failures} failed"
 [[ ${failures} -eq 0 ]]

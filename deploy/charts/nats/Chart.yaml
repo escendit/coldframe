@@ -1,0 +1,13 @@
+apiVersion: v2
+name: nats
+description: >-
+  NATS Server with JetStream for the Coldframe Orleans hint stream. One replica; the JetStream
+  store is disposable (AD-5).
+type: application
+# The chart version equals the release version; the appVersion is the upstream NATS Server.
+version: 0.1.0
+appVersion: "2.15.0"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe
+  - https://github.com/nats-io/nats-server

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: keycloak
+description: >-
+  Keycloak for Coldframe: the Phase Two distribution with keycloak-temporal-extensions
+  (ghcr.io/escendit/coldframe/keycloak). Database, bootstrap admin and client secrets come only
+  from the Secrets in deploy/SECRETS.md.
+type: application
+# The chart version and the appVersion both equal the release version (deploy/charts/README.md).
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe

@@ -1,0 +1,42 @@
+# The Coldframe web backend-for-frontend. Its client secret is never a value: it comes from key
+# web-client-secret of the Secret coldframe-oidc-clients (deploy/SECRETS.md).
+
+# Resource names default to the release name.
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/escendit/coldframe/web
+  # Empty: the chart's appVersion, which equals the release version.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The web app is stateless; more than one replica is possible.
+replicas: 1
+
+# The base URL of the Server (the "server" release).
+serverUrl: http://server:8080
+
+# The coldframe-web client of the coldframe realm. The default issuer is a placeholder: set the
+# public https issuer (Story 2.4). An http:// issuer renders only with allowInsecureHttp: true.
+keycloak:
+  issuer: https://auth.example.invalid/realms/coldframe
+  clientId: coldframe-web
+  # Only for a plain-HTTP issuer outside production.
+  allowInsecureHttp: false
+
+# Keep true in production: the session cookie is sent over HTTPS only.
+sessionCookieSecure: true
+
+# The public origin behind the reverse proxy, e.g. https://coldframe.example.org. Empty: not set.
+origin: ""
+
+# The numeric UID of the image's "node" user.
+runAsUser: 1000
+
+# Additional non-secret environment variables.
+extraEnv: []
+
+resources: {}
+
+service:
+  port: 3000

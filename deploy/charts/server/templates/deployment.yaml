@@ -1,0 +1,108 @@
+{{- if le (int .Values.terminationGracePeriodSeconds) (int .Values.shutdownTimeoutSeconds) -}}
+{{- fail (printf "terminationGracePeriodSeconds (%d) must be greater than shutdownTimeoutSeconds (%d)" (int .Values.terminationGracePeriodSeconds) (int .Values.shutdownTimeoutSeconds)) -}}
+{{- end -}}
+{{- if and (hasPrefix "http://" .Values.identity.authority) .Values.identity.requireHttpsMetadata -}}
+{{- fail (printf "identity.authority (%s) is plain HTTP while identity.requireHttpsMetadata is true: use an https authority, or set requireHttpsMetadata to false outside production" .Values.identity.authority) -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "server.fullname" . }}
+  labels:
+    {{- include "server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  # One silo, stopped before the next one starts (AD-22). Not a value on purpose.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "server.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "server.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ int .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "server.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: server
+          image: {{ include "server.image" (list . .Values.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "server.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: silo
+              containerPort: 11111
+              protocol: TCP
+            - name: gateway
+              containerPort: 30000
+              protocol: TCP
+          env:
+            {{- include "server.databaseEnv" . | nindent 12 }}
+            - name: ConnectionStrings__nats
+              value: {{ .Values.nats.url | quote }}
+            - name: Identity__Authority
+              value: {{ .Values.identity.authority | quote }}
+            - name: Identity__Audience
+              value: {{ .Values.identity.audience | quote }}
+            - name: Identity__RequireHttpsMetadata
+              value: {{ .Values.identity.requireHttpsMetadata | toString | quote }}
+            - name: Keycloak__BaseUrl
+              value: {{ .Values.keycloak.baseUrl | quote }}
+            - name: Keycloak__Realm
+              value: {{ .Values.keycloak.realm | quote }}
+            - name: Keycloak__ClientId
+              value: {{ .Values.keycloak.clientId | quote }}
+            - name: Keycloak__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-oidc-clients
+                  key: server-client-secret
+            - name: KeycloakEvents__TargetHost
+              value: {{ .Values.keycloakEvents.targetHost | quote }}
+            - name: KeycloakEvents__Namespace
+              value: {{ .Values.keycloakEvents.namespace | quote }}
+            - name: KeycloakEvents__RealmId
+              value: {{ .Values.keycloakEvents.realmId | quote }}
+            - name: ASPNETCORE_HTTP_PORTS
+              value: "8080"
+            # The .NET host's shutdown timeout (host configuration key shutdownTimeoutSeconds).
+            - name: DOTNET_SHUTDOWNTIMEOUTSECONDS
+              value: {{ int .Values.shutdownTimeoutSeconds | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # The silo joins the cluster before it is ready; allow up to 5 minutes for the first start.
+          startupProbe:
+            httpGet:
+              path: /.well-known/healthz/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /.well-known/healthz/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /.well-known/healthz/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

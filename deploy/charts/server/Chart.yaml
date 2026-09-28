@@ -1,0 +1,13 @@
+apiVersion: v2
+name: server
+description: >-
+  The Coldframe Server (Orleans silo, Edge API and SignalR in one host) and the migration Job
+  that runs before every install and upgrade. Credentials come only from the Secrets in
+  deploy/SECRETS.md.
+type: application
+# The chart version and the appVersion both equal the release version (deploy/charts/README.md).
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe

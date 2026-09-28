@@ -1,0 +1,82 @@
+suite: nats
+templates:
+  - templates/deployment.yaml
+  - templates/service.yaml
+tests:
+  - it: renders no Secret
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: runs one replica with JetStream on an emptyDir
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --jetstream
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --store_dir=/data
+      - equal:
+          path: spec.template.spec.volumes[0].emptyDir.sizeLimit
+          value: 1Gi
+
+  - it: probes the monitoring port
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /healthz
+            port: monitoring
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: monitoring
+            containerPort: 8222
+            protocol: TCP
+
+  - it: uses the upstream image at the chart's appVersion
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/library/nats:2.15.0
+
+  - it: serves clients on 4222 inside the cluster only
+    template: templates/service.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports
+          value:
+            - name: client
+              port: 4222
+              targetPort: client
+              protocol: TCP
+
+  - it: runs as a numeric non-root user with a restricted security context
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value:
+            - ALL

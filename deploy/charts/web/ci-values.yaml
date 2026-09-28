@@ -1,0 +1,6 @@
+# CI overrides (deploy/charts/test.sh and smoke.sh): the in-cluster Keycloak serves plain HTTP.
+keycloak:
+  issuer: http://keycloak:8080/realms/coldframe
+  allowInsecureHttp: true
+sessionCookieSecure: false
+origin: http://web.coldframe.invalid

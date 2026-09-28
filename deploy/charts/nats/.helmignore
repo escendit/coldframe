@@ -1,0 +1,3 @@
+# Not packaged: chart unit tests and CI overrides.
+tests/
+ci-values.yaml

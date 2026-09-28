@@ -1,0 +1,14 @@
+apiVersion: v2
+name: temporal
+description: >-
+  Temporal Server for the Coldframe Keycloak event pipeline: one Deployment running every service
+  on PostgreSQL, a schema hook Job and a namespace hook Job. The database credentials come only
+  from the coldframe-db-temporal Secret (deploy/SECRETS.md).
+type: application
+# The chart version equals the release version; the appVersion is the upstream Temporal Server.
+version: 0.1.0
+appVersion: "1.31.2"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe
+  - https://github.com/temporalio/temporal
