@@ -28,3 +28,13 @@ public sealed record SiteCreationRequested(
 [GenerateSerializer]
 [Alias("coldframe.user-site-creation-completed")]
 public sealed record SiteCreationCompleted([property: Id(0)] string IdempotencyKey, [property: Id(1)] string SiteId);
+
+/// <summary>
+/// The User's Role on a Site changed, or the User left it.
+/// </summary>
+/// <param name="SiteId">The Site ID.</param>
+/// <param name="Role">The Role from now on; <see langword="null"/> when the User left the Site or it was deleted.</param>
+[EventType("user.site-membership-changed")]
+[GenerateSerializer]
+[Alias("coldframe.user-site-membership-changed")]
+public sealed record SiteMembershipChanged([property: Id(0)] string SiteId, [property: Id(1)] SiteRole? Role);

@@ -7,7 +7,8 @@ namespace Coldframe.Server.Identity;
 /// <summary>
 /// A User, keyed by the OIDC <c>sub</c>. Creates Sites idempotently per key (AD-3): it persists the
 /// request before calling Keycloak, creates the tagged Phase Two Organization, and hands the Site to
-/// its Site grain. It creates the Organization and writes nothing else to Keycloak (AD-1).
+/// its Site grain. It creates the Organization and writes nothing else to Keycloak (AD-1). It also holds
+/// the User's Role on each Site, as the Site grains report it.
 /// </summary>
 [GrainType("user")]
 public sealed partial class UserGrain(
@@ -76,9 +77,32 @@ public sealed partial class UserGrain(
         }
 
         RaiseEvent(new SiteCreationCompleted(idempotencyKey, creation.SiteId));
+
+        // A reconciliation may have recorded a Role for this Site already; it is newer than the creation.
+        if (!State.Sites.ContainsKey(creation.SiteId))
+        {
+            RaiseEvent(new SiteMembershipChanged(creation.SiteId, SiteRole.Owner));
+        }
+
         await ConfirmEvents();
 
         return Created(State.SiteCreations[idempotencyKey]);
+    }
+
+    /// <inheritdoc />
+    public async Task SyncSiteMembership(string siteId, SiteRole? role, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        SiteRole? current = State.Sites.TryGetValue(siteId, out var held) ? held : null;
+
+        if (current == role)
+        {
+            return;
+        }
+
+        RaiseEvent(new SiteMembershipChanged(siteId, role));
+        await ConfirmEvents();
     }
 
     private static SiteCreationResult Created(SiteCreation creation) =>

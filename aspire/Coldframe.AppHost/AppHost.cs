@@ -91,7 +91,8 @@ var migrations = builder
 // The Server: Orleans silo and Edge API in one ASP.NET Core host.
 // The silo ports are allocated per run, so the stack and the tests can run side by side.
 // It validates access tokens of the coldframe realm and manages Organizations with its own service
-// account; plain-HTTP metadata is allowed only because this stack runs locally.
+// account; plain-HTTP metadata is allowed only because this stack runs locally. Its Temporal workers
+// consume the Keycloak event pipeline of the coldframe realm, whose ID the realm file fixes (AD-3, AD-5).
 var keycloakHttp = keycloak.GetEndpoint("http");
 
 builder
@@ -105,6 +106,9 @@ builder
     .WithEnvironment("Keycloak__Realm", "coldframe")
     .WithEnvironment("Keycloak__ClientId", "coldframe-server")
     .WithEnvironment("Keycloak__ClientSecret", coldframeServerClientSecret)
+    .WithEnvironment("KeycloakEvents__TargetHost", temporalEndpoint.Property(EndpointProperty.HostAndPort))
+    .WithEnvironment("KeycloakEvents__Namespace", TemporalNamespace)
+    .WithEnvironment("KeycloakEvents__RealmId", "coldframe")
     .WithEndpoint(name: "silo", scheme: "tcp", env: "Orleans__Endpoints__SiloPort", isProxied: false)
     .WithEndpoint(name: "gateway", scheme: "tcp", env: "Orleans__Endpoints__GatewayPort", isProxied: false)
     .WithHttpHealthCheck("/.well-known/healthz")

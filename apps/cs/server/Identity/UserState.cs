@@ -18,7 +18,8 @@ public sealed record SiteCreation(
     [property: Id(3)] bool Completed);
 
 /// <summary>
-/// The state of the User grain: the Site creations it has seen, by idempotency key.
+/// The state of the User grain: the Site creations it has seen, by idempotency key, and its Role on each
+/// Site it belongs to.
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.user-state")]
@@ -32,10 +33,18 @@ public sealed class UserState
     [Id(0)]
     private readonly Dictionary<string, SiteCreation> _siteCreations = new(StringComparer.Ordinal);
 
+    [Id(1)]
+    private readonly Dictionary<string, SiteRole> _sites = new(StringComparer.Ordinal);
+
     /// <summary>
     /// The Site creations by idempotency key. A key used again after it expired holds the newer request.
     /// </summary>
     public IReadOnlyDictionary<string, SiteCreation> SiteCreations => _siteCreations;
+
+    /// <summary>
+    /// The User's Role on each Site it belongs to, by Site ID.
+    /// </summary>
+    public IReadOnlyDictionary<string, SiteRole> Sites => _sites;
 
     /// <summary>
     /// Returns the request that still holds <paramref name="idempotencyKey"/> at <paramref name="now"/>.
@@ -62,6 +71,20 @@ public sealed class UserState
             && string.Equals(creation.SiteId, @event.SiteId, StringComparison.Ordinal))
         {
             _siteCreations[@event.IdempotencyKey] = creation with { Completed = true };
+        }
+    }
+
+    public void Apply(SiteMembershipChanged @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        if (@event.Role is { } role)
+        {
+            _sites[@event.SiteId] = role;
+        }
+        else
+        {
+            _sites.Remove(@event.SiteId);
         }
     }
 }

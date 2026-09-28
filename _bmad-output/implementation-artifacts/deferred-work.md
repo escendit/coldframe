@@ -153,3 +153,18 @@ source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
 severity: low
 reason: RenderTests.swift asserts renders(...) == true only; deleting .onAppear { announce() } in Components.swift breaks no test. Needs a macOS-only seam (e.g. a tested builder for the announcement AttributedString).
 status: open
+
+### DW-21: Keycloak events dropped while Temporal is down are never replayed, so a quiet Site stays drifted until another event touches it.
+origin: spec-deferred 9866fdc345ff
+location: apps/cs/server/Identity/Reconciliation/IdentityReconciliationActivities.cs
+source_spec: `spec-1-7-reconcile-identity-changes-from-keycloak.md`
+severity: medium
+reason: keycloak-temporal-extensions v0.0.1-rc.2 logs and drops an event when its workflow start fails (upstream, pre-existing). Reconciliation is event-triggered only. A periodic full-roster sweep (for example a Temporal schedule or an Orleans reminder per Site) would close the gap.
+status: open
+
+### DW-22: A single GET /orgs/{id} 404 during any reconcile deletes the Site permanently, and a misconfigured service account might cause such 404s.
+origin: spec-deferred 764627bf3268
+location: apps/cs/server/Identity/SiteGrain.cs (Reconcile, RaiseDeleted)
+source_spec: `spec-1-7-reconcile-identity-changes-from-keycloak.md`
+reason: Unverified: whether Phase Two answers 404 (not 403) to GET /orgs/{id} when the coldframe-server service account lacks view-organizations. If it does, one event per Site would move every touched Site to Deleted (terminal, AD-20). Settle it on a live container by removing the role and calling the endpoint.
+status: open

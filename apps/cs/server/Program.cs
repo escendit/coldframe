@@ -9,6 +9,7 @@ builder
     .AddServiceDefaults()
     .AddJournal()
     .AddSiteIdentity()
+    .AddKeycloakEventPipeline()
     .AddSilo()
     .AddEdgeApi()
     .AddHealthCheckDefaults(checks => checks.AddCheck<SiloHealthCheck>(SiloHealthCheck.Name, tags: ["ready"]));

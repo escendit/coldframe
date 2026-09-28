@@ -60,8 +60,21 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"], site.Owners);
         Assert.Equal(SiteRole.Member, site.Members["8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
 
+        // Reconciled from Keycloak: renamed, an ownerless episode refused and resolved, a member revoked,
+        // then deleted. Deletion keeps the Members.
+        var reconciled = Assert.IsType<SiteState>(states["site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01"]);
+        Assert.Equal(SiteLifecycle.Deleted, reconciled.Lifecycle);
+        Assert.Equal("Allotment 12", reconciled.Name);
+        Assert.False(reconciled.OwnerlessEditRefused);
+        Assert.Equal(["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"], reconciled.Members.Keys);
+        Assert.Equal(["8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"], reconciled.FormerMembers);
+
         var user = Assert.IsType<UserState>(states["user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"]);
         Assert.True(user.SiteCreations["k1"].Completed);
+        Assert.Equal(SiteRole.Owner, user.Sites["0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"]);
+
+        var former = Assert.IsType<UserState>(states["user/8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
+        Assert.Empty(former.Sites);
     }
 
     [Fact]

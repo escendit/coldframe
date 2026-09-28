@@ -100,7 +100,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | Endpoint | Access | What it does |
 | --- | --- | --- |
 | `POST /sites` | any authenticated User | `User(sub).CreateSite(key, name)`: 201 `{id, name, role}` with `Location: /sites/{id}` |
-| `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection |
+| `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection; 404 once the Site is `Deleted` |
 
 - **Authentication.** JWT bearer against `Identity:Authority` (the realm URL), audience
   `Identity:Audience` (`coldframe-server`); `Identity:RequireHttpsMetadata` defaults to `true` and only
@@ -128,7 +128,54 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
    the caller as a member with role `owner`, journals `site.created` and `site.membership-granted`, and
    runs `CatchUpAsync` on the identity projector before it returns, so the next request sees the
    Membership (read-your-writes). It is the only writer of Memberships and Roles.
-4. `UserGrain` journals `user.site-creation-completed`. The same key returns the same result for 24 h.
+4. `UserGrain` journals `user.site-creation-completed` and `user.site-membership-changed` (Owner). The same
+   key returns the same result for 24 h.
+
+### Reconciliation from Keycloak
+
+Changes made in Keycloak itself (a break-glass edit in the admin console, a member added or removed, a
+role granted or revoked, an Organization renamed or deleted) reach the Server through Temporal, which
+carries nothing else (AD-3, AD-5). `keycloak-temporal-extensions` starts the workflow `IdentityAdminEvent`
+on `keycloak-admin-queue` for every admin event and `IdentityUserEvent` on `keycloak-user-queue` for every
+user event. `AddKeycloakEventPipeline()` hosts a worker for each; the user-event workflow only completes.
+Everything lives in `server/Identity/Reconciliation/`.
+
+1. The workflow runs one activity, `Reconcile` (start-to-close 45 s; retries after 1 s, doubling, at most
+   1 min apart, without limit). The workflow does no I/O.
+2. `AdminEventRoute` picks the Site from the event's `resourcePath` and what the event says the roster now
+   shows. It ignores other realms (by realm **ID**), failed operations, resource types other than
+   `ORGANIZATION`, `ORGANIZATION_MEMBERSHIP` and `ORGANIZATION_ROLE_MAPPING`, unparseable paths and roles
+   other than `owner`, `administrator` and `member`. The event's `representation` and `authDetails` never
+   drive state.
+3. `SiteGrain.Reconcile` does nothing unless the Site is `Active`. It reads the Organization's display
+   name, members and role holders from Phase Two (only reads, under `Keycloak:OperationBudget`) and
+   journals only the differences: `site.renamed`, `site.membership-granted`, `site.membership-revoked`, or
+   `site.deleted` when the Organization is gone. A member's Role is the highest of the three roles it
+   holds; a member with none has no Membership. Then it catches the identity projection up.
+4. The listener fires before Keycloak commits. When the pull does not show yet what the event says, the
+   grain journals nothing and the activity fails retryably; from attempt 5 (about 15 s) the pull is
+   taken as the truth. An unreachable Keycloak also fails retryably.
+5. The activity then calls `SyncSiteMembership` on the User grain of every current and former member,
+   with `null` for former members and for a deleted Site. It does so on every run, so a retry finishes a
+   fan-out that was cut short. The Site grain never calls User grains, so nothing can deadlock with Create
+   Site.
+
+The event is only a trigger: duplicates, echoes of the Server's own writes and events out of order diff
+to nothing, and any later event on the Site repairs a lost one.
+
+**Break-glass: a Site never loses its last Owner.** When Keycloak shows a Site without an Owner, every
+current Owner keeps Owner in the journal and the projection; all other differences still apply, and
+nothing is written back to Keycloak. Every such reconciliation logs an `Error` with EventId 3
+(`OwnerlessEditRefused`, category `Coldframe.Server.Identity.SiteGrain`), and the first one of an episode
+journals `site.ownerless-edit-refused` with the kept Owners. The episode ends with
+`site.ownerless-edit-resolved` on the first reconciliation that finds an Owner in Keycloak again. To find
+an open episode, filter the Server's logs in the Aspire dashboard for that EventId, or look for a Site
+stream whose last episode event is `site.ownerless-edit-refused`. The fix is made in Keycloak: give the
+Organization an `owner` again.
+
+Settings, section `KeycloakEvents`: `TargetHost` (Temporal frontend, `host:port`), `Namespace` and
+`RealmId` (the realm's ID, `coldframe` in the local stack) are required and checked at start;
+`AdminTaskQueue` and `UserTaskQueue` default to the extension's queues.
 
 ### Add an endpoint
 

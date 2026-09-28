@@ -14,6 +14,27 @@ public sealed record PhaseTwoOrganization(
     IReadOnlyDictionary<string, IReadOnlyList<string>> Attributes);
 
 /// <summary>
+/// An Organization's roster as Phase Two shows it right now.
+/// </summary>
+/// <param name="DisplayName">The Site name.</param>
+/// <param name="MemberIds">The User IDs of the members.</param>
+/// <param name="RoleHolders">
+/// For each Organization role of <see cref="SiteGrain.OrganizationRoles"/>, the User IDs that hold it.
+/// A missing role has no holders.
+/// </param>
+public sealed record PhaseTwoRoster(
+    string? DisplayName,
+    IReadOnlySet<string> MemberIds,
+    IReadOnlyDictionary<string, IReadOnlySet<string>> RoleHolders)
+{
+    /// <summary>
+    /// Whether <paramref name="userId"/> holds the Organization role <paramref name="role"/>.
+    /// </summary>
+    public bool Holds(string role, string userId) =>
+        RoleHolders.TryGetValue(role, out var holders) && holders.Contains(userId);
+}
+
+/// <summary>
 /// The Phase Two Organizations API (<c>{keycloak}/realms/{realm}/orgs</c>), as far as Coldframe uses it.
 /// </summary>
 /// <remarks>
@@ -59,4 +80,11 @@ public interface IPhaseTwoOrganizations
     /// Grants a member an Organization role. Idempotent; the User must be a member already.
     /// </summary>
     Task GrantRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads the Organization's display name, members and the holders of the roles in
+    /// <see cref="SiteGrain.OrganizationRoles"/>, page by page. Only reads.
+    /// </summary>
+    /// <returns>The roster, or <see langword="null"/> when there is no Organization with that ID.</returns>
+    Task<PhaseTwoRoster?> GetRosterAsync(string organizationId, CancellationToken cancellationToken);
 }

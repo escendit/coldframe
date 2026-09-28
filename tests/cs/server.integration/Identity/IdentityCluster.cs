@@ -3,6 +3,7 @@ using Coldframe.Server.Identity;
 using Coldframe.Server.IntegrationTests.Journal;
 using Coldframe.Server.Journal;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Orleans.Hosting;
 using Orleans.Streams;
@@ -39,9 +40,26 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
 
     public IdentityReadModel ReadModel => SiloServices.GetRequiredService<IdentityReadModel>();
 
+    public CapturingLoggerProvider Logs => SiloServices.GetRequiredService<CapturingLoggerProvider>();
+
     public IUserGrain User(string userId) => Cluster.GrainFactory.GetGrain<IUserGrain>(userId);
 
     public ISiteGrain Site(string siteId) => Cluster.GrainFactory.GetGrain<ISiteGrain>(siteId);
+
+    /// <summary>
+    /// The User grain's Site set, replayed from its journal stream.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, SiteRole>> UserSitesAsync(string userId)
+    {
+        var state = new UserState();
+
+        foreach (var @event in await Store.ReadStreamAsync($"user/{userId}", TestContext.Current.CancellationToken))
+        {
+            ((dynamic)state).Apply((dynamic)@event.Data);
+        }
+
+        return state.Sites;
+    }
 
     public async ValueTask InitializeAsync()
     {
@@ -111,6 +129,9 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             {
                 siloBuilder.Services.AddKeyedSingleton(clock, TimeProvider.System);
             }
+
+            siloBuilder.Services.AddSingleton<CapturingLoggerProvider>();
+            siloBuilder.Services.AddSingleton<ILoggerProvider>(provider => provider.GetRequiredService<CapturingLoggerProvider>());
 
             siloBuilder.Services.AddJournal(connectionString, options => options.PollInterval = PollInterval);
             siloBuilder.Services.AddProjector<IdentityProjector>();

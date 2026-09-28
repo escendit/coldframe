@@ -36,9 +36,24 @@ Nothing here reads the clock: `DateTime.UtcNow` and its relatives fail the build
 | `MembershipGranted(UserId, Role)` | `site.membership-granted` | The User holds the Role on the Site from now on |
 | `SiteCreationRequested(IdempotencyKey, SiteId, Name, RequestedAt)` | `user.site-creation-requested` | A Create Site request, persisted before any Keycloak call |
 | `SiteCreationCompleted(IdempotencyKey, SiteId)` | `user.site-creation-completed` | The requested Site exists with the User as its Owner |
+| `MembershipRevoked(UserId)` | `site.membership-revoked` | The User no longer holds any Role on the Site (Story 1.7) |
+| `SiteRenamed(Name)` | `site.renamed` | The Site was renamed in Keycloak |
+| `SiteDeleted()` | `site.deleted` | The Organization is gone from Keycloak; the Site is `Deleted` for good |
+| `SiteOwnerlessEditRefused(KeptOwners)` | `site.ownerless-edit-refused` | Keycloak shows no Owner; the listed Owners keep Owner (once per episode) |
+| `SiteOwnerlessEditResolved()` | `site.ownerless-edit-resolved` | Keycloak shows an Owner again; the episode is over |
+| `SiteMembershipChanged(SiteId, Role)` | `user.site-membership-changed` | The User's Role on a Site; `null` when the User left it or it was deleted |
 
 `SiteRole` is ordered `Owner > Administrator > Member` (compare with `>=`); `SiteLifecycle` is
 `Uncreated`, `Active`, `Deleted`. `IUserGrain` (key: `sub`) and `ISiteGrain` (key: Site ID) return
 result records for expected outcomes (created, key reused, Keycloak unavailable, conflict) instead of
-throwing. The project references `Microsoft.Orleans.Sdk`, which generates their serializers; every
-type that crosses the grain boundary carries `[GenerateSerializer]` and a stable `[Alias]`.
+throwing.
+
+The project references `Microsoft.Orleans.Sdk`, which generates their serializers; every type that
+crosses the grain boundary carries `[GenerateSerializer]` and a stable `[Alias]`.
+
+Reconciliation (Story 1.7) adds `ISiteGrain.Reconcile(RosterExpectation?, acceptUnconfirmed)`, which
+returns `SiteReconciliationResult(Outcome, Lifecycle, Members, FormerMembers)` with `Outcome` one of
+`Ignored`, `Unchanged`, `Changed`, `NotYetVisible` and `IdentityProviderUnavailable`, and
+`IUserGrain.SyncSiteMembership(siteId, role)`, which journals only a change. A `RosterExpectation` is
+what a Keycloak event says the roster now shows: `OrganizationAbsent`, `MemberPresent`,
+`MemberAbsent`, `RoleHeld` or `RoleNotHeld`, with the User and the Role it is about.

@@ -146,10 +146,34 @@
           "OpenTelemetry.Api.ProviderBuilderExtensions": "[1.15.3, 2.0.0)"
         }
       },
+      "Temporalio": {
+        "type": "Direct",
+        "requested": "[1.19.0, )",
+        "resolved": "1.19.0",
+        "contentHash": "CFgsWowors/CMedl3fb5ld5Hna3pB4KsXhURH8USgW6gCS2/48U0XGiuk0L7j0/f0/WvdZrOP8/+TqeVJ7DwLw==",
+        "dependencies": {
+          "Google.Protobuf": "3.26.1",
+          "NexusRpc": "0.4.0"
+        }
+      },
+      "Temporalio.Extensions.Hosting": {
+        "type": "Direct",
+        "requested": "[1.19.0, )",
+        "resolved": "1.19.0",
+        "contentHash": "fIayxnskOpqBVJSRzJgnW0jMt349CjPQXsa1c71Ypke0s06r7UHljgZSlzbaSRwplNDl53A5oQwLQPRf7gK43Q==",
+        "dependencies": {
+          "Temporalio": "1.19.0"
+        }
+      },
       "Fractions": {
         "type": "Transitive",
         "resolved": "7.3.0",
         "contentHash": "2bETFWLBc8b7Ut2SVi+bxhGVwiSpknHYGBh2PADyGWONLkTxT7bKyDRhF8ao+XUv90tq8Fl7GTPxSI5bacIRJw=="
+      },
+      "Google.Protobuf": {
+        "type": "Transitive",
+        "resolved": "3.26.1",
+        "contentHash": "CHZX8zXqhF/fdUtd+AYzew8T2HFkAoe5c7lbGxZY/qryAlQXckDvM5BfOJjXlMS7kyICqQTMszj4w1bX5uBJ/w=="
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -505,6 +529,11 @@
         "type": "Transitive",
         "resolved": "13.0.4",
         "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
+      "NexusRpc": {
+        "type": "Transitive",
+        "resolved": "0.4.0",
+        "contentHash": "2cdRtmwT/vskWqJvojODvR7CpRhLWAnCeVT5Z8sPdRDX8P/Ywpw48T2lqgqhxM8JROfoflHzhSiXo4h1ln3/MQ=="
       },
       "Npgsql.OpenTelemetry": {
         "type": "Transitive",

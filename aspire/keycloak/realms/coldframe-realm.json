@@ -1,10 +1,12 @@
 {
+  "id": "coldframe",
   "realm": "coldframe",
   "displayName": "Coldframe",
   "enabled": true,
   "registrationAllowed": true,
   "organizationsEnabled": true,
   "sslRequired": "external",
+  "eventsListeners": ["jboss-logging", "temporal"],
   "attributes": {
     "_providerConfig.orgs.config.createAdminUser": "false"
   },

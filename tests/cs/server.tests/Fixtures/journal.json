@@ -54,5 +54,82 @@
     "alias": "user.site-creation-completed",
     "schemaVersion": 1,
     "payload": { "idempotencyKey": "k1", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 1,
+    "alias": "site.created",
+    "schemaVersion": 1,
+    "payload": { "name": "Allotment", "createdBy": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 2,
+    "alias": "site.membership-granted",
+    "schemaVersion": 1,
+    "payload": { "userId": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31", "role": "Owner" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 3,
+    "alias": "site.membership-granted",
+    "schemaVersion": 1,
+    "payload": { "userId": "8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f", "role": "Administrator" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 4,
+    "alias": "site.renamed",
+    "schemaVersion": 1,
+    "payload": { "name": "Allotment 12" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 5,
+    "alias": "site.ownerless-edit-refused",
+    "schemaVersion": 1,
+    "payload": { "keptOwners": ["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"] }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 6,
+    "alias": "site.ownerless-edit-resolved",
+    "schemaVersion": 1,
+    "payload": {}
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 7,
+    "alias": "site.membership-revoked",
+    "schemaVersion": 1,
+    "payload": { "userId": "8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01",
+    "version": 8,
+    "alias": "site.deleted",
+    "schemaVersion": 1,
+    "payload": {}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 3,
+    "alias": "user.site-membership-changed",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "role": "Owner" }
+  },
+  {
+    "streamId": "user/8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f",
+    "version": 1,
+    "alias": "user.site-membership-changed",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01", "role": "Administrator" }
+  },
+  {
+    "streamId": "user/8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f",
+    "version": 2,
+    "alias": "user.site-membership-changed",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d01" }
   }
 ]

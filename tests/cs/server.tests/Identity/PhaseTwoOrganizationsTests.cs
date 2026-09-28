@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Coldframe.Server.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -29,7 +31,7 @@ public sealed class PhaseTwoOrganizationsTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public static TheoryData<string> Operations() => ["find", "get", "create", "role", "member", "grant"];
+    public static TheoryData<string> Operations() => ["find", "get", "create", "role", "member", "grant", "roster"];
 
     [Theory]
     [MemberData(nameof(Operations))]
@@ -159,6 +161,95 @@ public sealed class PhaseTwoOrganizationsTests
         Assert.Equal(2, tokens.Requests);
     }
 
+    [Fact]
+    public async Task TheRosterIsReadPageByPageWithTheHoldersOfEachRole()
+    {
+        var members = Enumerable.Range(0, PhaseTwoOrganizations.RosterPageSize + 3).Select(index => $"user-{index}").ToList();
+        var requested = new List<string>();
+        var stub = new StubHandler((request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
+            requested.Add($"{path}{request.RequestUri.Query}");
+
+            IEnumerable<string>? users = path switch
+            {
+                _ when path.EndsWith("/members", StringComparison.Ordinal) => members,
+                _ when path.EndsWith("/roles/owner/users", StringComparison.Ordinal) => ["user-0"],
+                _ when path.EndsWith("/roles/member/users", StringComparison.Ordinal) => members.Skip(1),
+                _ when path.EndsWith("/roles/administrator/users", StringComparison.Ordinal) => [],
+                _ => null,
+            };
+
+            if (users is null)
+            {
+                return Task.FromResult(Json(HttpStatusCode.OK, """{"id":"org","name":"org","displayName":"Garden"}"""));
+            }
+
+            var page = users.Skip(int.Parse(query["first"]!, CultureInfo.InvariantCulture)).Take(int.Parse(query["max"]!, CultureInfo.InvariantCulture));
+            return Task.FromResult(Json(HttpStatusCode.OK, JsonSerializer.Serialize(page.Select(id => new { id, username = id }))));
+        });
+
+        var roster = await Create(stub).Organizations.GetRosterAsync(Organization.Id, Ct);
+
+        Assert.NotNull(roster);
+        Assert.Equal("Garden", roster.DisplayName);
+        Assert.Equal(members.Count, roster.MemberIds.Count);
+        Assert.True(roster.Holds("owner", "user-0"));
+        Assert.False(roster.Holds("owner", "user-1"));
+        Assert.Equal(members.Count - 1, roster.RoleHolders["member"].Count);
+        Assert.Empty(roster.RoleHolders["administrator"]);
+        Assert.Contains($"/realms/coldframe/orgs/{Organization.Id}/members?first={PhaseTwoOrganizations.RosterPageSize}&max={PhaseTwoOrganizations.RosterPageSize}", requested);
+        Assert.All(requested, path => Assert.DoesNotContain("/admin/", path, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AMissingOrganizationHasNoRosterAndAMissingRoleHasNoHolders()
+    {
+        var gone = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)));
+        Assert.Null(await Create(gone).Organizations.GetRosterAsync(Organization.Id, Ct));
+
+        var noRoles = new StubHandler((request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            return Task.FromResult(
+                path.Contains("/roles/", StringComparison.Ordinal) ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : path.EndsWith("/members", StringComparison.Ordinal) ? Json(HttpStatusCode.OK, """[{"id":"user-1"}]""")
+                : Json(HttpStatusCode.OK, """{"id":"org","displayName":"Home"}"""));
+        });
+
+        var roster = await Create(noRoles).Organizations.GetRosterAsync(Organization.Id, Ct);
+
+        Assert.NotNull(roster);
+        Assert.Equal(["user-1"], roster.MemberIds);
+        Assert.All(SiteGrain.OrganizationRoles.Values, role => Assert.Empty(roster.RoleHolders[role]));
+    }
+
+    [Fact]
+    public async Task AnOrganizationDeletedWhileItsMembersAreReadHasNoRoster()
+    {
+        var stub = new StubHandler((request, _) => Task.FromResult(
+            request.RequestUri!.AbsolutePath.EndsWith("/members", StringComparison.Ordinal)
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : Json(HttpStatusCode.OK, $$"""{"id":"{{Organization.Id}}","displayName":"Home"}""")));
+
+        Assert.Null(await Create(stub).Organizations.GetRosterAsync(Organization.Id, Ct));
+    }
+
+    [Fact]
+    public async Task AnEndpointThatIgnoresPagingEndsTheRead()
+    {
+        var full = JsonSerializer.Serialize(Enumerable.Range(0, PhaseTwoOrganizations.RosterPageSize).Select(index => new { id = $"user-{index}" }));
+        var stub = new StubHandler((request, _) => Task.FromResult(
+            request.RequestUri!.AbsolutePath.EndsWith(Organization.Id, StringComparison.Ordinal)
+                ? Json(HttpStatusCode.OK, """{"id":"org","displayName":"Home"}""")
+                : Json(HttpStatusCode.OK, full)));
+
+        var roster = await Create(stub).Organizations.GetRosterAsync(Organization.Id, Ct);
+
+        Assert.Equal(PhaseTwoOrganizations.RosterPageSize, roster!.MemberIds.Count);
+    }
+
     private static Task Call(PhaseTwoOrganizations organizations, string operation) => operation switch
     {
         "find" => organizations.FindByAttributeAsync(IPhaseTwoOrganizations.IdempotencyKeyAttribute, "user-1:k1", Ct),
@@ -167,6 +258,7 @@ public sealed class PhaseTwoOrganizationsTests
         "role" => organizations.EnsureRoleAsync(Organization.Id, "owner", Ct),
         "member" => organizations.AddMemberAsync(Organization.Id, "user-1", Ct),
         "grant" => organizations.GrantRoleAsync(Organization.Id, "owner", "user-1", Ct),
+        "roster" => organizations.GetRosterAsync(Organization.Id, Ct),
         _ => throw new ArgumentOutOfRangeException(nameof(operation)),
     };
 

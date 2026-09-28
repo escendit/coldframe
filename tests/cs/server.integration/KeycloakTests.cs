@@ -329,6 +329,28 @@ public sealed class KeycloakTests(AppHostFixture fixture)
     }
 
     [Fact]
+    public async Task ColdframeRealmHasAFixedIdAndPublishesItsEventsToTemporal()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var keycloak = await CreateAdminClientAsync(timeout.Token);
+
+        // Events carry the realm's ID; the Server's workers ignore every other realm by it.
+        using (var realm = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}", timeout.Token))
+        {
+            Assert.Equal(Realm, realm.RootElement.GetProperty("id").GetString());
+        }
+
+        using var events = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}/events/config", timeout.Token);
+        Assert.Equal(
+            EventListeners,
+            events.RootElement.GetProperty("eventsListeners").EnumerateArray().Select(listener => listener.GetString()).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task ColdframeRealmCreatesNoPlaceholderOrganizationAdmin()
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

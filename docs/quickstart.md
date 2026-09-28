@@ -83,8 +83,17 @@ Things to know:
   requires. The realm sets `_providerConfig.orgs.config.createAdminUser` to `false`, so Phase Two
   creates no placeholder `org-admin-*` User per Organization.
 - **Keycloak is built, not pulled.** [`aspire/keycloak/Dockerfile`](../aspire/keycloak/Dockerfile)
-  compiles the extension from its public source and adds it to the Phase Two image. To use the
-  listener in a realm, add `temporal` under *Realm settings → Events → Event listeners*.
+  compiles the extension from its public source and adds it to the Phase Two image. The realm
+  `coldframe` has the fixed ID `coldframe` and already lists the `temporal` event listener, so its
+  admin events reach the Server through Temporal.
+- **Changes made in Keycloak reach the Server.** Add or remove an Organization member, grant or revoke
+  its `owner`, `administrator` or `member` role, rename or delete the Organization, and the Server's
+  Temporal workers reconcile the Site within seconds (settings `KeycloakEvents__TargetHost`,
+  `KeycloakEvents__Namespace` and `KeycloakEvents__RealmId`, which the AppHost sets). An edit that
+  leaves a Site without an Owner is refused: the previous Owners keep Owner, the Server logs an `Error`
+  with EventId 3 (`OwnerlessEditRefused`) and journals `site.ownerless-edit-refused`; fix it by giving
+  the Organization an `owner` again in Keycloak. See
+  [`apps/cs/README.md`](../apps/cs/README.md#reconciliation-from-keycloak).
 - **Temporal is a development server.** It keeps its state in memory. The version for deployment
   is decided with the deployment epic.
 - **The silo uses ADO.NET clustering and reminders** on the `coldframe` database, in the Orleans
@@ -193,9 +202,10 @@ rule matching the OpenAPI contract).
 `tests/cs/server.integration` starts the same AppHost as above, so it needs Docker or Podman. With
 Podman, run `ASPIRE_CONTAINER_RUNTIME=podman dotnet test`. Its journal tests each create a fresh
 database on the AppHost's PostgreSQL, migrate it with the job's runner and drop it afterwards. The
-Create Site tests run the User and Site grains on such a database with a fake Phase Two; the Edge API
-tests and the authorization matrix call the running Server with tokens of Keycloak Users they create
-through a test client of their own.
+Create Site and reconciliation tests run the User and Site grains on such a database with a fake Phase
+Two; the Edge API tests and the authorization matrix call the running Server with tokens of Keycloak
+Users they create through a test client of their own, and the Keycloak reconciliation tests change
+Organizations through the Phase Two API and wait for the Server to follow.
 
 Server code reads the time only from an injected `TimeProvider`. `DateTime.UtcNow` and its relatives
 fail the build with RS0030.

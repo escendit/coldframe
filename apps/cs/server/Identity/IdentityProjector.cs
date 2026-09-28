@@ -6,7 +6,8 @@ namespace Coldframe.Server.Identity;
 
 /// <summary>
 /// Projects Sites and Memberships into <c>identity_sites</c> and <c>identity_memberships</c>, the read
-/// model the authorization policy reads (AD-4). It is the only writer of those tables.
+/// model the authorization policy reads (AD-4). It is the only writer of those tables. The ownerless-edit
+/// events need no rows.
 /// </summary>
 public sealed class IdentityProjector : IProjector
 {
@@ -30,6 +31,14 @@ public sealed class IdentityProjector : IProjector
         VALUES (@site_id, @user_id, @role)
         ON CONFLICT (site_id, user_id) DO UPDATE SET role = EXCLUDED.role
         """;
+
+    private const string RenameSiteSql = "UPDATE identity_sites SET name = @name WHERE site_id = @site_id";
+
+    // Deletion keeps the rows: the ID stays resolvable and the policy answers 404 for a deleted Site.
+    private const string DeleteSiteSql = "UPDATE identity_sites SET lifecycle = @lifecycle WHERE site_id = @site_id";
+
+    // The projection is a read model, not a tombstone: a revoked Membership has no row.
+    private const string RevokeMembershipSql = "DELETE FROM identity_memberships WHERE site_id = @site_id AND user_id = @user_id";
 
     /// <inheritdoc />
     public string Name => ProjectorName;
@@ -78,6 +87,34 @@ public sealed class IdentityProjector : IProjector
                 }
 
                 break;
+            case SiteRenamed renamed:
+                await ExecuteAsync(transaction, RenameSiteSql, cancellationToken, ("site_id", siteId), ("name", renamed.Name))
+                    .ConfigureAwait(false);
+                break;
+            case SiteDeleted:
+                await ExecuteAsync(transaction, DeleteSiteSql, cancellationToken, ("site_id", siteId), ("lifecycle", nameof(SiteLifecycle.Deleted)))
+                    .ConfigureAwait(false);
+                break;
+            case MembershipRevoked revoked:
+                await ExecuteAsync(transaction, RevokeMembershipSql, cancellationToken, ("site_id", siteId), ("user_id", revoked.UserId))
+                    .ConfigureAwait(false);
+                break;
         }
+    }
+
+    private static async Task ExecuteAsync(
+        NpgsqlTransaction transaction,
+        string sql,
+        CancellationToken cancellationToken,
+        params (string Name, object Value)[] parameters)
+    {
+        await using var command = new NpgsqlCommand(sql, transaction.Connection, transaction);
+
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

@@ -56,6 +56,11 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
   </ItemGroup>
+  <!-- Keycloak event pipeline (AD-3, AD-5): the Server's Temporal workers for the Keycloak admin and user events. -->
+  <ItemGroup>
+    <PackageVersion Include="Temporalio" Version="1.19.0" />
+    <PackageVersion Include="Temporalio.Extensions.Hosting" Version="1.19.0" />
+  </ItemGroup>
   <!-- Analyzers. BannedSymbols.txt at the root lists what apps/cs and packages/cs must not call. -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0" />

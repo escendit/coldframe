@@ -14,7 +14,8 @@ public enum SiteWrite
 
 /// <summary>
 /// An in-memory Phase Two with switches that make it unavailable, so the TestCluster suite can check
-/// idempotency and recovery without Keycloak.
+/// idempotency and recovery without Keycloak. Its console methods change Organizations the way an
+/// administrator does in the Keycloak admin console; they count as no write of the Server.
 /// </summary>
 public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
 {
@@ -29,6 +30,7 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
     private SiteWrite? _stallOnceOn;
     private TaskCompletionSource _stalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _writes;
+    private int _rosterReads;
 
     /// <summary>
     /// While set, every call fails as if Keycloak were down.
@@ -39,6 +41,11 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
     /// How many writes (creations, roles, members, grants) reached the fake, including repeated ones.
     /// </summary>
     public int Writes => Volatile.Read(ref _writes);
+
+    /// <summary>
+    /// How many roster reads reached the fake, including failed ones.
+    /// </summary>
+    public int RosterReads => Volatile.Read(ref _rosterReads);
 
     /// <summary>
     /// The next creation stores the Organization, then fails as if the answer was lost.
@@ -115,6 +122,115 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
         lock (_lock)
         {
             return _grants.Contains((organizationId, role, userId));
+        }
+    }
+
+    /// <summary>
+    /// Console: makes a User a member with the given Organization roles, creating missing roles.
+    /// </summary>
+    public void ConsoleAddMember(string organizationId, string userId, params string[] roles)
+    {
+        lock (_lock)
+        {
+            RequireOrganization(organizationId);
+            _members.Add((organizationId, userId));
+
+            foreach (var role in roles)
+            {
+                _roles.Add((organizationId, role));
+                _grants.Add((organizationId, role, userId));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Console: grants a member an Organization role, creating it if missing.
+    /// </summary>
+    public void ConsoleGrantRole(string organizationId, string role, string userId)
+    {
+        lock (_lock)
+        {
+            RequireOrganization(organizationId);
+            _roles.Add((organizationId, role));
+            _grants.Add((organizationId, role, userId));
+        }
+    }
+
+    /// <summary>
+    /// Console: revokes an Organization role from a User.
+    /// </summary>
+    public void ConsoleRevokeRole(string organizationId, string role, string userId)
+    {
+        lock (_lock)
+        {
+            _grants.Remove((organizationId, role, userId));
+        }
+    }
+
+    /// <summary>
+    /// Console: removes a member, and with it the member's Organization roles.
+    /// </summary>
+    public void ConsoleRemoveMember(string organizationId, string userId)
+    {
+        lock (_lock)
+        {
+            _members.Remove((organizationId, userId));
+            _grants.RemoveWhere(grant => grant.Organization == organizationId && grant.User == userId);
+        }
+    }
+
+    /// <summary>
+    /// Console: changes the Organization's display name.
+    /// </summary>
+    public void ConsoleRename(string organizationId, string displayName)
+    {
+        lock (_lock)
+        {
+            RequireOrganization(organizationId);
+            _organizations[organizationId] = _organizations[organizationId] with { DisplayName = displayName };
+        }
+    }
+
+    /// <summary>
+    /// Console: deletes the Organization with its members, roles and grants.
+    /// </summary>
+    public void ConsoleDelete(string organizationId)
+    {
+        lock (_lock)
+        {
+            _organizations.Remove(organizationId);
+            _members.RemoveWhere(member => member.Organization == organizationId);
+            _roles.RemoveWhere(role => role.Organization == organizationId);
+            _grants.RemoveWhere(grant => grant.Organization == organizationId);
+        }
+    }
+
+    public Task<PhaseTwoRoster?> GetRosterAsync(string organizationId, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _rosterReads);
+        ThrowIfUnavailable();
+
+        lock (_lock)
+        {
+            if (!_organizations.TryGetValue(organizationId, out var organization))
+            {
+                return Task.FromResult<PhaseTwoRoster?>(null);
+            }
+
+            var members = _members
+                .Where(member => member.Organization == organizationId)
+                .Select(member => member.User)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var holders = SiteGrain.OrganizationRoles.Values.ToDictionary(
+                role => role,
+                role => (IReadOnlySet<string>)_grants
+                    .Where(grant => grant.Organization == organizationId && grant.Role == role)
+                    .Select(grant => grant.User)
+                    .ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal);
+
+            return Task.FromResult<PhaseTwoRoster?>(new PhaseTwoRoster(organization.DisplayName, members, holders));
         }
     }
 

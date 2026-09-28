@@ -20,6 +20,11 @@ public sealed class PhaseTwoOrganizations(
     KeycloakServiceAccount serviceAccount,
     IOptions<KeycloakOptions> options) : IPhaseTwoOrganizations
 {
+    /// <summary>
+    /// How many users one roster request reads.
+    /// </summary>
+    internal const int RosterPageSize = 100;
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     /// <inheritdoc />
@@ -143,6 +148,43 @@ public sealed class PhaseTwoOrganizations(
         EnsureStatus(response, $"grant role {role} to {userId} in Organization {organizationId}", HttpStatusCode.Created, HttpStatusCode.NoContent, HttpStatusCode.OK);
     }
 
+    /// <inheritdoc />
+    public async Task<PhaseTwoRoster?> GetRosterAsync(string organizationId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+
+        var organization = await GetAsync(organizationId, cancellationToken).ConfigureAwait(false);
+
+        if (organization is null)
+        {
+            return null;
+        }
+
+        var members = await ReadUserIdsAsync(
+            $"orgs/{Escape(organizationId)}/members",
+            $"read the members of Organization {organizationId}",
+            cancellationToken).ConfigureAwait(false);
+
+        if (members is null)
+        {
+            // Deleted while it was being read.
+            return null;
+        }
+
+        var holders = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+
+        foreach (var role in SiteGrain.OrganizationRoles.Values)
+        {
+            // A missing role (404) has no holders.
+            holders[role] = await ReadUserIdsAsync(
+                $"orgs/{Escape(organizationId)}/roles/{Escape(role)}/users",
+                $"read the holders of role {role} in Organization {organizationId}",
+                cancellationToken).ConfigureAwait(false) ?? new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        return new PhaseTwoRoster(organization.DisplayName, members, holders);
+    }
+
     /// <summary>
     /// Sends a request and turns every transport failure, timeout and server error into
     /// <see cref="IdentityProviderUnavailableException"/>. Cancellation by the caller propagates as is.
@@ -177,6 +219,47 @@ public sealed class PhaseTwoOrganizations(
         }
 
         return response;
+    }
+
+    // Pages through a list of users until a short page. A page that adds nothing new also ends the read,
+    // so an endpoint that ignores the paging parameters cannot loop. Returns null on 404.
+    private async Task<IReadOnlySet<string>?> ReadUserIdsAsync(string path, string action, CancellationToken cancellationToken)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var first = 0; ; first += RosterPageSize)
+        {
+            using var response = await SendAuthorizedAsync(
+                HttpMethod.Get,
+                $"{path}?first={first}&max={RosterPageSize}",
+                null,
+                cancellationToken).ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            EnsureStatus(response, action, HttpStatusCode.OK);
+
+            var page = await response.Content
+                .ReadFromJsonAsync<List<UserRepresentation>>(Json, cancellationToken)
+                .ConfigureAwait(false) ?? [];
+
+            var added = 0;
+            foreach (var user in page)
+            {
+                if (!string.IsNullOrEmpty(user.Id) && ids.Add(user.Id))
+                {
+                    added++;
+                }
+            }
+
+            if (page.Count < RosterPageSize || added == 0)
+            {
+                return ids;
+            }
+        }
     }
 
     private static string Escape(string segment) => Uri.EscapeDataString(segment);
@@ -238,4 +321,6 @@ public sealed class PhaseTwoOrganizations(
         string? Name,
         string? DisplayName,
         Dictionary<string, List<string>?>? Attributes);
+
+    private sealed record UserRepresentation(string? Id);
 }

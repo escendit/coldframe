@@ -32,8 +32,9 @@ public sealed class SiteCreationTests(IdentityCluster identity) : IClassFixture<
 
         Assert.Equal(["site.created", "site.membership-granted"], await identity.AliasesAsync($"site/{site.Id}"));
         Assert.Equal(
-            ["user.site-creation-requested", "user.site-creation-completed"],
+            ["user.site-creation-requested", "user.site-creation-completed", "user.site-membership-changed"],
             await identity.AliasesAsync($"user/{userId}"));
+        Assert.Equal(new Dictionary<string, SiteRole> { [site.Id] = SiteRole.Owner }, await identity.UserSitesAsync(userId));
     }
 
     [Fact]
@@ -188,7 +189,7 @@ public sealed class SiteCreationTests(IdentityCluster identity) : IClassFixture<
         Assert.Null(reused.Site);
         Assert.Equal(writes, identity.PhaseTwo.Writes);
         Assert.Single(identity.PhaseTwo.Tagged($"{userId}:k1"));
-        Assert.Equal(2, (await identity.AliasesAsync($"user/{userId}")).Count);
+        Assert.Equal(3, (await identity.AliasesAsync($"user/{userId}")).Count);
     }
 
     [Fact]

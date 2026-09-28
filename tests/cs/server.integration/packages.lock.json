@@ -159,6 +159,17 @@
           "Microsoft.Extensions.Logging.Abstractions": "10.0.0"
         }
       },
+      "Temporalio": {
+        "type": "Direct",
+        "requested": "[1.19.0, )",
+        "resolved": "1.19.0",
+        "contentHash": "CFgsWowors/CMedl3fb5ld5Hna3pB4KsXhURH8USgW6gCS2/48U0XGiuk0L7j0/f0/WvdZrOP8/+TqeVJ7DwLw==",
+        "dependencies": {
+          "Google.Protobuf": "3.26.1",
+          "Microsoft.Extensions.Logging.Abstractions": "2.2.0",
+          "NexusRpc": "0.4.0"
+        }
+      },
       "xunit.v3": {
         "type": "Direct",
         "requested": "[4.0.1, )",
@@ -1333,6 +1344,11 @@
         "resolved": "13.0.4",
         "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
       },
+      "NexusRpc": {
+        "type": "Transitive",
+        "resolved": "0.4.0",
+        "contentHash": "2cdRtmwT/vskWqJvojODvR7CpRhLWAnCeVT5Z8sPdRDX8P/Ywpw48T2lqgqhxM8JROfoflHzhSiXo4h1ln3/MQ=="
+      },
       "Npgsql.OpenTelemetry": {
         "type": "Transitive",
         "resolved": "10.0.2",
@@ -1701,7 +1717,9 @@
           "Microsoft.Orleans.Reminders.AdoNet": "[10.3.1, )",
           "Microsoft.Orleans.Streaming.NATS": "[10.3.1-alpha.1, )",
           "Npgsql": "[10.0.3, )",
-          "OpenTelemetry.Instrumentation.AspNetCore": "[1.15.2, )"
+          "OpenTelemetry.Instrumentation.AspNetCore": "[1.15.2, )",
+          "Temporalio": "[1.19.0, )",
+          "Temporalio.Extensions.Hosting": "[1.19.0, )"
         }
       },
       "Aspire.Hosting.AppHost": {
@@ -2321,6 +2339,16 @@
         "contentHash": "2nPd7r0ug/gd6/CNFL6Rlu+RSQ9WYGSGHAYQ1ssbSqyzKJpqTunfx2I/1O0WB5k+L0cyXbG4XVZpoSoUc3M7wg==",
         "dependencies": {
           "OpenTelemetry.Api.ProviderBuilderExtensions": "[1.15.3, 2.0.0)"
+        }
+      },
+      "Temporalio.Extensions.Hosting": {
+        "type": "CentralTransitive",
+        "requested": "[1.19.0, )",
+        "resolved": "1.19.0",
+        "contentHash": "fIayxnskOpqBVJSRzJgnW0jMt349CjPQXsa1c71Ypke0s06r7UHljgZSlzbaSRwplNDl53A5oQwLQPRf7gK43Q==",
+        "dependencies": {
+          "Microsoft.Extensions.Hosting": "8.0.1",
+          "Temporalio": "1.19.0"
         }
       }
     }

@@ -5,7 +5,7 @@ namespace Coldframe.Server.Tests.Identity;
 
 /// <summary>
 /// An idempotency key holds its request for 24 h after the request once completed; a pending request
-/// holds it until it completes, because its Organization may exist.
+/// holds it until it completes, because its Organization may exist. The Site set follows the Site grains.
 /// </summary>
 public sealed class UserStateTests
 {
@@ -48,6 +48,19 @@ public sealed class UserStateTests
         state.Apply(new SiteCreationCompleted("k1", "site-1"));
 
         Assert.False(state.SiteCreations["k1"].Completed);
+    }
+
+    [Fact]
+    public void TheSiteSetFollowsTheMembershipChanges()
+    {
+        var state = new UserState();
+
+        state.Apply(new SiteMembershipChanged("site-1", SiteRole.Member));
+        state.Apply(new SiteMembershipChanged("site-2", SiteRole.Owner));
+        state.Apply(new SiteMembershipChanged("site-1", SiteRole.Administrator));
+        state.Apply(new SiteMembershipChanged("site-2", null));
+
+        Assert.Equal(new Dictionary<string, SiteRole> { ["site-1"] = SiteRole.Administrator }, state.Sites);
     }
 
     private static UserState Completed()
