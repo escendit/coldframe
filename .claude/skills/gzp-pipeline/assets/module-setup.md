@@ -83,6 +83,18 @@ The script itself checks whether bmad-build is installed and no-ops (`status: "s
 
 If the answer is false and a prior run of this script already wrote the hook (reconfiguration flipping the choice from yes to no), instead run the same command with `--action disable` to cleanly remove it.
 
+### Auto-Track the unattended loop (bmad-build-auto)
+
+`bmad-build-auto` — one iteration of the unattended development loop — reads its **own** override file, so the bmad-build hook above never reaches it. If the collected `gzp_autotrack_bmad_loop` answer is true, run the same script against the loop skill, in unattended mode:
+
+```bash
+uv run ./scripts/write-build-hook.py --target "{project-root}/_bmad/custom/bmad-build-auto.toml" --customize-toml "{project-root}/.claude/skills/bmad-build-auto/customize.toml" --skill-name bmad-build-auto --unattended --action enable
+```
+
+`--unattended` writes hook text that forbids asking questions or waiting on a human (see the unattended invariant in `SKILL.md`). Statuses, the `skipped`-when-not-installed behavior, the `conflict` handling, and `--action disable` on a yes→no flip all work exactly as for bmad-build. The two answers are independent: either hook can be on without the other.
+
+`gzp_loop_auto_merge_pr` (asked only when the loop hook is on) needs no script run — it's read at the merge gate. Mention in the confirmation summary which way it was answered, since it decides whether loop iterations merge their own PRs or end with the PR open.
+
 ## Create Output Directories
 
 After writing config, create any output directories that were configured. For filesystem operations only (such as creating directories), resolve the `{project-root}` token to the actual project root and create each path-type value from `config.yaml` that does not yet exist — this includes `output_folder` and any module variable whose value starts with `{project-root}/`. The paths stored in the config files must continue to use the literal `{project-root}` token; only the directories on disk should use the resolved paths. Use `mkdir -p` or equivalent to create the full path.

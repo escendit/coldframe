@@ -1,7 +1,7 @@
 code: gzp
 name: "Pipeline Forge"
 description: "Configurable Zoho Projects + GitHub Flow task pipeline: plans, tracks, and time-logs work in Zoho (optional per project), drives implementation tasks through GitHub Flow per repo config — issue-first flow, GPG enforcement, and PR auto-merge each a setup toggle — and handles ad hoc GitHub issues as standalone reporting artifacts."
-module_version: 1.3.0
+module_version: 1.4.0
 default_selected: false
 module_greeting: >
   Pipeline Forge is ready. Say "start a new phase" to break your next chunk of work into a
@@ -75,6 +75,23 @@ gzp_autotrack_bmad_build:
     bmad-build is installed in this project; skipped otherwise, and safe to answer yes even if
     you later add bmad-build.
   default: true
+
+gzp_autotrack_bmad_loop:
+  prompt: >
+    Also track the unattended development loop (bmad-build-auto) through Pipeline Forge? The
+    loop reads its own override file, so without this it skips the pipeline entirely. This
+    writes unattended hooks into _bmad/custom/bmad-build-auto.toml: the pipeline never asks
+    questions or waits for a human there.
+  default: true
+
+gzp_loop_auto_merge_pr:
+  prompt: >
+    In the unattended loop, let the pipeline accept (merge) the PRs it opens by itself, so
+    iterations flow without you? (Independent of the interactive auto-merge answer above.
+    Only merges its own PR once checks are green; a blocked merge leaves the PR open and the
+    loop halts as blocked. When off, every iteration ends with its PR open for you to merge.)
+  default: true
+  asked_when: gzp_autotrack_bmad_loop
 
 directories:
   - "{project-root}/_bmad/memory/gzp-pipeline"
