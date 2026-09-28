@@ -24,7 +24,14 @@ public sealed class MigrationTests(AppHostFixture fixture)
         "orleansreminderstable",
     ];
 
-    private static readonly string[] ColdframeTables = ["journal_events", "journal_outbox", "projection_checkpoints"];
+    private static readonly string[] ColdframeTables =
+    [
+        "journal_events",
+        "journal_outbox",
+        "projection_checkpoints",
+        "identity_sites",
+        "identity_memberships",
+    ];
 
     [Fact]
     public async Task TheMigrationJobFinishesWithExitCodeZeroBeforeTheServerStarts()

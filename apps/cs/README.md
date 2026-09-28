@@ -91,3 +91,57 @@ again from position 0.
 Hints travel over the Orleans stream provider `hints` (NATS JetStream in the AppHost), carry only a
 position, and only wake runners. Set `Journal__HintStream__Enabled=false` to run without them;
 projectors then converge by polling alone.
+
+## The Edge API
+
+The Server serves the contract in [`packages/openapi`](../../packages/openapi) from `server/Edge/`.
+`MapEdgeApi()` in `EdgeApi.cs` maps every endpoint:
+
+| Endpoint | Access | What it does |
+| --- | --- | --- |
+| `POST /sites` | any authenticated User | `User(sub).CreateSite(key, name)`: 201 `{id, name, role}` with `Location: /sites/{id}` |
+| `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection |
+
+- **Authentication.** JWT bearer against `Identity:Authority` (the realm URL), audience
+  `Identity:Audience` (`coldframe-server`); `Identity:RequireHttpsMetadata` defaults to `true` and only
+  the local stack turns it off. Inbound claims are not mapped, so the User ID is the claim `sub`.
+  Every request needs a token except the health endpoints under `/.well-known/healthz`.
+- **Authorization.** The caller's Role comes from the identity projection, never from token claims.
+  One policy reads the `siteId` route value, looks the Site and the caller's Role up in
+  `IdentityReadModel`, and decides with `SiteAccess.Decide(minimum, siteExists, callerRole)`: 404
+  `site-not-found` when the Site does not exist, 403 `forbidden` when the Role is missing or too low.
+- **Errors** are Problem Details with `type` `urn:coldframe:problem:<slug>`; `EdgeProblems` holds them.
+- **Keycloak.** Only the Server's own service account (`Keycloak:BaseUrl`, `Realm`, `ClientId`,
+  `ClientSecret`) talks to Phase Two at `{keycloak}/realms/coldframe/orgs`. Each request is bounded by
+  `Keycloak:RequestTimeout` (10 s) and one Site creation by `Keycloak:OperationBudget` (20 s), below the
+  Orleans call timeout. An unreachable Keycloak answers 503 and leaves the request pending; a retry
+  with the same key resumes it with the same Site ID.
+
+### Create Site, step by step
+
+1. The handler validates the `Idempotency-Key` (1–200 printable ASCII) and the name (trimmed, 1–100).
+2. `UserGrain` (`user/{sub}`) journals `user.site-creation-requested` with a new UUIDv7 Site ID before
+   any Keycloak call. It looks the Organization up by its tag `coldframe.idempotencyKey = "{sub}:{key}"`,
+   otherwise creates it with that ID (`name` = Site ID, `displayName` = Site name); a 409 is resolved by
+   reading the ID. It creates the Organization and writes nothing else to Keycloak.
+3. `SiteGrain` (`site/{id}`) ensures the Organization roles `owner`, `administrator` and `member`, adds
+   the caller as a member with role `owner`, journals `site.created` and `site.membership-granted`, and
+   runs `CatchUpAsync` on the identity projector before it returns, so the next request sees the
+   Membership (read-your-writes). It is the only writer of Memberships and Roles.
+4. `UserGrain` journals `user.site-creation-completed`. The same key returns the same result for 24 h.
+
+### Add an endpoint
+
+1. **Contract.** Add the operation to `packages/openapi/coldframe.openapi.json` with its
+   `x-coldframe-minimum-role`: a `SiteRole` or `Authenticated`.
+2. **Rule.** Map it in `MapEdgeApi()` with exactly one of `.RequireSiteRole(SiteRole.X)` (the route
+   must contain `{siteId}`) or `.RequireAuthenticatedCaller()`. Handlers call grains and read only read
+   models.
+3. **Matrix sample.** Add a sample request to `Samples` in
+   [`AuthorizationMatrixTests`](../../tests/cs/server.integration/Edge/AuthorizationMatrixTests.cs): how to
+   call the endpoint on a given Site and the status it answers when allowed.
+
+`EdgeEndpointDiscoveryTests` fails when an endpoint declares no rule or more than one, or when the
+mapped endpoints and rules differ from the contract. `AuthorizationMatrixTests` fails when an endpoint
+has no sample; otherwise it runs every endpoint as Owner, Administrator and Member on their own Site and
+on another Site, and expects exactly what the declared minimum implies.

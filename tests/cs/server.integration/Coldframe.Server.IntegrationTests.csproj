@@ -24,6 +24,10 @@
   <ItemGroup>
     <Compile Include="..\server.tests\Samples\*.cs" Link="Journal\Samples\%(Filename)%(Extension)" />
   </ItemGroup>
+  <!-- The authorization matrix lists the Edge API endpoints exactly as the unit tests do. -->
+  <ItemGroup>
+    <Compile Include="..\server.tests\Edge\EdgeEndpointCatalog.cs" Link="Edge\EdgeEndpointCatalog.cs" />
+  </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>

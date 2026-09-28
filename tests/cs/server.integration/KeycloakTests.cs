@@ -22,8 +22,13 @@ public sealed class KeycloakTests(AppHostFixture fixture)
     private const string MobileClientId = "coldframe-mobile";
     private const string MobileSignInCallback = "com.escendit.coldframe:/signin/callback";
     private const string MobileSignOutCallback = "com.escendit.coldframe:/signout/callback";
+    private const string ServerClientId = "coldframe-server";
+    private const string ServerClientSecretParameter = "coldframe-server-client-secret";
+    private const string AudienceMapper = "oidc-audience-mapper";
+    private const string CreateAdminUserAttribute = "_providerConfig.orgs.config.createAdminUser";
 
     private static readonly string[] EventListeners = ["jboss-logging", "temporal"];
+    private static readonly string[] ServerServiceAccountRoles = ["manage-organizations", "view-organizations"];
     private static readonly TimeSpan WorkflowTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan WorkflowPollInterval = TimeSpan.FromMilliseconds(500);
 
@@ -240,6 +245,103 @@ public sealed class KeycloakTests(AppHostFixture fixture)
         var attributes = client.GetProperty("attributes");
         Assert.Equal("S256", attributes.GetProperty("pkce.code.challenge.method").GetString());
         Assert.Equal(MobileSignOutCallback, attributes.GetProperty("post.logout.redirect.uris").GetString());
+    }
+
+    [Fact]
+    public async Task ColdframeRealmHasTheServerServiceAccountWithOrganizationRolesOnly()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var keycloak = await CreateAdminClientAsync(timeout.Token);
+
+        string id;
+        using (var clients = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}/clients?clientId={ServerClientId}", timeout.Token))
+        {
+            var client = Assert.Single(clients.RootElement.EnumerateArray().ToArray());
+
+            Assert.True(client.GetProperty("enabled").GetBoolean(), "The client is disabled.");
+            Assert.False(client.GetProperty("publicClient").GetBoolean(), "The client is public.");
+            Assert.True(client.GetProperty("serviceAccountsEnabled").GetBoolean(), "The service account is disabled.");
+            Assert.False(client.GetProperty("standardFlowEnabled").GetBoolean(), "The standard flow is enabled.");
+            Assert.False(client.GetProperty("implicitFlowEnabled").GetBoolean(), "The implicit flow is enabled.");
+            Assert.False(client.GetProperty("directAccessGrantsEnabled").GetBoolean(), "Direct access grants are enabled.");
+            Assert.Equal("client-secret", client.GetProperty("clientAuthenticatorType").GetString());
+
+            id = client.GetProperty("id").GetString()
+                ?? throw new InvalidOperationException("The client has no id.");
+        }
+
+        using (var secret = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}/clients/{id}/client-secret", timeout.Token))
+        {
+            Assert.Equal(
+                await GetParameterValueAsync(ServerClientSecretParameter, timeout.Token),
+                secret.RootElement.GetProperty("value").GetString());
+        }
+
+        string userId;
+        using (var serviceAccount = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}/clients/{id}/service-account-user", timeout.Token))
+        {
+            userId = serviceAccount.RootElement.GetProperty("id").GetString()
+                ?? throw new InvalidOperationException("The service account has no id.");
+        }
+
+        string realmManagement;
+        using (var clients = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}/clients?clientId=realm-management", timeout.Token))
+        {
+            realmManagement = Assert.Single(clients.RootElement.EnumerateArray().ToArray()).GetProperty("id").GetString()
+                ?? throw new InvalidOperationException("realm-management has no id.");
+        }
+
+        using var roles = await GetJsonAsync(
+            keycloak,
+            $"/admin/realms/{Realm}/users/{userId}/role-mappings/clients/{realmManagement}",
+            timeout.Token);
+
+        // Exactly the two Organization roles: no Keycloak administration beyond Organizations.
+        Assert.Equal(
+            ServerServiceAccountRoles,
+            roles.RootElement.EnumerateArray().Select(role => role.GetProperty("name").GetString()).Order(StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(WebClientId)]
+    [InlineData(MobileClientId)]
+    public async Task ClientTokensCarryTheServerAudience(string clientId)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var keycloak = await CreateAdminClientAsync(timeout.Token);
+        using var clients = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}/clients?clientId={clientId}", timeout.Token);
+        var client = Assert.Single(clients.RootElement.EnumerateArray().ToArray());
+
+        Assert.True(client.TryGetProperty("protocolMappers", out var mappers), $"{clientId} has no protocol mappers.");
+        Assert.Contains(
+            mappers.EnumerateArray(),
+            mapper => mapper.GetProperty("protocolMapper").GetString() == AudienceMapper
+                && mapper.GetProperty("config").GetProperty("included.client.audience").GetString() == ServerClientId
+                && mapper.GetProperty("config").GetProperty("access.token.claim").GetString() == "true");
+    }
+
+    [Fact]
+    public async Task ColdframeRealmCreatesNoPlaceholderOrganizationAdmin()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(KeycloakResource, timeout.Token);
+
+        using var keycloak = await CreateAdminClientAsync(timeout.Token);
+        using var realm = await GetJsonAsync(keycloak, $"/admin/realms/{Realm}", timeout.Token);
+
+        Assert.Equal(
+            "false",
+            realm.RootElement.GetProperty("attributes").GetProperty(CreateAdminUserAttribute).GetString());
     }
 
     private static async Task<JsonDocument> GetJsonAsync(

@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Server tests that need no containers: event registry, fixture journal replay, time, bans. -->
+  <!-- Server tests that need no containers: event registry, fixture journal replay, time, bans, Edge API rules. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
@@ -16,6 +16,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The Edge API contract; the endpoint discovery test compares the mapped endpoints with it. -->
+    <None Include="..\..\..\packages\openapi\coldframe.openapi.json" Link="Fixtures\coldframe.openapi.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

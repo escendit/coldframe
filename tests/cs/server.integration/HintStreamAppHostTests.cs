@@ -25,12 +25,14 @@ public sealed class HintStreamAppHostTests(AppHostFixture fixture)
             ?? throw new InvalidOperationException($"The AppHost gives '{DatabaseResource}' no connection string.");
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
 
+        // The Server's projectors read every row of this journal, so the probe must be an event the Server
+        // can read: a registered alias on a stream that no projector projects.
         long position;
         await using (var insert = dataSource.CreateCommand(
             """
             WITH appended AS (
                 INSERT INTO journal_events (stream_id, version, type_alias, schema_version, payload, recorded_at)
-                VALUES (@stream_id, 1, 'sample.created', 1, '{"name":"hint"}'::jsonb, now())
+                VALUES (@stream_id, 1, 'site.created', 1, '{"name":"hint","createdBy":"hint-probe"}'::jsonb, now())
                 RETURNING position
             )
             INSERT INTO journal_outbox (position) SELECT position FROM appended RETURNING position

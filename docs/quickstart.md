@@ -75,6 +75,13 @@ Things to know:
   The file is copied into the container, so it works under SELinux. A realm that already exists is
   left as it is: if your Keycloak database outlives a run and lacks a client, remove the realm (or
   the database) so the file is imported again.
+- **The Server has its own Keycloak client.** The confidential client `coldframe-server` has only a
+  service account, with the `realm-management` roles `view-organizations` and `manage-organizations`;
+  the Server uses it to create Phase Two Organizations for Sites. Its secret is generated on every
+  start; read it in the dashboard from the parameter `coldframe-server-client-secret`. Tokens of
+  `coldframe-web` and `coldframe-mobile` carry the audience `coldframe-server`, which the Server
+  requires. The realm sets `_providerConfig.orgs.config.createAdminUser` to `false`, so Phase Two
+  creates no placeholder `org-admin-*` User per Organization.
 - **Keycloak is built, not pulled.** [`aspire/keycloak/Dockerfile`](../aspire/keycloak/Dockerfile)
   compiles the extension from its public source and adds it to the Phase Two image. To use the
   listener in a realm, add `temporal` under *Realm settings → Events → Event listeners*.
@@ -83,6 +90,11 @@ Things to know:
 - **The silo uses ADO.NET clustering and reminders** on the `coldframe` database, in the Orleans
   tables the migration job creates. Its ports are allocated per start, so the stack and the
   integration tests can run at the same time.
+- **The Server's Edge API** listens on `http://localhost:5080`. `POST /sites` (header
+  `Idempotency-Key`, body `{"name":"Home"}`) creates a Site with the caller as Owner, and
+  `GET /sites/{siteId}` reads it. Both need an access token from the `coldframe` realm. The contract is
+  [`packages/openapi/coldframe.openapi.json`](../packages/openapi/coldframe.openapi.json); how to add an
+  endpoint is described in [`apps/cs/README.md`](../apps/cs/README.md#add-an-endpoint).
 - **The Server never changes the schema.** Every table comes from the migration job in
   [`apps/cs/migrations`](../apps/cs/migrations). How to add a migration, an event type, an upcaster or
   a projector is described in [`apps/cs/README.md`](../apps/cs/README.md).
@@ -175,10 +187,15 @@ dotnet test
 ```
 
 `dotnet test` runs two projects. `tests/cs/server.tests` needs no containers: event registry and
-upcasters, the replay of the fixture journal, time substitution and the wall-clock ban.
+upcasters, the replay of the fixture journal, time substitution, the wall-clock ban, and the Edge API
+rules (access decisions, request validation, and the check that every endpoint declares one access
+rule matching the OpenAPI contract).
 `tests/cs/server.integration` starts the same AppHost as above, so it needs Docker or Podman. With
 Podman, run `ASPIRE_CONTAINER_RUNTIME=podman dotnet test`. Its journal tests each create a fresh
-database on the AppHost's PostgreSQL, migrate it with the job's runner and drop it afterwards.
+database on the AppHost's PostgreSQL, migrate it with the job's runner and drop it afterwards. The
+Create Site tests run the User and Site grains on such a database with a fake Phase Two; the Edge API
+tests and the authorization matrix call the running Server with tokens of Keycloak Users they create
+through a test client of their own.
 
 Server code reads the time only from an injected `TimeProvider`. `DateTime.UtcNow` and its relatives
 fail the build with RS0030.

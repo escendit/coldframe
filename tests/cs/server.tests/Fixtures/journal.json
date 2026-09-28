@@ -19,5 +19,40 @@
     "alias": "sample.noted",
     "schemaVersion": 2,
     "payload": { "text": "written with a weight", "weight": 4 }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 1,
+    "alias": "site.created",
+    "schemaVersion": 1,
+    "payload": { "name": "Home", "createdBy": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 2,
+    "alias": "site.membership-granted",
+    "schemaVersion": 1,
+    "payload": { "userId": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31", "role": "Owner" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 3,
+    "alias": "site.membership-granted",
+    "schemaVersion": 1,
+    "payload": { "userId": "8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f", "role": "Member" }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 1,
+    "alias": "user.site-creation-requested",
+    "schemaVersion": 1,
+    "payload": { "idempotencyKey": "k1", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "name": "Home", "requestedAt": "2026-09-28T12:00:00+00:00" }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 2,
+    "alias": "user.site-creation-completed",
+    "schemaVersion": 1,
+    "payload": { "idempotencyKey": "k1", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00" }
   }
 ]

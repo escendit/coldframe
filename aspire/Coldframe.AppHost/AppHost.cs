@@ -44,6 +44,13 @@ var coldframeWebClientSecret = builder.AddParameter(
     new GenerateParameterDefault { MinLength = 32, Special = false },
     secret: true);
 
+// The secret of the coldframe-server service account, which the Server uses to manage Phase Two
+// Organizations. Keycloak substitutes it into the imported realm file; the Server reads it from its environment.
+var coldframeServerClientSecret = builder.AddParameter(
+    "coldframe-server-client-secret",
+    new GenerateParameterDefault { MinLength = 32, Special = false },
+    secret: true);
+
 // Phase Two Keycloak with keycloak-temporal-extensions, built from ../keycloak/Dockerfile.
 var postgresEndpoint = postgres.GetEndpoint("tcp");
 var temporalEndpoint = temporal.GetEndpoint("grpc");
@@ -56,6 +63,7 @@ var keycloak = builder
     // host directory cannot hide them from Keycloak.
     .WithContainerFiles("/opt/keycloak/data/import", "../keycloak/realms")
     .WithEnvironment("COLDFRAME_WEB_CLIENT_SECRET", coldframeWebClientSecret)
+    .WithEnvironment("COLDFRAME_SERVER_CLIENT_SECRET", coldframeServerClientSecret)
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_USERNAME", keycloakAdminUsername)
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", keycloakAdminPassword)
     .WithEnvironment("KC_DB_URL_HOST", postgresEndpoint.Property(EndpointProperty.Host))
@@ -82,10 +90,21 @@ var migrations = builder
 
 // The Server: Orleans silo and Edge API in one ASP.NET Core host.
 // The silo ports are allocated per run, so the stack and the tests can run side by side.
+// It validates access tokens of the coldframe realm and manages Organizations with its own service
+// account; plain-HTTP metadata is allowed only because this stack runs locally.
+var keycloakHttp = keycloak.GetEndpoint("http");
+
 builder
     .AddProject<Projects.Coldframe_Server>("server")
     .WithReference(serverDatabase)
     .WithReference(nats)
+    .WithEnvironment("Identity__Authority", ReferenceExpression.Create($"{keycloakHttp}/realms/coldframe"))
+    .WithEnvironment("Identity__Audience", "coldframe-server")
+    .WithEnvironment("Identity__RequireHttpsMetadata", "false")
+    .WithEnvironment("Keycloak__BaseUrl", keycloakHttp)
+    .WithEnvironment("Keycloak__Realm", "coldframe")
+    .WithEnvironment("Keycloak__ClientId", "coldframe-server")
+    .WithEnvironment("Keycloak__ClientSecret", coldframeServerClientSecret)
     .WithEndpoint(name: "silo", scheme: "tcp", env: "Orleans__Endpoints__SiloPort", isProxied: false)
     .WithEndpoint(name: "gateway", scheme: "tcp", env: "Orleans__Endpoints__GatewayPort", isProxied: false)
     .WithHttpHealthCheck("/.well-known/healthz")

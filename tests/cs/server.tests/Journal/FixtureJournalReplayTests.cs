@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Coldframe.Contracts.Sites;
+using Coldframe.Server.Identity;
 using Coldframe.Server.Journal;
 using Coldframe.Server.Tests.Samples;
 
@@ -19,6 +21,8 @@ public sealed class FixtureJournalReplayTests
     private static readonly Dictionary<string, Func<object>> States = new(StringComparer.Ordinal)
     {
         ["sample"] = () => new SampleState(),
+        ["site"] = () => new SiteState(),
+        ["user"] = () => new UserState(),
     };
 
     [Fact]
@@ -49,6 +53,15 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal("Fixture A", sample.Name);
         Assert.Equal(2, sample.NoteCount);
         Assert.Equal(SampleNotedUpcaster.ImplicitWeight + 4, sample.TotalWeight);
+
+        var site = Assert.IsType<SiteState>(states["site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"]);
+        Assert.Equal(SiteLifecycle.Active, site.Lifecycle);
+        Assert.Equal("Home", site.Name);
+        Assert.Equal(["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"], site.Owners);
+        Assert.Equal(SiteRole.Member, site.Members["8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
+
+        var user = Assert.IsType<UserState>(states["user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31"]);
+        Assert.True(user.SiteCreations["k1"].Completed);
     }
 
     [Fact]

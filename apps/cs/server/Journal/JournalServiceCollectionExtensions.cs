@@ -45,7 +45,9 @@ public static class JournalServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Adds a projector and the hosted <see cref="ProjectionRunner"/> that runs it.
+    /// Adds a projector and the hosted <see cref="ProjectionRunner"/> that runs it. The runner is also
+    /// resolvable by projector type through <see cref="GetProjectionRunner{TProjector}"/>, so a grain can
+    /// catch the projector up before it returns (read-your-writes).
     /// </summary>
     /// <typeparam name="TProjector">The projector.</typeparam>
     /// <param name="services">The service collection.</param>
@@ -56,10 +58,27 @@ public static class JournalServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<TProjector>();
-        services.AddSingleton<IHostedService>(provider => ActivatorUtilities.CreateInstance<ProjectionRunner>(
+        services.TryAddKeyedSingleton(typeof(TProjector), (provider, _) => ActivatorUtilities.CreateInstance<ProjectionRunner>(
             provider,
             provider.GetRequiredService<TProjector>()));
+        services.AddSingleton<IHostedService>(provider => provider.GetProjectionRunner<TProjector>());
 
         return services;
+    }
+
+    /// <summary>
+    /// Returns the one <see cref="ProjectionRunner"/> of <typeparamref name="TProjector"/>, the same instance
+    /// that runs as a hosted service. <see cref="ProjectionRunner.CatchUpAsync"/> is safe to call while its
+    /// background loop runs.
+    /// </summary>
+    /// <typeparam name="TProjector">The projector.</typeparam>
+    /// <param name="services">The service provider.</param>
+    /// <returns>The runner.</returns>
+    public static ProjectionRunner GetProjectionRunner<TProjector>(this IServiceProvider services)
+        where TProjector : class, IProjector
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        return services.GetRequiredKeyedService<ProjectionRunner>(typeof(TProjector));
     }
 }

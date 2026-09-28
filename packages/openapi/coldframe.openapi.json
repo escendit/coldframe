@@ -1,0 +1,173 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Coldframe Edge API",
+    "version": "0.1.0",
+    "description": "The Server's REST API. Every request carries a Keycloak access token with audience coldframe-server and is authorized per Site from the identity projection, never from token claims. Each operation declares its access rule in x-coldframe-minimum-role: a SiteRole on the Site named by siteId, or Authenticated for any signed-in User. Every error is RFC 9457 Problem Details with a stable type."
+  },
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/sites": {
+      "post": {
+        "operationId": "createSite",
+        "summary": "Create a Site with the caller as its Owner",
+        "description": "Idempotent per caller and Idempotency-Key for 24 h: a retry returns the original result, and a key reused with a different name is refused.",
+        "x-coldframe-minimum-role": "Authenticated",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateSiteRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The Site exists and the caller is its Owner.",
+            "headers": {
+              "Location": {
+                "description": "The Site, /sites/{siteId}.",
+                "schema": { "type": "string" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Site" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/IdempotencyKeyReused" },
+          "503": { "$ref": "#/components/responses/IdentityProviderUnavailable" }
+        }
+      }
+    },
+    "/sites/{siteId}": {
+      "get": {
+        "operationId": "getSite",
+        "summary": "Read a Site with the caller's Role",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The Site.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Site" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "A Keycloak access token of the coldframe realm with audience coldframe-server. The User ID is its sub."
+      }
+    },
+    "parameters": {
+      "SiteId": {
+        "name": "siteId",
+        "in": "path",
+        "required": true,
+        "description": "The Site ID, which is the Keycloak Organization ID.",
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[\\x20-\\x7E]+$" }
+      }
+    },
+    "schemas": {
+      "SiteRole": {
+        "type": "string",
+        "description": "A Role on one Site, ordered Owner > Administrator > Member.",
+        "enum": ["Owner", "Administrator", "Member"]
+      },
+      "CreateSiteRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The Site name. Trimmed; 1 to 100 characters after trimming.",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "Site": {
+        "type": "object",
+        "required": ["id", "name", "role"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "The Site ID." },
+          "name": { "type": "string", "description": "The Site name." },
+          "role": { "$ref": "#/components/schemas/SiteRole" }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "description": "RFC 9457 Problem Details.",
+        "required": ["type", "title", "status"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Stable: urn:coldframe:problem:<slug>.",
+            "enum": [
+              "urn:coldframe:problem:unauthorized",
+              "urn:coldframe:problem:forbidden",
+              "urn:coldframe:problem:site-not-found",
+              "urn:coldframe:problem:validation",
+              "urn:coldframe:problem:idempotency-key-missing",
+              "urn:coldframe:problem:idempotency-key-reused",
+              "urn:coldframe:problem:identity-provider-unavailable"
+            ]
+          },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" },
+          "instance": { "type": "string" }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "urn:coldframe:problem:validation, or urn:coldframe:problem:idempotency-key-missing when the Idempotency-Key header is absent or empty.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "Unauthorized": {
+        "description": "urn:coldframe:problem:unauthorized: no valid access token (missing, expired, wrong issuer or audience).",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "Forbidden": {
+        "description": "urn:coldframe:problem:forbidden: the Site exists, but the caller has no Role on it or a lower one than the operation's minimum.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "SiteNotFound": {
+        "description": "urn:coldframe:problem:site-not-found: no Site has this ID.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "IdempotencyKeyReused": {
+        "description": "urn:coldframe:problem:idempotency-key-reused: the key was used within 24 h for a request with a different name. Nothing was created.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "IdentityProviderUnavailable": {
+        "description": "urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached. The request stays pending; retry with the same Idempotency-Key.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      }
+    }
+  }
+}
