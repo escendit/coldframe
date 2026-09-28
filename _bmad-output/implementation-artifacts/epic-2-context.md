@@ -12,7 +12,8 @@ The whole Coldframe stack runs 24/7 on Simon's single-node home server. Phones, 
 - Story 2.2: Helm charts with a fixed Secret contract
 - Story 2.3: Database cluster with off-node backups and tested restore
 - Story 2.4: TLS with public certificates on my home network
-- Story 2.5: GitOps deployment to my RKE2 server
+- Story 2.5a: GitOps bundles and install guide for my RKE2 server
+- Story 2.5b: Fleet smoke proves ordered install, upgrade and restart durability
 
 ## Requirements & Constraints
 
@@ -39,6 +40,6 @@ The whole Coldframe stack runs 24/7 on Simon's single-node home server. Phones, 
 
 ## Cross-Story Dependencies
 
-- 2.1 comes first: its images are what the 2.2 charts deploy. 2.2 defines the Secret contract that 2.3 (database credentials, S3) and 2.4 (DNS-01 token) plug into. 2.5 composes 2.2 through 2.4 into one Fleet install and verifies restart durability end to end.
+- 2.1 comes first: its images are what the 2.2 charts deploy. 2.2 defines the Secret contract that 2.3 (database credentials, S3) and 2.4 (DNS-01 token) plug into. 2.5a composes 2.2 through 2.4 into Fleet bundles with an install guide; 2.5b proves that install, an upgrade and restart durability end to end on a cluster.
 - Builds on Epic 1: the Server, web BFF, migration set, Aspire stack and Escendit service defaults already exist. The restore test checks that Sites, Lots, Memberships and events survive.
 - Later epics depend on this one. The Hub (Epic 3) and the mobile apps need public-root TLS on the real domain. The Server enrolment private key Secret is consumed by Device enrolment in Epic 3. Push credentials (Epic 6) and SMTP for invitations (Epic 9) are wired as Secrets here. Epic 10 publishes the adopter docs built on these runbooks.
