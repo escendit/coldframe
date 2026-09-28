@@ -1,0 +1,10 @@
+# check-fleet.py fixture (merged over the repository's bundles): the nats bundle installs a chart
+# from a Helm repo instead of the chart in its own folder.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-nats
+spec:
+  helm:
+    repo: https://nats-io.github.io/k8s/helm/charts
+    chart: nats

@@ -113,8 +113,8 @@ start.
   operator sets it back to the Secret.
 - `coldframe-backup-s3`: create the new key at the S3 provider and update the Secret. Delete the
   old key only after a WAL segment and a Backup made after the change have reached the bucket
-  (`ContinuousArchiving` `True` on `cluster/coldframe-db`, a new Backup `completed`; see
-  [`docs/operations/restore.md`](../docs/operations/restore.md#recovery-point)).
+  (`ContinuousArchiving` `True` on `clusters.postgresql.cnpg.io/coldframe-db`, a new Backup
+  `completed`; see [`docs/operations/restore.md`](../docs/operations/restore.md#recovery-point)).
 - `coldframe-dns01`: create a new token at Cloudflare and update the Secret. Then force a renewal
   (`cmctl renew coldframe-tls -n "$NS"`, or delete the Secret `coldframe-tls`) and wait for the
   Certificate to be Ready (`kubectl -n "$NS" wait certificate/coldframe-tls --for=condition=Ready`)

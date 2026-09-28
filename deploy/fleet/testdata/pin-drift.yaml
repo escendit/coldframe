@@ -1,0 +1,9 @@
+# check-fleet.py fixture (merged over the repository's bundles): the cert-manager bundle's chart
+# version differs from CERT_MANAGER_CHART_VERSION in dependencies.env.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-fleet-cert-manager
+spec:
+  helm:
+    version: v1.21.1

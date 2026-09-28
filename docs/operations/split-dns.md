@@ -61,7 +61,13 @@ Before it asks Let's Encrypt to validate, cert-manager checks that the `_acme-ch
 record is visible. By default it asks the cluster's resolvers, and with split DNS those may answer
 for your domain locally (or forward to a local server that knows only the three host overrides),
 so the check never sees the TXT record and the certificate stays pending. Make cert-manager ask
-public recursive resolvers only:
+public recursive resolvers only.
+
+**With Fleet** ([`install.md`](install.md)), the `cert-manager` bundle
+([`deploy/fleet/cert-manager/fleet.yaml`](../../deploy/fleet/cert-manager/fleet.yaml)) starts
+cert-manager with both flags (chart `extraArgs`), also after every cert-manager upgrade: skip the
+patch below and only check the args with the last command of the block. The patch is for a
+cert-manager installed by hand from the manifest:
 
 ```sh
 # Adds each flag only when it is missing: safe to run again, e.g. after a cert-manager upgrade.
@@ -75,18 +81,21 @@ kubectl -n cert-manager rollout status deployment/cert-manager
 kubectl -n cert-manager get deployment cert-manager -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'
 ```
 
-The last command must list both flags once. After every cert-manager upgrade, check the args and
-patch only if the flags are missing (the loop above does both). The node must be allowed to reach 1.1.1.1 and 9.9.9.9 on port 53
-(outbound only).
+The last command must list both flags once. With a manual install, after every cert-manager
+upgrade, check the args and patch only if the flags are missing (the loop above does both). The
+node must be allowed to reach 1.1.1.1 and 9.9.9.9 on port 53 (outbound only).
 
 ## 3. Traefik on 443 only
 
-Apply [`deploy/rke2/rke2-traefik-config.yaml`](../../deploy/rke2/rke2-traefik-config.yaml) and
-verify that the `rke2-traefik` Service lists 443 only, as
-[`deploy/rke2/README.md`](../../deploy/rke2/README.md) describes. Do not forward any port from the
-internet to the server: no inbound traffic is needed, not even for renewals.
+Apply [`deploy/rke2/rke2-traefik-config.yaml`](../../deploy/rke2/rke2-traefik-config.yaml) (with
+Fleet, the `rke2-traefik` bundle applies it) and verify that the `rke2-traefik` Service lists 443
+only, as [`deploy/rke2/README.md`](../../deploy/rke2/README.md) describes. Do not forward any port
+from the internet to the server: no inbound traffic is needed, not even for renewals.
 
 ## 4. Install the ingress chart
+
+With Fleet, the `ingress` bundle installs it with the `domain` and `acme.email` of the `ingress`
+key of the ConfigMap `coldframe-values` ([`install.md`](install.md#3-the-site-values)); by hand:
 
 ```sh
 NS=coldframe

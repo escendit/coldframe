@@ -1,0 +1,12 @@
+# check-fleet.py fixture (merged over the repository's bundles): the server bundle pins the
+# migration image tag, which would drift from the release tag.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-server
+spec:
+  helm:
+    values:
+      migrations:
+        image:
+          tag: 0.0.9

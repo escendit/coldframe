@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Static checks of the Helm charts (Stories 2.2 to 2.4). No cluster needed. Run from anywhere:
+# Static checks of the Helm charts and their Fleet bundles (Stories 2.2 to 2.5a). No cluster
+# needed. Run from anywhere:
 #
 #   deploy/charts/test.sh
 #
@@ -14,10 +15,17 @@
 # The checks are proven able to fail on fixtures in testdata/, and check-version.sh is tested with a
 # matching and a mismatching version.
 #
-# Needs helm (v4), the helm-unittest plugin, kubeconform, curl, sha256sum and python3 with PyYAML.
-# kubeconform downloads the Kubernetes schemas and this script the pinned CRD manifests and the
-# rke2-traefik chart (each checked against its sha256); KUBECONFORM_CACHE names a directory to
-# cache them in.
+# Fleet bundles: `fleet apply --output -` renders the paths of deploy/fleet/gitrepo.yaml as gitjob
+# would, and deploy/fleet/check-fleet.py checks them (labels, the dependsOn order, the pins of
+# dependencies.env, the site values); each fixture in deploy/fleet/testdata/ must make it fail.
+# Every chart is also rendered and checked with its fleet.yaml values and its key of
+# deploy/fleet/values.example.yaml.
+#
+# Needs helm (v4), the helm-unittest plugin, kubeconform, the fleet CLI (FLEET_VERSION of
+# dependencies.env), curl, sha256sum and python3 with PyYAML. kubeconform downloads the Kubernetes
+# schemas, this script the pinned CRD manifests and the rke2-traefik chart (each checked against
+# its sha256), and fleet the operator charts; KUBECONFORM_CACHE names a directory to cache the
+# first two in.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -257,6 +265,128 @@ render_and_check ingress "ingress (external issuer)" --set acme.enabled=false --
 expect_failure "no ACME and no external issuer fails naming both values" \
   "acme.enabled is false and externalIssuer.name is empty" \
   helm template ingress "${here}/ingress" --set acme.enabled=false
+
+echo "# fleet bundles (fleet ${FLEET_VERSION}, deploy/fleet)"
+fleet_dir=${repo}/deploy/fleet
+gitrepo=${fleet_dir}/gitrepo.yaml
+values_example=${fleet_dir}/values.example.yaml
+fleet_work=$(mktemp -d)
+bundles=${fleet_work}/bundles.yaml
+# The GitRepo's name and paths: fleet apply names each bundle <name>-<path>, as gitjob does.
+fleet_name=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["metadata"]["name"])' "${gitrepo}")
+mapfile -t fleet_paths < <(python3 -c '
+import sys, yaml
+print("\n".join(yaml.safe_load(open(sys.argv[1]))["spec"]["paths"]))' "${gitrepo}")
+fleet_cli_version=$(fleet --version 2>/dev/null | awk '{print $3}')
+if [[ ${fleet_cli_version} != "${FLEET_VERSION}" ]]; then
+  failed "the fleet CLI is ${FLEET_VERSION}" "found '${fleet_cli_version:-no fleet on PATH}'"
+elif (cd "${repo}" && fleet apply --output - "${fleet_name}" "${fleet_paths[@]}") >"${bundles}" 2>"${fleet_work}/apply.err"; then
+  pass "fleet apply renders the ${#fleet_paths[@]} paths of deploy/fleet/gitrepo.yaml"
+else
+  failed "fleet apply of the paths of deploy/fleet/gitrepo.yaml" "$(cat "${fleet_work}/apply.err")"
+fi
+
+check_fleet() { # [gitrepo.yaml] [values.yaml]: check-fleet.py over the rendered bundles (stdin)
+  python3 "${fleet_dir}/check-fleet.py" "${repo}" "${1:-${gitrepo}}" "${2:-${values_example}}"
+}
+check "check-fleet.py passes on the repository" check_fleet <"${bundles}"
+
+# fleet_fixture <fixture>: check-fleet.py over the repository's bundles with the fixture's Bundle
+# documents merged in by name (maps merge, lists are replaced, null deletes; a new name is added),
+# or with the fixture's GitRepo in place of gitrepo.yaml, or its ConfigMap in place of
+# values.example.yaml.
+fleet_fixture() {
+  local fixture=${fleet_dir}/testdata/$1
+  if grep -q '^kind: GitRepo' "${fixture}"; then
+    check_fleet "${fixture}" <"${bundles}"
+    return
+  fi
+  if grep -q '^kind: ConfigMap' "${fixture}"; then
+    check_fleet "${gitrepo}" "${fixture}" <"${bundles}"
+    return
+  fi
+  python3 - "${bundles}" "${fixture}" <<'PYTHON' | check_fleet
+import re, sys, yaml
+
+def merge(base, patch):
+    for key, value in patch.items():
+        if value is None:
+            base.pop(key, None)
+        elif isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+
+bundles = [doc for chunk in re.split(r"(?m)^(?=apiVersion: )", open(sys.argv[1]).read())
+           for doc in yaml.safe_load_all(chunk) if doc]
+by_name = {bundle["metadata"]["name"]: bundle for bundle in bundles}
+for patch in (doc for doc in yaml.safe_load_all(open(sys.argv[2])) if doc):
+    name = patch["metadata"]["name"]
+    if name in by_name:
+        merge(by_name[name], patch)
+    else:
+        bundles.append(patch)
+yaml.safe_dump_all(bundles, sys.stdout)
+PYTHON
+}
+expect_failure "a GitRepo path without fleet.yaml fails"    "GitRepo path 'deploy' has no fleet.yaml" fleet_fixture gitrepo-stray-path.yaml
+expect_failure "an unlabeled bundle fails"                  "bundle 'coldframe-deploy-charts-nats' has no label" fleet_fixture unlabeled-bundle.yaml
+expect_failure "a dependsOn by bundle name fails"           "names bundle 'coldframe-deploy-charts-server'" fleet_fixture dependson-by-name.yaml
+expect_failure "a selector matching no bundle fails"        "matches 0 bundles" fleet_fixture dependson-no-match.yaml
+expect_failure "a selector matching two bundles fails"      "matches 2 bundles" fleet_fixture dependson-ambiguous.yaml
+expect_failure "a dependsOn cycle fails"                    "dependsOn has a cycle" fleet_fixture dependson-cycle.yaml
+expect_failure "a missing order edge fails"                 "bundle server must depend on keycloak" fleet_fixture order-edge-missing.yaml
+expect_failure "a chart version other than the pin fails"   "(CERT_MANAGER_CHART_VERSION in dependencies.env)" fleet_fixture pin-drift.yaml
+expect_failure "cert-manager without the DNS-01 flags fails" "--dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53' once" \
+  fleet_fixture cert-manager-flags-missing.yaml
+expect_failure "an image.tag in the bundle values fails"    "sets image.tag" fleet_fixture sets-image-tag.yaml
+expect_failure "a site-specific bundle without valuesFrom fails" "bundle ingress: helm.valuesFrom must be" \
+  fleet_fixture valuesfrom-missing.yaml
+expect_failure "a GitRepo path listed twice fails"          "GitRepo path 'deploy/charts/web' is listed twice" fleet_fixture gitrepo-path-twice.yaml
+expect_failure "a GitRepo revision other than a tag fails"  "revision 'main' is not a release tag" fleet_fixture gitrepo-revision-branch.yaml
+expect_failure "a release name drift fails"                 "bundle server: helm.releaseName is 'coldframe-server'" fleet_fixture release-name-drift.yaml
+expect_failure "a namespace drift fails"                    "bundle web: defaultNamespace is 'default'" fleet_fixture namespace-drift.yaml
+expect_failure "an operator without takeOwnership fails"    "bundle cloudnative-pg: helm.takeOwnership must be true" fleet_fixture takeownership-missing.yaml
+expect_failure "an operator Helm repo other than the pin fails" "(BARMAN_CLOUD_PLUGIN_HELM_REPO in dependencies.env)" \
+  fleet_fixture repo-drift.yaml
+expect_failure "a dependsOn edge the order does not list fails" "bundle nats depends on keycloak, which the order does not list" \
+  fleet_fixture dependson-extra-edge.yaml
+expect_failure "cert-manager without its CRDs fails"        "bundle cert-manager: helm.values.crds.enabled must be true" fleet_fixture crds-disabled.yaml
+expect_failure "a matchExpressions selector fails"          "the selector must be matchLabels on" fleet_fixture dependson-match-expressions.yaml
+expect_failure "a Coldframe chart from a Helm repo fails"   "bundle nats: expected the chart in its own folder" fleet_fixture chart-not-own-folder.yaml
+expect_failure "valuesFrom on a bundle without site values fails" "bundle nats: has no site values and must not use helm.valuesFrom" \
+  fleet_fixture valuesfrom-non-site.yaml
+expect_failure "an image.tag in the values ConfigMap fails" "values ConfigMap key server: sets image.tag" fleet_fixture values-image-tag.yaml
+expect_failure "a values ConfigMap without a key fails"     "values ConfigMap: keys are" fleet_fixture values-key-missing.yaml
+expect_failure "a values ConfigMap of another name fails"   "expected the ConfigMap coldframe-values in namespace coldframe" \
+  fleet_fixture values-wrong-name.yaml
+shopt -s nullglob
+for fixture in "${fleet_dir}"/testdata/*.yaml; do
+  grep -q -F "fleet_fixture $(basename "${fixture}")" "${BASH_SOURCE[0]}" \
+    || failed "deploy/fleet/testdata/$(basename "${fixture}") is not tested"
+done
+shopt -u nullglob
+
+# Every Coldframe chart as Fleet deploys it: the fleet.yaml helm.values, then the chart's key of
+# the example values ConfigMap (the keys are disjoint, so the merge order does not matter).
+for chart in "${charts[@]}"; do
+  if python3 - "${here}/${chart}/fleet.yaml" "${values_example}" "${chart}" "${fleet_work}/${chart}" <<'PYTHON'; then
+import sys, yaml
+fleet, example, chart, out = sys.argv[1:]
+helm = yaml.safe_load(open(fleet)).get("helm") or {}
+open(f"{out}-fleet.yaml", "w").write(yaml.safe_dump(helm.get("values") or {}))
+site = ""
+if helm.get("valuesFrom"):
+    site = yaml.safe_load(open(example))["data"][helm["valuesFrom"][0]["configMapKeyRef"]["key"]]
+open(f"{out}-site.yaml", "w").write(site)
+PYTHON
+    render_and_check "${chart}" "${chart} (Fleet values)" --namespace coldframe \
+      --values "${fleet_work}/${chart}-fleet.yaml" --values "${fleet_work}/${chart}-site.yaml"
+  else
+    failed "${chart}: read deploy/charts/${chart}/fleet.yaml and its values key"
+  fi
+done
+rm -rf "${fleet_work}"
 
 echo "# ${passes} passed, ${failures} failed"
 [[ ${failures} -eq 0 ]]

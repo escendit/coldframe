@@ -6,6 +6,7 @@ not a chart: RKE2's helm-controller applies it to the charts RKE2 bundles.
 | File | What |
 | --- | --- |
 | [`rke2-traefik-config.yaml`](rke2-traefik-config.yaml) | `HelmChartConfig` for `rke2-traefik`: removes the `web` entrypoint, so Traefik serves 443 only and nothing listens on port 80 |
+| [`fleet.yaml`](fleet.yaml), [`.fleetignore`](.fleetignore) | this folder as the Fleet bundle `rke2-traefik` (Story 2.5a): with Fleet, the bundle applies the `HelmChartConfig` ([`docs/operations/install.md`](../../docs/operations/install.md)) and the manual steps below are not needed |
 
 RKE2 v1.36.4+rke2r1 ships `rke2-traefik` 40.1.010 (pinned in
 [`../charts/dependencies.env`](../charts/dependencies.env) for the checks). Its defaults open the

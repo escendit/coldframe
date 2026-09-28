@@ -1,0 +1,10 @@
+# Fleet bundle "rke2-traefik" (Story 2.5a): the HelmChartConfig rke2-traefik-config.yaml in
+# kube-system, which RKE2's helm-controller layers over its bundled Traefik (no port 80). The
+# README is not a manifest (.fleetignore). No dependencies.
+defaultNamespace: kube-system
+labels:
+  coldframe.escendit.io/bundle: rke2-traefik
+helm:
+  # The release that carries the HelmChartConfig; RKE2's own release is rke2-traefik.
+  releaseName: rke2-traefik-config
+  takeOwnership: true

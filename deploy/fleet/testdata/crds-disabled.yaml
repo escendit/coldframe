@@ -1,0 +1,11 @@
+# check-fleet.py fixture (merged over the repository's bundles): cert-manager without its CRDs, so
+# the Issuer and Certificate of the ingress bundle have no kind.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-fleet-cert-manager
+spec:
+  helm:
+    values:
+      crds:
+        enabled: false

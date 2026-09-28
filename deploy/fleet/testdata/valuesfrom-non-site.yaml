@@ -1,0 +1,13 @@
+# check-fleet.py fixture (merged over the repository's bundles): nats, which has no site values,
+# reads a key of coldframe-values.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-nats
+spec:
+  helm:
+    valuesFrom:
+      - configMapKeyRef:
+          name: coldframe-values
+          namespace: coldframe
+          key: nats

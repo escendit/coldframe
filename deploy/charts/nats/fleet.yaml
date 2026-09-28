@@ -1,0 +1,15 @@
+# Fleet bundle "nats" (Story 2.5a): the chart in this folder as release "nats" in namespace
+# coldframe (deploy/charts/README.md). No site values: JetStream on an emptyDir.
+defaultNamespace: coldframe
+labels:
+  coldframe.escendit.io/bundle: nats
+dependsOn:
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: database
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: ingress
+helm:
+  releaseName: nats
+  timeoutSeconds: 600

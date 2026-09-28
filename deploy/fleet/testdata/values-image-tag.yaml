@@ -1,0 +1,21 @@
+# check-fleet.py fixture (in place of values.example.yaml): the server key pins the image tag, which
+# would drift from the release tag.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coldframe-values
+  namespace: coldframe
+data:
+  database: |
+    backup:
+      endpointURL: https://<s3-endpoint>
+      destinationPath: s3://<bucket>/coldframe/
+  keycloak: |
+    hostname: auth.<domain>
+  web: |
+    origin: https://<domain>
+  server: |
+    image:
+      tag: v0.0.9
+  ingress: |
+    domain: <domain>

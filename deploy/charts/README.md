@@ -99,7 +99,7 @@ NS=coldframe
 helm install database deploy/charts/database -n "$NS" \
   --set backup.endpointURL=https://s3.example.org \
   --set backup.destinationPath=s3://my-bucket/coldframe/
-kubectl -n "$NS" wait cluster/coldframe-db --for=condition=Ready --timeout=10m
+kubectl -n "$NS" wait clusters.postgresql.cnpg.io/coldframe-db --for=condition=Ready --timeout=10m
 helm install nats     deploy/charts/nats     -n "$NS" --wait
 helm install temporal deploy/charts/temporal -n "$NS" --wait
 helm install keycloak deploy/charts/keycloak -n "$NS" --wait \
@@ -123,7 +123,13 @@ their token validation fails. Verification, renewals and the phone check:
 Restoring the database from its backups: [`docs/operations/restore.md`](../../docs/operations/restore.md).
 
 Every Service is `ClusterIP`; only Traefik's websecure entrypoint (hostPort 443) is exposed, and
-nothing serves port 80. The Fleet bundles arrive with Story 2.5.
+nothing serves port 80.
+
+The reference install is Fleet (GitOps): each chart folder holds its `fleet.yaml` (release name,
+namespace `coldframe`, `dependsOn`, and the site values from the ConfigMap
+`coldframe-values`), and the operators are Fleet bundles too
+([`docs/operations/install.md`](../../docs/operations/install.md)). The commands above are the
+manual equivalent.
 
 ## Values that matter
 
@@ -189,11 +195,11 @@ deploy/charts/smoke.sh coldframe/server:dev coldframe/web:dev coldframe/migratio
 
 | Script | Purpose | Needs |
 | --- | --- | --- |
-| `test.sh` | per chart: `helm lint --strict`, `helm unittest` (`<chart>/tests`), `helm template` with default and `ci-values.yaml` values (and the database in recovery mode) validated by kubeconform (strict, Kubernetes 1.36.0, and the CloudNativePG, Barman Cloud and cert-manager kinds against schemas generated from the CRDs pinned in `dependencies.env`), `check-manifests.py` and `check-ingress.py`; renders the pinned rke2-traefik chart, which must fail `check-ingress.py` with its default values (hostPort 80) and pass with `deploy/rke2/rke2-traefik-config.yaml`; also proves the checks fail on the fixtures in `testdata/` | helm v4.2.2, helm-unittest v1.1.2, kubeconform v0.8.0, curl, python3 with PyYAML; network for the CRD manifests and the rke2-traefik chart (`KUBECONFORM_CACHE` caches them) |
+| `test.sh` | renders the Fleet bundles of `deploy/fleet/gitrepo.yaml` with the fleet CLI and checks them with `deploy/fleet/check-fleet.py` (which must fail on each fixture in `deploy/fleet/testdata/`), and renders each chart with its `fleet.yaml` values and its key of `deploy/fleet/values.example.yaml`; per chart: `helm lint --strict`, `helm unittest` (`<chart>/tests`), `helm template` with default and `ci-values.yaml` values (and the database in recovery mode) validated by kubeconform (strict, Kubernetes 1.36.0, and the CloudNativePG, Barman Cloud and cert-manager kinds against schemas generated from the CRDs pinned in `dependencies.env`), `check-manifests.py` and `check-ingress.py`; renders the pinned rke2-traefik chart, which must fail `check-ingress.py` with its default values (hostPort 80) and pass with `deploy/rke2/rke2-traefik-config.yaml`; also proves the checks fail on the fixtures in `testdata/` | helm v4.2.2, helm-unittest v1.1.2, kubeconform v0.8.0, the fleet CLI v0.16.2 (`dependencies.env`), curl, python3 with PyYAML; network for the CRD manifests, the rke2-traefik chart (`KUBECONFORM_CACHE` caches them) and the operator charts |
 | `check-manifests.py <SECRETS.md> <label>` | reads rendered manifests on stdin; fails on a rendered Secret or a Secret name or key missing from `SECRETS.md` (including CNPG `passwordSecret` and ObjectStore `s3Credentials`) | python3, PyYAML |
 | `check-ingress.py <label>` | reads rendered manifests on stdin; fails on an Ingress without `tls` for each host or without the Traefik annotations for `websecure` only, a Traefik `IngressRoute` without `tls` or on another entrypoint, an ACME `Issuer`/`ClusterIssuer` with a solver that is not DNS-01 (or is HTTP-01), a Service port or nodePort 80, a container port or hostPort 80, or a `--entryPoints.web.*` argument | python3, PyYAML |
 | `crd-schemas.py <dir>` | reads CRD manifests on stdin and writes strict kubeconform schemas `<kind>_<version>.json` (unknown fields fail) | python3, PyYAML |
-| `dependencies.env` | the pinned cert-manager, CloudNativePG and Barman Cloud plugin manifests and the rke2-traefik and rke2-traefik-crd charts of RKE2 v1.36.4+rke2r1 (version, URL, sha256), and the smoke's RustFS and aws-cli images; sourced by `test.sh`, `smoke.sh` and the install commands above | |
+| `dependencies.env` | the pinned cert-manager, CloudNativePG and Barman Cloud plugin manifests and their Helm charts (the Fleet bundles' repo and version), the rke2-traefik and rke2-traefik-crd charts of RKE2 v1.36.4+rke2r1, Fleet (the CLI per architecture, the fleet-crd and fleet charts) (version, URL, sha256), and the smoke's RustFS and aws-cli images; sourced by `test.sh`, `smoke.sh`, CI and the install commands above | |
 | `check-version.sh <version>` | fails naming each `Chart.yaml` whose `version` (all charts) or `appVersion` (server, web, keycloak) differs | bash |
 | `smoke.sh <server> <web> <migrations> <keycloak>` | a disposable k3d cluster (`rancher/k3s:v1.36.4-k3s1`) with cert-manager, CloudNativePG and the Barman Cloud plugin, placeholder Secrets and RustFS as the S3 target (`testdata/rustfs.yaml`): installs RKE2's Traefik (pinned rke2-traefik with the `HelmChartConfig` values), the database and every chart, asserts every pod Ready (or a completed Job), the Server's `/.well-known/healthz` Healthy and the imported realm served; installs the `ingress` chart with a test CA (`testdata/smoke-ca.yaml`) in place of Let's Encrypt and checks the Certificate Ready with a `renewalTime`, the Server, Keycloak (issuer `https://auth.<domain>:<port>/…`) and the web app over HTTPS through Traefik's 443 with that CA, and no port 80 or `web` entrypoint on Traefik; checks that a failing migration fails `helm upgrade server` without touching the Deployment and that a good upgrade reruns the migration Job, then runs a backup-and-restore round trip (a marker before and one after a base backup, uninstall, recovery into a new folder, both markers and every table's row count back, the Server healthy on the restored cluster) | k3d v5.9.0, helm, kubectl, jq, curl, docker |
 
@@ -203,4 +209,6 @@ deploy/charts/smoke.sh coldframe/server:dev coldframe/web:dev coldframe/migratio
 runs the smoke on kind (`kindest/node:v1.36.4`) instead, for hosts where k3s cannot start, such as
 rootless Podman without the `cpuset` cgroup controller delegated (`KIND_EXPERIMENTAL_PROVIDER=podman`).
 
-CI runs `test.sh` as the `Charts` job and `smoke.sh` in the `Images` job.
+CI runs `test.sh` as the `Charts` job and `smoke.sh` in the `Images` job. The GitOps counterpart
+of `smoke.sh`, a Fleet smoke that installs the bundles in dependency order, upgrades and restarts
+them on a disposable cluster, is Story 2.5b.

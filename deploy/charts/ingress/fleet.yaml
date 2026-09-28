@@ -1,0 +1,27 @@
+# Fleet bundle "ingress" (Story 2.5a): the chart in this folder as release "ingress" in namespace
+# coldframe (deploy/charts/README.md). Site values: the domain and the ACME email. It needs
+# cert-manager (Issuer, Certificate), RKE2's Traefik configuration and the database; the bundle is
+# Ready when the Certificate coldframe-tls is.
+defaultNamespace: coldframe
+labels:
+  coldframe.escendit.io/bundle: ingress
+dependsOn:
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: cert-manager
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: rke2-traefik
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: database
+helm:
+  releaseName: ingress
+  timeoutSeconds: 600
+  # Site values: key "ingress" of the ConfigMap coldframe-values
+  # (deploy/fleet/values.example.yaml).
+  valuesFrom:
+    - configMapKeyRef:
+        name: coldframe-values
+        namespace: coldframe
+        key: ingress

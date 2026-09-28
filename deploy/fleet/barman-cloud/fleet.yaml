@@ -1,0 +1,30 @@
+# Fleet bundle "barman-cloud" (Story 2.5a): the Barman Cloud CNPG-I plugin from the upstream Helm
+# chart, pinned in deploy/charts/dependencies.env (BARMAN_CLOUD_PLUGIN_HELM_REPO,
+# BARMAN_CLOUD_PLUGIN_CHART_VERSION: chart 0.8.0 ships plugin v0.15.0). Its gRPC endpoint uses
+# cert-manager certificates, and it registers with the CloudNativePG operator in the same namespace:
+# it waits for both bundles.
+#
+# fullnameOverride keeps the names of the release manifest (deployment/barman-cloud,
+# service/barman-cloud); takeOwnership adopts the objects of a kubectl-installed plugin, except
+# its Deployment: the chart's selector differs from the manifest's and spec.selector is
+# immutable, so that Deployment must be deleted before the GitRepo is applied
+# (docs/operations/install.md, "Moving from a manual install").
+defaultNamespace: cnpg-system
+labels:
+  coldframe.escendit.io/bundle: barman-cloud
+dependsOn:
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: cert-manager
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: cloudnative-pg
+helm:
+  releaseName: barman-cloud
+  repo: https://cloudnative-pg.github.io/charts
+  chart: plugin-barman-cloud
+  version: 0.8.0
+  takeOwnership: true
+  timeoutSeconds: 600
+  values:
+    fullnameOverride: barman-cloud
