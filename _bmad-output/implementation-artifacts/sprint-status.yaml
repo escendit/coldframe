@@ -52,7 +52,8 @@ development_status:
   2-2-helm-charts-with-a-fixed-secret-contract: awaiting-operator
   2-3-database-cluster-with-off-node-backups-and-tested-restore: awaiting-operator
   2-4-tls-with-public-certificates-on-my-home-network: awaiting-operator
-  2-5-gitops-deployment-to-my-rke2-server: backlog
+  2-5a-gitops-bundles-and-install-guide-for-my-rke2-server: backlog
+  2-5b-fleet-smoke-proves-ordered-install-upgrade-and-restart-durability: backlog
   epic-2-retrospective: optional
 
   epic-3: backlog

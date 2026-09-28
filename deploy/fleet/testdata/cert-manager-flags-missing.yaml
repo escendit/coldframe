@@ -1,0 +1,11 @@
+# check-fleet.py fixture (merged over the repository's bundles): cert-manager without the public
+# recursive nameservers of docs/operations/split-dns.md.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-fleet-cert-manager
+spec:
+  helm:
+    values:
+      extraArgs:
+        - --dns01-recursive-nameservers-only

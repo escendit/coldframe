@@ -1,0 +1,8 @@
+# check-fleet.py fixture (merged over the repository's bundles): the web bundle deploys to namespace
+# default instead of coldframe, away from its Secrets.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-web
+spec:
+  defaultNamespace: default

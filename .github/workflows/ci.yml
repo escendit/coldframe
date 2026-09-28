@@ -281,12 +281,15 @@ jobs:
           xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
           -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
-  # Static checks of the Helm charts (Stories 2.2 to 2.4): helm lint, helm-unittest, kubeconform
+  # Static checks of the Helm charts (Stories 2.2 to 2.5a): helm lint, helm-unittest, kubeconform
   # (the CloudNativePG, Barman Cloud and cert-manager kinds against strict schemas generated from
   # the CRD manifests pinned in deploy/charts/dependencies.env), the Secret contract, and TLS on
   # every route, DNS-01 on every ACME issuer and no port 80, also on the pinned rke2-traefik chart
   # rendered with deploy/rke2/rke2-traefik-config.yaml (deploy/charts/test.sh downloads the pins
-  # and checks their sha256). The smoke install runs in the images job.
+  # and checks their sha256), and the Fleet bundles of deploy/fleet/gitrepo.yaml (Story 2.5a):
+  # rendered with the fleet CLI, checked by deploy/fleet/check-fleet.py, and each chart rendered
+  # with its fleet.yaml values and the example values ConfigMap. The smoke install runs in the
+  # images job.
   charts:
     name: Charts
     runs-on: ubuntu-24.04
@@ -307,7 +310,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install helm, helm-unittest and kubeconform
+      - name: Install helm, helm-unittest, kubeconform and the fleet CLI
         shell: bash
         run: |
           bin="${RUNNER_TEMP}/bin"
@@ -331,6 +334,13 @@ jobs:
           echo "${KUBECONFORM_SHA256}  ${downloads}/kubeconform.tar.gz" | sha256sum --check --strict
           tar --extract --gzip --file "${downloads}/kubeconform.tar.gz" --directory "${bin}" kubeconform
 
+          # The fleet CLI: version, URL and sha256 pinned in deploy/charts/dependencies.env.
+          # shellcheck source=/dev/null
+          source deploy/charts/dependencies.env
+          curl --fail --silent --show-error --location --output "${downloads}/fleet" "${FLEET_CLI_URL_AMD64}"
+          echo "${FLEET_CLI_SHA256_AMD64}  ${downloads}/fleet" | sha256sum --check --strict
+          install -m 0755 "${downloads}/fleet" "${bin}/fleet"
+
           echo "${bin}" >> "${GITHUB_PATH}"
           echo "HELM_PLUGINS=${plugins}" >> "${GITHUB_ENV}"
 
@@ -341,6 +351,7 @@ jobs:
         run: |
           helm version
           helm plugin list
+          fleet --version
           deploy/charts/test.sh
 
   # Builds every Dockerfile, runs the container-structure tests, the smoke run (Story 2.1) and the

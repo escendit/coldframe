@@ -1,0 +1,14 @@
+# check-fleet.py fixture (merged over the repository's bundles): server no longer waits for
+# keycloak.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-server
+spec:
+  dependsOn:
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: nats
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: temporal

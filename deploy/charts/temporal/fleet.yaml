@@ -1,0 +1,17 @@
+# Fleet bundle "temporal" (Story 2.5a): the chart in this folder as release "temporal" in namespace
+# coldframe (deploy/charts/README.md). No site values; the chart's defaults name the in-cluster
+# services. The schema hook Job runs before every install and upgrade, the namespace hook Job
+# after: timeoutSeconds bounds them.
+defaultNamespace: coldframe
+labels:
+  coldframe.escendit.io/bundle: temporal
+dependsOn:
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: database
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: ingress
+helm:
+  releaseName: temporal
+  timeoutSeconds: 900

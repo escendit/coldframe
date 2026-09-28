@@ -14,6 +14,9 @@ backup and one after it, uninstalls the release, waits as in step 3, installs in
 into a new folder as in step 4, and checks both markers, the row count of every table, WAL
 archiving and the Server's health. It does not run the optional steps 2 and 5, nor restart NATS.
 
+The commands name the CloudNativePG cluster as `clusters.postgresql.cnpg.io`: with Fleet
+installed, a bare `cluster` means Fleet's `clusters.fleet.cattle.io`.
+
 ## Recovery point
 
 A restore brings back every transaction whose WAL segment reached the object store. **Data
@@ -34,7 +37,7 @@ primary() {
   kubectl -n "$NS" get pods -l cnpg.io/cluster=coldframe-db,cnpg.io/instanceRole=primary \
     -o jsonpath='{.items[0].metadata.name}'
 }
-kubectl -n "$NS" get cluster coldframe-db \
+kubectl -n "$NS" get clusters.postgresql.cnpg.io coldframe-db \
   -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}{"\n"}'
 kubectl -n "$NS" exec "$(primary)" -c postgres -- \
   psql -Atc "SELECT last_archived_wal, last_archived_time, last_failed_wal FROM pg_stat_archiver"
@@ -82,7 +85,7 @@ NS=coldframe
    kubectl -n "$NS" exec "$(primary)" -c postgres -- psql -Atc "SELECT pg_walfile_name(pg_switch_wal())"
    # repeat until last_archived_wal is at least the segment printed above
    kubectl -n "$NS" exec "$(primary)" -c postgres -- psql -Atc "SELECT last_archived_wal FROM pg_stat_archiver"
-   kubectl -n "$NS" get cluster coldframe-db \
+   kubectl -n "$NS" get clusters.postgresql.cnpg.io coldframe-db \
      -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}{"\n"}'
    ```
 
@@ -91,7 +94,7 @@ NS=coldframe
 
    ```sh
    helm uninstall database -n "$NS" --wait
-   until [ -z "$(kubectl -n "$NS" get cluster/coldframe-db -o name --ignore-not-found;
+   until [ -z "$(kubectl -n "$NS" get clusters.postgresql.cnpg.io/coldframe-db -o name --ignore-not-found;
                  kubectl -n "$NS" get pods,pvc -l cnpg.io/cluster=coldframe-db -o name)" ]; do
      sleep 2
    done
@@ -107,8 +110,8 @@ NS=coldframe
      --set recovery.enabled=true \
      --set recovery.sourceServerName=coldframe-db \
      --set backup.serverName=coldframe-db-2026-09-28
-   kubectl -n "$NS" wait cluster/coldframe-db --for=condition=Ready --timeout=30m
-   kubectl -n "$NS" wait cluster/coldframe-db --for=condition=ContinuousArchiving --timeout=5m
+   kubectl -n "$NS" wait clusters.postgresql.cnpg.io/coldframe-db --for=condition=Ready --timeout=30m
+   kubectl -n "$NS" wait clusters.postgresql.cnpg.io/coldframe-db --for=condition=ContinuousArchiving --timeout=5m
    ```
 
    The cluster restores the latest base backup and replays the archived WAL to its end. To stop
@@ -166,11 +169,36 @@ NS=coldframe
 
 ## After a restore: the next restore
 
-Keep the recovery values in the release (in Git, with Fleet): the cluster now archives to the
-folder of step 4, and `bootstrap` only runs when a new cluster is created, so the values change
-nothing on the running one. The **next** restore takes that folder (`coldframe-db-2026-09-28`) as
+Keep the recovery values in the release: the cluster now archives to the folder of step 4, and
+`bootstrap` only runs when a new cluster is created, so the values change nothing on the running
+one. The **next** restore takes that folder (`coldframe-db-2026-09-28`) as
 `recovery.sourceServerName` and, again, a folder never used before (for example, the date of that
 restore) as `backup.serverName`.
+
+With Fleet ([`install.md`](install.md)), the recovery values go in the `database` key of the
+ConfigMap `coldframe-values`, next to the object store values, and stay there:
+
+```yaml
+  database: |
+    backup:
+      endpointURL: https://s3.example.org
+      destinationPath: s3://my-bucket/coldframe/
+      serverName: coldframe-db-2026-09-28
+    recovery:
+      enabled: true
+      sourceServerName: coldframe-db
+```
+
+Under Fleet, run the steps with the GitRepo paused, so that Fleet does not reinstall the
+`database` release between steps 3 and 4: `kubectl -n fleet-local patch gitrepo coldframe
+--type=merge -p '{"spec":{"paused":true}}'` before step 1. Instead of the `helm install` of step 4,
+apply the ConfigMap with the recovery values above, then unpause the GitRepo and force a redeploy
+(`-p '{"spec":{"paused":false,"forceSyncGeneration":<a new number>}}'`); Fleet installs the
+`database` release in recovery mode, and the waits of step 4 apply unchanged. The redeploy also
+brings the apps back as soon as their bundles' dependencies are Ready, so step 6 happens by itself
+(scale any app still at 0 replicas); while step 5 is a no-op (no Devices before Epic 4) that order
+is safe. The chart smoke tests the steps with Helm; the Fleet smoke (Story 2.5b) does not run
+this restore.
 
 The old folder (`coldframe-db`) is no longer written or covered by the retention policy, which
 only prunes the folder the running cluster archives to. Delete it from the bucket once the

@@ -1,0 +1,45 @@
+# The site values of a Fleet install (Story 2.5a): one ConfigMap, created out of band like the
+# Secrets, that the Coldframe bundles read through helm.valuesFrom. Each key holds the Helm values
+# of one release; everything else is the charts' defaults. Copy it, replace every
+# <placeholder>, and apply it before the GitRepo (docs/operations/install.md):
+#
+#   kubectl apply -f coldframe-values.yaml
+#
+# No secret values here: credentials come only from the Secrets of deploy/SECRETS.md. Do not set
+# image.tag: the chart's appVersion, which is the release tag of the GitRepo's revision, is the
+# image tag. Fleet rereads the ConfigMap when the bundle is deployed again; after a change, force
+# a redeploy (docs/operations/install.md). deploy/charts/test.sh renders every chart with its
+# key, as is.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coldframe-values
+  namespace: coldframe
+data:
+  # The S3 backup target (deploy/charts/README.md, "Values that matter"). After a restore, the
+  # recovery values go here too (docs/operations/restore.md).
+  database: |
+    backup:
+      endpointURL: https://<s3-endpoint>
+      destinationPath: s3://<bucket>/coldframe/
+  # The public host of Keycloak and the ConfigMap holding the coldframe realm with your redirect
+  # URIs.
+  keycloak: |
+    hostname: auth.<domain>
+    realmImport:
+      configMap: coldframe-realm
+  # The token issuer the Server trusts: Keycloak's public URL.
+  server: |
+    identity:
+      authority: https://auth.<domain>/realms/coldframe
+  # The issuer and the web app's public origin.
+  web: |
+    keycloak:
+      issuer: https://auth.<domain>/realms/coldframe
+    origin: https://<domain>
+  # The domain of the three hosts (<domain>, api.<domain>, auth.<domain>) and the ACME account's
+  # contact address (optional).
+  ingress: |
+    domain: <domain>
+    acme:
+      email: <acme-email>

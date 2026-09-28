@@ -1,0 +1,9 @@
+# check-fleet.py fixture (merged over the repository's bundles): the cloudnative-pg bundle no longer
+# adopts the objects of a kubectl-installed operator; null deletes.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-fleet-cloudnative-pg
+spec:
+  helm:
+    takeOwnership: null

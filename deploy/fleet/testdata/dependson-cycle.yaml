@@ -1,0 +1,17 @@
+# check-fleet.py fixture (merged over the repository's bundles): database also depends on web,
+# which depends on database through server: Fleet would deploy neither.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-database
+spec:
+  dependsOn:
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: cloudnative-pg
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: barman-cloud
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: web

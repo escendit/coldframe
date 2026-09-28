@@ -1,0 +1,24 @@
+# Fleet bundle "cert-manager" (Story 2.5a): cert-manager from its upstream Helm chart, pinned in
+# deploy/charts/dependencies.env (CERT_MANAGER_HELM_REPO, CERT_MANAGER_CHART_VERSION; check-fleet.py
+# fails when they differ). The Barman Cloud plugin's gRPC TLS and the ingress chart's Issuer and
+# Certificate need it. No dependencies.
+#
+# extraArgs: the DNS-01 check on public resolvers of docs/operations/split-dns.md; they replace the
+# manual `kubectl patch` of a kubectl-installed cert-manager. takeOwnership adopts the objects of
+# such an install (docs/operations/install.md, "Moving from a manual install").
+defaultNamespace: cert-manager
+labels:
+  coldframe.escendit.io/bundle: cert-manager
+helm:
+  releaseName: cert-manager
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: v1.21.2
+  takeOwnership: true
+  timeoutSeconds: 600
+  values:
+    crds:
+      enabled: true
+    extraArgs:
+      - --dns01-recursive-nameservers-only
+      - --dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53
