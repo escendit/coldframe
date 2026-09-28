@@ -1,0 +1,235 @@
+suite: ingress
+templates:
+  - templates/issuer.yaml
+  - templates/certificate.yaml
+  - templates/ingress.yaml
+tests:
+  - it: renders no Secret, with default values
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: renders no Secret, with an external issuer
+    values:
+      - ../ci-values.yaml
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: serves the three hosts over TLS from coldframe-tls
+    template: templates/ingress.yaml
+    set:
+      domain: example.org
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+      - equal:
+          path: spec.tls
+          value:
+            - secretName: coldframe-tls
+              hosts:
+                - example.org
+                - api.example.org
+                - auth.example.org
+
+  - it: routes on the websecure entrypoint only, with TLS
+    template: templates/ingress.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+
+  - it: routes each host to its backend
+    template: templates/ingress.yaml
+    set:
+      domain: example.org
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 3
+      - equal:
+          path: spec.rules[0]
+          value:
+            host: example.org
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: web
+                      port:
+                        number: 3000
+      - equal:
+          path: spec.rules[1].host
+          value: api.example.org
+      - equal:
+          path: spec.rules[1].http.paths[0].backend.service
+          value:
+            name: server
+            port:
+              number: 8080
+      - equal:
+          path: spec.rules[2].host
+          value: auth.example.org
+      - equal:
+          path: spec.rules[2].http.paths[0].backend.service
+          value:
+            name: keycloak
+            port:
+              number: 8080
+
+  - it: takes host and backend overrides
+    template: templates/ingress.yaml
+    set:
+      domain: example.org
+      hosts.web: garden.example.net
+      hosts.api: edge.example.net
+      hosts.auth: id.example.net
+      backends.api.service: coldframe-server
+      backends.api.port: 8081
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts
+          value:
+            - garden.example.net
+            - edge.example.net
+            - id.example.net
+      - equal:
+          path: spec.rules[0].host
+          value: garden.example.net
+      - equal:
+          path: spec.rules[1].host
+          value: edge.example.net
+      - equal:
+          path: spec.rules[1].http.paths[0].backend.service
+          value:
+            name: coldframe-server
+            port:
+              number: 8081
+      - equal:
+          path: spec.rules[2].host
+          value: id.example.net
+
+  - it: issues from Let's Encrypt production with a Cloudflare DNS-01 solver only
+    template: templates/issuer.yaml
+    asserts:
+      - isKind:
+          of: Issuer
+      - isAPIVersion:
+          of: cert-manager.io/v1
+      - equal:
+          path: metadata.name
+          value: coldframe-letsencrypt
+      - equal:
+          path: spec.acme.server
+          value: https://acme-v02.api.letsencrypt.org/directory
+      - equal:
+          path: spec.acme.privateKeySecretRef
+          value:
+            name: coldframe-letsencrypt-account
+      - equal:
+          path: spec.acme.solvers
+          value:
+            - dns01:
+                cloudflare:
+                  apiTokenSecretRef:
+                    name: coldframe-dns01
+                    key: api-token
+      - notExists:
+          path: spec.acme.solvers[0].http01
+      - notExists:
+          path: spec.acme.email
+
+  - it: takes the ACME server and email
+    template: templates/issuer.yaml
+    set:
+      acme.server: https://acme-staging-v02.api.letsencrypt.org/directory
+      acme.email: ops@example.org
+    asserts:
+      - equal:
+          path: spec.acme.server
+          value: https://acme-staging-v02.api.letsencrypt.org/directory
+      - equal:
+          path: spec.acme.email
+          value: ops@example.org
+
+  - it: certifies the three hosts through the Let's Encrypt Issuer
+    template: templates/certificate.yaml
+    set:
+      domain: example.org
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: metadata.name
+          value: coldframe-tls
+      - equal:
+          path: spec.secretName
+          value: coldframe-tls
+      - equal:
+          path: spec.dnsNames
+          value:
+            - example.org
+            - api.example.org
+            - auth.example.org
+      - equal:
+          path: spec.issuerRef
+          value:
+            group: cert-manager.io
+            kind: Issuer
+            name: coldframe-letsencrypt
+      - notExists:
+          path: spec.renewBefore
+      - notExists:
+          path: spec.duration
+
+  - it: uses an external issuer and renders no Issuer when ACME is off
+    set:
+      acme.enabled: false
+      externalIssuer.name: my-ca
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/issuer.yaml
+      - equal:
+          path: spec.issuerRef
+          value:
+            group: cert-manager.io
+            kind: Issuer
+            name: my-ca
+        template: templates/certificate.yaml
+
+  - it: takes the external issuer's kind
+    template: templates/certificate.yaml
+    set:
+      acme.enabled: false
+      externalIssuer.name: my-ca
+      externalIssuer.kind: ClusterIssuer
+    asserts:
+      - equal:
+          path: spec.issuerRef.kind
+          value: ClusterIssuer
+
+  - it: fails without ACME and without an external issuer
+    set:
+      acme.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: acme.enabled is false and externalIssuer.name is empty
+        template: templates/issuer.yaml
+
+  - it: fails without a domain
+    template: templates/issuer.yaml
+    set:
+      domain: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: domain is empty

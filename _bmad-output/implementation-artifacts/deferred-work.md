@@ -303,3 +303,10 @@ source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore
 severity: medium
 reason: SECRETS.md says updating a Secret labelled cnpg.io/reload=true changes the role password; no smoke step rotates a Secret and checks the new password logs in and the old one does not.
 status: open
+
+### DW-40: The Traefik checks render rke2-traefik without the values RKE2 itself injects into the chart.
+origin: spec-deferred 38a6cbe94bbd
+location: deploy/rke2/rke2-traefik-config.yaml
+source_spec: `spec-2-4-tls-with-public-certificates-on-my-home-network.md`
+reason: Unverified: test.sh and smoke.sh layer only the HelmChartConfig valuesContent over the chart defaults. If RKE2 v1.36.4's own HelmChart values set anything under ports.web, the node could differ. Settle on the home server with `kubectl -n kube-system get helmchart rke2-traefik -o jsonpath='{.spec.valuesContent}'` and `kubectl -n kube-system get svc rke2-traefik` (443 only).
+status: open

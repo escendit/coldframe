@@ -1,0 +1,24 @@
+# Fixture for test.sh: an Ingress without the Traefik router.tls annotation fails check-ingress.py.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: no-router-tls
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: coldframe-tls
+      hosts:
+        - coldframe.example.invalid
+  rules:
+    - host: coldframe.example.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000

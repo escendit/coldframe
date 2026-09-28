@@ -7,9 +7,9 @@ Fails (exit 1), naming each offender, when a document is a Secret, or when a man
 Secret name or key that the contract table does not list. References are secretKeyRef, envFrom
 secretRef, secret volumes and projected secret sources (with their items), imagePullSecrets, the
 CloudNativePG role passwordSecret and bootstrap secret, and the Barman Cloud ObjectStore
-s3Credentials entries (with their keys). A reference
-marked optional fails too: a missing Secret must stop the pod, not start it without the credential.
-Needs python3 and PyYAML only.
+s3Credentials entries (with their keys), and the cert-manager DNS-01 apiTokenSecretRef (with its
+key). A reference marked optional fails too: a missing Secret must stop the pod, not start it
+without the credential. Needs python3 and PyYAML only.
 """
 
 import re
@@ -68,6 +68,9 @@ def references(node, path="$"):
                     selector = value.get(entry)
                     if isinstance(selector, dict):
                         yield f"{here}.{entry}", selector.get("name"), selector.get("key")
+            elif field == "apiTokenSecretRef" and isinstance(value, dict):
+                # cert-manager DNS-01 solver (Cloudflare): a {name, key} Secret selector.
+                yield here, value.get("name"), value.get("key")
             elif field == "imagePullSecrets" and isinstance(value, list):
                 for entry in value:
                     yield here, (entry or {}).get("name"), None

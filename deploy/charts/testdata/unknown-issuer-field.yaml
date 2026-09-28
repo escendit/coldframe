@@ -1,0 +1,18 @@
+# Fixture for test.sh: a misspelt Issuer field fails kubeconform against the strict cert-manager
+# schemas.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: unknown-field
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: coldframe-letsencrypt-account
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: coldframe-dns01
+              key: api-token
+            apiTokn: typo

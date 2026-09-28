@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Installs the six charts on a disposable k3d cluster, checks that the stack comes up, and proves
-# a backup-and-restore round trip of the database.
+# Installs the seven charts on a disposable k3d cluster, checks that the stack comes up over HTTPS
+# through RKE2's Traefik, and proves a backup-and-restore round trip of the database.
 #
 #   deploy/charts/smoke.sh <server-image> <web-image> <migrations-image> <keycloak-image>
 #
 # 1. A k3d cluster (k3s pinned below) starts; the four Coldframe images are imported into it.
 # 2. cert-manager, CloudNativePG and the Barman Cloud plugin are installed from the manifests
-#    pinned in dependencies.env (each checked against its sha256).
+#    pinned in dependencies.env (each checked against its sha256), and RKE2's Traefik
+#    (rke2-traefik-crd and rke2-traefik, pinned there too) in kube-system with the values of
+#    deploy/rke2/rke2-traefik-config.yaml, as RKE2's helm-controller would install it.
 # 3. Namespace "coldframe" gets placeholder Secrets with random values, created with kubectl as an
 #    adopter would (deploy/SECRETS.md), and RustFS as the S3 backup target (testdata/rustfs.yaml).
 # 4. helm install database (CI values: RustFS); the cluster must be Ready and archiving WAL, with
@@ -15,6 +17,12 @@
 # 5. Every pod must be Ready, or Succeeded and owned by a Job; the Server's /.well-known/healthz
 #    must answer 200 "Healthy" through the API server's Service proxy, and Keycloak must serve
 #    the imported coldframe realm.
+# 5a. TLS (docs/operations/split-dns.md): a test CA (testdata/smoke-ca.yaml) stands in for Let's
+#    Encrypt; helm install ingress (CI values: external issuer smoke-ca, domain
+#    coldframe.smoke.test). The Certificate must be Ready with a renewalTime before notAfter. Through
+#    a port-forward to Traefik's 443, curl (--resolve, --cacert) must reach the Server's health,
+#    Keycloak's realm (issuer https://auth.<domain>:<port>/realms/coldframe) and the web app's
+#    readiness. Traefik's Service and DaemonSet must expose no port 80 and no web entrypoint.
 # 6. helm upgrade temporal: the schema and namespace hooks re-run on a current schema and keep
 #    the existing namespace.
 # 7. helm upgrade server with an unreachable database: the migration hook Job fails, the upgrade
@@ -27,9 +35,9 @@
 #    hold both markers and the same row count in every table of the four databases, and archive
 #    WAL again; with the apps scaled back, the checks of step 5 must pass.
 #
-# Needs k3d, kubectl, helm, jq, curl, sha256sum and docker (or Podman through DOCKER_HOST). On
-# failure the pods, events, CloudNativePG objects and logs (operators included) are printed; the
-# cluster is always deleted.
+# Needs k3d, kubectl, helm, jq, curl, sha256sum, python3 with PyYAML and docker (or Podman through
+# DOCKER_HOST). On failure the pods, events, CloudNativePG and cert-manager objects and logs
+# (operators and Traefik included) are printed; the cluster is always deleted.
 #
 # SMOKE_CLUSTER=kind runs the same checks on kind (kindest/node, pinned below) instead: a fallback
 # for hosts where k3s cannot start, such as rootless Podman without the cpuset cgroup controller
@@ -65,6 +73,8 @@ export KUBECONFIG=${work}/kubeconfig
 cluster_created=false
 cluster_up=false
 smoke_tags=()
+port_forward_pid=""
+domain=coldframe.smoke.test
 
 case ${provider} in
   k3d | kind) ;;
@@ -77,6 +87,10 @@ random_secret() {
 
 cleanup() {
   local status=$?
+  if [[ -n ${port_forward_pid} ]]; then
+    kill "${port_forward_pid}" 2>/dev/null || true
+    wait "${port_forward_pid}" 2>/dev/null || true
+  fi
   if [[ ${status} -ne 0 && ${cluster_up} == true ]]; then
     echo "::group::pods"
     kubectl -n "${namespace}" get pods,jobs -o wide 2>&1 || true
@@ -88,17 +102,25 @@ cleanup() {
     kubectl -n "${namespace}" get clusters,databases,backups,scheduledbackups,objectstores,pvc -o wide 2>&1 || true
     kubectl -n "${namespace}" get clusters -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.status.conditions}{"\n"}{end}' 2>&1 || true
     echo "::endgroup::"
+    echo "::group::TLS objects"
+    kubectl -n "${namespace}" get issuers,certificates,certificaterequests,ingresses -o wide 2>&1 || true
+    kubectl -n "${namespace}" get certificates -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.status}{"\n"}{end}' 2>&1 || true
+    kubectl -n kube-system get svc,daemonset -l app.kubernetes.io/name=rke2-traefik -o wide 2>&1 || true
+    echo "::endgroup::"
     local pod deployment
     for pod in $(kubectl -n "${namespace}" get pods -o name 2>/dev/null); do
       echo "::group::logs of ${pod}"
       kubectl -n "${namespace}" logs "${pod}" --all-containers --tail=200 2>&1 || true
       echo "::endgroup::"
     done
-    for deployment in cnpg-controller-manager barman-cloud; do
-      echo "::group::logs of cnpg-system/${deployment}"
-      kubectl -n cnpg-system logs "deployment/${deployment}" --tail=200 2>&1 || true
+    for deployment in cnpg-system/cnpg-controller-manager cnpg-system/barman-cloud cert-manager/cert-manager; do
+      echo "::group::logs of ${deployment}"
+      kubectl -n "${deployment%%/*}" logs "deployment/${deployment#*/}" --tail=200 2>&1 || true
       echo "::endgroup::"
     done
+    echo "::group::logs of kube-system/rke2-traefik"
+    kubectl -n kube-system logs daemonset/rke2-traefik --tail=200 2>&1 || true
+    echo "::endgroup::"
     echo "Chart smoke install FAILED." >&2
   fi
   if [[ ${cluster_created} == true ]]; then
@@ -132,6 +154,14 @@ echo "--- pinned manifests"
 fetch cert-manager.yaml "${CERT_MANAGER_URL}" "${CERT_MANAGER_SHA256}"
 fetch cnpg.yaml "${CNPG_URL}" "${CNPG_SHA256}"
 fetch barman-cloud.yaml "${BARMAN_CLOUD_PLUGIN_URL}" "${BARMAN_CLOUD_PLUGIN_SHA256}"
+fetch rke2-traefik-crd.tgz "${RKE2_TRAEFIK_CRD_URL}" "${RKE2_TRAEFIK_CRD_SHA256}"
+fetch rke2-traefik.tgz "${RKE2_TRAEFIK_URL}" "${RKE2_TRAEFIK_SHA256}"
+# The values RKE2's helm-controller layers over the chart: the HelmChartConfig's valuesContent.
+python3 -c '
+import sys, yaml
+config = next(doc for doc in yaml.safe_load_all(open(sys.argv[1], encoding="utf-8")) if doc)
+sys.stdout.write(config["spec"]["valuesContent"])
+' "${repo}/deploy/rke2/rke2-traefik-config.yaml" >"${work}/rke2-traefik-values.yaml"
 
 echo "--- cluster (${provider})"
 cluster_created=true
@@ -174,6 +204,15 @@ kubectl apply --server-side -f "${work}/cnpg.yaml" >/dev/null
 for deployment in cert-manager cert-manager-cainjector cert-manager-webhook; do
   kubectl -n cert-manager rollout status "deployment/${deployment}" --timeout=300s
 done
+# The DNS-01 resolver flags of docs/operations/split-dns.md, added as the README does (only when
+# missing): cert-manager must start with them.
+for flag in --dns01-recursive-nameservers-only --dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53; do
+  kubectl -n cert-manager get deployment cert-manager \
+    -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -F -- "\"${flag}\"" >/dev/null \
+    || kubectl -n cert-manager patch deployment cert-manager --type=json \
+      -p "[{\"op\": \"add\", \"path\": \"/spec/template/spec/containers/0/args/-\", \"value\": \"${flag}\"}]"
+done
+kubectl -n cert-manager rollout status deployment/cert-manager --timeout=300s
 kubectl -n cnpg-system rollout status deployment/cnpg-controller-manager --timeout=300s
 # The plugin's Certificates go through the cert-manager webhook, which can lag its rollout.
 for attempt in $(seq 1 30); do
@@ -184,6 +223,11 @@ for attempt in $(seq 1 30); do
   sleep 5
 done
 kubectl -n cnpg-system rollout status deployment/barman-cloud --timeout=300s
+
+echo "--- rke2-traefik ${RKE2_TRAEFIK_VERSION} (deploy/rke2/rke2-traefik-config.yaml)"
+helm install rke2-traefik-crd "${work}/rke2-traefik-crd.tgz" --namespace kube-system --wait --timeout 300s
+helm install rke2-traefik "${work}/rke2-traefik.tgz" --namespace kube-system \
+  --values "${work}/rke2-traefik-values.yaml" --wait --timeout "${timeout}"
 
 echo "--- placeholder Secrets and the S3 target"
 kubectl create namespace "${namespace}"
@@ -338,6 +382,78 @@ echo "ok: the database cluster is Ready and archiving WAL, with its roles and da
 
 echo "--- checks"
 check_stack
+
+# https_get <host> <path>: GET https://<host>:<port><path> through Traefik's websecure port, the
+# host resolved to the port-forward, trusting the smoke CA only.
+https_get() {
+  curl --fail --silent --show-error --max-time 30 \
+    --resolve "$1:${https_port}:127.0.0.1" --cacert "${work}/smoke-ca.crt" \
+    "https://$1:${https_port}$2"
+}
+
+echo "--- TLS: the ingress chart, a test CA and Traefik on 443 only"
+kubectl "${ns[@]}" apply -f "${here}/testdata/smoke-ca.yaml"
+kubectl "${ns[@]}" wait certificate/smoke-ca --for=condition=Ready --timeout=300s
+install ingress
+kubectl "${ns[@]}" wait certificate/coldframe-tls --for=condition=Ready --timeout=300s
+dns_names=$(kubectl "${ns[@]}" get certificate coldframe-tls -o jsonpath='{.spec.dnsNames}' | jq -r 'join(",")')
+[[ ${dns_names} == "${domain},api.${domain},auth.${domain}" ]] \
+  || fail "the Certificate coldframe-tls names '${dns_names}', expected the three hosts of ${domain}"
+renewal=$(kubectl "${ns[@]}" get certificate coldframe-tls -o jsonpath='{.status.renewalTime}')
+not_after=$(kubectl "${ns[@]}" get certificate coldframe-tls -o jsonpath='{.status.notAfter}')
+[[ -n ${renewal} && -n ${not_after} ]] || fail "the Certificate has no renewalTime (${renewal}) or notAfter (${not_after})"
+[[ $(date -u -d "${renewal}" +%s) -lt $(date -u -d "${not_after}" +%s) ]] \
+  || fail "the Certificate renews at ${renewal}, not before it expires at ${not_after}"
+echo "ok: the Certificate coldframe-tls is Ready for ${dns_names}, renewing at ${renewal} (expires ${not_after})"
+
+kubectl "${ns[@]}" get secret coldframe-tls -o jsonpath='{.data.ca\.crt}' | base64 --decode >"${work}/smoke-ca.crt"
+[[ -s ${work}/smoke-ca.crt ]] || fail "the Secret coldframe-tls has no ca.crt"
+
+kubectl -n kube-system port-forward svc/rke2-traefik :443 >"${work}/port-forward.log" 2>&1 &
+port_forward_pid=$!
+https_port=
+for _ in $(seq 1 30); do
+  https_port=$(sed -n -E 's/^Forwarding from 127\.0\.0\.1:([0-9]+) -> .*/\1/p' "${work}/port-forward.log" | head -n 1)
+  [[ -n ${https_port} ]] && break
+  kill -0 "${port_forward_pid}" 2>/dev/null || fail "kubectl port-forward to Traefik exited: $(cat "${work}/port-forward.log")"
+  sleep 1
+done
+[[ -n ${https_port} ]] || fail "kubectl port-forward to Traefik did not start: $(cat "${work}/port-forward.log")"
+
+# Traefik can take a moment to pick up the Ingress and its certificate.
+health=
+for _ in $(seq 1 30); do
+  health=$(https_get "api.${domain}" /.well-known/healthz 2>"${work}/curl.err") && break
+  sleep 2
+done
+[[ -n ${health} ]] || fail "GET https://api.${domain}/.well-known/healthz through Traefik failed: $(cat "${work}/curl.err")"
+status=$(jq -r 'if type == "object" then .status else . end' <<<"${health}" 2>/dev/null || echo "${health}")
+[[ ${status} == "Healthy" ]] || fail "https://api.${domain}/.well-known/healthz answered '${health}', expected status Healthy"
+echo "ok: https://api.${domain}/.well-known/healthz answers Healthy over TLS from the test CA"
+
+issuer=$(https_get "auth.${domain}" /realms/coldframe/.well-known/openid-configuration | jq -r '.issuer // empty') \
+  || fail "GET https://auth.${domain}/realms/coldframe/.well-known/openid-configuration through Traefik failed"
+[[ ${issuer} == "https://auth.${domain}:${https_port}/realms/coldframe" ]] \
+  || fail "Keycloak's issuer through Traefik is '${issuer}', expected https://auth.${domain}:${https_port}/realms/coldframe"
+echo "ok: Keycloak serves the coldframe realm over TLS (issuer ${issuer})"
+
+https_get "${domain}" /.well-known/healthz/ready >/dev/null \
+  || fail "GET https://${domain}/.well-known/healthz/ready through Traefik did not answer 200"
+echo "ok: https://${domain}/.well-known/healthz/ready answers 200 over TLS"
+
+traefik_service_ports=$(kubectl -n kube-system get svc rke2-traefik -o json \
+  | jq -r '[.spec.ports[] | "\(.name):\(.port)" + (if .nodePort then "/\(.nodePort)" else "" end)] | join(",")')
+[[ ${traefik_service_ports} == "websecure:443" ]] \
+  || fail "Traefik's Service exposes '${traefik_service_ports}', expected websecure:443 only"
+traefik_offenders=$(kubectl -n kube-system get daemonset rke2-traefik -o json | jq -r '
+  .spec.template.spec.containers[]
+  | ((.ports // [])[] | select(.name == "web" or .containerPort == 80 or .hostPort == 80) | "port \(.name)"),
+    ((.args // [])[] | select(test("^--entry[pP]oints\\.web\\.")))')
+[[ -z ${traefik_offenders} ]] || fail "Traefik's DaemonSet still has port 80 or the web entrypoint: ${traefik_offenders}"
+echo "ok: Traefik exposes 443 only (Service ${traefik_service_ports}); no port 80, no web entrypoint"
+kill "${port_forward_pid}" 2>/dev/null || true
+wait "${port_forward_pid}" 2>/dev/null || true
+port_forward_pid=""
 
 echo "--- helm upgrade temporal"
 # The schema hook runs again on an up-to-date database and the namespace hook finds "coldframe":

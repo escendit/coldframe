@@ -1,0 +1,16 @@
+# Fixture for test.sh: a DNS-01 apiTokenSecretRef to an undocumented key fails the Secret check.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: unknown-dns01-key
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: coldframe-letsencrypt-account
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: coldframe-dns01
+              key: api-key

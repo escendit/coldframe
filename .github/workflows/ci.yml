@@ -234,10 +234,12 @@ jobs:
           xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
           -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
-  # Static checks of the Helm charts (Stories 2.2 and 2.3): helm lint, helm-unittest, kubeconform
-  # (the CloudNativePG and Barman Cloud kinds against strict schemas generated from the CRD
-  # manifests pinned in deploy/charts/dependencies.env, downloaded and sha256-checked by test.sh)
-  # and the Secret contract (deploy/charts/test.sh). The smoke install runs in the images job.
+  # Static checks of the Helm charts (Stories 2.2 to 2.4): helm lint, helm-unittest, kubeconform
+  # (the CloudNativePG, Barman Cloud and cert-manager kinds against strict schemas generated from
+  # the CRD manifests pinned in deploy/charts/dependencies.env), the Secret contract, and TLS on
+  # every route, DNS-01 on every ACME issuer and no port 80, also on the pinned rke2-traefik chart
+  # rendered with deploy/rke2/rke2-traefik-config.yaml (deploy/charts/test.sh downloads the pins
+  # and checks their sha256). The smoke install runs in the images job.
   charts:
     name: Charts
     runs-on: ubuntu-24.04

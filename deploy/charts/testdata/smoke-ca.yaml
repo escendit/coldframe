@@ -1,0 +1,35 @@
+# Test only (smoke.sh): a private CA in place of Let's Encrypt, which a disposable cluster cannot
+# reach through DNS-01. A self-signed Issuer signs the CA Certificate smoke-ca; the CA Issuer
+# smoke-ca then issues coldframe-tls (the ingress chart's ci-values.yaml, externalIssuer). The
+# production path is the chart's ACME Issuer; a private CA is an unsupported fallback.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: smoke-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: smoke-ca
+spec:
+  isCA: true
+  commonName: Coldframe smoke CA
+  secretName: smoke-ca
+  duration: 24h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: smoke-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: smoke-ca
+spec:
+  ca:
+    secretName: smoke-ca

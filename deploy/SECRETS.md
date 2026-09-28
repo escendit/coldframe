@@ -20,7 +20,7 @@ A missing Secret or key does not fall back to anything: the pod stays in
 | `coldframe-oidc-clients` | `Opaque` | `web-client-secret`, `server-client-secret` | `web` chart (`web-client-secret`), `server` chart (`server-client-secret`), `keycloak` chart (both, substituted into an imported realm) |
 | `coldframe-smtp` | `Opaque` | `host`, `port`, `username`, `password`, `from` | not yet consumed: invitations (Epic 9) |
 | `coldframe-push` | `Opaque` | `apns-key.p8`, `apns-key-id`, `apns-team-id`, `fcm-service-account.json` | not yet consumed: push notifications (Epic 6) |
-| `coldframe-dns01` | `Opaque` | `api-token` | not yet consumed: the cert-manager DNS-01 solver (Story 2.4) |
+| `coldframe-dns01` | `Opaque` | `api-token` | `ingress` chart: the Cloudflare API token of the cert-manager DNS-01 solver of the Issuer `coldframe-letsencrypt`; permissions Zone → DNS → Edit and Zone → Zone → Read, on the domain's zone only |
 | `coldframe-enrolment-key` | `Opaque` | `private-key.pem` | not yet consumed: Device enrolment (Epic 3) |
 | `coldframe-backup-s3` | `Opaque` | `access-key-id`, `secret-access-key` | `database` chart: the Barman Cloud `ObjectStore` (WAL archive and base backups, and the source of a restore) |
 
@@ -34,6 +34,12 @@ values `roles.server`, `roles.temporal` and `roles.keycloak` (defaults `coldfram
 `keycloak`); the consumers log in with `username`. Label them `cnpg.io/reload=true` so that
 CloudNativePG applies a changed password at once. The Server composes its connection string from
 `username` and `password`, so the Server's password must not contain `;`.
+
+cert-manager generates two Secrets for the `ingress` chart: `coldframe-tls` (the certificate and
+key the Ingress serves) and `coldframe-letsencrypt-account` (the ACME account key of the Issuer).
+They are not part of the contract, and no contract Secret may take those names. The DNS-01 token
+is read from the releases' namespace, which is why the chart uses a namespaced `Issuer` and not a
+`ClusterIssuer` ([`docs/operations/split-dns.md`](../docs/operations/split-dns.md)).
 
 `coldframe-backup-s3` holds the S3 access key of the backup bucket (`backup.destinationPath` and
 `backup.endpointURL` of the `database` chart). The key needs read, write, list and delete on that
@@ -80,7 +86,7 @@ kubectl -n "$NS" create secret generic coldframe-push \
   --from-file=fcm-service-account.json='<path/to/service-account.json>'
 
 kubectl -n "$NS" create secret generic coldframe-dns01 \
-  --from-literal=api-token='<dns-provider-api-token>'
+  --from-literal=api-token='<cloudflare-api-token>'
 
 kubectl -n "$NS" create secret generic coldframe-enrolment-key \
   --from-file=private-key.pem='<path/to/enrolment-private-key.pem>'
@@ -109,6 +115,11 @@ start.
   old key only after a WAL segment and a Backup made after the change have reached the bucket
   (`ContinuousArchiving` `True` on `cluster/coldframe-db`, a new Backup `completed`; see
   [`docs/operations/restore.md`](../docs/operations/restore.md#recovery-point)).
+- `coldframe-dns01`: create a new token at Cloudflare and update the Secret. Then force a renewal
+  (`cmctl renew coldframe-tls -n "$NS"`, or delete the Secret `coldframe-tls`) and wait for the
+  Certificate to be Ready (`kubectl -n "$NS" wait certificate/coldframe-tls --for=condition=Ready`)
+  before you revoke the old token. cert-manager reads the Secret at every challenge; nothing needs a
+  restart.
 - `coldframe-oidc-clients`: regenerate the client secret in Keycloak first (admin console or admin
   API, clients `coldframe-web` and `coldframe-server`). The realm import never overwrites an
   existing realm, so a new value in the Secret alone breaks sign-in.

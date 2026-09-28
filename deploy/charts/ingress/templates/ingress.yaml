@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ingress.fullname" . }}
+  labels:
+    {{- include "ingress.labels" . | nindent 4 }}
+  annotations:
+    # HTTPS only: the websecure entrypoint (443); the web entrypoint (80) is removed from RKE2's
+    # Traefik (deploy/rke2/rke2-traefik-config.yaml).
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: {{ .Values.ingressClassName | quote }}
+  tls:
+    - secretName: coldframe-tls
+      hosts:
+        {{- range $component := splitList " " (include "ingress.components" .) }}
+        - {{ include "ingress.host" (list $ $component) | quote }}
+        {{- end }}
+  rules:
+    {{- range $component := splitList " " (include "ingress.components" .) }}
+    {{- $backend := get $.Values.backends $component }}
+    - host: {{ include "ingress.host" (list $ $component) | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $backend.service | quote }}
+                port:
+                  number: {{ int $backend.port }}
+    {{- end }}

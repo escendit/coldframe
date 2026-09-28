@@ -1,7 +1,7 @@
 # Helm charts
 
-Six self-authored charts install the Coldframe stack on Kubernetes (Stories 2.2 and 2.3, AD-15,
-AD-17, AD-22).
+Seven self-authored charts install the Coldframe stack on Kubernetes (Stories 2.2 to 2.4, AD-13,
+AD-15, AD-17, AD-22).
 They have no upstream chart dependencies, never render a Secret, and read every credential from
 the fixed Secrets listed in [`../SECRETS.md`](../SECRETS.md).
 
@@ -13,12 +13,15 @@ the fixed Secrets listed in [`../SECRETS.md`](../SECRETS.md).
 | [`keycloak`](keycloak) | Keycloak (Phase Two + `keycloak-temporal-extensions`), `start --optimized` | `ghcr.io/escendit/coldframe/keycloak` | release / release |
 | [`server`](server) | The Server (Orleans silo, Edge API, SignalR) and its migration hook Job | `ghcr.io/escendit/coldframe/server`, `.../migrations` | release / release |
 | [`web`](web) | The web backend-for-frontend | `ghcr.io/escendit/coldframe/web` | release / release |
+| [`ingress`](ingress) | HTTPS for the three hosts: a cert-manager `Issuer` for Let's Encrypt with a Cloudflare DNS-01 solver, the `Certificate` `coldframe-tls`, and a Traefik `Ingress` on `websecure` (443) only | none | release / `1.21.2` (cert-manager) |
 
 Temporal 1.31.3, the epic pin, is not published as an image; the chart runs 1.31.2, the version
 the Aspire stack runs.
 
 The `database` chart has no Deployment of its own: CloudNativePG runs the instances, and the
-chart's `appVersion` is the PostgreSQL version of `imageName`.
+chart's `appVersion` is the PostgreSQL version of `imageName`. The `ingress` chart has none either:
+cert-manager and RKE2's Traefik do the work, and its `appVersion` is the cert-manager version it
+targets.
 
 The Coldframe charts' image tag defaults to the chart's `appVersion`, which equals the release
 version: release tag `vX.Y.Z` = image tag `X.Y.Z` = chart `version` and `appVersion`. The release
@@ -45,6 +48,15 @@ install_manifest "$CERT_MANAGER_URL" "$CERT_MANAGER_SHA256"
 for d in cert-manager cert-manager-cainjector cert-manager-webhook; do
   kubectl -n cert-manager rollout status deployment/$d
 done
+# DNS-01 behind split DNS: check the challenge on public resolvers (docs/operations/split-dns.md).
+# Adds each flag only when it is missing: safe to run again, e.g. after a cert-manager upgrade.
+for flag in --dns01-recursive-nameservers-only --dns01-recursive-nameservers=1.1.1.1:53,9.9.9.9:53; do
+  kubectl -n cert-manager get deployment cert-manager \
+    -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -F -- "\"${flag}\"" >/dev/null \
+    || kubectl -n cert-manager patch deployment cert-manager --type=json \
+      -p "[{\"op\": \"add\", \"path\": \"/spec/template/spec/containers/0/args/-\", \"value\": \"${flag}\"}]"
+done
+kubectl -n cert-manager rollout status deployment/cert-manager
 install_manifest "$CNPG_URL" "$CNPG_SHA256" --server-side
 kubectl -n cnpg-system rollout status deployment/cnpg-controller-manager
 # The plugin's Certificates go through the cert-manager webhook, which can lag its rollout: retry.
@@ -56,6 +68,10 @@ kubectl -n cnpg-system rollout status deployment/barman-cloud
 rm -f "$manifest"
 ```
 
+On RKE2, Traefik without port 80: apply the `HelmChartConfig`
+[`../rke2/rke2-traefik-config.yaml`](../rke2/rke2-traefik-config.yaml) and check that the
+`rke2-traefik` Service lists 443 only ([`../rke2/README.md`](../rke2/README.md)).
+
 In the namespace of the releases (the defaults assume one namespace):
 
 1. Every Secret of [`../SECRETS.md`](../SECRETS.md) consumed by the charts, including the
@@ -63,13 +79,20 @@ In the namespace of the releases (the defaults assume one namespace):
 2. An S3 bucket off the node for the backups, and its endpoint.
 3. For Keycloak, a ConfigMap holding the `coldframe` realm file, with the redirect URIs of your
    host names (the realm in `aspire/keycloak/realms` is for localhost and is not packaged).
+4. A domain with its DNS zone at Cloudflare, the Secret `coldframe-dns01` holding an API token for
+   that zone, and split DNS for the three hosts
+   ([`docs/operations/split-dns.md`](../../docs/operations/split-dns.md)).
 
 ### Releases
 
 Install the database first and wait until the cluster is ready; it provides `coldframe-db-rw:5432`
 with the roles and databases `coldframe`, `temporal`, `temporal_visibility` and `keycloak`. Then
 install the rest in dependency order; the release names are the defaults every chart assumes for
-the others (`nats:4222`, `temporal:7233`, `keycloak:8080`, `server:8080`):
+the others (`nats:4222`, `temporal:7233`, `keycloak:8080`, `server:8080`, `web:3000`). With the
+domain `coldframe.example.org`, the hosts are `coldframe.example.org` (web),
+`api.coldframe.example.org` (Server) and `auth.coldframe.example.org` (Keycloak). Prefer a
+dedicated subdomain over the apex of your zone: the LAN record for the web host would hide any
+public site at the apex:
 
 ```sh
 NS=coldframe
@@ -80,18 +103,27 @@ kubectl -n "$NS" wait cluster/coldframe-db --for=condition=Ready --timeout=10m
 helm install nats     deploy/charts/nats     -n "$NS" --wait
 helm install temporal deploy/charts/temporal -n "$NS" --wait
 helm install keycloak deploy/charts/keycloak -n "$NS" --wait \
-  --set hostname=auth.example.org --set realmImport.configMap=coldframe-realm
+  --set hostname=auth.coldframe.example.org --set realmImport.configMap=coldframe-realm
 helm install server   deploy/charts/server   -n "$NS" --wait \
-  --set identity.authority=https://auth.example.org/realms/coldframe \
+  --set identity.authority=https://auth.coldframe.example.org/realms/coldframe \
   --set keycloak.baseUrl=http://keycloak:8080
 helm install web      deploy/charts/web      -n "$NS" --wait \
-  --set keycloak.issuer=https://auth.example.org/realms/coldframe \
+  --set keycloak.issuer=https://auth.coldframe.example.org/realms/coldframe \
   --set origin=https://coldframe.example.org
+helm install ingress  deploy/charts/ingress  -n "$NS" --wait \
+  --set domain=coldframe.example.org --set acme.email=you@example.org
+kubectl -n "$NS" wait certificate/coldframe-tls --for=condition=Ready --timeout=10m
 ```
+
+The Server and the web app reach Keycloak at `https://auth.coldframe.example.org`, so the node and the
+cluster must resolve it to the LAN ingress address (split DNS); until the certificate is Ready,
+their token validation fails. Verification, renewals and the phone check:
+[`docs/operations/split-dns.md`](../../docs/operations/split-dns.md).
 
 Restoring the database from its backups: [`docs/operations/restore.md`](../../docs/operations/restore.md).
 
-Every Service is `ClusterIP`. Ingress, TLS and the Fleet bundles arrive with Stories 2.4 and 2.5.
+Every Service is `ClusterIP`; only Traefik's websecure entrypoint (hostPort 443) is exposed, and
+nothing serves port 80. The Fleet bundles arrive with Story 2.5.
 
 ## Values that matter
 
@@ -117,9 +149,16 @@ Every Service is `ClusterIP`. Ingress, TLS and the Fleet bundles arrive with Sto
 | keycloak | `realmImport.configMap` | empty: no import | mounted at `/opt/keycloak/data/import`, adds `--import-realm` |
 | temporal | `namespace.name`, `namespace.retention`, `numHistoryShards` | `coldframe`, `72h`, `4` | never change the shard count after the first install |
 | nats | `jetstream.storageSizeLimit` | `1Gi` | size limit of the `emptyDir` |
+| ingress | `domain` | `coldframe.example.invalid` | placeholder that only renders: set your domain |
+| ingress | `hosts.web`, `hosts.api`, `hosts.auth` | empty: `<domain>`, `api.<domain>`, `auth.<domain>` | the Certificate's `dnsNames` and the Ingress rules |
+| ingress | `backends.web`, `backends.api`, `backends.auth` (`service`, `port`) | `web:3000`, `server:8080`, `keycloak:8080` | |
+| ingress | `ingressClassName` | `traefik` | RKE2's Traefik |
+| ingress | `acme.enabled`, `acme.server`, `acme.email` | `true`, Let's Encrypt production, empty | staging: `https://acme-staging-v02.api.letsencrypt.org/directory` |
+| ingress | `externalIssuer.name`, `externalIssuer.kind` | empty, `Issuer` | used only when `acme.enabled` is false (unsupported private-CA fallback); the chart fails when both are off |
 
-There is no value for a Secret name: the names are fixed in the templates so that `SECRETS.md`
-stays the whole contract.
+There is no value for a Secret name (the `ingress` chart's `coldframe-dns01`, and the
+cert-manager-generated `coldframe-tls` and `coldframe-letsencrypt-account`, included): the names
+are fixed in the templates so that `SECRETS.md` stays the whole contract.
 
 ## Upgrades
 
@@ -143,22 +182,24 @@ stays the whole contract.
 ## Checks
 
 ```sh
-deploy/charts/test.sh           # helm lint, helm-unittest, kubeconform, Secret contract
+deploy/charts/test.sh           # helm lint, helm-unittest, kubeconform, Secret contract, TLS/port 80
 deploy/charts/check-version.sh 0.1.0
 deploy/charts/smoke.sh coldframe/server:dev coldframe/web:dev coldframe/migrations:dev coldframe/keycloak:dev
 ```
 
 | Script | Purpose | Needs |
 | --- | --- | --- |
-| `test.sh` | per chart: `helm lint --strict`, `helm unittest` (`<chart>/tests`), `helm template` with default and `ci-values.yaml` values (and the database in recovery mode) validated by kubeconform (strict, Kubernetes 1.36.0, and the CloudNativePG and Barman Cloud kinds against schemas generated from the CRDs pinned in `dependencies.env`), and `check-manifests.py`; also proves the checks fail on the fixtures in `testdata/` | helm v4.2.2, helm-unittest v1.1.2, kubeconform v0.8.0, curl, python3 with PyYAML; network for the CRD manifests (`KUBECONFORM_CACHE` caches them) |
+| `test.sh` | per chart: `helm lint --strict`, `helm unittest` (`<chart>/tests`), `helm template` with default and `ci-values.yaml` values (and the database in recovery mode) validated by kubeconform (strict, Kubernetes 1.36.0, and the CloudNativePG, Barman Cloud and cert-manager kinds against schemas generated from the CRDs pinned in `dependencies.env`), `check-manifests.py` and `check-ingress.py`; renders the pinned rke2-traefik chart, which must fail `check-ingress.py` with its default values (hostPort 80) and pass with `deploy/rke2/rke2-traefik-config.yaml`; also proves the checks fail on the fixtures in `testdata/` | helm v4.2.2, helm-unittest v1.1.2, kubeconform v0.8.0, curl, python3 with PyYAML; network for the CRD manifests and the rke2-traefik chart (`KUBECONFORM_CACHE` caches them) |
 | `check-manifests.py <SECRETS.md> <label>` | reads rendered manifests on stdin; fails on a rendered Secret or a Secret name or key missing from `SECRETS.md` (including CNPG `passwordSecret` and ObjectStore `s3Credentials`) | python3, PyYAML |
+| `check-ingress.py <label>` | reads rendered manifests on stdin; fails on an Ingress without `tls` for each host or without the Traefik annotations for `websecure` only, a Traefik `IngressRoute` without `tls` or on another entrypoint, an ACME `Issuer`/`ClusterIssuer` with a solver that is not DNS-01 (or is HTTP-01), a Service port or nodePort 80, a container port or hostPort 80, or a `--entryPoints.web.*` argument | python3, PyYAML |
 | `crd-schemas.py <dir>` | reads CRD manifests on stdin and writes strict kubeconform schemas `<kind>_<version>.json` (unknown fields fail) | python3, PyYAML |
-| `dependencies.env` | the pinned cert-manager, CloudNativePG and Barman Cloud plugin manifests (version, URL, sha256) and the smoke's RustFS and aws-cli images; sourced by `test.sh`, `smoke.sh` and the install commands above | |
+| `dependencies.env` | the pinned cert-manager, CloudNativePG and Barman Cloud plugin manifests and the rke2-traefik and rke2-traefik-crd charts of RKE2 v1.36.4+rke2r1 (version, URL, sha256), and the smoke's RustFS and aws-cli images; sourced by `test.sh`, `smoke.sh` and the install commands above | |
 | `check-version.sh <version>` | fails naming each `Chart.yaml` whose `version` (all charts) or `appVersion` (server, web, keycloak) differs | bash |
-| `smoke.sh <server> <web> <migrations> <keycloak>` | a disposable k3d cluster (`rancher/k3s:v1.36.4-k3s1`) with cert-manager, CloudNativePG and the Barman Cloud plugin, placeholder Secrets and RustFS as the S3 target (`testdata/rustfs.yaml`): installs the database and every chart, asserts every pod Ready (or a completed Job), the Server's `/.well-known/healthz` Healthy and the imported realm served, checks that a failing migration fails `helm upgrade server` without touching the Deployment and that a good upgrade reruns the migration Job, then runs a backup-and-restore round trip (a marker before and one after a base backup, uninstall, recovery into a new folder, both markers and every table's row count back, the Server healthy on the restored cluster) | k3d v5.9.0, helm, kubectl, jq, curl, docker |
+| `smoke.sh <server> <web> <migrations> <keycloak>` | a disposable k3d cluster (`rancher/k3s:v1.36.4-k3s1`) with cert-manager, CloudNativePG and the Barman Cloud plugin, placeholder Secrets and RustFS as the S3 target (`testdata/rustfs.yaml`): installs RKE2's Traefik (pinned rke2-traefik with the `HelmChartConfig` values), the database and every chart, asserts every pod Ready (or a completed Job), the Server's `/.well-known/healthz` Healthy and the imported realm served; installs the `ingress` chart with a test CA (`testdata/smoke-ca.yaml`) in place of Let's Encrypt and checks the Certificate Ready with a `renewalTime`, the Server, Keycloak (issuer `https://auth.<domain>:<port>/…`) and the web app over HTTPS through Traefik's 443 with that CA, and no port 80 or `web` entrypoint on Traefik; checks that a failing migration fails `helm upgrade server` without touching the Deployment and that a good upgrade reruns the migration Job, then runs a backup-and-restore round trip (a marker before and one after a base backup, uninstall, recovery into a new folder, both markers and every table's row count back, the Server healthy on the restored cluster) | k3d v5.9.0, helm, kubectl, jq, curl, docker |
 
-`ci-values.yaml` holds the CI overrides: the plain-HTTP in-cluster Keycloak, and RustFS
-(`http://rustfs:9000`) as the database's S3 target. `SMOKE_CLUSTER=kind`
+`ci-values.yaml` holds the CI overrides: the plain-HTTP in-cluster Keycloak, RustFS
+(`http://rustfs:9000`) as the database's S3 target, and for `ingress` the domain
+`coldframe.smoke.test` with the smoke's CA Issuer `smoke-ca` instead of ACME. `SMOKE_CLUSTER=kind`
 runs the smoke on kind (`kindest/node:v1.36.4`) instead, for hosts where k3s cannot start, such as
 rootless Podman without the `cpuset` cgroup controller delegated (`KIND_EXPERIMENTAL_PROVIDER=podman`).
 
