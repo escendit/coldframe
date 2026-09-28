@@ -45,20 +45,21 @@ final class CoreSignInService: SignInService {
   func signOut() { core.signOut() }
 }
 
-/// Adapts `IosAppearance` of the shared Kotlin core to `AppearanceService`.
+/// Adapts `IosAppearance` of the shared Kotlin core to `AppearanceService`. ColdframeCore exports
+/// its own `ThemePreference`, so the Swift one is named with its module.
 @MainActor
 final class CoreAppearanceService: AppearanceService {
   private let core = IosAppearance()
   private var watch: Watch?
 
-  func observe(_ onChange: @escaping @MainActor (ThemePreference) -> Void) {
+  func observe(_ onChange: @escaping @MainActor (ColdframeIOS.ThemePreference) -> Void) {
     watch?.close()
     watch = core.watch { stored in
-      MainActor.assumeIsolated { onChange(ThemePreference(stored: stored)) }
+      MainActor.assumeIsolated { onChange(ColdframeIOS.ThemePreference(stored: stored)) }
     }
   }
 
-  func select(_ preference: ThemePreference) {
+  func select(_ preference: ColdframeIOS.ThemePreference) {
     core.select(storedValue: preference.rawValue)
   }
 }
