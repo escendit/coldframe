@@ -431,6 +431,7 @@ FodyWeavers.xsd
 
 .bmad-loop/runs/
 .bmad-loop/cache/
+.bmad-loop/archive/
 .bmad-loop/policy.toml
 _bmad/render/
 
