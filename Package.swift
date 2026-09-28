@@ -16,8 +16,7 @@ import PackageDescription
 // tests/swift.
 let package = Package(
   name: "Coldframe",
-  // Without a default localization SwiftPM copies the String Catalog verbatim instead of compiling
-  // it, and every lookup through Bundle.module returns the key.
+  // The String Catalog is a localized resource, which needs a default localization.
   defaultLocalization: "en",
   platforms: [.iOS(.v17), .macOS(.v14)],
   products: [
