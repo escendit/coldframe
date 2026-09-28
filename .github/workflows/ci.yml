@@ -134,6 +134,11 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # Fails when a generated design-token output is stale, and prints the recomputed contrast
+      # table, failing below 4.5:1 for text or 3:1 for UI (NFR14).
+      - name: Design tokens
+        run: pnpm --filter @coldframe/design-tokens run check
+
   swift:
     name: Swift
     runs-on: macos-26

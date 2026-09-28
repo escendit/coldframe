@@ -1,0 +1,24 @@
+{
+  "name": "@coldframe/design-tokens",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Coldframe design tokens, Carbon icons and Ubuntu fonts, generated for CSS/TS, Swift and Kotlin from one JSON source",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./generated/ts/index.ts",
+    "./tokens.css": "./generated/css/tokens.css",
+    "./fonts.css": "./generated/css/fonts.css",
+    "./icons/*": "./generated/icons/*"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.ts",
+    "check": "node scripts/generate.ts --check && node scripts/contrast.ts",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "svgpath": "2.6.0"
+  }
+}

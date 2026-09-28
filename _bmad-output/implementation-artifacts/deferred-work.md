@@ -60,3 +60,11 @@ source_spec: `spec-1-2-event-journal-migrations-and-projection-pipeline.md`
 severity: low
 reason: nuget.org flat container index lists 10.3.1-rc.0 and 10.3.1-rc.1 (checked 2026-09-28).
 status: open
+
+### DW-9: DESIGN.md sets hero-value, tile-value and tile-value-web to Ubuntu Condensed weight 300, but Ubuntu Condensed exists only in 400, so those roles render at 400.
+origin: spec-deferred c0e9a91eb7ae
+location: packages/design-tokens/tokens/tokens.json (hero-value, tile-value, tile-value-web)
+source_spec: `spec-1-3-design-tokens-and-themes.md`
+severity: low
+reason: google/fonts ufl/ubuntucondensed ships only UbuntuCondensed-Regular.ttf; generated fonts.css has no Ubuntu Condensed 300 face. The token copies DESIGN.md faithfully; the design needs a decision (use 400, or Ubuntu Light for values).
+status: open

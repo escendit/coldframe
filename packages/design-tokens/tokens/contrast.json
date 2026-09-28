@@ -1,0 +1,23 @@
+{
+  "pairs": [
+    { "label": "Needs-water ink on orange", "foreground": "status-water-ink", "background": "status-water-fill", "kind": "text", "published": { "light": 7.45, "dark": 7.45 } },
+    { "label": "Needs-water ink on soil level", "foreground": "status-water-ink", "background": "status-water-level", "kind": "text", "published": { "light": 4.92, "dark": 4.92 } },
+    { "label": "Primary button label on primary", "foreground": "ink-on-bright", "background": "primary", "kind": "text", "published": { "light": 7.45, "dark": 7.45 } },
+    { "label": "Primary button label on hover", "foreground": "ink-on-bright", "background": "primary-hover", "kind": "text", "published": { "light": 5.87, "dark": 8.42 } },
+    { "label": "Primary button label on active", "foreground": "ink-on-bright", "background": "primary-active", "kind": "text", "published": { "light": 4.55, "dark": 4.55 } },
+    { "label": "Tile foot line on OK soil level", "foreground": "text-secondary", "background": "status-ok-level", "kind": "text", "published": { "light": 5.92, "dark": 5.44 } },
+    { "label": "Tile foot line on hatch plate", "foreground": "text-secondary", "background": "status-hatch-ground", "kind": "text", "published": { "light": 7.1, "dark": 6.76 } },
+    { "label": "Calibration label on hatch plate", "foreground": "status-calibration-ink", "background": "status-hatch-ground", "kind": "text", "published": { "light": 5.98, "dark": 7.59 } },
+    { "label": "Paused ink on paused fill", "foreground": "status-paused-ink", "background": "status-paused-fill", "kind": "text", "published": { "light": 10.67, "dark": 7.4 } },
+    { "label": "primary-text on background", "foreground": "primary-text", "background": "background", "kind": "text", "published": { "light": 5.18, "dark": 6.43 } },
+    { "label": "primary-text on layer-01", "foreground": "primary-text", "background": "layer-01", "kind": "text", "published": { "light": 4.75, "dark": 4.91 } },
+    { "label": "support-error-text on background", "foreground": "support-error-text", "background": "background", "kind": "text", "published": { "light": 4.96, "dark": 6.38 } },
+    { "label": "Focus ring on its gap", "foreground": "focus", "background": "focus-gap", "kind": "non-text", "published": { "light": 17.94, "dark": 13.76 } },
+    { "label": "Hatch line on hatch ground", "foreground": "status-hatch-line", "background": "status-hatch-ground", "kind": "non-text", "published": { "light": 3.02, "dark": 3.48 } },
+    { "label": "OK border on background", "foreground": "status-ok-border", "background": "background", "kind": "non-text", "published": { "light": 3.29, "dark": 4.56 } },
+    { "label": "Stale border on background", "foreground": "stale-border", "background": "background", "kind": "non-text", "published": { "light": 3.29, "dark": 4.56 } },
+    { "label": "Setup done on layer-01", "foreground": "setup-done", "background": "layer-01", "kind": "non-text", "published": { "light": 4.71, "dark": 5.61 } },
+    { "label": "Chart bar on background", "foreground": "chart-bar", "background": "background", "kind": "non-text", "published": { "light": 3.29, "dark": 4.56 } },
+    { "label": "Below-low bar on band", "foreground": "chart-bar-below-low", "background": "chart-band", "kind": "non-text", "published": { "light": 5.03, "dark": 4.49 } }
+  ]
+}

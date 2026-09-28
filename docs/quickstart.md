@@ -120,7 +120,14 @@ pnpm install --frozen-lockfile
 pnpm -r lint
 pnpm -r typecheck
 pnpm -r test
+pnpm --filter @coldframe/design-tokens run check
 ```
+
+The last command fails when a generated design-token output is stale and prints the recomputed
+contrast table. Colours, typography, spacing, radii, Carbon icons and fonts have one source,
+[`packages/design-tokens`](../packages/design-tokens); after changing it, run
+`pnpm --filter @coldframe/design-tokens run generate` and commit the CSS, TypeScript, Swift
+(`packages/swift/design-tokens`) and Kotlin (`packages/kt/design-tokens`) outputs together.
 
 ### Kotlin
 
