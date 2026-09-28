@@ -1,12 +1,12 @@
-# Verifies the four container images (Stories 2.1 to 2.4): builds every Dockerfile for each
+# Verifies the four container images (Stories 2.1 to 2.5): builds every Dockerfile for each
 # platform its final base image provides, runs the container-structure tests, the smoke run
-# against real dependencies, and the chart smoke install on a disposable k3d cluster, including
-# the HTTPS routes through RKE2's Traefik and the database backup-and-restore round trip. CI calls it
-# on every pull request, and the release workflow calls it before any image is pushed. It pushes
-# nothing.
+# against real dependencies, the chart smoke install on a disposable k3d cluster, including the
+# HTTPS routes through RKE2's Traefik and the database backup-and-restore round trip, and the
+# Fleet smoke on another one (ordered install, upgrade, restarts). CI calls it on every pull
+# request, and the release workflow calls it before any image is pushed. It pushes nothing.
 #
-# Actions are pinned to a commit; the comment names the release. container-structure-test, helm
-# and k3d are pinned to a release and their downloads are checked against a sha256.
+# Actions are pinned to a commit; the comment names the release. container-structure-test, helm,
+# k3d and the fleet CLI are pinned to a release and their downloads are checked against a sha256.
 name: Images verify
 
 on:
@@ -19,7 +19,7 @@ jobs:
   verify:
     name: Build, structure-test and smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 110
+    timeout-minutes: 170
     env:
       CST_VERSION: v1.22.1
       # sha256 of container-structure-test-linux-amd64 v1.22.1 (the release's checksums.txt).
@@ -100,7 +100,7 @@ jobs:
       - name: Smoke run
         run: deploy/images/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
 
-      - name: Install helm and k3d
+      - name: Install helm, k3d and the fleet CLI
         shell: bash
         run: |
           bin="${RUNNER_TEMP}/bin"
@@ -118,6 +118,13 @@ jobs:
           echo "${K3D_SHA256}  ${bin}/k3d" | sha256sum --check --strict
           chmod +x "${bin}/k3d"
 
+          # The fleet CLI: version, URL and sha256 pinned in deploy/charts/dependencies.env.
+          # shellcheck source=/dev/null
+          source deploy/charts/dependencies.env
+          curl --fail --silent --show-error --location --output "${downloads}/fleet" "${FLEET_CLI_URL_AMD64}"
+          echo "${FLEET_CLI_SHA256_AMD64}  ${downloads}/fleet" | sha256sum --check --strict
+          install -m 0755 "${downloads}/fleet" "${bin}/fleet"
+
           echo "${bin}" >> "${GITHUB_PATH}"
 
       # smoke.sh reads the Traefik HelmChartConfig with PyYAML.
@@ -133,4 +140,14 @@ jobs:
       - name: Chart smoke install
         run: >
           deploy/charts/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
+          coldframe/keycloak:ci
+
+      # The GitOps path (docs/operations/install.md) on another k3s cluster: Fleet installs the
+      # bundles of deploy/fleet/gitrepo.yaml in dependency order (every pod ready, HTTPS on the
+      # three hosts); a chart-version bump upgrades with the migration Job first and a
+      # stop-then-start Server; restarting the Server pod, the database pod and the node loses no
+      # committed data.
+      - name: Fleet smoke
+        run: >
+          deploy/fleet/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
           coldframe/keycloak:ci

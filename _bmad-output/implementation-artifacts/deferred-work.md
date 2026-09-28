@@ -310,3 +310,10 @@ location: deploy/rke2/rke2-traefik-config.yaml
 source_spec: `spec-2-4-tls-with-public-certificates-on-my-home-network.md`
 reason: Unverified: test.sh and smoke.sh layer only the HelmChartConfig valuesContent over the chart defaults. If RKE2 v1.36.4's own HelmChart values set anything under ports.web, the node could differ. Settle on the home server with `kubectl -n kube-system get helmchart rke2-traefik -o jsonpath='{.spec.valuesContent}'` and `kubectl -n kube-system get svc rke2-traefik` (443 only).
 status: open
+
+### DW-41: The Fleet smoke has only run on kind; the k3d path that CI uses, and the Images job timeout of 170 minutes, are unproven.
+origin: spec-deferred f6fa9df6ca1f
+location: .github/workflows/images-verify.yml (Fleet smoke); deploy/fleet/smoke.sh
+source_spec: `spec-2-5b-fleet-smoke-proves-ordered-install-upgrade-and-restart-durability.md`
+reason: Unverified: .github/ has no SMOKE_CLUSTER setting, so CI runs the k3d path (the real k3s HelmChartConfig CRD, k3d image import, docker restart of the k3d node), and every local run used kind. It is settled by one green Images job on GitHub Actions that includes the "Fleet smoke" step, together with its step duration.
+status: open

@@ -210,5 +210,5 @@ runs the smoke on kind (`kindest/node:v1.36.4`) instead, for hosts where k3s can
 rootless Podman without the `cpuset` cgroup controller delegated (`KIND_EXPERIMENTAL_PROVIDER=podman`).
 
 CI runs `test.sh` as the `Charts` job and `smoke.sh` in the `Images` job. The GitOps counterpart
-of `smoke.sh`, a Fleet smoke that installs the bundles in dependency order, upgrades and restarts
-them on a disposable cluster, is Story 2.5b.
+of `smoke.sh` is [`deploy/fleet/smoke.sh`](../fleet/smoke.sh), also in the `Images` job: Fleet
+installs the bundles in dependency order on a disposable cluster, then upgrades and restarts them.

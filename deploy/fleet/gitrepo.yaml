@@ -15,7 +15,7 @@
 # dependsOn on the label coldframe.escendit.io/bundle. Not "deploy/": Fleet would turn its own
 # files (and the charts' test fixtures) into a catch-all bundle. deploy/charts/test.sh renders
 # exactly these paths with the fleet CLI and checks them (deploy/fleet/check-fleet.py); the Fleet
-# smoke of Story 2.5b installs them.
+# smoke (deploy/fleet/smoke.sh) installs them.
 apiVersion: fleet.cattle.io/v1alpha1
 kind: GitRepo
 metadata:

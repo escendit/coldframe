@@ -19,7 +19,8 @@
 # would, and deploy/fleet/check-fleet.py checks them (labels, the dependsOn order, the pins of
 # dependencies.env, the site values); each fixture in deploy/fleet/testdata/ must make it fail.
 # Every chart is also rendered and checked with its fleet.yaml values and its key of
-# deploy/fleet/values.example.yaml.
+# deploy/fleet/values.example.yaml. The Fleet smoke (deploy/fleet/smoke.sh) must refuse bad usage
+# (image count, SMOKE_CLUSTER, fleet CLI version) before it creates a cluster.
 #
 # Needs helm (v4), the helm-unittest plugin, kubeconform, the fleet CLI (FLEET_VERSION of
 # dependencies.env), curl, sha256sum and python3 with PyYAML. kubeconform downloads the Kubernetes
@@ -386,6 +387,18 @@ PYTHON
     failed "${chart}: read deploy/charts/${chart}/fleet.yaml and its values key"
   fi
 done
+
+# The Fleet smoke (deploy/fleet/smoke.sh) refuses bad usage before it creates a cluster.
+echo "# fleet smoke usage"
+smoke=${fleet_dir}/smoke.sh
+mkdir -p "${fleet_work}/fake-bin"
+printf '#!/bin/sh\necho "fleet version v0.0.0 (fake)"\n' >"${fleet_work}/fake-bin/fleet"
+chmod +x "${fleet_work}/fake-bin/fleet"
+expect_failure "the Fleet smoke needs four images"         "usage: " "${smoke}" a b c
+expect_failure "the Fleet smoke rejects an unknown cluster" "SMOKE_CLUSTER must be k3d or kind, not 'minikube'" \
+  env SMOKE_CLUSTER=minikube "${smoke}" a b c d
+expect_failure "the Fleet smoke needs the pinned fleet CLI" "the fleet CLI must be ${FLEET_VERSION}, found 'v0.0.0'" \
+  env PATH="${fleet_work}/fake-bin:${PATH}" "${smoke}" a b c d
 rm -rf "${fleet_work}"
 
 echo "# ${passes} passed, ${failures} failed"

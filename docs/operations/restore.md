@@ -197,8 +197,8 @@ apply the ConfigMap with the recovery values above, then unpause the GitRepo and
 `database` release in recovery mode, and the waits of step 4 apply unchanged. The redeploy also
 brings the apps back as soon as their bundles' dependencies are Ready, so step 6 happens by itself
 (scale any app still at 0 replicas); while step 5 is a no-op (no Devices before Epic 4) that order
-is safe. The chart smoke tests the steps with Helm; the Fleet smoke (Story 2.5b) does not run
-this restore.
+is safe. The chart smoke tests the steps with Helm; the Fleet smoke
+([`deploy/fleet/smoke.sh`](../../deploy/fleet/smoke.sh)) does not run this restore.
 
 The old folder (`coldframe-db`) is no longer written or covered by the retention policy, which
 only prunes the folder the running cluster archives to. Delete it from the bucket once the

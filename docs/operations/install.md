@@ -34,9 +34,9 @@ CI checks the bundles on every pull request ([`deploy/charts/test.sh`](../../dep
 it renders the GitRepo's paths with the fleet CLI, checks the labels, the `dependsOn` order, the
 pins and the site values ([`deploy/fleet/check-fleet.py`](../../deploy/fleet/check-fleet.py)), and
 renders every chart with its `fleet.yaml` values and the example `coldframe-values`. The proof on a
-cluster (ordered install, upgrade and restart durability under Fleet) is the Fleet smoke of
-Story 2.5b. The checklist at the end is what CI cannot do: your domain, your phone, your S3
-bucket.
+cluster (ordered install, upgrade and restart durability under Fleet) is the Fleet smoke,
+[`deploy/fleet/smoke.sh`](../../deploy/fleet/smoke.sh), in the `Images` CI job. The checklist at
+the end is what CI cannot do: your domain, your phone, your S3 bucket.
 
 ## Prerequisites
 
