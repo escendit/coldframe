@@ -1,6 +1,11 @@
+using System.Buffers.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
+using Coldframe.Crypto;
+using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Lots;
 using Microsoft.AspNetCore.Mvc;
@@ -63,6 +68,30 @@ public sealed record LotResponse(string Id, string Name, string Status, bool? Re
 public sealed record LotListResponse(IReadOnlyList<LotResponse> Lots);
 
 /// <summary>
+/// The body of <c>GET /enrolment-key</c>.
+/// </summary>
+/// <param name="PublicKey">The raw 32-byte X25519 enrolment public key, base64url without padding.</param>
+/// <param name="Fingerprint">Lowercase hex SHA-256 of the raw public key.</param>
+public sealed record EnrolmentKeyResponse(string PublicKey, string Fingerprint);
+
+/// <summary>
+/// The body of <c>POST /sites/{siteId}/devices</c>: a Device's sealed enrolment, relayed unread.
+/// </summary>
+/// <param name="DeviceId">The Device ID, 16 lowercase hex digits; also the HPKE associated data.</param>
+/// <param name="Kind"><c>hub</c> or <c>node</c>.</param>
+/// <param name="Enc">The HPKE encapsulated key (32 bytes), base64url without padding.</param>
+/// <param name="Ciphertext">The sealed <c>K_dev</c> (48 bytes), base64url without padding.</param>
+public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? Enc, string? Ciphertext);
+
+/// <summary>
+/// A Device as the Edge API returns it.
+/// </summary>
+/// <param name="Id">The Device ID.</param>
+/// <param name="Kind"><c>hub</c> or <c>node</c>.</param>
+/// <param name="SiteId">The Site the Device is enrolled on.</param>
+public sealed record DeviceResponse(string Id, string Kind, string SiteId);
+
+/// <summary>
 /// The Edge API endpoints, contract-first from <c>packages/openapi/coldframe.openapi.json</c> (AD-10).
 /// </summary>
 /// <remarks>
@@ -89,6 +118,10 @@ public static class EdgeApi
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
+        endpoints.MapGet("/enrolment-key", GetEnrolmentKey)
+            .WithName("getEnrolmentKey")
+            .RequireAuthenticatedCaller();
+
         endpoints.MapGet("/sites", ListSitesAsync)
             .WithName("listSites")
             .RequireAuthenticatedCaller();
@@ -104,6 +137,10 @@ public static class EdgeApi
         endpoints.MapPatch("/sites/{siteId}", RenameSiteAsync)
             .WithName("renameSite")
             .RequireSiteRole(SiteRole.Owner);
+
+        endpoints.MapPost("/sites/{siteId}/devices", EnrolDeviceAsync)
+            .WithName("enrolDevice")
+            .RequireSiteRole(SiteRole.Administrator);
 
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
             .WithName("listLots")
@@ -376,6 +413,111 @@ public static class EdgeApi
         };
     }
 
+    private static Microsoft.AspNetCore.Http.HttpResults.Ok<EnrolmentKeyResponse> GetEnrolmentKey([FromServices] EnrolmentKeyring keyring) =>
+        TypedResults.Ok(new EnrolmentKeyResponse(Base64Url.EncodeToString(keyring.PublicKey.Span), keyring.Fingerprint));
+
+    private static async Task<IResult> EnrolDeviceAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] EnrolmentKeyring keyring,
+        [FromServices] DeviceKeyVault vault,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        if (CheckIdempotencyKey(httpContext, "enrolment") is { } keyProblem)
+        {
+            return keyProblem;
+        }
+
+        var request = await ReadJsonAsync<EnrolDeviceRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (EdgeValidation.NormalizeDeviceId(request?.DeviceId) is not { } deviceId
+            || EdgeValidation.NormalizeDeviceKind(request?.Kind) is not { } kind
+            || EdgeValidation.DecodeBase64Url(request?.Enc, CryptoSpec.HpkeEncLength) is not { } enc
+            || EdgeValidation.DecodeBase64Url(request?.Ciphertext, CryptoSpec.DeviceKeyLength + CryptoSpec.AeadTagLength) is not { } ciphertext)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The enrolment request is not valid.",
+                "Send a JSON body with deviceId (16 lowercase hex digits), kind (hub or node), and enc (32 bytes) and ciphertext (48 bytes), both base64url without padding.");
+        }
+
+        // K_dev exists in plaintext only here: it is wrapped before any grain sees it, and never logged.
+        WrappedDeviceKey wrapped;
+        byte[]? deviceKey = null;
+
+        try
+        {
+            deviceKey = keyring.Open(deviceId, enc, ciphertext);
+
+            // The Device ID is the one K_dev derives (AD-12), not merely the one the request claims.
+            if (KeyHierarchy.DeriveDeviceId(deviceKey) != deviceId)
+            {
+                return NotSealedToThisServer();
+            }
+
+            wrapped = vault.Wrap(deviceId, deviceKey);
+        }
+        catch (CryptoFailureException)
+        {
+            // Never echoed: the reason could help an attacker probe the key.
+            return NotSealedToThisServer();
+        }
+        finally
+        {
+            if (deviceKey is not null)
+            {
+                CryptographicOperations.ZeroMemory(deviceKey);
+            }
+        }
+
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var result = await grains
+            .GetGrain<IDeviceGrain>(deviceId.ToString())
+            .Enrol(
+                new EnrolDevice(canonical, kind, wrapped, CallerId(httpContext), httpContext.Request.Headers[IdempotencyKeyHeader][0]!),
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    /// <summary>
+    /// Maps the Device grain's answer to the HTTP response: 201 with the Device, 404 <c>site-not-found</c>,
+    /// 409 <c>device-on-another-site</c> or 422 <c>idempotency-key-reused</c>.
+    /// </summary>
+    internal static IResult ToHttpResult(DeviceEnrolmentResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result switch
+        {
+            { Outcome: DeviceEnrolmentOutcome.Enrolled, Device: { } device } => TypedResults.Created(
+                (string?)null,
+                new DeviceResponse(device.Id, EdgeValidation.DeviceKindName(device.Kind), device.SiteId)),
+            { Outcome: DeviceEnrolmentOutcome.OnAnotherSite } => EdgeProblems.Result(
+                StatusCodes.Status409Conflict,
+                EdgeProblems.DeviceOnAnotherSite,
+                "The Device is enrolled on another Site.",
+                "Nothing was enrolled."),
+            { Outcome: DeviceEnrolmentOutcome.IdempotencyKeyReused } => EdgeProblems.Result(
+                StatusCodes.Status422UnprocessableEntity,
+                EdgeProblems.IdempotencyKeyReused,
+                "The Idempotency-Key was used for a different request.",
+                "Nothing was enrolled. Use a new key for another Device."),
+            { Outcome: DeviceEnrolmentOutcome.SiteNotFound } => SiteNotFound(),
+            _ => throw new InvalidOperationException($"Unexpected Device enrolment result {result.Outcome}."),
+        };
+    }
+
+    private static IResult NotSealedToThisServer() =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The enrolment does not open.",
+            "Seal the Device key to the key from GET /enrolment-key, with the Device's own ID.");
+
     /// <summary>
     /// Returns the canonical form of a Lot ID, or <see langword="null"/> when it is not a Lot ID at all.
     /// </summary>
@@ -430,7 +572,12 @@ public static class EdgeApi
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.LotNotFound, "The Site has no such Lot.");
 
     // Every body of this API that names something is {"name": …}.
-    private static async Task<string?> ReadNameAsync(HttpContext httpContext, HttpJsonOptions jsonOptions)
+    private static async Task<string?> ReadNameAsync(HttpContext httpContext, HttpJsonOptions jsonOptions) =>
+        (await ReadJsonAsync<CreateSiteRequest>(httpContext, jsonOptions).ConfigureAwait(false))?.Name;
+
+    // A body that is not JSON, or not the expected shape, reads as null: the handler answers 400.
+    private static async Task<T?> ReadJsonAsync<T>(HttpContext httpContext, HttpJsonOptions jsonOptions)
+        where T : class
     {
         if (!httpContext.Request.HasJsonContentType())
         {
@@ -439,11 +586,9 @@ public static class EdgeApi
 
         try
         {
-            var request = await httpContext.Request
-                .ReadFromJsonAsync<CreateSiteRequest>(jsonOptions.SerializerOptions, httpContext.RequestAborted)
+            return await httpContext.Request
+                .ReadFromJsonAsync<T>(jsonOptions.SerializerOptions, httpContext.RequestAborted)
                 .ConfigureAwait(false);
-
-            return request?.Name;
         }
         catch (JsonException)
         {

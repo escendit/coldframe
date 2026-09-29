@@ -76,7 +76,6 @@
         "summary": "Read the Server's X25519 enrolment public key",
         "description": "The app shows the fingerprint and writes the key to the Device over BLE; the Device seals K_dev to it with HPKE (AD-12).",
         "x-coldframe-minimum-role": "Authenticated",
-        "x-coldframe-planned": "3.3",
         "responses": {
           "200": {
             "description": "The enrolment key.",
@@ -201,7 +200,6 @@
         "summary": "Enrol a Device on the Site",
         "description": "The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. Idempotent per caller and Idempotency-Key for 24 h. Nothing is persisted on any error.",
         "x-coldframe-minimum-role": "Administrator",
-        "x-coldframe-planned": "3.3",
         "parameters": [
           { "$ref": "#/components/parameters/SiteId" },
           { "$ref": "#/components/parameters/IdempotencyKey" }

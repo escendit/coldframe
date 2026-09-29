@@ -1,5 +1,7 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
+using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.IntegrationTests.Journal;
 using Coldframe.Server.Journal;
@@ -14,7 +16,7 @@ using Orleans.TestingHost;
 namespace Coldframe.Server.IntegrationTests.Identity;
 
 /// <summary>
-/// A one-silo <see cref="TestCluster"/> with the User, Site and Lot grains, the identity and lots projectors, a
+/// A one-silo <see cref="TestCluster"/> with the User, Site, Lot and Device grains, Device enrolment keys, the identity and lots projectors, a
 /// <see cref="FakePhaseTwoOrganizations"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
 /// </summary>
@@ -49,6 +51,10 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public ISiteGrain Site(string siteId) => Cluster.GrainFactory.GetGrain<ISiteGrain>(siteId);
 
     public ILotGrain Lot(string lotId) => Cluster.GrainFactory.GetGrain<ILotGrain>(lotId);
+
+    public IDeviceGrain Device(string deviceId) => Cluster.GrainFactory.GetGrain<IDeviceGrain>(deviceId);
+
+    public DeviceKeyVault Vault => SiloServices.GetRequiredService<DeviceKeyVault>();
 
     public LotsReadModel Lots => SiloServices.GetRequiredService<LotsReadModel>();
 
@@ -143,6 +149,11 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddProjector<IdentityProjector>();
             siloBuilder.Services.AddSingleton<IdentityReadModel>();
             siloBuilder.Services.AddLots();
+            siloBuilder.Services.AddDevices().Configure(options =>
+            {
+                options.PrivateKeyPem = EnrolmentKeyring.ToPrivateKeyPem(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+                options.DeviceKeyEncryptionKey = Guid.NewGuid().ToString("N");
+            });
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
             siloBuilder.Services.AddSingleton<IPhaseTwoOrganizations>(provider => provider.GetRequiredService<FakePhaseTwoOrganizations>());

@@ -14,8 +14,8 @@ The REST contract, written before the code that serves it (AD-10):
 | `GET /sites/{siteId}/lots/{lotId}` | `Member` | Story 1.9 |
 | `PATCH /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `DELETE /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
-| `GET /enrolment-key` | `Authenticated` | Contract: Story 3.1; served: Story 3.3 |
-| `POST /sites/{siteId}/devices` | `Administrator` | Contract: Story 3.1; served: Story 3.3 |
+| `GET /enrolment-key` | `Authenticated` | Story 3.3 (contract: Story 3.1) |
+| `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1) |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served: Story 3.5 |
 | `POST /device/ingest` (placeholder) | `Device` | Contract: Story 3.1; served: Epic 4 |
 

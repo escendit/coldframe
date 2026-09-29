@@ -20,12 +20,14 @@ COPY apps/cs/Directory.Build.props apps/cs/
 COPY packages/cs/Directory.Build.props packages/cs/
 COPY apps/cs/server/Coldframe.Server.csproj apps/cs/server/packages.lock.json apps/cs/server/
 COPY packages/cs/contracts/Coldframe.Contracts.csproj packages/cs/contracts/packages.lock.json packages/cs/contracts/
+COPY packages/cs/crypto/Coldframe.Crypto.csproj packages/cs/crypto/packages.lock.json packages/cs/crypto/
 
 # Portable restore (no runtime identifier): a RID-specific one would not match the lock files.
 RUN dotnet restore apps/cs/server/Coldframe.Server.csproj --locked-mode
 
 COPY apps/cs/server/ apps/cs/server/
 COPY packages/cs/contracts/ packages/cs/contracts/
+COPY packages/cs/crypto/ packages/cs/crypto/
 
 RUN dotnet publish apps/cs/server/Coldframe.Server.csproj \
     --configuration Release \

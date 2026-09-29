@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 
 namespace Coldframe.Contracts.Sites;
@@ -85,6 +86,25 @@ public interface ISiteGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("create-lot")]
     Task<LotCreationResult> CreateLot(string callerId, string idempotencyKey, string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a Device to the roster of an <see cref="SiteLifecycle.Active"/> Site (AD-18). Only the Device
+    /// grain calls it, before it journals its enrolment. A key used within 24 h for another Device answers
+    /// <see cref="DeviceRegistrationOutcome.IdempotencyKeyReused"/>; a Device already on the roster journals
+    /// nothing. Nothing is persisted on a refusal. The reply carries the Site's Pause (AD-8).
+    /// </summary>
+    /// <param name="deviceId">The Device ID, 16 lowercase hex digits.</param>
+    /// <param name="kind">Hub or Node.</param>
+    /// <param name="idempotencyKey">
+    /// The request's idempotency key, scoped to its caller: <c>{sub}:{Idempotency-Key}</c>, as for Lots.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("register-device")]
+    Task<DeviceRegistrationResult> RegisterDevice(
+        string deviceId,
+        DeviceKind kind,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -324,3 +344,53 @@ public enum LotCreationOutcome
 [GenerateSerializer]
 [Alias("coldframe.lot-creation-result")]
 public sealed record LotCreationResult([property: Id(0)] LotCreationOutcome Outcome, [property: Id(1)] LotSummary? Lot = null);
+
+/// <summary>
+/// How a Device registration ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-registration-outcome")]
+public enum DeviceRegistrationOutcome
+{
+    /// <summary>
+    /// The Device is on the Site's roster, now or already.
+    /// </summary>
+    Registered = 0,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>. Nothing was journaled.
+    /// </summary>
+    NotFound = 1,
+
+    /// <summary>
+    /// The caller used the key within 24 h for another Device. Nothing was journaled.
+    /// </summary>
+    IdempotencyKeyReused = 2,
+}
+
+/// <summary>
+/// The Site's Pause as a joining Device receives it (AD-8). Site Pause arrives in Epic 8; until then a Site
+/// is never paused.
+/// </summary>
+/// <param name="Paused">Whether the Site is paused.</param>
+/// <param name="EndsAt">When the Pause ends, if it has an end.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-pause")]
+public sealed record SitePause([property: Id(0)] bool Paused, [property: Id(1)] DateTimeOffset? EndsAt = null)
+{
+    /// <summary>
+    /// A Site that is not paused.
+    /// </summary>
+    public static SitePause NotPaused { get; } = new(false);
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.RegisterDevice"/>.
+/// </summary>
+/// <param name="Outcome">How the registration ended.</param>
+/// <param name="Pause">The Site's Pause, when <paramref name="Outcome"/> is <see cref="DeviceRegistrationOutcome.Registered"/>.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-registration-result")]
+public sealed record DeviceRegistrationResult(
+    [property: Id(0)] DeviceRegistrationOutcome Outcome,
+    [property: Id(1)] SitePause? Pause = null);

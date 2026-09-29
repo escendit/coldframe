@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Identity.Reconciliation;
@@ -209,6 +210,40 @@ public sealed partial class SiteGrain(
         }
 
         return new LotCreationResult(LotCreationOutcome.Created, lot);
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceRegistrationResult> RegisterDevice(
+        string deviceId,
+        DeviceKind kind,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
+        ArgumentException.ThrowIfNullOrEmpty(idempotencyKey);
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new DeviceRegistrationResult(DeviceRegistrationOutcome.NotFound);
+        }
+
+        var now = Clock.GetUtcNow();
+
+        if (State.FindLiveDeviceRegistration(idempotencyKey, now) is { } registration
+            && !string.Equals(registration.DeviceId, deviceId, StringComparison.Ordinal))
+        {
+            return new DeviceRegistrationResult(DeviceRegistrationOutcome.IdempotencyKeyReused);
+        }
+
+        // A Device already on the roster, by this key or another, journals nothing.
+        if (!State.Devices.ContainsKey(deviceId))
+        {
+            RaiseEvent(new DeviceRegistered(deviceId, kind, idempotencyKey, now));
+            await ConfirmEvents();
+        }
+
+        // Site Pause arrives in Epic 8 (AD-8); until then a Site is never paused.
+        return new DeviceRegistrationResult(DeviceRegistrationOutcome.Registered, SitePause.NotPaused);
     }
 
     // Does the pulled roster show what the event says? A missing Organization shows no member and no role.

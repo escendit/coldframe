@@ -31,6 +31,8 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     private const string AdminPasswordParameter = "keycloak-admin-password";
     private const string ServerClientSecretParameter = "coldframe-server-client-secret";
 
+    private readonly SemaphoreSlim _enrolmentKeyLock = new(1, 1);
+    private byte[]? _enrolmentPublicKey;
     private string? _testClientId;
     private string? _noAudienceClientId;
     private NpgsqlDataSource? _dataSource;
@@ -63,6 +65,8 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
+        _enrolmentKeyLock.Dispose();
+
         if (_dataSource is not null)
         {
             await _dataSource.DisposeAsync();
@@ -198,11 +202,7 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     /// </summary>
     public async Task<long> AppendAsync(string streamId, int expectedVersion, IReadOnlyList<object> events, CancellationToken cancellationToken)
     {
-        var store = new JournalStore(
-            Database,
-            new JournalSerializer(new EventTypeRegistry(new JournalOptions().EventAssemblies)),
-            TimeProvider.System,
-            new OutboxWakeup());
+        var store = CreateStore();
 
         Assert.True(
             await store.AppendAsync(streamId, expectedVersion, events, cancellationToken),
@@ -210,6 +210,39 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
 
         var appended = await store.ReadStreamAsync(streamId, cancellationToken);
         return appended[^1].Position;
+    }
+
+    /// <summary>
+    /// Reads a stream of the Server's journal, deserialized exactly as a grain replays it.
+    /// </summary>
+    public Task<IReadOnlyList<JournalEvent>> ReadStreamAsync(string streamId, CancellationToken cancellationToken) =>
+        CreateStore().ReadStreamAsync(streamId, cancellationToken);
+
+    /// <summary>
+    /// The Server's enrolment public key as <c>GET /enrolment-key</c> answers it, read once as a fresh User.
+    /// </summary>
+    public async Task<byte[]> GetEnrolmentPublicKeyAsync(CancellationToken cancellationToken)
+    {
+        await _enrolmentKeyLock.WaitAsync(cancellationToken);
+
+        try
+        {
+            if (_enrolmentPublicKey is null)
+            {
+                var user = await CreateUserAsync("enrolment-key", cancellationToken);
+                using var server = CreateServerClient(user.AccessToken);
+                using var response = await server.GetAsync(new Uri("/enrolment-key", UriKind.Relative), cancellationToken);
+                response.EnsureSuccessStatusCode();
+                using var body = await ReadJsonAsync(response, cancellationToken);
+                _enrolmentPublicKey = System.Buffers.Text.Base64Url.DecodeFromChars(body.RootElement.GetProperty("publicKey").GetString());
+            }
+
+            return _enrolmentPublicKey;
+        }
+        finally
+        {
+            _enrolmentKeyLock.Release();
+        }
     }
 
     /// <summary>
@@ -352,11 +385,21 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
         }
     }
 
-    private async Task<string> GetParameterValueAsync(string name, CancellationToken cancellationToken)
+    /// <summary>
+    /// The value of an AppHost parameter, such as a generated secret.
+    /// </summary>
+    public async Task<string> GetParameterValueAsync(string name, CancellationToken cancellationToken)
     {
         var parameter = Assert.IsType<ParameterResource>(fixture.GetResource(name));
 
         return await parameter.GetValueAsync(cancellationToken)
             ?? throw new InvalidOperationException($"The parameter '{name}' has no value.");
     }
+
+    private JournalStore CreateStore() =>
+        new(
+            Database,
+            new JournalSerializer(new EventTypeRegistry(new JournalOptions().EventAssemblies)),
+            TimeProvider.System,
+            new OutboxWakeup());
 }

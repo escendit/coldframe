@@ -38,6 +38,11 @@ public static class EdgeProblems
     public const string LotClaimed = "urn:coldframe:problem:lot-claimed";
 
     /// <summary>
+    /// 409: the Device is already enrolled on another Site.
+    /// </summary>
+    public const string DeviceOnAnotherSite = "urn:coldframe:problem:device-on-another-site";
+
+    /// <summary>
     /// 400: the request is malformed.
     /// </summary>
     public const string Validation = "urn:coldframe:problem:validation";

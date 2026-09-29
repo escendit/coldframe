@@ -332,3 +332,11 @@ source_spec: `spec-3-2-hub-firmware-foundation-with-a-hardware-bound-identity.md
 severity: medium
 reason: apps/rs is excluded from the workspace, and CI installs no esp toolchain. The mocks index blocks directly, so rom_block (4 + n), the RD_DIS bit n and the KeyId mapping are verified only by a local build and the bench checklist. Fix with an esp-toolchain CI job, or by moving the mappings into coldframe-hal where host tests can pin them.
 status: open
+
+### DW-44: A Device enrolled on a Site that is later deleted can never be enrolled again: re-enrolling on that Site answers 404, and every other Site answers 409.
+origin: spec-deferred 118ab73be7a0
+location: apps/cs/server/Devices/DeviceGrain.cs (Enrol, step 1)
+source_spec: `spec-3-3-server-side-device-enrolment.md`
+severity: medium
+reason: DeviceGrain.Enrol refuses any Site other than State.SiteId, and nothing un-enrols a Device or releases it when its Site is deleted. This follows the story's "Device already enrolled on another Site → 409" rule literally. Releasing or moving a Device (AD-2 "moved, unassigned") belongs to the later Device lifecycle and Site-deletion work.
+status: open

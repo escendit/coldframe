@@ -21,7 +21,8 @@ A missing Secret or key does not fall back to anything: the pod stays in
 | `coldframe-smtp` | `Opaque` | `host`, `port`, `username`, `password`, `from` | not yet consumed: invitations (Epic 9) |
 | `coldframe-push` | `Opaque` | `apns-key.p8`, `apns-key-id`, `apns-team-id`, `fcm-service-account.json` | not yet consumed: push notifications (Epic 6) |
 | `coldframe-dns01` | `Opaque` | `api-token` | `ingress` chart: the Cloudflare API token of the cert-manager DNS-01 solver of the Issuer `coldframe-letsencrypt`; permissions Zone → DNS → Edit and Zone → Zone → Read, on the domain's zone only |
-| `coldframe-enrolment-key` | `Opaque` | `private-key.pem` | not yet consumed: Device enrolment (Epic 3) |
+| `coldframe-enrolment-key` | `Opaque` | `private-key.pem` | `server` chart: the X25519 enrolment private key, PKCS#8 PEM. Devices seal their key to its public key (Device enrolment) |
+| `coldframe-device-kek` | `Opaque` | `kek` | `server` chart: the key-encryption key of every enrolled Device's key, at least 32 characters |
 | `coldframe-backup-s3` | `Opaque` | `access-key-id`, `secret-access-key` | `database` chart: the Barman Cloud `ObjectStore` (WAL archive and base backups, and the source of a restore) |
 
 The three database Secrets have the `kubernetes.io/basic-auth` shape that CloudNativePG consumes
@@ -88,12 +89,26 @@ kubectl -n "$NS" create secret generic coldframe-push \
 kubectl -n "$NS" create secret generic coldframe-dns01 \
   --from-literal=api-token='<cloudflare-api-token>'
 
+openssl genpkey -algorithm X25519 -out enrolment-private-key.pem
 kubectl -n "$NS" create secret generic coldframe-enrolment-key \
-  --from-file=private-key.pem='<path/to/enrolment-private-key.pem>'
+  --from-file=private-key.pem=enrolment-private-key.pem
+shred -u enrolment-private-key.pem
+
+# Generate the KEK, record it (see below) before you create the Secret, then create it from that value.
+openssl rand -base64 32
+kubectl -n "$NS" create secret generic coldframe-device-kek \
+  --from-literal=kek='<device-kek>'
 
 kubectl -n "$NS" create secret generic coldframe-backup-s3 \
   --from-literal=access-key-id='<s3-access-key-id>' --from-literal=secret-access-key='<s3-secret-access-key>'
 ```
+
+Record the `coldframe-device-kek` value in a password manager or another offline store that is
+**separate from the database backups and their credentials** (`coldframe-backup-s3`): anyone holding
+both a backup and the KEK can decrypt every enrolled Device's key. A database restore needs the same
+value. To read it back from the cluster:
+`kubectl -n "$NS" get secret coldframe-device-kek -o jsonpath='{.data.kek}' | base64 --decode`.
+The enrolment key needs no copy: it can be replaced at any time (see below).
 
 The `database` chart creates the roles with these passwords and the databases they own. The client secrets must match the
 `coldframe-web` and `coldframe-server` clients of the `coldframe` realm.
@@ -120,6 +135,14 @@ start.
   Certificate to be Ready (`kubectl -n "$NS" wait certificate/coldframe-tls --for=condition=Ready`)
   before you revoke the old token. cert-manager reads the Secret at every challenge; nothing needs a
   restart.
+- `coldframe-enrolment-key`: create a new key (`openssl genpkey -algorithm X25519`), update the Secret
+  and restart the `server`. Enrolled Devices are unaffected, because their keys are stored under
+  `coldframe-device-kek`. Only enrolments in flight fail: an app that fetched the old public key
+  (`GET /enrolment-key`) must start the Device setup again, and it shows the new fingerprint.
+- `coldframe-device-kek`: **do not rotate.** Every enrolled Device's key is stored encrypted under it,
+  and re-wrapping them under a new key is not built yet: a changed or lost value makes every enrolled
+  Device unusable, and each must be enrolled again. Keep the recorded value apart from the database
+  backups and their credentials; a database restore needs the same value.
 - `coldframe-oidc-clients`: regenerate the client secret in Keycloak first (admin console or admin
   API, clients `coldframe-web` and `coldframe-server`). The realm import never overwrites an
   existing realm, so a new value in the Secret alone breaks sign-in.

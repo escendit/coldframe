@@ -737,6 +737,18 @@
           "Microsoft.Orleans.Sdk": "[10.3.1, )"
         }
       },
+      "coldframe.crypto": {
+        "type": "Project",
+        "dependencies": {
+          "BouncyCastle.Cryptography": "[2.7.0, )"
+        }
+      },
+      "BouncyCastle.Cryptography": {
+        "type": "CentralTransitive",
+        "requested": "[2.7.0, )",
+        "resolved": "2.7.0",
+        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+      },
       "Escendit.AspNetCore.Diagnostics.HealthChecks": {
         "type": "CentralTransitive",
         "requested": "[0.1.0-rc.0, )",
