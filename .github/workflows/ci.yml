@@ -20,8 +20,85 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Decides which jobs a pull request needs, from the files it changes against its merge base.
+  # A job whose inputs did not change is skipped, and a skipped job satisfies a required status
+  # check. Everything runs on a push to main, and when this workflow, .editorconfig or
+  # .gitattributes change. The shared contract, crypto-spec and design-token packages count for
+  # every job that consumes them.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      dotnet: ${{ steps.filter.outputs.dotnet }}
+      rust: ${{ steps.filter.outputs.rust }}
+      kotlin: ${{ steps.filter.outputs.kotlin }}
+      typescript: ${{ steps.filter.outputs.typescript }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+      swift: ${{ steps.filter.outputs.swift }}
+      ios: ${{ steps.filter.outputs.ios }}
+      charts: ${{ steps.filter.outputs.charts }}
+      images: ${{ steps.filter.outputs.images }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Filter the changed files
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          shared='^packages/(proto|openapi|asyncapi|crypto-spec|design-tokens)/'
+          dotnet='^(apps/cs|aspire|packages/cs|tests/cs)/|^(Coldframe\.slnx|Directory\.Build\.props|Directory\.Packages\.props|global\.json|nuget\.config|BannedSymbols\.txt)$'
+          rust='^(apps/rs|packages/rs|tests/rs)/|^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$'
+          kotlin='^(apps/kt|packages/kt|tests/kt|gradle)/|^(build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties|gradlew|gradlew\.bat)$'
+          typescript='^(apps/ts|packages/ts|tests/ts)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|\.node-version|tsconfig\.base\.json|eslint\.config\.js)$'
+          swift='^(apps/swift|packages/swift|tests/swift)/|^Package\.swift$'
+          declare -A patterns=(
+            [dotnet]="${dotnet}|${shared}"
+            [rust]="${rust}|${shared}"
+            [kotlin]="${kotlin}|${shared}"
+            [typescript]="${typescript}|${shared}"
+            [contracts]='^packages/(proto|openapi|asyncapi)/'
+            [swift]="${swift}|${shared}"
+            # The iOS build compiles the Kotlin core with Gradle.
+            [ios]="${swift}|${kotlin}|${shared}"
+            [charts]='^deploy/'
+            # The images are the Server, the migrations, Keycloak (.NET side) and the web app.
+            [images]="${dotnet}|${typescript}|${shared}|^deploy/|^\.github/workflows/images-verify\.yml$"
+          )
+
+          run_all=
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            run_all=1
+          else
+            base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+            git diff --name-only "${base}" HEAD > "${RUNNER_TEMP}/changed"
+            echo "Changed files against ${base}:"
+            cat "${RUNNER_TEMP}/changed"
+            if grep -qE '^(\.github/workflows/ci\.yml|\.editorconfig|\.gitattributes)$' "${RUNNER_TEMP}/changed"; then
+              run_all=1
+            fi
+          fi
+
+          for job in "${!patterns[@]}"; do
+            if [[ -n "${run_all}" ]] || grep -qE "${patterns[${job}]}" "${RUNNER_TEMP}/changed"; then
+              value=true
+            else
+              value=false
+            fi
+            echo "${job}=${value}" | tee -a "${GITHUB_OUTPUT}"
+          done
+
   dotnet:
     name: .NET
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -53,6 +130,8 @@ jobs:
 
   rust:
     name: Rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -81,6 +160,8 @@ jobs:
 
   kotlin:
     name: Kotlin
+    needs: changes
+    if: needs.changes.outputs.kotlin == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -112,6 +193,8 @@ jobs:
 
   typescript:
     name: TypeScript
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -174,6 +257,8 @@ jobs:
   # checksum-verified by packages/proto/install-tools.sh.
   contracts:
     name: Contracts
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -210,6 +295,8 @@ jobs:
 
   swift:
     name: Swift
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     steps:
@@ -236,6 +323,8 @@ jobs:
 
   ios:
     name: iOS app
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -292,6 +381,8 @@ jobs:
   # images job.
   charts:
     name: Charts
+    needs: changes
+    if: needs.changes.outputs.charts == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -358,6 +449,8 @@ jobs:
   # chart smoke install on k3d (Stories 2.2 and 2.3), with its database backup-and-restore phase.
   images:
     name: Images
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
     uses: ./.github/workflows/images-verify.yml
 
   secrets:
