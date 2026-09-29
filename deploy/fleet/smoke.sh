@@ -260,18 +260,24 @@ helm install fleet-crd "${work}/fleet-crd.tgz" --namespace cattle-fleet-system -
 helm install fleet "${work}/fleet.tgz" --namespace cattle-fleet-system --wait --timeout "${setup_timeout}"
 # The controller registers the cluster itself as "local" in fleet-local, in the ClusterGroup
 # "default" that the bundles target; its agent (in cattle-fleet-system) must have reported in.
-agent_seen=
+# The first agent is a bootstrap one: the controller then replaces it with the agent of the
+# bundle fleet-agent-local, so deployment/fleet-agent can disappear for a moment. Wait for that
+# bundle to be Ready and the agent to be rolled out, retrying through the replacement.
+agent_ready=
 deadline=$((SECONDS + setup_seconds))
 while [[ ${SECONDS} -lt ${deadline} ]]; do
   agent_seen=$(kubectl -n fleet-local get clusters.fleet.cattle.io local -o jsonpath='{.status.agent.lastSeen}' 2>/dev/null || true)
-  if [[ -n ${agent_seen} ]] && kubectl -n fleet-local get clustergroups.fleet.cattle.io default >/dev/null 2>&1 \
-    && kubectl -n cattle-fleet-system get deployment fleet-agent >/dev/null 2>&1; then
+  agent_bundle=$(kubectl -n fleet-local get bundles.fleet.cattle.io fleet-agent-local \
+    -o jsonpath='{.status.summary.ready}/{.status.summary.desiredReady}' 2>/dev/null || true)
+  if [[ -n ${agent_seen} && ${agent_bundle} == 1/1 ]] \
+    && kubectl -n fleet-local get clustergroups.fleet.cattle.io default >/dev/null 2>&1 \
+    && kubectl -n cattle-fleet-system rollout status deployment/fleet-agent --timeout=30s >/dev/null 2>&1; then
+    agent_ready=1
     break
   fi
   sleep 2
 done
-[[ -n ${agent_seen} ]] || fail "Fleet registered no local cluster with a running agent"
-kubectl -n cattle-fleet-system rollout status deployment/fleet-agent --timeout="${setup_timeout}"
+[[ -n ${agent_ready} ]] || fail "Fleet registered no local cluster with a running agent (fleet-agent-local: '${agent_bundle:-none}')"
 kubectl apply --dry-run=server -f "${here}/gitrepo.yaml" >/dev/null \
   || fail "deploy/fleet/gitrepo.yaml does not pass a server-side dry run against Fleet's GitRepo CRD"
 echo "ok: Fleet runs with its local cluster; deploy/fleet/gitrepo.yaml is a valid GitRepo"
