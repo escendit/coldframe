@@ -194,5 +194,29 @@
     "alias": "lot.claimed",
     "schemaVersion": 1,
     "payload": { "nodeId": "7C20" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 6,
+    "alias": "site.device-registered",
+    "schemaVersion": 1,
+    "payload": {
+      "deviceId": "92064422c012f481",
+      "kind": "Hub",
+      "idempotencyKey": "5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:dk1",
+      "registeredAt": "2026-09-29T08:00:00Z"
+    }
+  },
+  {
+    "streamId": "device/92064422c012f481",
+    "version": 1,
+    "alias": "device.enrolled",
+    "schemaVersion": 1,
+    "payload": {
+      "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+      "kind": "Hub",
+      "wrappedKey": { "kekId": "0123456789abcdef", "nonce": "AAECAwQFBgcICQoL", "sealed": "ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKT" },
+      "enrolledAt": "2026-09-29T08:00:01Z"
+    }
   }
 ]

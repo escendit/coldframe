@@ -56,6 +56,7 @@ in: no connection string, URL or secret.
 | `Identity__RequireHttpsMetadata` | no | default `true` |
 | `Keycloak__BaseUrl`, `Keycloak__Realm`, `Keycloak__ClientId`, `Keycloak__ClientSecret` | yes | the Server's service account |
 | `KeycloakEvents__TargetHost`, `KeycloakEvents__Namespace`, `KeycloakEvents__RealmId` | yes | Temporal frontend (`host:7233`) of the Keycloak event pipeline |
+| `Enrolment__PrivateKeyPem`, `Enrolment__DeviceKeyEncryptionKey` | yes | Device enrolment: the X25519 private key as PKCS#8 PEM (`openssl genpkey -algorithm X25519`) and the key-encryption key of stored Device keys, at least 32 characters; checked at start ([`deploy/SECRETS.md`](../SECRETS.md)) |
 | `ASPNETCORE_HTTP_PORTS` | no | default `8080` |
 | `Orleans__Endpoints__SiloPort`, `Orleans__Endpoints__GatewayPort` | no | defaults `11111` and `30000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | turns on OTLP export |

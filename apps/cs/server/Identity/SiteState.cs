@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
 
 namespace Coldframe.Server.Identity;
@@ -18,6 +19,17 @@ public sealed record LotCreation(
     [property: Id(3)] bool Completed);
 
 /// <summary>
+/// One Device registration by caller-scoped idempotency key.
+/// </summary>
+/// <param name="DeviceId">The Device the key registered.</param>
+/// <param name="RegisteredAt">When the Device was registered.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-device-registration")]
+public sealed record DeviceRegistration(
+    [property: Id(0)] string DeviceId,
+    [property: Id(1)] DateTimeOffset RegisteredAt);
+
+/// <summary>
 /// The state of the Site grain: lifecycle, name, Memberships, former members and whether an ownerless
 /// edit is being refused.
 /// </summary>
@@ -33,6 +45,12 @@ public sealed class SiteState
 
     [Id(5)]
     private readonly Dictionary<string, LotCreation> _lotCreations = new(StringComparer.Ordinal);
+
+    [Id(6)]
+    private readonly Dictionary<string, DeviceKind> _devices = new(StringComparer.Ordinal);
+
+    [Id(7)]
+    private readonly Dictionary<string, DeviceRegistration> _deviceRegistrations = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Where the Site is in its lifecycle.
@@ -82,6 +100,26 @@ public sealed class SiteState
         _lotCreations.TryGetValue(key, out var creation)
         && (!creation.Completed || now - creation.RequestedAt < UserState.IdempotencyKeyLifetime)
             ? creation
+            : null;
+
+    /// <summary>
+    /// The Device roster (AD-18): each Device's kind, by Device ID.
+    /// </summary>
+    public IReadOnlyDictionary<string, DeviceKind> Devices => _devices;
+
+    /// <summary>
+    /// The Device registrations by caller-scoped idempotency key (<c>{sub}:{key}</c>).
+    /// </summary>
+    public IReadOnlyDictionary<string, DeviceRegistration> DeviceRegistrations => _deviceRegistrations;
+
+    /// <summary>
+    /// Returns the Device registration that still holds <paramref name="key"/> at <paramref name="now"/>: a
+    /// registration expires 24 h after it was made.
+    /// </summary>
+    public DeviceRegistration? FindLiveDeviceRegistration(string key, DateTimeOffset now) =>
+        _deviceRegistrations.TryGetValue(key, out var registration)
+        && now - registration.RegisteredAt < UserState.IdempotencyKeyLifetime
+            ? registration
             : null;
 
     public void Apply(SiteCreated @event)
@@ -148,5 +186,12 @@ public sealed class SiteState
         {
             _lotCreations[@event.Key] = creation with { Completed = true };
         }
+    }
+
+    public void Apply(DeviceRegistered @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _devices[@event.DeviceId] = @event.Kind;
+        _deviceRegistrations[@event.IdempotencyKey] = new DeviceRegistration(@event.DeviceId, @event.RegisteredAt);
     }
 }

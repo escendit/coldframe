@@ -102,6 +102,8 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /sites` | any authenticated User | Lists the caller's `Active` Sites with the caller's Role from the identity projection, oldest first then by Site ID: 200 `{sites: [{id, name, role}]}`; `[]` without a Membership |
 | `POST /sites` | any authenticated User | `User(sub).CreateSite(key, name)`: 201 `{id, name, role}` with `Location: /sites/{id}` |
 | `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection; 404 once the Site is `Deleted` |
+| `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
+| `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
 
 - **Authentication.** JWT bearer against `Identity:Authority` (the realm URL), audience
   `Identity:Audience` (`coldframe-server`); `Identity:RequireHttpsMetadata` defaults to `true` and only
@@ -177,6 +179,34 @@ Organization an `owner` again.
 Settings, section `KeycloakEvents`: `TargetHost` (Temporal frontend, `host:port`), `Namespace` and
 `RealmId` (the realm's ID, `coldframe` in the local stack) are required and checked at start;
 `AdminTaskQueue` and `UserTaskQueue` default to the extension's queues.
+
+### Enrol a Device, step by step
+
+Device enrolment (AD-12, AD-18) lives in `server/Devices/`.
+
+1. The handler validates the `Idempotency-Key` and the body: `deviceId` (16 lowercase hex digits), `kind`
+   (`hub` or `node`), `enc` (32 bytes) and `ciphertext` (48 bytes), both base64url without padding.
+2. `EnrolmentKeyring` opens `K_dev` with the enrolment private key, `deviceId` being the HPKE associated
+   data, and checks that `K_dev` derives that Device ID. Any failure is 400 `validation`; the reason is
+   never echoed. `DeviceKeyVault` wraps `K_dev` at once: plaintext `K_dev` never leaves the handler, is
+   never journaled and never logged.
+3. `DeviceGrain` (`device/{id}`) refuses a Device enrolled on another Site (409
+   `device-on-another-site`), then calls `SiteGrain.RegisterDevice`, which owns the roster and the
+   Idempotency-Key rule (`{sub}:{key}`, 24 h; a key reused for another Device is 422). The Site journals
+   `site.device-registered` once per Device, and its reply carries the Site's Pause (never paused until
+   Epic 8). Only then does the Device journal `device.enrolled` with the wrapped key. Enrolling the same
+   Device on the same Site again journals nothing and answers the same 201.
+
+The wrapped key is `{kekId, nonce, sealed}`: ChaCha20-Poly1305 under
+`HKDF-SHA256(UTF-8(kek), info "coldframe/device-kek/v1")` with a random nonce and associated data
+`"coldframe/device-key/v1" ‖ deviceId`; `kekId` is the first 16 hex digits of SHA-256 of that key. The KEK
+is separate from the enrolment key, so rotating the enrolment key invalidates only pending enrolments.
+Re-wrapping under a new KEK is not built yet: changing the KEK makes every stored `K_dev` unreadable.
+
+Settings, section `Enrolment`, both required and checked at start: `PrivateKeyPem` (PKCS#8 X25519, as
+`openssl genpkey -algorithm X25519` writes it; Secret `coldframe-enrolment-key`) and
+`DeviceKeyEncryptionKey` (at least 32 characters; Secret `coldframe-device-kek`). The AppHost generates
+both.
 
 ### Add an endpoint
 

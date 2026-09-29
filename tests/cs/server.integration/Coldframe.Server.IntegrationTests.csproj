@@ -20,6 +20,13 @@
     <ProjectReference Include="..\..\..\apps\cs\migrations\Coldframe.Migrations.csproj" />
     <ProjectReference Include="..\..\..\apps\cs\server\Coldframe.Server.csproj" />
     <ProjectReference Include="..\..\..\packages\cs\contracts\Coldframe.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\packages\cs\crypto\Coldframe.Crypto.csproj" />
+    <!-- Device-path tests drive the Server through the Device simulator only (AD-24). -->
+    <ProjectReference Include="..\device-simulator\Coldframe.DeviceSimulator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The shared crypto vectors: enrolment tests use the vector root key. -->
+    <None Include="..\..\..\packages\crypto-spec\vectors.json" Link="Fixtures\vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- The test-only sample events and state are shared with the unit tests, so the fixture journal covers them. -->
   <ItemGroup>

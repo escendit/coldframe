@@ -4,7 +4,7 @@
 
 | Folder | What |
 | --- | --- |
-| `contracts/` | `Coldframe.Contracts`: event contracts, `EventTypeAttribute`, `IEventUpcaster<TFrom, TTo>`, and the Site and User grain interfaces with their results |
+| `contracts/` | `Coldframe.Contracts`: event contracts, `EventTypeAttribute`, `IEventUpcaster<TFrom, TTo>`, and the Site, User and Device grain interfaces with their results |
 | `crypto/` | `Coldframe.Crypto`: the Device crypto contract of [`packages/crypto-spec`](../crypto-spec) (key hierarchy, frame sealing and `ReplayWindow`, HPKE `Enrolment`, `SetupSession`, `Heartbeat`); `Generated/CryptoSpec.g.cs` is generated. X25519 comes from BouncyCastle, everything else from .NET |
 | `protocol/` | `Coldframe.Protocol`: Google.Protobuf types compiled at build time from [`packages/proto`](../proto) |
 
@@ -61,3 +61,18 @@ returns `SiteReconciliationResult(Outcome, Lifecycle, Members, FormerMembers)` w
 `IUserGrain.SyncSiteMembership(siteId, role)`, which journals only a change. A `RosterExpectation` is
 what a Keycloak event says the roster now shows: `OrganizationAbsent`, `MemberPresent`,
 `MemberAbsent`, `RoleHeld` or `RoleNotHeld`, with the User and the Role it is about.
+
+## Devices
+
+`Devices/` holds Device enrolment (Story 3.3). `IDeviceGrain` (key: the Device ID, 16 lowercase hex
+digits) has `Enrol(EnrolDevice)`, which returns `DeviceEnrolmentResult(Outcome, Device)` with `Outcome`
+one of `Enrolled`, `SiteNotFound`, `OnAnotherSite` and `IdempotencyKeyReused`. `EnrolDevice` carries only
+the wrapped `K_dev` (`WrappedDeviceKey(KekId, Nonce, Sealed)`), never the plaintext. The Device grain calls
+`ISiteGrain.RegisterDevice(deviceId, kind, idempotencyKey)`, which returns
+`DeviceRegistrationResult(Outcome, Pause)` with `Outcome` one of `Registered`, `NotFound` and
+`IdempotencyKeyReused`, and `SitePause` not paused until Epic 8. `DeviceKind` is `Hub` or `Node`.
+
+| Contract | Alias | Meaning |
+| --- | --- | --- |
+| `DeviceRegistered(DeviceId, Kind, IdempotencyKey, RegisteredAt)` | `site.device-registered` | The Device joined the Site's roster; the caller-scoped key expires 24 h after `RegisteredAt` |
+| `DeviceEnrolled(SiteId, Kind, WrappedKey, EnrolledAt)` | `device.enrolled` | The Device is enrolled on the Site; the Server holds its `K_dev` wrapped |

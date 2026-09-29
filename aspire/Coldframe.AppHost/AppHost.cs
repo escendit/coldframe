@@ -51,6 +51,19 @@ var coldframeServerClientSecret = builder.AddParameter(
     new GenerateParameterDefault { MinLength = 32, Special = false },
     secret: true);
 
+// Device enrolment (AD-12). The Server's X25519 enrolment private key is SHA-256 of a generated seed, handed
+// to the Server as PKCS#8 PEM, as the Secret coldframe-enrolment-key holds it in a deployment. The Device
+// key-encryption key is a separate generated secret, as the Secret coldframe-device-kek. Nothing is
+// written to the repository.
+var enrolmentKeySeed = builder.AddParameter(
+    "enrolment-key-seed",
+    new GenerateParameterDefault { MinLength = 32, Special = false },
+    secret: true);
+var deviceKek = builder.AddParameter(
+    "device-kek",
+    new GenerateParameterDefault { MinLength = 32, Special = false },
+    secret: true);
+
 // Phase Two Keycloak with keycloak-temporal-extensions, built from ../keycloak/Dockerfile.
 var postgresEndpoint = postgres.GetEndpoint("tcp");
 var temporalEndpoint = temporal.GetEndpoint("grpc");
@@ -109,6 +122,13 @@ builder
     .WithEnvironment("KeycloakEvents__TargetHost", temporalEndpoint.Property(EndpointProperty.HostAndPort))
     .WithEnvironment("KeycloakEvents__Namespace", TemporalNamespace)
     .WithEnvironment("KeycloakEvents__RealmId", "coldframe")
+    .WithEnvironment("Enrolment__DeviceKeyEncryptionKey", deviceKek)
+    .WithEnvironment(async context =>
+    {
+        var seed = await enrolmentKeySeed.Resource.GetValueAsync(context.CancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The parameter 'enrolment-key-seed' has no value.");
+        context.EnvironmentVariables["Enrolment__PrivateKeyPem"] = EnrolmentKeyPem(seed);
+    })
     .WithEndpoint(name: "silo", scheme: "tcp", env: "Orleans__Endpoints__SiloPort", isProxied: false)
     .WithEndpoint(name: "gateway", scheme: "tcp", env: "Orleans__Endpoints__GatewayPort", isProxied: false)
     .WithHttpHealthCheck("/.well-known/healthz")
@@ -118,3 +138,12 @@ builder
     .WaitFor(keycloak);
 
 await builder.Build().RunAsync().ConfigureAwait(false);
+
+// PKCS#8 PEM of the X25519 private key SHA-256(seed), as "openssl genpkey -algorithm X25519" writes it.
+static string EnrolmentKeyPem(string seed)
+{
+    var der = new byte[48];
+    Convert.FromHexString("302e020100300506032b656e04220420").CopyTo(der, 0);
+    System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(seed), der.AsSpan(16));
+    return new string(System.Security.Cryptography.PemEncoding.Write("PRIVATE KEY", der));
+}

@@ -307,6 +307,11 @@ kubectl "${ns[@]}" create secret generic coldframe-oidc-clients \
   --from-literal=web-client-secret="$(random_secret)" --from-literal=server-client-secret="$(random_secret)"
 kubectl "${ns[@]}" create secret generic coldframe-backup-s3 \
   --from-literal=access-key-id="smoke$(random_secret | cut -c1-12)" --from-literal=secret-access-key="$(random_secret)"
+openssl genpkey -algorithm X25519 -out "${work}/enrolment-private-key.pem"
+kubectl "${ns[@]}" create secret generic coldframe-enrolment-key \
+  --from-file=private-key.pem="${work}/enrolment-private-key.pem"
+rm -f "${work}/enrolment-private-key.pem"
+kubectl "${ns[@]}" create secret generic coldframe-device-kek --from-literal=kek="$(random_secret)"
 kubectl "${ns[@]}" create configmap coldframe-realm \
   --from-file=coldframe-realm.json="${repo}/aspire/keycloak/realms/coldframe-realm.json"
 

@@ -317,3 +317,18 @@ location: .github/workflows/images-verify.yml (Fleet smoke); deploy/fleet/smoke.
 source_spec: `spec-2-5b-fleet-smoke-proves-ordered-install-upgrade-and-restart-durability.md`
 reason: Unverified: .github/ has no SMOKE_CLUSTER setting, so CI runs the k3d path (the real k3s HelmChartConfig CRD, k3d image import, docker restart of the k3d node), and every local run used kind. It is settled by one green Images job on GitHub Actions that includes the "Fleet smoke" step, together with its step duration.
 status: open
+
+### DW-42: A partial ets_efuse_write_key failure might leave a block that a later boot accepts as the identity.
+origin: spec-deferred 584bf06928df
+location: apps/rs/hub/src/board/efuse.rs (burn_key)
+source_spec: `spec-3-2-hub-firmware-foundation-with-a-hardware-bound-identity.md`
+reason: maybe-false. BoardEfuse::burn_key maps a nonzero ROM return to BurnFailed and halts. If the ROM had already set the HMAC_UP purpose and RD_DIS before failing on the key data, the next boot would take the Existing path with a partial key. Settle it with the ESP32-S3 ROM efuse source or a bench fault test.
+status: open
+
+### DW-43: The Hub firmware's dev-mode release guard and board eFuse/HMAC index mappings are not checked by any automated test.
+origin: spec-deferred 71ac7f6c56f0
+location: apps/rs/hub/src/main.rs, apps/rs/hub/src/board/efuse.rs, apps/rs/hub/src/board/hmac.rs
+source_spec: `spec-3-2-hub-firmware-foundation-with-a-hardware-bound-identity.md`
+severity: medium
+reason: apps/rs is excluded from the workspace, and CI installs no esp toolchain. The mocks index blocks directly, so rom_block (4 + n), the RD_DIS bit n and the KeyId mapping are verified only by a local build and the bench checklist. Fix with an esp-toolchain CI job, or by moving the mappings into coldframe-hal where host tests can pin them.
+status: open

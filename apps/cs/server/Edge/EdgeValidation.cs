@@ -1,3 +1,7 @@
+using System.Buffers.Text;
+using Coldframe.Contracts.Devices;
+using Coldframe.Crypto;
+
 namespace Coldframe.Server.Edge;
 
 /// <summary>
@@ -87,4 +91,63 @@ public static class EdgeValidation
     /// <see langword="null"/>. Lot names need not be unique.
     /// </summary>
     public static string? NormalizeLotName(string? name) => NormalizeSiteName(name);
+
+    /// <summary>
+    /// Parses a Device ID of the contract, exactly 16 lowercase hex digits, otherwise <see langword="null"/>.
+    /// </summary>
+    public static DeviceId? NormalizeDeviceId(string? deviceId)
+    {
+        if (deviceId is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Coldframe.Crypto.DeviceId.Parse(deviceId);
+        }
+        catch (CryptoFailureException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Parses a <c>DeviceKind</c> of the contract, exactly <c>hub</c> or <c>node</c>, otherwise <see langword="null"/>.
+    /// </summary>
+    public static DeviceKind? NormalizeDeviceKind(string? kind) => kind switch
+    {
+        "hub" => DeviceKind.Hub,
+        "node" => DeviceKind.Node,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The contract's name of a <see cref="DeviceKind"/>: <c>hub</c> or <c>node</c>.
+    /// </summary>
+    public static string DeviceKindName(DeviceKind kind) => kind switch
+    {
+        DeviceKind.Hub => "hub",
+        DeviceKind.Node => "node",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown Device kind."),
+    };
+
+    /// <summary>
+    /// Decodes base64url without padding that holds exactly <paramref name="length"/> bytes, otherwise
+    /// <see langword="null"/>.
+    /// </summary>
+    public static byte[]? DecodeBase64Url(string? text, int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+
+        if (text is null
+            || text.Length != Base64Url.GetEncodedLength(length)
+            || !text.All(static character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_'))
+        {
+            return null;
+        }
+
+        var bytes = new byte[length];
+        return Base64Url.TryDecodeFromChars(text, bytes, out var written) && written == length ? bytes : null;
+    }
 }
