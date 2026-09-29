@@ -20,15 +20,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Decides which jobs a pull request needs, from the files it changes against its merge base.
-  # A job whose inputs did not change is skipped, and a skipped job satisfies a required status
-  # check. Everything runs on a push to main, and when this workflow, .editorconfig or
-  # .gitattributes change. The shared contract, crypto-spec and design-token packages count for
-  # every job that consumes them.
+  # Decides which jobs a pull request needs, from the files it changes. A new push to a pull
+  # request is compared with its previous head when CI passed there (every job either ran green
+  # or was skipped as unaffected), so a long-lived pull request does not rerun everything on
+  # each push; otherwise, and for a new pull request, with the merge base. A job whose inputs
+  # did not change is skipped, and a skipped job satisfies a required status check. Everything
+  # runs on a push to main, and when this workflow, .editorconfig or .gitattributes change. The
+  # shared contract, crypto-spec and design-token packages count for every job that uses them.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       dotnet: ${{ steps.filter.outputs.dotnet }}
       rust: ${{ steps.filter.outputs.rust }}
@@ -50,7 +55,13 @@ jobs:
         id: filter
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           shared='^packages/(proto|openapi|asyncapi|crypto-spec|design-tokens)/'
@@ -77,8 +88,22 @@ jobs:
           if [[ "${EVENT_NAME}" != "pull_request" ]]; then
             run_all=1
           else
-            base="$(git merge-base "origin/${BASE_REF}" HEAD)"
-            git diff --name-only "${base}" HEAD > "${RUNNER_TEMP}/changed"
+            # HEAD is GitHub's merge commit; compare the pull request's own head.
+            base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+            if [[ "${EVENT_ACTION}" == "synchronize" && -n "${BEFORE}" ]] \
+              && git merge-base --is-ancestor "${BEFORE}" "${HEAD_SHA}" 2>/dev/null; then
+              # The latest run of this workflow on the previous head must have succeeded.
+              workflow_path="${WORKFLOW_REF#*/*/}"
+              workflow_path="${workflow_path%@*}"
+              previous="$(gh api "repos/${REPO}/actions/runs?head_sha=${BEFORE}&event=pull_request&per_page=20" \
+                --jq "[.workflow_runs[] | select(.path == \"${workflow_path}\")] | sort_by(.created_at) | last | .conclusion // \"\"" \
+                || true)"
+              echo "CI on the previous head ${BEFORE}: '${previous}'"
+              if [[ "${previous}" == "success" ]]; then
+                base="${BEFORE}"
+              fi
+            fi
+            git diff --name-only "${base}" "${HEAD_SHA}" > "${RUNNER_TEMP}/changed"
             echo "Changed files against ${base}:"
             cat "${RUNNER_TEMP}/changed"
             if grep -qE '^(\.github/workflows/ci\.yml|\.editorconfig|\.gitattributes)$' "${RUNNER_TEMP}/changed"; then
