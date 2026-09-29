@@ -187,15 +187,19 @@ for component in server web migrations keycloak; do
   docker tag "${source_images[${component}]}" "${tag}"
   smoke_tags+=("${tag}")
 done
+# Straight into the node's containerd: "kind load" cannot read the containerd configuration of
+# every node image, and "k3d image import" goes through a tools node and a shared volume and can
+# report success after the node failed to read the tarball.
 if [[ ${provider} == kind ]]; then
-  # Straight into the node's containerd: "kind load" cannot read the containerd configuration of
-  # every node image.
-  for tag in "${smoke_tags[@]}"; do
-    docker save "${tag}" | docker exec -i "${cluster}-control-plane" ctr --namespace=k8s.io images import -
-  done
+  node_container=${cluster}-control-plane
 else
-  k3d image import --cluster "${cluster}" "${smoke_tags[@]}"
+  node_container=k3d-${cluster}-server-0
 fi
+for tag in "${smoke_tags[@]}"; do
+  docker save "${tag}" | docker exec -i "${node_container}" ctr --namespace=k8s.io images import -
+  docker exec "${node_container}" ctr --namespace=k8s.io images ls --quiet | grep --quiet --fixed-strings --line-regexp "${tag}" \
+    || fail "image ${tag} is not in the containerd of ${node_container} after the import"
+done
 
 echo "--- cert-manager ${CERT_MANAGER_VERSION}, CloudNativePG ${CNPG_VERSION}, Barman Cloud plugin ${BARMAN_CLOUD_PLUGIN_VERSION}"
 kubectl apply -f "${work}/cert-manager.yaml" >/dev/null

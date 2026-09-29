@@ -244,13 +244,14 @@ import_images() {
     smoke_tags+=("${tag}")
     tags+=("${tag}")
   done
-  if [[ ${provider} == kind ]]; then
-    for tag in "${tags[@]}"; do
-      docker save "${tag}" | docker exec -i "${node_container}" ctr --namespace=k8s.io images import -
-    done
-  else
-    k3d image import --cluster "${cluster}" "${tags[@]}"
-  fi
+  # Straight into the node's containerd, on kind and k3d alike: "k3d image import" goes through a
+  # tools node and a shared volume, and can report success after the node failed to read the
+  # tarball, which leaves the upgrade's pods waiting for images that never arrive.
+  for tag in "${tags[@]}"; do
+    docker save "${tag}" | docker exec -i "${node_container}" ctr --namespace=k8s.io images import -
+    docker exec "${node_container}" ctr --namespace=k8s.io images ls --quiet | grep --quiet --fixed-strings --line-regexp "${tag}" \
+      || fail "image ${tag} is not in the containerd of ${node_container} after the import"
+  done
 }
 import_images "${version}"
 
