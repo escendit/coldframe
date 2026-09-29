@@ -16,7 +16,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `DELETE /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `GET /enrolment-key` | `Authenticated` | Story 3.3 (contract: Story 3.1) |
 | `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1) |
-| `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served: Story 3.5 |
+| `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` (placeholder) | `Device` | Contract: Story 3.1; served: Epic 4 |
 
 An operation with `x-coldframe-planned: "<story>"` is in the contract ahead of the Server. The Server's
@@ -53,6 +53,21 @@ endpoint test requires that it is not mapped yet; the story that serves it remov
 The Server's tests compare the endpoints it maps with the operations here, including each access
 rule, so the two cannot drift. CI's `contracts` job fails a change that breaks this file for existing
 clients (`oasdiff breaking --fail-on ERR`, see [`packages/proto`](../proto/README.md#checks)).
+
+## Golden Hub fixtures
+
+The Hub's `no_std` JSON structs are hand-written (`coldframe_uplink::json`), so they are checked
+against fixtures generated from this file (AD-10, AD-24). `scripts/generate-fixtures.ts` writes
+`fixtures/hub/` from the `deviceHeartbeat` request and 200 response schemas and their `examples`:
+the minimal and full request, a response with and without a fraction of a second, a response with an
+extra property the Hub must ignore, and `schemas.json` (each schema's properties and required keys).
+`tests/rs/uplink` decodes every response fixture and encodes the request fixtures' values back to
+the same JSON.
+
+```sh
+pnpm --filter @coldframe/openapi run generate   # after changing the heartbeat schemas or examples
+pnpm --filter @coldframe/openapi run check      # CI: fails when a committed fixture is stale
+```
 
 ## Clients
 

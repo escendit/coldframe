@@ -32,3 +32,18 @@ public sealed record DeviceEnrolled(
     [property: Id(1)] DeviceKind Kind,
     [property: Id(2)] WrappedDeviceKey WrappedKey,
     [property: Id(3)] DateTimeOffset EnrolledAt);
+
+/// <summary>
+/// The Device sent an authentic, new heartbeat (FR-13): its last-seen time. Every accepted heartbeat is
+/// journaled, so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read real events.
+/// </summary>
+/// <param name="SeenAt">When the Server accepted the heartbeat, from its clock.</param>
+/// <param name="DeviceTimestampMs">The heartbeat's signed timestamp, Unix milliseconds; the next one must be above it.</param>
+/// <param name="UptimeMs">The Device's uptime from the body, when sent.</param>
+[EventType("device.seen")]
+[GenerateSerializer]
+[Alias("coldframe.device-seen")]
+public sealed record DeviceSeen(
+    [property: Id(0)] DateTimeOffset SeenAt,
+    [property: Id(1)] long DeviceTimestampMs,
+    [property: Id(2)] long? UptimeMs);

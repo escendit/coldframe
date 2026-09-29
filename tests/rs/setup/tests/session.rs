@@ -1,4 +1,5 @@
-//! Every row of the Story 3.4 I/O matrix through `run_setup`, with the coldframe-hal mocks and the
+//! Every row of the Story 3.4 I/O matrix, and the Story 3.5 setup rows (the Server check,
+//! `NO_SERVER`, `server_url`), through `run_setup`, with the coldframe-hal mocks and the
 //! crypto-spec vectors.
 
 mod common;
@@ -8,8 +9,12 @@ use std::rc::Rc;
 
 use coldframe_crypto::DeviceKeys;
 use coldframe_crypto::hpke::fingerprint;
-use coldframe_hal::mock::{LinkEvent, MockFlash, MockRadio, MockSetupLink, MockTrng, MockWifi};
-use coldframe_hal::{AccessPoint, FlashError, JoinError, LinkError, Radio, Security, WifiError};
+use coldframe_hal::mock::{
+    LinkEvent, MockFlash, MockNet, MockRadio, MockRtc, MockSetupLink, MockTimer, MockTrng, MockWifi,
+};
+use coldframe_hal::{
+    AccessPoint, FlashError, JoinError, LinkError, NetError, Radio, Rtc, Security, Wifi, WifiError,
+};
 use coldframe_protocol::setup_v1::SetupMessage_::Body;
 use coldframe_protocol::setup_v1::{
     EnrolmentRequest, Identity, SealedSetupMessage, SessionHello, SetupMessage, SiteBinding,
@@ -34,6 +39,13 @@ const SITE: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const SSID: &str = "garden";
 /// A test fixture, not a real credential.
 const PASSWORD: &str = "fixture-passphrase";
+/// A test Server; never a real one.
+const SERVER: &str = "https://coldframe.example.org";
+/// What SNTP answers during the Server check.
+const SNTP_TIME: u64 = 1_790_000_000_000;
+/// The Server's answer to an accepted heartbeat.
+const ACCEPTED: &[u8] = br#"{"serverTime":"2026-09-29T12:34:56.789Z"}"#;
+const ACCEPTED_MS: u64 = 1_790_685_296_789;
 
 // SetupErrorCode and WifiStatus values.
 const MALFORMED: i32 = 1;
@@ -44,6 +56,7 @@ const CONNECTED: i32 = 1;
 const WRONG_PASSWORD: i32 = 2;
 const NETWORK_NOT_FOUND: i32 = 3;
 const UNSUPPORTED_SECURITY: i32 = 4;
+const NO_SERVER: i32 = 5;
 // WifiSecurity values.
 const OPEN: i32 = 1;
 const WPA2: i32 = 2;
@@ -68,6 +81,9 @@ struct World {
     wrong_code: String,
     link: MockSetupLink,
     wifi: MockWifi,
+    net: MockNet,
+    rtc: MockRtc,
+    timer: MockTimer,
     flash: MockFlash,
     log: Rc<RefCell<Log>>,
 }
@@ -118,7 +134,8 @@ impl World {
         write_setup_code(&mut flash, &code).unwrap();
         let mut wifi = MockWifi::new(scan());
         wifi.set_join_outcome(SSID, PASSWORD, Ok(()));
-        Self {
+        let net = MockNet::with_link(wifi.link());
+        let mut world = Self {
             keys: DeviceKeys::from_root_key(&array(enrolment, "rootKey")),
             code,
             app_private: array(setup, "appPrivateKey"),
@@ -133,9 +150,20 @@ impl World {
             wrong_code: text(setup, "wrongPopCode").to_owned(),
             link: MockSetupLink::new(),
             wifi,
+            net,
+            rtc: MockRtc::new(),
+            timer: MockTimer::new(),
             flash,
             log: Rc::new(RefCell::new(Log::default())),
-        }
+        };
+        world.server_accepts();
+        world
+    }
+
+    /// Scripts one Server check that passes: SNTP answers, the heartbeat is accepted.
+    fn server_accepts(&mut self) {
+        self.net.push_sntp(Ok(SNTP_TIME));
+        self.net.push_post(Ok((200, ACCEPTED)));
     }
 
     /// Queues a connection of an app that types `code` and plays `steps`.
@@ -159,6 +187,9 @@ impl World {
         block_on(run_setup(
             &mut self.link,
             &mut self.wifi,
+            &mut self.net,
+            &mut self.rtc,
+            &mut self.timer,
             &mut trng,
             &mut self.flash,
             &self.keys,
@@ -191,13 +222,21 @@ impl World {
         )
     }
 
+    /// An `EnrolmentResponse` reply, whatever its HPKE bytes (the TRNG was not the vectors').
+    fn enrolment_ignoring_vectors(&self, reply: &Reply) -> Reply {
+        match reply {
+            Reply::Enrolment(device_id, ..) if *device_id == self.device_id => reply.clone(),
+            other => panic!("expected an enrolment response, got {other:?}"),
+        }
+    }
+
     fn enrol(&self) -> Step {
         Step::Send(enrolment_request(&self.server_key, None).unwrap(), true)
     }
 }
 
 fn bind() -> Step {
-    Step::Send(site_binding(SITE).unwrap(), false)
+    Step::Send(site_binding(SITE, SERVER).unwrap(), false)
 }
 
 fn config(ssid: &str, password: &str) -> Step {
@@ -273,16 +312,46 @@ fn happy_session_matches_the_vectors_and_provisions() {
         assert_eq!(provisioned.record.ssid(), SSID);
         assert_eq!(provisioned.record.password(), PASSWORD);
         assert_eq!(provisioned.record.site_id(), SITE);
+        assert_eq!(provisioned.record.server_url(), SERVER);
         let ProvisioningState::Provisioned(stored) = load_provisioning(&mut world.flash).unwrap()
         else {
             panic!("CFWP written");
         };
         assert_eq!(
-            (stored.ssid(), stored.password(), stored.site_id()),
-            (SSID, PASSWORD, SITE)
+            (
+                stored.ssid(),
+                stored.password(),
+                stored.site_id(),
+                stored.server_url()
+            ),
+            (SSID, PASSWORD, SITE, SERVER)
         );
         let at = usize::try_from(PROVISIONING_OFFSET).unwrap();
-        assert_eq!(&world.flash.contents()[at..at + 5], b"CFWP\x01");
+        assert_eq!(&world.flash.contents()[at..at + 5], b"CFWP\x02");
+
+        // The Server check: DHCP, SNTP, then one signed heartbeat to the bound Server; the Hub
+        // then follows the Server's clock and stays joined.
+        assert_eq!(world.net.sntp_timeouts().len(), 1);
+        let [request] = world.net.requests() else {
+            panic!("one heartbeat");
+        };
+        assert_eq!(
+            (request.host.as_str(), request.port, request.path.as_str()),
+            ("coldframe.example.org", 443, "/device/heartbeat")
+        );
+        assert_eq!(
+            request.header("X-Coldframe-Device"),
+            Some(std::str::from_utf8(&world.keys.device_id.to_hex()).unwrap())
+        );
+        assert_eq!(
+            request.header("X-Coldframe-Timestamp"),
+            Some("1790000000000")
+        );
+        assert_eq!(world.rtc.unix_time_millis(), Some(ACCEPTED_MS));
+        assert_eq!(provisioned.check.server_time_ms, ACCEPTED_MS);
+        assert_eq!(provisioned.check.stamp_ms, SNTP_TIME);
+        assert!(world.wifi.is_connected());
+        assert_eq!(world.wifi.leave_count(), 0);
 
         // The session then ended at the idle timeout and the service returned.
         assert_eq!(world.link.accept_count(), 1);
@@ -630,6 +699,9 @@ fn a_malformed_hello_disconnects() {
     let result = block_on(run_setup(
         &mut world.link,
         &mut world.wifi,
+        &mut world.net,
+        &mut world.rtc,
+        &mut world.timer,
         &mut trng,
         &mut world.flash,
         &world.keys,
@@ -776,7 +848,7 @@ fn nothing_changes_after_connected() {
         world.enrol(),
         config(SSID, PASSWORD),
         config("cafe", ""),
-        Step::Send(site_binding("other-site").unwrap(), true),
+        Step::Send(site_binding("other-site", SERVER).unwrap(), true),
         world.enrol(),
         identity(),
     ];
@@ -826,4 +898,196 @@ fn a_transition_network_is_joined_with_wpa2() {
     let join = &world.wifi.joins()[0];
     assert_eq!((join.bssid, join.channel), ([0x02, 0, 0, 0, 0, 0xF0], 9));
     assert_eq!(provisioned.record.ssid(), "mixed");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Story 3.5: the Server check after the join
+
+#[test]
+fn no_server_leaves_the_network_stores_nothing_and_allows_a_retry() {
+    type Script = fn(&mut MockNet);
+    let cases: Vec<(&str, Script)> = vec![
+        ("no IP", |net| net.push_ip(Err(NetError::NoIp))),
+        ("no DNS for SNTP", |net| net.push_sntp(Err(NetError::Dns))),
+        ("no SNTP", |net| net.push_sntp(Err(NetError::Sntp))),
+        ("no TLS", |net| {
+            net.push_sntp(Ok(SNTP_TIME));
+            net.push_post(Err(NetError::Tls));
+        }),
+        ("no DNS for the Server", |net| {
+            net.push_sntp(Ok(SNTP_TIME));
+            net.push_post(Err(NetError::Dns));
+        }),
+        ("the 40 s passed", |net| {
+            net.push_sntp(Ok(SNTP_TIME));
+            net.push_post(Err(NetError::Timeout));
+        }),
+        ("an unenrolled Hub", |net| {
+            net.push_sntp(Ok(SNTP_TIME));
+            net.push_post(Ok((
+                401,
+                br#"{"type":"urn:coldframe:problem:device-unauthorized"}"#,
+            )));
+        }),
+        ("a Server error", |net| {
+            net.push_sntp(Ok(SNTP_TIME));
+            net.push_post(Ok((503, b"")));
+        }),
+        ("a 200 without serverTime", |net| {
+            net.push_sntp(Ok(SNTP_TIME));
+            net.push_post(Ok((200, b"{}")));
+        }),
+    ];
+    for (name, script) in cases {
+        let mut world = World::new();
+        // Replace the default passing check with this failure, then allow the retry to pass.
+        world.net = MockNet::with_link(world.wifi.link());
+        script(&mut world.net);
+        world.server_accepts();
+        let code = world.pop_code.clone();
+        world.app(
+            &code,
+            PAYLOAD_MTU_23,
+            vec![
+                bind(),
+                world.enrol(),
+                config(SSID, PASSWORD),
+                identity(),
+                config(SSID, PASSWORD),
+            ],
+        );
+        let provisioned = world
+            .run(&[])
+            .unwrap_or_else(|_| panic!("{name}: retry provisions"));
+        let replies = world.replies();
+        assert_eq!(replies[1], Reply::WifiResult(NO_SERVER), "{name}");
+        assert!(
+            matches!(replies[2], Reply::Identity(..)),
+            "{name}: session open"
+        );
+        assert_eq!(replies[3], Reply::WifiResult(CONNECTED), "{name}");
+        assert_eq!(world.wifi.join_count(), 2, "{name}");
+        assert_eq!(world.wifi.leave_count(), 1, "{name}: left after NO_SERVER");
+        assert_eq!(world.link.accept_count(), 1, "{name}: one session");
+        assert_eq!(provisioned.record.server_url(), SERVER);
+    }
+}
+
+#[test]
+fn no_server_without_a_retry_stores_nothing() {
+    let mut world = World::new();
+    world.net = MockNet::with_link(world.wifi.link());
+    world.net.push_sntp(Ok(SNTP_TIME));
+    world.net.push_post(Ok((401, b"")));
+    let code = world.pop_code.clone();
+    world.app(
+        &code,
+        PAYLOAD_MTU_251,
+        vec![bind(), world.enrol(), config(SSID, PASSWORD)],
+    );
+    assert_eq!(
+        world.run(&[]).err(),
+        Some(SetupError::Link(LinkError::Transport))
+    );
+    assert_eq!(world.replies()[1..], [Reply::WifiResult(NO_SERVER)]);
+    assert!(world.provisioning_erased());
+    assert!(!world.wifi.is_connected(), "the Hub left the network");
+    assert_eq!(world.wifi.leave_count(), 1);
+    assert_eq!(
+        world.flash.write_count(),
+        1,
+        "only the setup code, written before"
+    );
+}
+
+#[test]
+fn the_server_check_is_bounded_and_ordered() {
+    let mut world = World::new();
+    let code = world.pop_code.clone();
+    world.app(
+        &code,
+        PAYLOAD_MTU_23,
+        vec![bind(), world.enrol(), config(SSID, PASSWORD)],
+    );
+    world.run(&[]).expect("provisioned");
+    // DHCP within the whole 40 s, SNTP within its own 10 s, nothing sent before the clock.
+    assert_eq!(world.net.ip_timeouts(), [40_000]);
+    assert_eq!(world.net.sntp_timeouts(), [10_000]);
+    assert_eq!(world.net.requests().len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&world.net.requests()[0].body).unwrap();
+    assert_eq!(body["protocolVersion"], 1);
+    assert!(body["uptimeMs"].is_u64());
+}
+
+#[test]
+fn a_hub_binding_needs_a_valid_server_url() {
+    let without = Body::SiteBinding(SiteBinding {
+        site_id: SITE.try_into().unwrap(),
+        ..SiteBinding::default()
+    });
+    let mut steps = vec![Step::Send(without, true)];
+    for url in [
+        "",
+        "http://coldframe.example.org",
+        "https://coldframe.example.org/api",
+        "https://coldframe.example.org/",
+        "https://192.168.1.10",
+        "https://[::1]",
+        "https://Coldframe.example.org",
+        "https://user@coldframe.example.org",
+        "https://coldframe.example.org:0",
+    ] {
+        steps.push(Step::Send(site_binding(SITE, url).unwrap(), true));
+    }
+    // With no valid binding, a WifiConfig is out of order; the session goes on.
+    let mut world = World::new();
+    steps.push(world.enrol());
+    steps.push(config(SSID, PASSWORD));
+    steps.push(bind());
+    steps.push(config(SSID, PASSWORD));
+    let code = world.pop_code.clone();
+    world.app(&code, PAYLOAD_MTU_251, steps);
+    let provisioned = world.run(&[]).expect("the valid binding provisions");
+    let replies = world.replies();
+    assert!(
+        replies[..10]
+            .iter()
+            .all(|reply| *reply == Reply::Error(MALFORMED))
+    );
+    assert_eq!(
+        replies[10..],
+        [
+            world.enrolment_ignoring_vectors(&replies[10]),
+            Reply::Error(UNEXPECTED),
+            Reply::WifiResult(CONNECTED),
+        ]
+    );
+    assert_eq!(provisioned.record.server_url(), SERVER);
+    // A valid custom port is kept.
+    let mut world = World::new();
+    let code = world.pop_code.clone();
+    let custom = "https://coldframe.example.org:8443";
+    world.app(
+        &code,
+        PAYLOAD_MTU_251,
+        vec![
+            Step::Send(site_binding(SITE, custom).unwrap(), false),
+            world.enrol(),
+            config(SSID, PASSWORD),
+        ],
+    );
+    let provisioned = world.run(&[]).expect("provisioned");
+    assert_eq!(provisioned.record.server_url(), custom);
+    assert_eq!(world.net.requests()[0].port, 8443);
+}
+
+#[test]
+fn an_oversize_server_url_does_not_decode() {
+    // 101 bytes exceed SiteBinding.server_url's capacity of 100: the message is malformed.
+    let long = format!("https://{}.example.org", "a".repeat(81));
+    assert_eq!(long.len(), 101);
+    assert!(site_binding(SITE, &long).is_err());
+    let exact = format!("https://{}.{}.example.org", "a".repeat(40), "b".repeat(39));
+    assert_eq!(exact.len(), 100);
+    assert!(site_binding(SITE, &exact).is_ok());
 }

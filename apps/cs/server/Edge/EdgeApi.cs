@@ -1,4 +1,5 @@
 using System.Buffers.Text;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Coldframe.Contracts.Devices;
@@ -92,12 +93,28 @@ public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? 
 public sealed record DeviceResponse(string Id, string Kind, string SiteId);
 
 /// <summary>
+/// The body of <c>POST /device/heartbeat</c>'s 200.
+/// </summary>
+/// <param name="ServerTime">The Server clock, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>.</param>
+public sealed record HeartbeatResponse(string ServerTime);
+
+/// <summary>
+/// A heartbeat request after the Edge API's checks: either the problem to answer, or the Device and what
+/// to hand its grain.
+/// </summary>
+/// <param name="Problem">The response for a request that failed a check, or <see langword="null"/>.</param>
+/// <param name="DeviceId">The Device the request claims to be from.</param>
+/// <param name="Request">The request for <see cref="IDeviceGrain.Heartbeat"/>.</param>
+internal sealed record HeartbeatRead(IResult? Problem, DeviceId? DeviceId = null, DeviceHeartbeat? Request = null);
+
+/// <summary>
 /// The Edge API endpoints, contract-first from <c>packages/openapi/coldframe.openapi.json</c> (AD-10).
 /// </summary>
 /// <remarks>
-/// Every endpoint declares exactly one access rule (<see cref="EdgeAccessRuleExtensions.RequireSiteRole{TBuilder}"/>
-/// or <see cref="EdgeAccessRuleExtensions.RequireAuthenticatedCaller{TBuilder}"/>). Handlers change state only
-/// through grains and read only the read models.
+/// Every endpoint declares exactly one access rule (<see cref="EdgeAccessRuleExtensions.RequireSiteRole{TBuilder}"/>,
+/// <see cref="EdgeAccessRuleExtensions.RequireAuthenticatedCaller{TBuilder}"/> or
+/// <see cref="EdgeAccessRuleExtensions.RequireDevice{TBuilder}"/>). Handlers change state only through grains and
+/// read only the read models.
 /// </remarks>
 public static class EdgeApi
 {
@@ -112,11 +129,25 @@ public static class EdgeApi
     public const string LotIdRouteValue = "lotId";
 
     /// <summary>
+    /// The heartbeat operation's path, which the Hub signs.
+    /// </summary>
+    public const string HeartbeatPath = "/device/heartbeat";
+
+    /// <summary>
+    /// How <c>serverTime</c> is written: ISO-8601 UTC with milliseconds and <c>Z</c> (AD-11).
+    /// </summary>
+    public const string ServerTimeFormat = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
+
+    /// <summary>
     /// Maps every Edge API endpoint.
     /// </summary>
     public static IEndpointRouteBuilder MapEdgeApi(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
+
+        endpoints.MapPost(HeartbeatPath, DeviceHeartbeatAsync)
+            .WithName("deviceHeartbeat")
+            .RequireDevice();
 
         endpoints.MapGet("/enrolment-key", GetEnrolmentKey)
             .WithName("getEnrolmentKey")
@@ -411,6 +442,116 @@ public static class EdgeApi
                 "Nothing changed. Move or unassign the Node first."),
             _ => LotNotFound(),
         };
+    }
+
+    private static async Task<IResult> DeviceHeartbeatAsync(
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] TimeProvider time)
+    {
+        var read = await ReadHeartbeatAsync(httpContext).ConfigureAwait(false);
+
+        if (read is not { Problem: null, DeviceId: { } deviceId, Request: { } request })
+        {
+            return read.Problem!;
+        }
+
+        var result = await grains
+            .GetGrain<IDeviceGrain>(deviceId.ToString())
+            .Heartbeat(request, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result, time);
+    }
+
+    /// <summary>
+    /// Checks a heartbeat request before any grain sees it: the Device headers (401 <c>device-unauthorized</c>
+    /// when one is missing or malformed), then the raw body, read up to
+    /// <see cref="EdgeValidation.MaxHeartbeatBodyLength"/> bytes (400 <c>validation</c> when larger, not JSON,
+    /// or not <c>protocolVersion</c> 1). Nothing is verified here: the Device grain checks the signature.
+    /// </summary>
+    internal static async Task<HeartbeatRead> ReadHeartbeatAsync(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        if (EdgeValidation.ParseDeviceHeaders(httpContext.Request.Headers) is not { } authentication)
+        {
+            return new HeartbeatRead(DeviceUnauthorized());
+        }
+
+        var body = await ReadCappedBodyAsync(httpContext.Request, EdgeValidation.MaxHeartbeatBodyLength, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        if (body is null || EdgeValidation.ParseHeartbeatBody(body) is not { } heartbeat)
+        {
+            return new HeartbeatRead(EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The heartbeat is not valid.",
+                $"Send a JSON body of at most {EdgeValidation.MaxHeartbeatBodyLength} bytes with protocolVersion {EdgeValidation.HeartbeatProtocolVersion} and, optionally, uptimeMs."));
+        }
+
+        return new HeartbeatRead(
+            null,
+            authentication.DeviceId,
+            new DeviceHeartbeat(
+                httpContext.Request.Method.ToUpperInvariant(),
+                httpContext.Request.Path.Value ?? HeartbeatPath,
+                body,
+                authentication.TimestampMs,
+                authentication.Nonce,
+                authentication.Signature,
+                heartbeat.UptimeMs));
+    }
+
+    /// <summary>
+    /// Maps the Device grain's answer to the HTTP response: 200 with the Server's time, or 401
+    /// <c>device-unauthorized</c> without saying why.
+    /// </summary>
+    internal static IResult ToHttpResult(DeviceHeartbeatResult result, TimeProvider time)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(time);
+
+        return result.Outcome switch
+        {
+            DeviceHeartbeatOutcome.Accepted => TypedResults.Ok(new HeartbeatResponse(
+                time.GetUtcNow().UtcDateTime.ToString(ServerTimeFormat, CultureInfo.InvariantCulture))),
+            DeviceHeartbeatOutcome.Unauthorized => DeviceUnauthorized(),
+            _ => throw new InvalidOperationException($"Unexpected heartbeat result {result.Outcome}."),
+        };
+    }
+
+    private static IResult DeviceUnauthorized() =>
+        EdgeProblems.Result(
+            StatusCodes.Status401Unauthorized,
+            EdgeProblems.DeviceUnauthorized,
+            "The Device is not authenticated.",
+            "Sign the request with the Device's hub-auth key, a fresh nonce and the current time.");
+
+    // Reads the whole body, or null once it exceeds `limit` bytes.
+    private static async Task<byte[]?> ReadCappedBodyAsync(HttpRequest request, int limit, CancellationToken cancellationToken)
+    {
+        if (request.ContentLength > limit)
+        {
+            return null;
+        }
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[1024];
+        int read;
+
+        while ((read = await request.Body.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (buffer.Length + read > limit)
+            {
+                return null;
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
     }
 
     private static Microsoft.AspNetCore.Http.HttpResults.Ok<EnrolmentKeyResponse> GetEnrolmentKey([FromServices] EnrolmentKeyring keyring) =>

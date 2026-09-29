@@ -243,12 +243,29 @@ export type components = {
         DeviceId: string;
         /** @enum {string} */
         DeviceKind: "hub" | "node";
+        /**
+         * @example {
+         *       "protocolVersion": 1
+         *     }
+         * @example {
+         *       "protocolVersion": 1,
+         *       "uptimeMs": 3600000
+         *     }
+         */
         HeartbeatRequest: {
             /** @description The Device's wire major. */
             protocolVersion: number;
             /** @description Milliseconds since the Device booted. */
             uptimeMs?: number;
         };
+        /**
+         * @example {
+         *       "serverTime": "2026-09-29T12:34:56.789Z"
+         *     }
+         * @example {
+         *       "serverTime": "2026-09-29T12:34:56Z"
+         *     }
+         */
         HeartbeatResponse: {
             /**
              * Format: date-time

@@ -214,16 +214,24 @@ pub fn wifi_scan_request() -> Body {
     Body::WifiScanRequest(WifiScanRequest {})
 }
 
-/// `SiteBinding` for a Hub (no Lot).
+/// `SiteBinding` for a Hub: no Lot, and the Server it reports to (`https://host[:port]`, see
+/// `coldframe_uplink::ServerUrl`; the Hub checks it, so a test can send an invalid one).
 ///
 /// # Errors
 ///
-/// [`AppError::InvalidRequest`] when `site_id` is longer than 36 bytes.
-pub fn site_binding(site_id: &str) -> Result<Body, AppError> {
-    Ok(Body::SiteBinding(SiteBinding {
+/// [`AppError::InvalidRequest`] when `site_id` is longer than 36 bytes or `server_url` longer
+/// than 100.
+pub fn site_binding(site_id: &str, server_url: &str) -> Result<Body, AppError> {
+    let mut binding = SiteBinding {
         site_id: site_id.try_into().map_err(|_| AppError::InvalidRequest)?,
         ..SiteBinding::default()
-    }))
+    };
+    binding.set_server_url(
+        server_url
+            .try_into()
+            .map_err(|_| AppError::InvalidRequest)?,
+    );
+    Ok(Body::SiteBinding(binding))
 }
 
 /// `EnrolmentRequest` for `server_public_key`, with its fingerprint computed here unless

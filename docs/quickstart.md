@@ -12,6 +12,7 @@ Install only what you need for the language you work on. The local stack needs t
 | .NET SDK | 10.0.1xx | Server, Aspire AppHost, integration tests | `global.json` |
 | Docker or Podman | any current release | Containers of the local stack | |
 | Rust, through `rustup` | 1.97.1, installed on first use | Shared crates | `rust-toolchain.toml` |
+| `espup`, `espflash`, cmake, ninja | espup 0.17.1 (esp toolchain 1.95.0.0), espflash 4.5.0, any current cmake and ninja | Hub firmware only: cmake and ninja rebuild mbedTLS with certificate-date checks | `.github/workflows/ci.yml` (`firmware` job) |
 | Node.js | 24 | TypeScript packages | `.node-version` |
 | pnpm | 12.6.0 | TypeScript packages | `package.json` |
 | JDK | 25 | Kotlin modules; the wrapper downloads Gradle 9.8.0 | `packages/kt/core/build.gradle.kts` |
@@ -240,13 +241,20 @@ through the micropb types of `coldframe-protocol` and checks their sizes and cap
 the BLE link, Wi-Fi, TRNG and flash mocks (the happy path against the crypto-spec vectors, wrong code,
 wrong password, malformed, tampered and replayed messages, idle timeout), covers the setup code and
 provisioning records and the BLE framing, and guards the Hub sources against build-time environment
-reads (FR-1). `tests/rs/setup-client` is the desktop BLE client for the bench checklist; it depends on
+reads (FR-1); since Story 3.5 it also runs the setup rows of the Server check (`CONNECTED` only after
+an accepted heartbeat, `NO_SERVER`, `server_url`). `tests/rs/uplink` covers the Hub's uplink: BSSID
+choice, reconnect backoff, the heartbeat schedule, server URLs, RFC 3339 times, monotonic stamps,
+signing against the crypto-spec vectors, the link-lost and heartbeat rows through `Uplink::step`, and
+the golden JSON fixtures of `packages/openapi`. `tests/rs/setup-client` is the desktop BLE client for the bench checklist; it depends on
 `libdbus-sys` with `vendored`, so it builds without a system libdbus but needs a C compiler. Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
 member of the workspace. Cargo discovers every file in its `tests/` folder; a new file needs no
 registration.
 
 Firmware under `apps/rs` is not part of this workspace. Each firmware crate has its own toolchain
-and its own README. To build the Hub firmware you need the `esp` toolchain from `espup`:
+and its own README. To build the Hub firmware you need the `esp` toolchain from `espup`, and
+**cmake and ninja** on `PATH` (mbedtls-rs rebuilds the mbedTLS C sources with `hook-wall-clock` so the
+Hub checks certificate validity dates), for example `uv tool install cmake ninja` or
+`sudo apt install cmake ninja-build`:
 
 ```sh
 source ~/export-esp.sh
@@ -258,9 +266,11 @@ cargo clippy --release -- -D warnings
 ./check-image.sh   # FR-1: no Wi-Fi credential canary in the ELF or the flash image
 ```
 
-CI does not build firmware. The Hub's on-device behaviour is checked by hand with
-[`docs/bench/hub-identity-checklist.md`](bench/hub-identity-checklist.md) and
-[`docs/bench/hub-setup-checklist.md`](bench/hub-setup-checklist.md).
+CI's `firmware` job runs the same builds, lints and image check on the esp toolchain; it runs no
+hardware. The Hub's on-device behaviour is checked by hand with
+[`docs/bench/hub-identity-checklist.md`](bench/hub-identity-checklist.md),
+[`docs/bench/hub-setup-checklist.md`](bench/hub-setup-checklist.md) and
+[`docs/bench/hub-uplink-checklist.md`](bench/hub-uplink-checklist.md).
 
 ### TypeScript
 

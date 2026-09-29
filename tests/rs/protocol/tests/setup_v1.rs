@@ -45,7 +45,9 @@ fn bodies() -> Vec<Body> {
         site_id: string("0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"),
         ..SiteBinding::default()
     };
-    let hub_binding = Body::SiteBinding(binding.clone());
+    let mut hub = binding.clone();
+    hub.set_server_url(string("https://coldframe.example.org:8443"));
+    let hub_binding = Body::SiteBinding(hub);
     binding.set_lot_id(string("0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c"));
     vec![
         Body::IdentityRequest(IdentityRequest {}),
@@ -165,7 +167,7 @@ fn field(number: u8, length: usize, fill: u8) -> Vec<u8> {
 
 #[test]
 fn over_capacity_fields_fail_to_decode() {
-    // WifiConfig.ssid is 32 bytes at most, password 64, SiteBinding.site_id 36.
+    // WifiConfig.ssid is 32 bytes at most, password 64, SiteBinding.site_id 36 and server_url 100.
     assert!(decode::<WifiConfig>(&field(1, 32, b'a')).is_ok());
     assert_eq!(
         decode::<WifiConfig>(&field(1, 33, b'a')).err(),
@@ -175,6 +177,9 @@ fn over_capacity_fields_fail_to_decode() {
     assert!(decode::<WifiConfig>(&field(2, 65, b'p')).is_err());
     assert!(decode::<SiteBinding>(&field(1, 36, b's')).is_ok());
     assert!(decode::<SiteBinding>(&field(1, 37, b's')).is_err());
+    let binding = decode::<SiteBinding>(&field(3, 100, b'u')).unwrap();
+    assert_eq!(binding.server_url().map(|url| url.len()), Some(100));
+    assert!(decode::<SiteBinding>(&field(3, 101, b'u')).is_err());
     assert!(decode::<EnrolmentRequest>(&field(1, 33, 1)).is_err());
     assert!(decode::<EnrolmentRequest>(&field(2, 65, b'f')).is_err());
     assert!(decode::<SealedSetupMessage>(&field(3, SEALED_CIPHERTEXT_CAPACITY + 1, 0)).is_err());

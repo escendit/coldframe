@@ -3,16 +3,18 @@
 //! | Offset | Record |
 //! | --- | --- |
 //! | `0x0000` | `b"CFPC" ‖ 0x01 ‖ code[8] ‖ SHA-256(prefix ‖ code)[0..4]` |
-//! | `0x1000` | `b"CFWP" ‖ 0x01 ‖ u8 len ‖ ssid ‖ u8 len ‖ password ‖ u8 len ‖ site_id ‖ SHA-256(prefix ‖ …)[0..4]` |
+//! | `0x1000` | `b"CFWP" ‖ 0x02 ‖ u8 len ‖ ssid ‖ u8 len ‖ password ‖ u8 len ‖ site_id ‖ u8 len ‖ server_url ‖ SHA-256(prefix ‖ …)[0..4]` |
 //!
 //! Each record has its own sector, so writing the provisioning record never touches the code.
 //!
 //! - The setup code is written once, on first boot. A corrupt code record halts the Device
 //!   ([`SetupStoreError::CorruptSetupCode`]); it is never silently regenerated, because the code
 //!   may already be on a sticker.
-//! - The provisioning record is written only after a successful Wi-Fi join. An erased sector
-//!   means unprovisioned; a corrupt one reads as [`ProvisioningState::Corrupt`], which the
-//!   caller treats as unprovisioned.
+//! - The provisioning record is written only after a successful Wi-Fi join and Server check. An
+//!   erased sector means unprovisioned; a corrupt one reads as [`ProvisioningState::Corrupt`],
+//!   which the caller treats as unprovisioned. Any version other than
+//!   [`PROVISIONING_VERSION`] is corrupt, including Story 3.4's `0x01` record, which has no
+//!   Server address: such a Hub is set up again.
 //!
 //! No error here carries the code, a password or any record byte.
 
@@ -20,6 +22,8 @@ use core::fmt;
 
 use coldframe_hal::wifi::SSID_MAX_LENGTH;
 use coldframe_hal::{Flash, FlashError, Trng, TrngError};
+use coldframe_uplink::ServerUrl;
+use coldframe_uplink::url::SERVER_URL_MAX_LENGTH;
 use sha2::{Digest, Sha256};
 
 use crate::code::{CODE_LENGTH, SetupCode};
@@ -43,8 +47,11 @@ pub const SETUP_CODE_MAGIC: [u8; 4] = *b"CFPC";
 /// Magic of the provisioning record.
 pub const PROVISIONING_MAGIC: [u8; 4] = *b"CFWP";
 
-/// Version of both records.
-pub const RECORD_VERSION: u8 = 1;
+/// Version of the setup-code record.
+pub const SETUP_CODE_VERSION: u8 = 1;
+
+/// Version of the provisioning record: 2 adds the Server address (Story 3.5).
+pub const PROVISIONING_VERSION: u8 = 2;
 
 const PREFIX_LENGTH: usize = 5;
 const CHECK_LENGTH: usize = 4;
@@ -53,8 +60,16 @@ const CHECK_LENGTH: usize = 4;
 pub const SETUP_CODE_RECORD_LENGTH: usize = PREFIX_LENGTH + CODE_LENGTH + CHECK_LENGTH;
 
 /// Longest provisioning record.
-pub const PROVISIONING_RECORD_MAX_LENGTH: usize =
-    PREFIX_LENGTH + 3 + SSID_MAX_LENGTH + PASSWORD_MAX_LENGTH + SITE_ID_MAX_LENGTH + CHECK_LENGTH;
+pub const PROVISIONING_RECORD_MAX_LENGTH: usize = PREFIX_LENGTH
+    + 4
+    + SSID_MAX_LENGTH
+    + PASSWORD_MAX_LENGTH
+    + SITE_ID_MAX_LENGTH
+    + SERVER_URL_MAX_LENGTH
+    + CHECK_LENGTH;
+
+// The record fits its sector.
+const _: () = assert!(PROVISIONING_RECORD_MAX_LENGTH <= SECTOR_SIZE as usize);
 
 /// Why the setup store failed. Carries no code, password or record content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,7 +79,8 @@ pub enum SetupStoreError {
     CorruptSetupCode,
     /// A record written to flash did not read back unchanged.
     NotVerified,
-    /// A provisioning field is empty where required, too long, or not UTF-8.
+    /// A provisioning field is empty where required, too long, not UTF-8, or (the Server
+    /// address) not a valid server URL.
     InvalidField,
     /// The TRNG produced no code.
     Trng(TrngError),
@@ -117,7 +133,7 @@ fn check(body: &[u8]) -> [u8; CHECK_LENGTH] {
 fn encode_code_record(code: &SetupCode) -> [u8; SETUP_CODE_RECORD_LENGTH] {
     let mut record = [0u8; SETUP_CODE_RECORD_LENGTH];
     record[..4].copy_from_slice(&SETUP_CODE_MAGIC);
-    record[4] = RECORD_VERSION;
+    record[4] = SETUP_CODE_VERSION;
     record[PREFIX_LENGTH..PREFIX_LENGTH + CODE_LENGTH].copy_from_slice(code.as_bytes());
     let digest = check(&record[..PREFIX_LENGTH + CODE_LENGTH]);
     record[PREFIX_LENGTH + CODE_LENGTH..].copy_from_slice(&digest);
@@ -127,7 +143,7 @@ fn encode_code_record(code: &SetupCode) -> [u8; SETUP_CODE_RECORD_LENGTH] {
 fn decode_code_record(record: &[u8; SETUP_CODE_RECORD_LENGTH]) -> Option<SetupCode> {
     let body = &record[..PREFIX_LENGTH + CODE_LENGTH];
     let valid = record[..4] == SETUP_CODE_MAGIC
-        && record[4] == RECORD_VERSION
+        && record[4] == SETUP_CODE_VERSION
         && record[PREFIX_LENGTH + CODE_LENGTH..] == check(body);
     if !valid {
         return None;
@@ -179,16 +195,23 @@ pub struct ProvisioningRecord {
     ssid: heapless::String<SSID_MAX_LENGTH>,
     password: heapless::String<PASSWORD_MAX_LENGTH>,
     site_id: heapless::String<SITE_ID_MAX_LENGTH>,
+    server: ServerUrl,
 }
 
 impl ProvisioningRecord {
     /// A record from its fields: a non-empty SSID of at most 32 bytes, a passphrase of at most
-    /// 64 bytes (empty for an open network), and a non-empty Site ID of at most 36 bytes.
+    /// 64 bytes (empty for an open network), a non-empty Site ID of at most 36 bytes, and the
+    /// Server address, a valid [`ServerUrl`].
     ///
     /// # Errors
     ///
     /// [`SetupStoreError::InvalidField`].
-    pub fn new(ssid: &str, password: &str, site_id: &str) -> Result<Self, SetupStoreError> {
+    pub fn new(
+        ssid: &str,
+        password: &str,
+        site_id: &str,
+        server_url: &str,
+    ) -> Result<Self, SetupStoreError> {
         if ssid.is_empty() || site_id.is_empty() {
             return Err(SetupStoreError::InvalidField);
         }
@@ -200,6 +223,7 @@ impl ProvisioningRecord {
             site_id: site_id
                 .try_into()
                 .map_err(|_| SetupStoreError::InvalidField)?,
+            server: ServerUrl::parse(server_url).map_err(|_| SetupStoreError::InvalidField)?,
         })
     }
 
@@ -221,16 +245,29 @@ impl ProvisioningRecord {
         &self.site_id
     }
 
+    /// The Server address as the app sent it.
+    #[must_use]
+    pub fn server_url(&self) -> &str {
+        self.server.as_str()
+    }
+
+    /// The Server address, parsed.
+    #[must_use]
+    pub fn server(&self) -> &ServerUrl {
+        &self.server
+    }
+
     fn encode(&self, out: &mut [u8; PROVISIONING_RECORD_MAX_LENGTH]) -> usize {
         out[..4].copy_from_slice(&PROVISIONING_MAGIC);
-        out[4] = RECORD_VERSION;
+        out[4] = PROVISIONING_VERSION;
         let mut at = PREFIX_LENGTH;
         for field in [
             self.ssid.as_bytes(),
             self.password.as_bytes(),
             self.site_id.as_bytes(),
+            self.server.as_str().as_bytes(),
         ] {
-            // Every field is at most 64 bytes.
+            // Every field is at most 100 bytes.
             out[at] = u8::try_from(field.len()).unwrap_or(u8::MAX);
             out[at + 1..at + 1 + field.len()].copy_from_slice(field);
             at += 1 + field.len();
@@ -241,16 +278,17 @@ impl ProvisioningRecord {
     }
 
     fn decode(record: &[u8; PROVISIONING_RECORD_MAX_LENGTH]) -> Option<Self> {
-        if record[..4] != PROVISIONING_MAGIC || record[4] != RECORD_VERSION {
+        if record[..4] != PROVISIONING_MAGIC || record[4] != PROVISIONING_VERSION {
             return None;
         }
         let mut at = PREFIX_LENGTH;
-        let mut fields: [&str; 3] = [""; 3];
-        for (field, max) in
-            fields
-                .iter_mut()
-                .zip([SSID_MAX_LENGTH, PASSWORD_MAX_LENGTH, SITE_ID_MAX_LENGTH])
-        {
+        let mut fields: [&str; 4] = [""; 4];
+        for (field, max) in fields.iter_mut().zip([
+            SSID_MAX_LENGTH,
+            PASSWORD_MAX_LENGTH,
+            SITE_ID_MAX_LENGTH,
+            SERVER_URL_MAX_LENGTH,
+        ]) {
             let length = usize::from(*record.get(at)?);
             if length > max {
                 return None;
@@ -261,11 +299,15 @@ impl ProvisioningRecord {
         if record.get(at..at + CHECK_LENGTH)? != check(&record[..at]) {
             return None;
         }
-        Self::new(fields[0], fields[1], fields[2]).ok()
+        Self::new(fields[0], fields[1], fields[2], fields[3]).ok()
     }
 }
 
 /// The provisioning sector as found at boot.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "no alloc to box into; read once at boot"
+)]
 pub enum ProvisioningState {
     /// Erased: the Hub has never been provisioned.
     Unprovisioned,

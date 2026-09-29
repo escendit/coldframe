@@ -1,0 +1,19 @@
+{
+  "HeartbeatRequest": {
+    "properties": [
+      "protocolVersion",
+      "uptimeMs"
+    ],
+    "required": [
+      "protocolVersion"
+    ]
+  },
+  "HeartbeatResponse": {
+    "properties": [
+      "serverTime"
+    ],
+    "required": [
+      "serverTime"
+    ]
+  }
+}

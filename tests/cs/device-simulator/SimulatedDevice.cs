@@ -1,5 +1,8 @@
 using System.Buffers.Text;
+using System.Globalization;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
 using Coldframe.Protocol.Setup.V1;
@@ -109,6 +112,47 @@ public sealed class SimulatedDevice
     /// </summary>
     public IReadOnlyDictionary<string, string> SignHeartbeat(string method, string path, ReadOnlySpan<byte> body, long timestampMs, ReadOnlySpan<byte> nonce) =>
         Heartbeat.Headers(Keys, method, path, body, timestampMs, nonce);
+
+    /// <summary>
+    /// The path of the heartbeat operation.
+    /// </summary>
+    public const string HeartbeatPath = "/device/heartbeat";
+
+    /// <summary>
+    /// A heartbeat body exactly as the Hub writes it: <c>{"protocolVersion":1,"uptimeMs":N}</c>.
+    /// </summary>
+    public static byte[] HeartbeatBody(long uptimeMs, long protocolVersion = CryptoSpec.ProtocolMajor) =>
+        Encoding.UTF8.GetBytes(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{{\"protocolVersion\":{protocolVersion},\"uptimeMs\":{uptimeMs}}}"));
+
+    /// <summary>
+    /// A signed <c>POST /device/heartbeat</c> at <paramref name="time"/> with a fresh random nonce, as the Hub
+    /// sends it: the body (by default <see cref="HeartbeatBody"/> with 61 000 ms uptime) as
+    /// <c>application/json</c> and the four authentication headers.
+    /// </summary>
+    public HttpRequestMessage HeartbeatRequest(DateTimeOffset time, byte[]? body = null) =>
+        HeartbeatRequest(time.ToUnixTimeMilliseconds(), RandomNumberGenerator.GetBytes(CryptoSpec.HeartbeatNonceLength), body);
+
+    /// <summary>
+    /// A signed <c>POST /device/heartbeat</c> with an explicit timestamp and nonce (a replay test resends one).
+    /// </summary>
+    public HttpRequestMessage HeartbeatRequest(long timestampMs, ReadOnlySpan<byte> nonce, byte[]? body = null)
+    {
+        body ??= HeartbeatBody(61_000);
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(HeartbeatPath, UriKind.Relative))
+        {
+            Content = new ByteArrayContent(body),
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+        foreach (var (name, value) in SignHeartbeat(HttpMethod.Post.Method, HeartbeatPath, body, timestampMs, nonce))
+        {
+            request.Headers.Add(name, value);
+        }
+
+        return request;
+    }
 
     /// <summary>
     /// Seals an uplink payload with the next counter.

@@ -175,9 +175,10 @@ jobs:
       - name: Build
         run: cargo build --workspace --all-targets --locked
 
-      # Without the test crates, `mock` is not unified in, so this proves hal and crypto stay no_std.
+      # Without the test crates, `mock` is not unified in, so this proves the crates the Hub links stay
+      # no_std.
       - name: Build the firmware crates without mocks
-        run: cargo build -p coldframe-hal -p coldframe-crypto --locked
+        run: cargo build -p coldframe-hal -p coldframe-crypto -p coldframe-protocol -p coldframe-setup -p coldframe-uplink --locked
 
       - name: Lint
         run: |
@@ -186,6 +187,82 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --locked
+
+  # The Hub firmware on the esp toolchain (spike H-2, DW-43): the release image with certificate
+  # validity dates checked (mbedtls-rs `hook-wall-clock`, which rebuilds mbedTLS and needs cmake and
+  # ninja), the dev-mode build, clippy, rustfmt, and the FR-1 canary check of the built image. No
+  # hardware is involved (AD-24); the bench checklists cover the board.
+  firmware:
+    name: Firmware
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # espup: the release that installs the esp toolchain `apps/rs/hub/rust-toolchain.toml`
+      # resolves to on a developer machine (`rustup run esp rustc --version`).
+      ESPUP_VERSION: "0.17.1"
+      ESP_TOOLCHAIN_VERSION: "1.95.0.0"
+      ESPFLASH_VERSION: "4.5.0"
+    defaults:
+      run:
+        working-directory: apps/rs/hub
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # cmake and ninja for the mbedTLS rebuild; libudev for espflash.
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends cmake ninja-build libudev-dev pkg-config
+
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: apps/rs/hub
+          key: espup-${{ env.ESPUP_VERSION }}-esp-${{ env.ESP_TOOLCHAIN_VERSION }}-espflash-${{ env.ESPFLASH_VERSION }}
+          cache-bin: "true"
+          cache-directories: |
+            ~/.rustup/toolchains/esp
+            ~/export-esp.sh
+
+      - name: Install espup and espflash
+        run: |
+          if [[ "$(espup --version 2>/dev/null)" != "espup ${ESPUP_VERSION}" ]]; then
+            cargo install espup --version "${ESPUP_VERSION}" --locked --force
+          fi
+          if [[ "$(espflash --version 2>/dev/null)" != "espflash ${ESPFLASH_VERSION}" ]]; then
+            cargo install espflash --version "${ESPFLASH_VERSION}" --locked --force
+          fi
+
+      - name: Install the esp toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! -f "${HOME}/export-esp.sh" ]] || ! rustup run esp rustc --version | grep -qF "(${ESP_TOOLCHAIN_VERSION})"; then
+            espup install --toolchain-version "${ESP_TOOLCHAIN_VERSION}" --targets esp32s3 --export-file "${HOME}/export-esp.sh"
+          fi
+          rustup run esp rustc --version
+
+      - name: Build
+        run: |
+          source "${HOME}/export-esp.sh"
+          cargo build --release --locked
+          cargo build --features dev-mode --locked
+
+      - name: Lint
+        run: |
+          source "${HOME}/export-esp.sh"
+          cargo fmt --check
+          cargo clippy --release --locked -- -D warnings
+          cargo clippy --features dev-mode --locked -- -D warnings
+
+      # FR-1: no credential canary reaches the ELF or the flash image.
+      - name: Check the image
+        run: |
+          source "${HOME}/export-esp.sh"
+          ./check-image.sh
 
   kotlin:
     name: Kotlin
@@ -279,6 +356,11 @@ jobs:
       # reference implementation no longer reproduces the RFC anchors.
       - name: Crypto spec
         run: pnpm --filter @coldframe/crypto-spec run check
+
+      # Fails when the golden Hub JSON fixtures are stale against the OpenAPI schemas and examples
+      # (AD-10); tests/rs/uplink checks the Hub's hand-written structs against them.
+      - name: OpenAPI fixtures
+        run: pnpm --filter @coldframe/openapi run check
 
   # Wire-contract compatibility (AD-10, AD-24): buf lint, buf breaking (FILE) and oasdiff breaking against
   # the merge base of a pull request, or the previous commit on a push. The self-test first proves that a

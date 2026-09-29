@@ -72,7 +72,13 @@ the wrapped `K_dev` (`WrappedDeviceKey(KekId, Nonce, Sealed)`), never the plaint
 `DeviceRegistrationResult(Outcome, Pause)` with `Outcome` one of `Registered`, `NotFound` and
 `IdempotencyKeyReused`, and `SitePause` not paused until Epic 8. `DeviceKind` is `Hub` or `Node`.
 
+`IDeviceGrain.Heartbeat(DeviceHeartbeat)` (Story 3.5) takes a Hub's heartbeat as the Edge API parsed
+it (`Method`, `Path`, the raw `Body`, `TimestampMs`, `Nonce`, `Signature`, `UptimeMs?`), verifies it
+inside the grain and returns `DeviceHeartbeatResult(Outcome)` with `Outcome` one of `Accepted` and
+`Unauthorized` (the reason is not told).
+
 | Contract | Alias | Meaning |
 | --- | --- | --- |
 | `DeviceRegistered(DeviceId, Kind, IdempotencyKey, RegisteredAt)` | `site.device-registered` | The Device joined the Site's roster; the caller-scoped key expires 24 h after `RegisteredAt` |
 | `DeviceEnrolled(SiteId, Kind, WrappedKey, EnrolledAt)` | `device.enrolled` | The Device is enrolled on the Site; the Server holds its `K_dev` wrapped |
+| `DeviceSeen(SeenAt, DeviceTimestampMs, UptimeMs?)` | `device.seen` | The Server accepted an authentic, new heartbeat: the Device's last-seen time; the next heartbeat must be stamped above `DeviceTimestampMs` |

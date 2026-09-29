@@ -248,6 +248,12 @@ importers:
         specifier: 2.6.0
         version: 2.6.0
 
+  packages/openapi:
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.0
+        version: 24.19.0
+
   packages/ts/api-client:
     dependencies:
       openapi-fetch:

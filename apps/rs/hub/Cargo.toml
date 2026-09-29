@@ -7,7 +7,7 @@ edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/escendit/coldframe"
 publish = false
-description = "Coldframe Hub firmware: hardware-bound identity, BLE setup, then (Story 3.5) heartbeats"
+description = "Coldframe Hub firmware: hardware-bound identity, BLE setup, Wi-Fi uplink and signed heartbeats"
 
 # Exact versions (AD-15), the esp stack the radio spike validated; Cargo.lock pins the rest.
 [dependencies]
@@ -15,11 +15,13 @@ coldframe-crypto = { path = "../../../packages/rs/crypto" }
 coldframe-hal = { path = "../../../packages/rs/hal" }
 coldframe-protocol = { path = "../../../packages/rs/protocol" }
 coldframe-setup = { path = "../../../packages/rs/setup" }
+coldframe-uplink = { path = "../../../packages/rs/uplink" }
 embassy-executor = "=0.10.0"
 embassy-futures = "=0.1.2"
+embassy-net = { version = "=0.9.1", features = ["dhcpv4", "medium-ethernet", "tcp", "udp", "dns"] }
 embassy-sync = "=0.8.0"
 embassy-time = "=0.5.1"
-esp-alloc = { version = "=0.11.0", features = ["esp32s3"] }
+esp-alloc = { version = "=0.11.0", features = ["esp32s3", "internal-heap-stats"] }
 esp-backtrace = { version = "=0.20.0", features = ["panic-handler", "println", "esp32s3"] }
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3"] }
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable", "log-04"] }
@@ -29,7 +31,11 @@ esp-rtos = { version = "=0.4.0", features = ["esp32s3", "esp-radio", "embassy", 
 esp-storage = { version = "=0.10.0", features = ["esp32s3"] }
 heapless = { version = "=0.9.3", default-features = false }
 log = "=0.4.34"
+# TLS with certificate validity dates checked against the SNTP-set RTC (AD-11, AD-13, H-2):
+# `hook-wall-clock` rebuilds the mbedTLS C sources on the fly, which needs cmake and ninja.
+mbedtls-rs = { version = "=0.3.0", features = ["esp32s3", "hook-wall-clock", "embassy-time", "use-gcc"] }
 nb = "=1.1.0"
+reqwless = { version = "=0.14.0", default-features = false }
 static_cell = "=2.1.1"
 trouble-host = { version = "=0.7.0", features = ["default-packet-pool-mtu-255", "derive"] }
 

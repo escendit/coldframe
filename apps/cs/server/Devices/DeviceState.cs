@@ -3,7 +3,8 @@ using Coldframe.Contracts.Devices;
 namespace Coldframe.Server.Devices;
 
 /// <summary>
-/// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled.
+/// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, and when it was
+/// last seen.
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.device-state")]
@@ -33,6 +34,19 @@ public sealed class DeviceState
     [Id(3)]
     public DateTimeOffset? EnrolledAt { get; private set; }
 
+    /// <summary>
+    /// When the Server last accepted a heartbeat, or <see langword="null"/> before the first.
+    /// </summary>
+    [Id(4)]
+    public DateTimeOffset? LastSeenAt { get; private set; }
+
+    /// <summary>
+    /// The signed timestamp of the last accepted heartbeat, Unix milliseconds; 0 before the first. A
+    /// heartbeat at or below it is a replay, even after the grain was reactivated.
+    /// </summary>
+    [Id(5)]
+    public long LastHeartbeatTimestampMs { get; private set; }
+
     public void Apply(DeviceEnrolled @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -40,5 +54,12 @@ public sealed class DeviceState
         Kind = @event.Kind;
         WrappedKey = @event.WrappedKey;
         EnrolledAt = @event.EnrolledAt;
+    }
+
+    public void Apply(DeviceSeen @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        LastSeenAt = @event.SeenAt;
+        LastHeartbeatTimestampMs = Math.Max(LastHeartbeatTimestampMs, @event.DeviceTimestampMs);
     }
 }

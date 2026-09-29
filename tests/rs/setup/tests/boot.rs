@@ -6,9 +6,13 @@ use coldframe_hal::{FlashError, Radio, TrngError};
 use coldframe_setup::code::{ALPHABET, SetupCode};
 use coldframe_setup::service::boot;
 use coldframe_setup::store::{
-    CodeSource, PARTITION_SIZE, PROVISIONING_OFFSET, ProvisioningRecord, ProvisioningState,
-    SetupStoreError, load_or_create_code, load_provisioning, store_provisioning,
+    CodeSource, PARTITION_SIZE, PROVISIONING_OFFSET, PROVISIONING_VERSION, ProvisioningRecord,
+    ProvisioningState, SetupStoreError, load_or_create_code, load_provisioning, store_provisioning,
 };
+use sha2::{Digest, Sha256};
+
+/// A test Server; never a real one.
+const SERVER: &str = "https://coldframe.example.org";
 
 fn trng(bytes: &[u8]) -> MockTrng {
     let mut radio = MockRadio::new();
@@ -54,7 +58,7 @@ fn a_later_unprovisioned_boot_shows_the_same_code_without_writing() {
 fn a_provisioned_boot_neither_shows_the_code_nor_advertises() {
     let mut flash = MockFlash::new(PARTITION_SIZE);
     let _ = boot(&mut trng(&[1, 2, 3, 4, 5]), &mut flash).unwrap();
-    let record = ProvisioningRecord::new("garden", "not-a-real-pass", "site-1").unwrap();
+    let record = ProvisioningRecord::new("garden", "not-a-real-pass", "site-1", SERVER).unwrap();
     store_provisioning(&mut flash, &record).unwrap();
 
     let boot = boot(&mut trng(&[]), &mut flash).unwrap();
@@ -65,6 +69,11 @@ fn a_provisioned_boot_neither_shows_the_code_nor_advertises() {
     assert_eq!(stored.ssid(), "garden");
     assert_eq!(stored.password(), "not-a-real-pass");
     assert_eq!(stored.site_id(), "site-1");
+    assert_eq!(stored.server_url(), SERVER);
+    assert_eq!(
+        (stored.server().host(), stored.server().port()),
+        ("coldframe.example.org", 443)
+    );
 }
 
 #[test]
@@ -92,7 +101,7 @@ fn a_corrupt_code_record_halts_and_is_never_regenerated() {
 fn a_corrupt_provisioning_record_reads_as_unprovisioned() {
     let mut flash = MockFlash::new(PARTITION_SIZE);
     let _ = boot(&mut trng(&[1, 2, 3, 4, 5]), &mut flash).unwrap();
-    let record = ProvisioningRecord::new("garden", "not-a-real-pass", "site-1").unwrap();
+    let record = ProvisioningRecord::new("garden", "not-a-real-pass", "site-1", SERVER).unwrap();
     store_provisioning(&mut flash, &record).unwrap();
     let at = usize::try_from(PROVISIONING_OFFSET).unwrap() + 8;
     flash.contents_mut()[at] ^= 0x40;
@@ -108,23 +117,38 @@ fn provisioning_records_round_trip_at_their_limits() {
     let ssid = "s".repeat(32);
     let password = "p".repeat(64);
     let site = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+    // A 100-byte Server address with a custom port.
+    let server = format!(
+        "https://{}.{}.example.org:65535",
+        "h".repeat(40),
+        "i".repeat(33)
+    );
+    assert_eq!(server.len(), 100);
     store_provisioning(
         &mut flash,
-        &ProvisioningRecord::new(&ssid, &password, site).unwrap(),
+        &ProvisioningRecord::new(&ssid, &password, site, &server).unwrap(),
     )
     .unwrap();
     let ProvisioningState::Provisioned(record) = load_provisioning(&mut flash).unwrap() else {
         panic!("provisioned");
     };
     assert_eq!(
-        (record.ssid(), record.password(), record.site_id()),
-        (&*ssid, &*password, site)
+        (
+            record.ssid(),
+            record.password(),
+            record.site_id(),
+            record.server_url()
+        ),
+        (&*ssid, &*password, site, &*server)
     );
+    let at = usize::try_from(PROVISIONING_OFFSET).unwrap();
+    assert_eq!(&flash.contents()[at..at + 5], b"CFWP\x02");
+    assert_eq!(PROVISIONING_VERSION, 2);
 
     // An open network has an empty password.
     store_provisioning(
         &mut flash,
-        &ProvisioningRecord::new("cafe", "", "s").unwrap(),
+        &ProvisioningRecord::new("cafe", "", "s", SERVER).unwrap(),
     )
     .unwrap();
     let ProvisioningState::Provisioned(record) = load_provisioning(&mut flash).unwrap() else {
@@ -132,18 +156,65 @@ fn provisioning_records_round_trip_at_their_limits() {
     };
     assert_eq!(record.password(), "");
 
-    for (ssid, password, site) in [
-        ("", "p", "s"),
-        ("s", "p", ""),
-        (&*"s".repeat(33), "p", "s"),
-        ("s", &*"p".repeat(65), "s"),
-        ("s", "p", &*"x".repeat(37)),
+    for (ssid, password, site, server) in [
+        ("", "p", "s", SERVER),
+        ("s", "p", "", SERVER),
+        (&*"s".repeat(33), "p", "s", SERVER),
+        ("s", &*"p".repeat(65), "s", SERVER),
+        ("s", "p", &*"x".repeat(37), SERVER),
+        ("s", "p", "s", ""),
+        ("s", "p", "s", "http://coldframe.example.org"),
+        ("s", "p", "s", "https://coldframe.example.org/api"),
+        ("s", "p", "s", "https://192.168.1.10"),
     ] {
         assert!(matches!(
-            ProvisioningRecord::new(ssid, password, site),
+            ProvisioningRecord::new(ssid, password, site, server),
             Err(SetupStoreError::InvalidField)
         ));
     }
+}
+
+/// A Story 3.4 provisioning record: version 1, without a Server address.
+fn v1_record(ssid: &str, password: &str, site: &str) -> Vec<u8> {
+    let mut record = b"CFWP\x01".to_vec();
+    for field in [ssid, password, site] {
+        record.push(u8::try_from(field.len()).unwrap());
+        record.extend_from_slice(field.as_bytes());
+    }
+    let digest = Sha256::digest(&record);
+    record.extend_from_slice(&digest[..4]);
+    record
+}
+
+#[test]
+fn a_story_3_4_record_reads_as_corrupt_and_the_hub_advertises_again() {
+    let mut flash = MockFlash::new(PARTITION_SIZE);
+    let first = boot(&mut trng(&[1, 2, 3, 4, 5]), &mut flash).unwrap();
+    let at = usize::try_from(PROVISIONING_OFFSET).unwrap();
+    let record = v1_record("garden", "not-a-real-pass", "site-1");
+    flash.contents_mut()[at..at + record.len()].copy_from_slice(&record);
+
+    let boot = boot(&mut trng(&[]), &mut flash).unwrap();
+    assert!(matches!(boot.provisioning, ProvisioningState::Corrupt));
+    assert!(boot.needs_setup() && boot.shows_code() && boot.advertises());
+    assert_eq!(
+        boot.code.as_str(),
+        first.code.as_str(),
+        "the same setup code"
+    );
+
+    // A v2 layout with a version byte of 3 is not read either.
+    let mut flash = MockFlash::new(PARTITION_SIZE);
+    store_provisioning(
+        &mut flash,
+        &ProvisioningRecord::new("garden", "not-a-real-pass", "site-1", SERVER).unwrap(),
+    )
+    .unwrap();
+    flash.contents_mut()[at + 4] = 3;
+    assert!(matches!(
+        load_provisioning(&mut flash).unwrap(),
+        ProvisioningState::Corrupt
+    ));
 }
 
 #[test]

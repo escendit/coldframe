@@ -43,6 +43,12 @@ public static class EdgeProblems
     public const string DeviceOnAnotherSite = "urn:coldframe:problem:device-on-another-site";
 
     /// <summary>
+    /// 401: the Device authentication failed (unknown Device, missing or malformed headers, a bad signature,
+    /// skew, a replayed nonce or an old timestamp). The reason is never told.
+    /// </summary>
+    public const string DeviceUnauthorized = "urn:coldframe:problem:device-unauthorized";
+
+    /// <summary>
     /// 400: the request is malformed.
     /// </summary>
     public const string Validation = "urn:coldframe:problem:validation";

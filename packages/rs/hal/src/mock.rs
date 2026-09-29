@@ -8,7 +8,10 @@
 //! - [`MockFlash`] has NOR semantics: erase to `0xFF`, writes only clear bits.
 //! - [`MockSetupLink`] plays scripted connections and can answer each send through a peer
 //!   callback, so a test drives a whole BLE session.
-//! - [`MockWifi`] returns a scripted scan and a join outcome per SSID and password.
+//! - [`MockWifi`] returns a scripted scan, join outcomes per SSID and password or per attempt,
+//!   and a link state a test (or a [`MockNet`]) can drop.
+//! - [`MockNet`] plays scripted DHCP, SNTP and HTTPS results and records every request.
+//! - [`MockTimer`] returns at once and records every wait.
 //!
 //! Each mock can inject a failure so tests reach every error path.
 
@@ -27,9 +30,11 @@ use crate::efuse::{Efuse, EfuseError, KEY_LENGTH, KeyBlock, KeyPurpose};
 use crate::flash::{Flash, FlashError};
 use crate::gpio::{GpioError, InputPin, OutputPin};
 use crate::hmac::{HMAC_LENGTH, HmacError, HmacPeripheral};
+use crate::net::{HttpRequest, HttpResponse, Net, NetError};
 use crate::radio::{Radio, RadioError};
 use crate::rng::{Trng, TrngError};
 use crate::rtc::{Rtc, RtcError};
+use crate::timer::Timer;
 use crate::wifi::{AccessPoint, JoinError, Wifi, WifiError};
 
 // ---------------------------------------------------------------------------------------------
@@ -785,28 +790,37 @@ pub struct JoinAttempt {
     pub channel: u8,
 }
 
-/// A Wi-Fi station with a scripted scan and scripted join outcomes.
+/// A Wi-Fi station with a scripted scan, scripted join outcomes and a scriptable link.
 ///
-/// A join with an SSID and password pair that has no scripted outcome fails with
-/// [`JoinError::WrongPassword`].
+/// A join takes the next outcome queued with [`MockWifi::push_join_outcome`]; with none queued it
+/// takes the outcome set for its SSID and password with [`MockWifi::set_join_outcome`], and an
+/// unscripted pair fails with [`JoinError::WrongPassword`]. A successful join brings the link up;
+/// [`Wifi::leave`] and [`MockWifi::drop_link`] take it down. Clones of [`MockWifi::link`] share
+/// the link state, so a [`MockNet`] can drop it in the middle of a request.
 pub struct MockWifi {
     scan: Vec<AccessPoint>,
     scan_failure: Option<WifiError>,
     outcomes: Vec<(String, String, Result<(), JoinError>)>,
+    queued: VecDeque<Result<(), JoinError>>,
     joins: Vec<JoinAttempt>,
     scans: usize,
+    leaves: usize,
+    link: Rc<Cell<bool>>,
 }
 
 impl MockWifi {
-    /// A station whose every scan hears `access_points`.
+    /// A station whose every scan hears `access_points`, not joined.
     #[must_use]
     pub fn new(access_points: Vec<AccessPoint>) -> Self {
         Self {
             scan: access_points,
             scan_failure: None,
             outcomes: Vec::new(),
+            queued: VecDeque::new(),
             joins: Vec::new(),
             scans: 0,
+            leaves: 0,
+            link: Rc::new(Cell::new(false)),
         }
     }
 
@@ -816,9 +830,36 @@ impl MockWifi {
             .push((ssid.to_owned(), password.to_owned(), outcome));
     }
 
+    /// Queues the outcome of the next join, whatever its SSID and password. Queued outcomes are
+    /// used first, in order.
+    pub fn push_join_outcome(&mut self, outcome: Result<(), JoinError>) {
+        self.queued.push_back(outcome);
+    }
+
+    /// Makes every later scan hear `access_points`.
+    pub fn set_scan(&mut self, access_points: Vec<AccessPoint>) {
+        self.scan = access_points;
+    }
+
     /// Makes every later scan fail with `error`, or succeed again with `None`.
     pub fn fail_scan(&mut self, error: Option<WifiError>) {
         self.scan_failure = error;
+    }
+
+    /// The access point drops the link (a power cycle, a roam).
+    pub fn drop_link(&mut self) {
+        self.link.set(false);
+    }
+
+    /// Brings the link up as if a join had succeeded, as a test fixture. Counts as no join.
+    pub fn set_connected(&mut self, connected: bool) {
+        self.link.set(connected);
+    }
+
+    /// The link state, shared: `false` drops the link.
+    #[must_use]
+    pub fn link(&self) -> Rc<Cell<bool>> {
+        Rc::clone(&self.link)
     }
 
     /// Every join attempted, in order.
@@ -837,6 +878,12 @@ impl MockWifi {
     #[must_use]
     pub fn scan_count(&self) -> usize {
         self.scans
+    }
+
+    /// How many times [`Wifi::leave`] was called.
+    #[must_use]
+    pub fn leave_count(&self) -> usize {
+        self.leaves
     }
 }
 
@@ -867,9 +914,241 @@ impl Wifi for MockWifi {
             bssid,
             channel,
         });
-        self.outcomes
+        // A join first leaves any network the station is on.
+        self.link.set(false);
+        let outcome = self.queued.pop_front().unwrap_or_else(|| {
+            self.outcomes
+                .iter()
+                .find(|(s, p, _)| s == ssid && p == password)
+                .map_or(Err(JoinError::WrongPassword), |(_, _, outcome)| *outcome)
+        });
+        if outcome.is_ok() {
+            self.link.set(true);
+        }
+        outcome
+    }
+
+    fn is_connected(&self) -> bool {
+        self.link.get()
+    }
+
+    async fn leave(&mut self) {
+        self.leaves += 1;
+        self.link.set(false);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Network
+
+/// One `POST` the [`MockNet`] saw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordedRequest {
+    /// The host.
+    pub host: String,
+    /// The port.
+    pub port: u16,
+    /// The path.
+    pub path: String,
+    /// The extra headers, in order.
+    pub headers: Vec<(String, String)>,
+    /// The body.
+    pub body: Vec<u8>,
+}
+
+impl RecordedRequest {
+    /// The value of header `name` (case-insensitive), if sent.
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
             .iter()
-            .find(|(s, p, _)| s == ssid && p == password)
-            .map_or(Err(JoinError::WrongPassword), |(_, _, outcome)| *outcome)
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+struct ScriptedPost {
+    result: Result<(u16, Vec<u8>), NetError>,
+    drops_link: bool,
+}
+
+/// A network stack with scripted results that records every request.
+///
+/// - [`Net::wait_ip`] takes the next queued result, `Ok` when none is queued.
+/// - [`Net::sntp`] takes the next queued time or error, [`NetError::Sntp`] when none is queued.
+/// - [`Net::post`] takes the next queued answer, [`NetError::Tls`] when none is queued.
+/// - A result queued with [`MockNet::push_sntp_dropping_link`] or
+///   [`MockNet::push_post_dropping_link`] also drops the link of the [`MockWifi`] given to
+///   [`MockNet::with_link`].
+/// - Every operation fails with [`NetError::NoIp`] while that link is down, without taking a
+///   scripted result.
+#[derive(Default)]
+pub struct MockNet {
+    ip: VecDeque<Result<(), NetError>>,
+    sntp: VecDeque<(Result<u64, NetError>, bool)>,
+    posts: VecDeque<ScriptedPost>,
+    requests: Vec<RecordedRequest>,
+    ip_timeouts: Vec<u32>,
+    sntp_timeouts: Vec<u32>,
+    link: Option<Rc<Cell<bool>>>,
+}
+
+impl MockNet {
+    /// A stack with nothing scripted and no link to watch.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A stack that has no IP while `link` (from [`MockWifi::link`]) is down.
+    #[must_use]
+    pub fn with_link(link: Rc<Cell<bool>>) -> Self {
+        Self {
+            link: Some(link),
+            ..Self::default()
+        }
+    }
+
+    /// Queues the result of the next [`Net::wait_ip`].
+    pub fn push_ip(&mut self, result: Result<(), NetError>) {
+        self.ip.push_back(result);
+    }
+
+    /// Queues the result of the next [`Net::sntp`].
+    pub fn push_sntp(&mut self, result: Result<u64, NetError>) {
+        self.sntp.push_back((result, false));
+    }
+
+    /// Queues the result of the next [`Net::sntp`], and drops the link while it runs.
+    pub fn push_sntp_dropping_link(&mut self, result: Result<u64, NetError>) {
+        self.sntp.push_back((result, true));
+    }
+
+    /// Queues the answer to the next [`Net::post`]: a status and a body, or an error.
+    pub fn push_post(&mut self, result: Result<(u16, &[u8]), NetError>) {
+        self.posts.push_back(ScriptedPost {
+            result: result.map(|(status, body)| (status, body.to_vec())),
+            drops_link: false,
+        });
+    }
+
+    /// Queues the answer to the next [`Net::post`], and drops the link while it runs.
+    pub fn push_post_dropping_link(&mut self, result: Result<(u16, &[u8]), NetError>) {
+        self.posts.push_back(ScriptedPost {
+            result: result.map(|(status, body)| (status, body.to_vec())),
+            drops_link: true,
+        });
+    }
+
+    /// Every `POST`, in order.
+    #[must_use]
+    pub fn requests(&self) -> &[RecordedRequest] {
+        &self.requests
+    }
+
+    /// The timeouts [`Net::wait_ip`] was called with.
+    #[must_use]
+    pub fn ip_timeouts(&self) -> &[u32] {
+        &self.ip_timeouts
+    }
+
+    /// The timeouts [`Net::sntp`] was called with.
+    #[must_use]
+    pub fn sntp_timeouts(&self) -> &[u32] {
+        &self.sntp_timeouts
+    }
+
+    fn link_down(&self) -> bool {
+        self.link.as_ref().is_some_and(|link| !link.get())
+    }
+}
+
+impl Net for MockNet {
+    async fn wait_ip(&mut self, timeout_ms: u32) -> Result<(), NetError> {
+        self.ip_timeouts.push(timeout_ms);
+        if self.link_down() {
+            return Err(NetError::NoIp);
+        }
+        self.ip.pop_front().unwrap_or(Ok(()))
+    }
+
+    async fn sntp(&mut self, timeout_ms: u32) -> Result<u64, NetError> {
+        self.sntp_timeouts.push(timeout_ms);
+        if self.link_down() {
+            return Err(NetError::NoIp);
+        }
+        let (result, drops_link) = self
+            .sntp
+            .pop_front()
+            .unwrap_or((Err(NetError::Sntp), false));
+        if drops_link && let Some(link) = &self.link {
+            link.set(false);
+        }
+        result
+    }
+
+    async fn post(
+        &mut self,
+        request: &HttpRequest<'_>,
+        response_body: &mut [u8],
+    ) -> Result<HttpResponse, NetError> {
+        self.requests.push(RecordedRequest {
+            host: request.host.to_owned(),
+            port: request.port,
+            path: request.path.to_owned(),
+            headers: request
+                .headers
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+            body: request.body.to_vec(),
+        });
+        if self.link_down() {
+            return Err(NetError::NoIp);
+        }
+        let Some(scripted) = self.posts.pop_front() else {
+            return Err(NetError::Tls);
+        };
+        if scripted.drops_link
+            && let Some(link) = &self.link
+        {
+            link.set(false);
+        }
+        let (status, body) = scripted.result?;
+        let target = response_body.get_mut(..body.len()).ok_or(NetError::Http)?;
+        target.copy_from_slice(&body);
+        Ok(HttpResponse {
+            status,
+            body_len: body.len(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Timer
+
+/// A timer that returns at once and records every wait.
+#[derive(Clone, Debug, Default)]
+pub struct MockTimer {
+    sleeps: Vec<u32>,
+}
+
+impl MockTimer {
+    /// A timer that has not waited.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Every wait, in milliseconds, in order.
+    #[must_use]
+    pub fn sleeps(&self) -> &[u32] {
+        &self.sleeps
+    }
+}
+
+impl Timer for MockTimer {
+    async fn sleep_ms(&mut self, ms: u32) {
+        self.sleeps.push(ms);
     }
 }

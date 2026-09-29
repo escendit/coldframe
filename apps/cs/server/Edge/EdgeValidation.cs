@@ -1,4 +1,6 @@
 using System.Buffers.Text;
+using System.Globalization;
+using System.Text.Json;
 using Coldframe.Contracts.Devices;
 using Coldframe.Crypto;
 
@@ -23,6 +25,20 @@ public static class EdgeValidation
     /// The longest <c>Idempotency-Key</c>.
     /// </summary>
     public const int MaxIdempotencyKeyLength = 200;
+
+    /// <summary>
+    /// The largest heartbeat body read, in bytes: a heartbeat is about 40.
+    /// </summary>
+    public const int MaxHeartbeatBodyLength = 4096;
+
+    /// <summary>
+    /// The heartbeat body's wire major, the only one served.
+    /// </summary>
+    public const long HeartbeatProtocolVersion = 1;
+
+    private const int SignatureHexLength = 64;
+
+    private const int MaxTimestampDigits = 19;
 
     /// <summary>
     /// The outcome of checking an <c>Idempotency-Key</c>.
@@ -150,4 +166,95 @@ public static class EdgeValidation
         var bytes = new byte[length];
         return Base64Url.TryDecodeFromChars(text, bytes, out var written) && written == length ? bytes : null;
     }
+
+    /// <summary>
+    /// Parses the Device authentication headers (AD-12) of a request: exactly one each of
+    /// <c>X-Coldframe-Device</c> (16 lowercase hex digits), <c>X-Coldframe-Timestamp</c> (1 to 19 digits that
+    /// fit a <see cref="long"/>), <c>X-Coldframe-Nonce</c> (32 lowercase hex digits) and
+    /// <c>X-Coldframe-Signature</c> (64 lowercase hex digits). Returns <see langword="null"/> for a missing or
+    /// malformed one. Nothing is verified here.
+    /// </summary>
+    public static DeviceAuthentication? ParseDeviceHeaders(IHeaderDictionary headers)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+
+        if (Single(headers, CryptoSpec.HeartbeatDeviceHeader) is not { } device
+            || NormalizeDeviceId(device) is not { } deviceId
+            || Single(headers, CryptoSpec.HeartbeatTimestampHeader) is not { } timestamp
+            || timestamp.Length is 0 or > MaxTimestampDigits
+            || !timestamp.All(char.IsAsciiDigit)
+            || !long.TryParse(timestamp, NumberStyles.None, CultureInfo.InvariantCulture, out var timestampMs)
+            || LowercaseHex(Single(headers, CryptoSpec.HeartbeatNonceHeader), 2 * CryptoSpec.HeartbeatNonceLength) is not { } nonce
+            || LowercaseHex(Single(headers, CryptoSpec.HeartbeatSignatureHeader), SignatureHexLength) is not { } signature)
+        {
+            return null;
+        }
+
+        return new DeviceAuthentication(deviceId, timestampMs, nonce, signature);
+    }
+
+    /// <summary>
+    /// Parses a heartbeat body: a JSON object whose <c>protocolVersion</c> is the integer 1 and whose optional
+    /// <c>uptimeMs</c> is a non-negative integer. Other properties are ignored (additive changes, AD-10).
+    /// Returns <see langword="null"/> for anything else.
+    /// </summary>
+    public static HeartbeatBody? ParseHeartbeatBody(ReadOnlyMemory<byte> body)
+    {
+        try
+        {
+            // The whole body is one JSON value: trailing content is malformed.
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("protocolVersion", out var version)
+                || version.ValueKind != JsonValueKind.Number
+                || !version.TryGetInt64(out var major)
+                || major != HeartbeatProtocolVersion)
+            {
+                return null;
+            }
+
+            if (!root.TryGetProperty("uptimeMs", out var uptime))
+            {
+                return new HeartbeatBody(null);
+            }
+
+            return uptime.ValueKind == JsonValueKind.Number && uptime.TryGetInt64(out var uptimeMs) && uptimeMs >= 0
+                ? new HeartbeatBody(uptimeMs)
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? Single(IHeaderDictionary headers, string name) =>
+        headers.TryGetValue(name, out var values) && values.Count == 1 ? values[0] : null;
+
+    private static byte[]? LowercaseHex(string? text, int length)
+    {
+        if (text is null || text.Length != length || !text.All(character => char.IsAsciiDigit(character) || character is >= 'a' and <= 'f'))
+        {
+            return null;
+        }
+
+        return Convert.FromHexString(text);
+    }
 }
+
+/// <summary>
+/// The Device authentication headers of a request, parsed but not verified.
+/// </summary>
+/// <param name="DeviceId">The Device ID the request claims.</param>
+/// <param name="TimestampMs">The request time, Unix milliseconds.</param>
+/// <param name="Nonce">The 16-byte nonce.</param>
+/// <param name="Signature">The 32-byte signature.</param>
+public sealed record DeviceAuthentication(DeviceId DeviceId, long TimestampMs, byte[] Nonce, byte[] Signature);
+
+/// <summary>
+/// A parsed heartbeat body.
+/// </summary>
+/// <param name="UptimeMs">The Device's uptime, when sent.</param>
+public sealed record HeartbeatBody(long? UptimeMs);
