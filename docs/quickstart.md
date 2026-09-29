@@ -229,12 +229,29 @@ cargo test --workspace
 ```
 
 `tests/rs/crypto` reproduces every vector of `packages/crypto-spec/vectors.json`, including the RFC
-anchors, and runs the negative cases. Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
+anchors, and runs the negative cases. It also drives the Device identity (`identity.rs`) through the
+mocks of `coldframe-hal`: the key-hierarchy vectors through the mock HMAC peripheral, the first-boot
+eFuse burn and the reuse on later boots, the dev-mode flash record, and every error case.
+`tests/rs/hal` checks that the mocks keep the hardware contracts: an eFuse block burns only once and
+hides its key, the HMAC refuses a block with the wrong purpose, the TRNG refuses to run while the
+radio is off, and flash has NOR semantics. Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
 member of the workspace. Cargo discovers every file in its `tests/` folder; a new file needs no
 registration.
 
 Firmware under `apps/rs` is not part of this workspace. Each firmware crate has its own toolchain
-and its own README.
+and its own README. To build the Hub firmware you need the `esp` toolchain from `espup`:
+
+```sh
+source ~/export-esp.sh
+cd apps/rs/hub
+cargo build --release
+cargo build --features dev-mode
+cargo fmt --check
+cargo clippy --release -- -D warnings
+```
+
+CI does not build firmware. The Hub's on-device behaviour is checked by hand with
+[`docs/bench/hub-identity-checklist.md`](bench/hub-identity-checklist.md).
 
 ### TypeScript
 

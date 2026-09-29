@@ -72,6 +72,7 @@ name = "coldframe-crypto"
 version = "0.0.0"
 dependencies = [
  "chacha20poly1305",
+ "coldframe-hal",
  "hkdf",
  "hmac",
  "sha2",
@@ -83,6 +84,7 @@ name = "coldframe-crypto-tests"
 version = "0.0.0"
 dependencies = [
  "coldframe-crypto",
+ "coldframe-hal",
  "hkdf",
  "serde_json",
  "sha2",
@@ -91,6 +93,10 @@ dependencies = [
 [[package]]
 name = "coldframe-hal"
 version = "0.0.0"
+dependencies = [
+ "hmac",
+ "sha2",
+]
 
 [[package]]
 name = "coldframe-hal-tests"

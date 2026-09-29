@@ -7,6 +7,8 @@
 //! - [`hpke`]: RFC 9180 base-mode sealing of `K_dev` to the Server's enrolment key.
 //! - [`setup`]: the proof-of-possession BLE setup session (AD-25).
 //! - [`heartbeat`]: the HMAC over a Hub request (AD-12).
+//! - [`identity`]: finding or burning the eFuse root, or the dev-mode flash root, behind the
+//!   `coldframe-hal` traits (AD-12, AD-24).
 //!
 //! Every label, size and header name comes from [`spec`], which `packages/crypto-spec` generates.
 //! The crate is `no_std` without `alloc`: callers pass output buffers. No type here implements
@@ -20,9 +22,11 @@ pub mod frame;
 pub mod heartbeat;
 pub mod hex;
 pub mod hpke;
+pub mod identity;
 pub mod keys;
 pub mod setup;
 pub mod spec;
 
 pub use error::Error;
+pub use identity::{IdentityError, IdentitySource, Provisioned};
 pub use keys::{DeviceId, DeviceKeys};
