@@ -57,7 +57,7 @@ development_status:
   epic-2-retrospective: optional
 
   epic-3: backlog
-  3-1-wire-and-crypto-contracts-with-shared-test-vectors: backlog
+  3-1-wire-and-crypto-contracts-with-shared-test-vectors: done
   3-2-hub-firmware-foundation-with-a-hardware-bound-identity: backlog
   3-3-server-side-device-enrolment: backlog
   3-4-hub-ble-setup-service: backlog
