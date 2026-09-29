@@ -159,7 +159,7 @@ message WifiResult {
   WifiStatus status = 1;
 }
 
-// Binds the Device to a Site, and a Node to a Lot.
+// Binds the Device to a Site, and a Node to a Lot. No reply on success; a failure is a SetupError.
 message SiteBinding {
   // The Site ID (the Keycloak Organization ID).
   string site_id = 1;

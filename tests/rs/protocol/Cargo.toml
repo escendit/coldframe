@@ -1,0 +1,18 @@
+# Integration tests for coldframe-protocol: round trips, sizes and capacities of the micropb types.
+[package]
+name = "coldframe-protocol-tests"
+description = "Integration tests for coldframe-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+coldframe-protocol = { path = "../../../packages/rs/protocol" }
+coldframe-setup = { path = "../../../packages/rs/setup" }
+heapless = "=0.9.3"
+
+[lints]
+workspace = true

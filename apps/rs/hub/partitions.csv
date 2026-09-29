@@ -1,5 +1,6 @@
 # Name,   Type, SubType, Offset,  Size,     Flags
-nvs,      data, nvs,     0x9000,  0x5000,
+nvs,      data, nvs,     0x9000,  0x3000,
+cf_setup, data, undefined, 0xC000,  0x2000,
 cf_ident, data, undefined, 0xE000,  0x1000,
 phy_init, data, phy,     0xF000,  0x1000,
 factory,  app,  factory, 0x10000, 0x3F0000,

@@ -1,0 +1,22 @@
+[package]
+name = "coldframe-setup"
+description = "Coldframe BLE setup service (AD-25): setup code, provisioning store, framing, session and the app-side client"
+version.workspace = true
+edition.workspace = true
+# The Hub firmware links this crate with the `esp` toolchain (Rust 1.95), so it stays buildable there.
+rust-version = "1.95"
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# no_std, no alloc, no esp crate: the logic runs over the coldframe-hal traits only (AD-24).
+# Exact versions (AD-15); Cargo.lock pins the rest.
+[dependencies]
+coldframe-crypto = { path = "../crypto" }
+coldframe-hal = { path = "../hal" }
+coldframe-protocol = { path = "../protocol" }
+heapless = { version = "=0.9.3", default-features = false }
+sha2 = { version = "=0.11.0", default-features = false }
+
+[lints]
+workspace = true

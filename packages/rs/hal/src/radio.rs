@@ -1,8 +1,8 @@
 //! The radio.
 //!
 //! Story 3.2 needs only to turn it on: on the ESP32-S3 the running radio is the entropy source of
-//! the TRNG, so the root key is drawn only after [`Radio::enable`]. Stories 3.4 and 3.5 extend this
-//! trait with BLE and Wi-Fi.
+//! the TRNG, so the root key is drawn only after [`Radio::enable`]. BLE and Wi-Fi have their own
+//! traits, [`crate::SetupLink`] (Story 3.4) and [`crate::Wifi`]; this one stays the power switch.
 
 use core::fmt;
 

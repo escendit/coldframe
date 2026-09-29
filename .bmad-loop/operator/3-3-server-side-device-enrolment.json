@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "Before upgrading the live cluster to the first release that contains Story 3.3, check that the Secret coldframe-enrolment-key exists in namespace coldframe with key private-key.pem; if it does not, create it as deploy/SECRETS.md describes (openssl genpkey -algorithm X25519).",
+    "Before that upgrade, run openssl rand -base64 32, record the value in a password manager or offline store kept apart from the database backups and the coldframe-backup-s3 credentials, then create the Secret coldframe-device-kek in namespace coldframe with key kek set to that value (deploy/SECRETS.md); the Server refuses to start without it.",
+    "After the upgrade, confirm the server pod is Ready and that GET /enrolment-key, called with a signed-in token, returns a publicKey and a fingerprint."
+  ],
+  "parked_at": "2026-09-29",
+  "run_id": "20260929-135654-2bf0",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-3-3-server-side-device-enrolment.md",
+  "story_key": "3-3-server-side-device-enrolment"
+}
