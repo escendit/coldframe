@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { appUrl, unreachableUrl, untrustedUrl } from '../fixtures/ports.ts';
+import { shortLivedSeconds } from '../fixtures/fake-idp.ts';
 import { copy, issuedTokens, notice, setMode, signIn, signInButton } from './helpers.ts';
 
 test.beforeEach(async () => {
@@ -166,7 +167,7 @@ test.describe('Sign in on the web', () => {
   test('UX-DR93 the refresh is rejected after the access token expires: the signed-out notice with Sign in', async ({ page }) => {
     await setMode('short-lived');
     await signIn(page);
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(shortLivedSeconds * 1_000 + 500);
     await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Alerts', exact: true }).click();
     await expect(page).toHaveURL(/\/signin\?notice=signed-out/u);
     await expect(notice(page)).toContainText(copy.signedOut);

@@ -14,6 +14,9 @@ export type Mode = 'normal' | 'error' | 'access_denied' | 'token-error' | 'short
 
 export const modes: readonly Mode[] = ['normal', 'error', 'access_denied', 'token-error', 'short-lived', 'discovery-error'];
 
+/** The access and ID token lifetime of the short-lived mode. */
+export const shortLivedSeconds = 5;
+
 export const realmPath = '/realms/coldframe';
 export const clientId = 'coldframe-web';
 export const clientSecret = 'e2e-client-secret';
@@ -147,7 +150,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   }
 
   async function tokens(sid: string, nonce: string | null): Promise<Record<string, unknown>> {
-    const lifetime = mode === 'short-lived' ? 1 : 300;
+    // short-lived: long enough to land on Garden after sign-in on a slow runner (the web app
+    // refreshes on the first request after expiry, with no margin), short enough to wait out.
+    const lifetime = mode === 'short-lived' ? shortLivedSeconds : 300;
     const subject = 'b5f1c0de-0000-4000-8000-000000000001';
     const profile = { name: 'Simon Novak', given_name: 'Simon', family_name: 'Novak', preferred_username: 'simon' };
     const accessToken = await sign({ sub: subject, aud: 'account', azp: clientId, sid, typ: 'Bearer', scope: 'openid profile' }, lifetime);
