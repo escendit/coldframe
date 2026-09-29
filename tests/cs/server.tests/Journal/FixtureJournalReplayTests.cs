@@ -78,6 +78,10 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(12, device.WrappedKey?.Nonce.Length);
         Assert.Equal(48, device.WrappedKey?.Sealed.Length);
 
+        // Two heartbeats, the second without an uptime: last seen at the second.
+        Assert.Equal(new DateTimeOffset(2026, 9, 29, 8, 1, 15, 500, TimeSpan.Zero), device.LastSeenAt);
+        Assert.Equal(1_790_668_875_100, device.LastHeartbeatTimestampMs);
+
         // Created, renamed, claimed and released by a Node, then removed: the tombstone keeps name and Site.
         var removed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01"]);
         Assert.Equal(LotLifecycle.Removed, removed.Lifecycle);

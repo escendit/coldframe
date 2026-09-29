@@ -340,3 +340,19 @@ source_spec: `spec-3-3-server-side-device-enrolment.md`
 severity: medium
 reason: DeviceGrain.Enrol refuses any Site other than State.SiteId, and nothing un-enrols a Device or releases it when its Site is deleted. This follows the story's "Device already enrolled on another Site → 409" rule literally. Releasing or moving a Device (AD-2 "moved, unassigned") belongs to the later Device lifecycle and Site-deletion work.
 status: open
+
+### DW-45: A Device grain replays its whole journal stream on activation, with no snapshot, and each Hub now adds a device.seen event every 30-60 s (about 700k a year).
+origin: spec-deferred 5734c6c6f117
+location: apps/cs/server/Journal/JournaledStreamGrain.cs (ReadStateFromStorage); apps/cs/server/Devices/DeviceGrain.cs (Heartbeat)
+source_spec: `spec-3-5-hub-joins-wi-fi-and-heartbeats-to-the-server.md`
+severity: medium
+reason: JournaledStreamGrain.ReadStateFromStorage reads Store.ReadStreamAsync(StreamId) in full; there is no snapshot anywhere in apps/cs/server/Journal. Story 3.5 journals every accepted heartbeat by design (spec Design Notes). A silo restart after months of heartbeats reactivates each Device by replaying hundreds of thousands of rows. Fix with journal snapshots or a retention/compaction rule for Device streams.
+status: open
+
+### DW-46: A provisioned Hub has no way back into BLE setup, so a changed Wi-Fi password, a re-enrolled or removed Device, or a new Server host leaves it retrying forever until cf_setup is erased by hand.
+origin: spec-deferred f95370c2deb3
+location: apps/rs/hub/src/main.rs (provisioned path); packages/rs/setup/src/service.rs (Boot)
+source_spec: `spec-3-5-hub-joins-wi-fi-and-heartbeats-to-the-server.md`
+severity: medium
+reason: Since Story 3.4 the Hub advertises only while unprovisioned (apps/rs/hub/src/main.rs, Boot::advertises). Story 3.5's uplink retries joins and heartbeats forever with backoff. The only recovery is espflash erase-region 0xC000 0x2000. It needs a Device lifecycle decision: a reset button, a factory-reset gesture, or re-provisioning after N failures.
+status: open

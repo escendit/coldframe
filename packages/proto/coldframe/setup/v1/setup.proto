@@ -141,7 +141,8 @@ message WifiConfig {
 // The outcome of joining.
 enum WifiStatus {
   WIFI_STATUS_UNSPECIFIED = 0;
-  // Joined and the Server answered.
+  // Joined, and the Server at SiteBinding.server_url was reached and accepted the Hub (a signed
+  // heartbeat answered 200). Only then is the provisioning record stored.
   WIFI_STATUS_CONNECTED = 1;
   // The access point refused the passphrase.
   WIFI_STATUS_WRONG_PASSWORD = 2;
@@ -149,7 +150,9 @@ enum WifiStatus {
   WIFI_STATUS_NETWORK_NOT_FOUND = 3;
   // The network is WPA3-only or otherwise unsupported.
   WIFI_STATUS_UNSUPPORTED_SECURITY = 4;
-  // Joined the network, but the Server could not be reached.
+  // Joined the network, but the Server was not reached or did not accept the Hub (no IP, DNS, clock,
+  // TLS, a non-200 answer, or the 40 s check budget ran out). The Hub leaves the network, stores
+  // nothing and keeps the session open for a retry.
   WIFI_STATUS_NO_SERVER = 5;
 }
 
@@ -165,6 +168,10 @@ message SiteBinding {
   string site_id = 1;
   // The Lot ID (UUIDv7) for a Node; absent for a Hub.
   optional string lot_id = 2;
+  // The Server a Hub reports to: `https://` + a lowercase DNS host + an optional `:port` (1-65535),
+  // no path, query, fragment, userinfo or IP literal, at most 100 bytes. Required for a Hub; a Node
+  // omits it.
+  optional string server_url = 3;
 }
 
 // The Server's enrolment key, fetched by the app from GET /enrolment-key.

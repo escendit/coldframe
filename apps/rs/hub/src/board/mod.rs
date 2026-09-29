@@ -1,5 +1,5 @@
-//! The `coldframe-hal` traits over esp-hal, esp-radio, trouble-host, esp-storage and the
-//! ESP32-S3 ROM.
+//! The `coldframe-hal` traits over esp-hal, esp-radio, trouble-host, esp-storage, embassy-net,
+//! mbedtls-rs, reqwless and the ESP32-S3 ROM.
 //!
 //! This is the only place in the Hub that names chip types. Everything above it takes the traits,
 //! so the logic is tested on the host with the mocks of `coldframe-hal`.
@@ -12,6 +12,10 @@ pub mod efuse;
 pub mod flash;
 #[cfg(not(feature = "dev-mode"))]
 pub mod hmac;
+pub mod net;
 pub mod radio;
 pub mod rng;
+pub mod roots;
+pub mod rtc;
+pub mod timer;
 pub mod wifi;

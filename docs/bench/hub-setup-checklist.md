@@ -1,8 +1,15 @@
-# Bench checklist: Hub BLE setup (Story 3.4)
+# Bench checklist: Hub BLE setup (Story 3.4, Server check since Story 3.5)
 
 This checklist is the acceptance test for the Hub's BLE setup service (AD-25) on a real ESP32-S3.
 CI runs every session rule on the host (`tests/rs/setup`); what happens over the air, on the chip
-and in its flash is checked here, by hand, with the desktop client `coldframe-setup-client`.
+and in its flash is checked here, by hand, with the desktop client `coldframe-setup-client`. What
+the Hub does after setup (heartbeats, re-joining) is the
+[uplink checklist](hub-uplink-checklist.md).
+
+Since Story 3.5, `CONNECTED` also means the Server accepted the Hub: after the join the Hub sets its
+clock and sends one signed heartbeat to the `--server` address, so Part D needs a reachable Server
+that knows the Hub (the client waits for you to enrol it first). Without one, Part D ends in
+`NO_SERVER`, which is itself a result worth recording.
 
 > [!NOTE]
 > Use a dev-mode build on a board that must never burn an eFuse (board **D** of the
@@ -23,7 +30,11 @@ and in its flash is checked here, by hand, with the desktop client `coldframe-se
 - The Server's enrolment key: `publicKey` from `GET /enrolment-key` (base64url, 43 characters). Any
   32-byte X25519 public key works for the BLE part; only a real one lets the Server accept the
   printed enrolment body.
-- A Site ID to bind to (any non-empty string of at most 36 bytes for the BLE part).
+- A Site ID to bind to (any non-empty string of at most 36 bytes for the BLE part; a real Site of
+  the Server, where you are an Administrator, for Part D).
+- The Server's address for `--server`: `https://` + its DNS name + an optional `:port`, no path
+  (for example `https://coldframe.example.org`). The Hub trusts public roots only, so the Server
+  needs its real certificate (AD-13).
 
 Build the client once, from the repository root:
 
@@ -56,7 +67,7 @@ and the date for each run.
 ## C. Wrong code
 
 - [ ] Run `cfsetup setup --code <the code with its last character changed> --ssid <ssid>
-      --password <password> --site <site> --enrolment-key <key>`.
+      --password <password> --site <site> --server <server> --enrolment-key <key>`.
 - [ ] The client prints `wrong setup code` and exits non-zero (`echo $?` is not 0).
 - [ ] The Hub logs `ble connected` then `ble disconnected` at once, and advertises again.
 - [ ] Nothing was stored: a reset still prints `setup code=` and advertises.
@@ -70,30 +81,33 @@ and the date for each run.
 ## D. Full setup
 
 - [ ] Run `cfsetup setup --code <code> --ssid <ssid> --password <password> --site <site>
-      --enrolment-key <key>`. Lowercase code input works too.
+      --server <server> --enrolment-key <key>`. Lowercase code input works too.
 - [ ] The client prints, in order:
   - `session open, mtu=…`;
   - `identity device_id=<the Device ID of the boot log> kind=1 firmware=<version>`;
   - the networks the Hub hears, one line per SSID, strongest first, WPA3-only ones marked
     `wpa3-only (unsupported)`;
-  - `site binding sent`, `enrolment sealed device_id=<same ID>`;
-  - `wifi result CONNECTED`;
+  - `site binding sent site=<site> server=<server>`, `enrolment sealed device_id=<same ID>`;
   - `POST /sites/<site>/devices` and a JSON body with `deviceId`, `kind: "hub"`, `enc` (43
-    characters) and `ciphertext` (64 characters).
-- [ ] The client exits 0.
+    characters) and `ciphertext` (64 characters), then `post it, then press Enter …`.
+- [ ] `POST` the printed body to `/sites/<site>/devices` as an Administrator of the Site. The Server
+      answers 201. Press Enter within 300 s (the session's idle timeout).
+- [ ] The client prints `wifi result CONNECTED` and exits 0.
 - [ ] The Hub logs `setup provisioned`, with no SSID, password or Site on the line.
 - [ ] The BLE connection survived the Wi-Fi scan and the join while both radios shared the chip:
       the client received the scan list and `CONNECTED` over the same connection, so a completed
       run is the evidence.
 - [ ] Right after, in the same boot, `cfsetup scan` no longer finds the Hub: advertising stopped
       at provisioning.
-- [ ] The next line is `heap free=… used=…`. Record `free` in the Result table. Pass: at least
-      32768 (32 KiB) with BLE and Wi-Fi both active. The `uptime` lines repeat `heap_free=` once a
-      minute; it must stay at or above 32768.
-- [ ] Optional, with a real Server key: `POST` the printed body to `/sites/<site>/devices` as an
-      Administrator. The Server answers 201.
+- [ ] The next line is `heap free=… used=… min_free=…`. Record `min_free` in the Result table. Pass:
+      at least 32768 (32 KiB): the lowest point covers BLE, Wi-Fi and the Server check's TLS
+      connection at once. The `uptime` lines repeat `heap_min_free=` once a minute; it must stay at
+      or above 32768.
 - [ ] Optional: a wrong password in a first run gives `wifi result WRONG_PASSWORD`; nothing is stored
       (a reset still shows the code). A second run with the right password gives `CONNECTED`.
+- [ ] Optional: skip the `POST` (press Enter at once, with a fresh Hub the Server does not know). The
+      client prints `wifi result NO_SERVER` and exits non-zero; the Hub left the network and stored
+      nothing (a reset still shows the code). `POST` the body, run again with `--enrolled yes`: `CONNECTED`.
 
 ## E. Unsupported and unknown networks (optional, run before Part D)
 
@@ -107,15 +121,25 @@ advertising, so run these first, or after erasing `cf_setup` again.
 ## F. Reboot after setup
 
 - [ ] Reset the board after Part D.
-- [ ] The boot shows the identity line and `setup provisioned earlier; not advertising`. The Hub
-      does not re-join Wi-Fi on this boot; that arrives with Story 3.5.
+- [ ] The boot shows the identity line and `setup provisioned earlier; not advertising`, then
+      re-joins its Wi-Fi and heartbeats ([uplink checklist](hub-uplink-checklist.md), Part E).
 - [ ] **No** `setup code=` line appears.
 - [ ] `cfsetup scan` no longer lists the Hub.
 - [ ] To set the Hub up again, erase `cf_setup` (`espflash erase-region 0xC000 0x2000`): the next
       boot draws a new code.
 
+## G. A Hub set up with Story 3.4 firmware
+
+Story 3.5 stores a version 2 provisioning record with the Server address. A version 1 record from a
+Story 3.4 setup has none, so the new firmware does not use it.
+
+- [ ] Flash the Story 3.5 firmware onto a Hub provisioned by Story 3.4 firmware, without erasing.
+- [ ] The boot logs `corrupt provisioning record`, then the same `setup code=` line as before and
+      `ble advertising setup service …`: the Hub counts as unprovisioned and keeps its code.
+- [ ] Set it up again with Part D, now with `--server`.
+
 ## Result
 
-| Date | Board | Build | Part | Pass / fail | Device ID | Heap free after setup (bytes) | Notes |
+| Date | Board | Build | Part | Pass / fail | Device ID | Heap min free after setup (bytes) | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | | |

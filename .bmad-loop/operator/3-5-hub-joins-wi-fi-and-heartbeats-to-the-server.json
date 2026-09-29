@@ -1,0 +1,14 @@
+{
+  "actions": [
+    "Flash a bench ESP32-S3 with the release build of apps/rs/hub (espflash erase-region 0xC000 0x2000 first on a board that ran Story 3.4, whose v1 provisioning record now reads as corrupt), then follow docs/bench/hub-uplink-checklist.md with coldframe-setup-client --server <your Server URL> against the real Server and confirm setup ends CONNECTED.",
+    "During that run confirm on serial that a heartbeat goes out every 30\u201360 s, and on the Server that the Hub's device.seen events keep arriving (last-seen advances).",
+    "Power-cycle the access point and reboot the Hub, and confirm on serial that the Hub re-joins with backoff and resumes heartbeats both times.",
+    "Run setup once with --server pointing at an unreachable host and once with --server https://expired.badssl.com, and confirm both answer NO_SERVER, the second one with a TLS verification failure logged.",
+    "Record the minimum free heap logged after the setup Server check (pass at 32768 bytes or more) and fill in the Result table of docs/bench/hub-uplink-checklist.md, then commit it.",
+    "After this change is on GitHub, confirm the new firmware job in .github/workflows/ci.yml passes (cmake, ninja, espup toolchain, release and dev-mode builds, check-image.sh)."
+  ],
+  "parked_at": "2026-09-29",
+  "run_id": "20260929-135654-2bf0",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-3-5-hub-joins-wi-fi-and-heartbeats-to-the-server.md",
+  "story_key": "3-5-hub-joins-wi-fi-and-heartbeats-to-the-server"
+}

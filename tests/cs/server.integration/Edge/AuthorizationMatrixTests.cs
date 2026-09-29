@@ -8,7 +8,9 @@ namespace Coldframe.Server.IntegrationTests.Edge;
 /// <summary>
 /// The generated authorization matrix (AD-4, AD-24): every Edge API endpoint × every Role × own Site and
 /// other Site, with the expected outcome derived only from the endpoint's declared access rule. A new
-/// endpoint joins the matrix on its own and fails it until it has a sample request below.
+/// endpoint joins the matrix on its own and fails it until it has a sample request below. A <c>Device</c>
+/// endpoint takes no user token at all: without the Device headers every caller, whatever its Role, gets
+/// 401 <c>device-unauthorized</c>.
 /// </summary>
 /// <remarks>
 /// Only Owners can be created through the API before Epic 9, so Site A (Owner, Administrator, Member) and
@@ -20,6 +22,8 @@ namespace Coldframe.Server.IntegrationTests.Edge;
 public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
 {
     private const string SiteAName = "Matrix A";
+
+    private const string DeviceUnauthorized = "urn:coldframe:problem:device-unauthorized";
 
     private static readonly SiteRole[] Roles = [SiteRole.Owner, SiteRole.Administrator, SiteRole.Member];
 
@@ -66,6 +70,11 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
     public AuthorizationMatrixTests(EdgeApiFixture edge)
     {
         _edge = edge;
+
+        // Without Device headers: what every caller of a Device endpoint gets, token or not.
+        _samples["POST /device/heartbeat"] = new(
+            (server, _, cancellationToken) => HeartbeatTests.PostUnsignedAsync(server, cancellationToken),
+            HttpStatusCode.Unauthorized);
 
         // Each call enrols a fresh simulated Device, sealed to the Server's key, so no call meets an enrolled one.
         _samples["POST /sites/{siteId}/devices"] = new(
@@ -136,6 +145,19 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             var sample = _samples[operation.Key];
             var minimum = operation.Rule.MinimumRole;
 
+            if (operation.Rule.IsDevice)
+            {
+                // A user token is no Device authentication, whatever the Role: the Device branch.
+                foreach (var role in Roles)
+                {
+                    using var server = _edge.CreateServerClient(users[role].AccessToken);
+                    using var response = await sample.Send(server, siteA, cancellationToken);
+                    await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.Unauthorized, DeviceUnauthorized, cancellationToken);
+                }
+
+                continue;
+            }
+
             foreach (var role in Roles)
             {
                 using var server = _edge.CreateServerClient(users[role].AccessToken);
@@ -193,7 +215,9 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         {
             using var response = await _samples[operation.Key].Send(server, Guid.CreateVersion7().ToString(), cancellationToken);
 
-            await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.Unauthorized, "urn:coldframe:problem:unauthorized", cancellationToken);
+            // A Device endpoint answers a caller without Device headers in its own terms.
+            var type = operation.Rule.IsDevice ? DeviceUnauthorized : "urn:coldframe:problem:unauthorized";
+            await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.Unauthorized, type, cancellationToken);
         }
     }
 

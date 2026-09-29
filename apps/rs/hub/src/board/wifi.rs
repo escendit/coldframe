@@ -2,9 +2,11 @@
 //!
 //! - Scan: an active scan of every channel (`ScanConfig::default()`); the strongest access points
 //!   are kept when more are heard than fit.
-//! - Join: pinned to the BSSID and channel the session chose, WPA2-Personal (or open for an
-//!   empty passphrase). esp-radio has no WPA3-SAE station configuration, which is why WPA3-only
-//!   networks are unsupported.
+//! - Join: pinned to the BSSID and channel the caller chose (`coldframe_uplink::select_bssid`),
+//!   WPA2-Personal (or open for an empty passphrase). esp-radio has no WPA3-SAE station
+//!   configuration, which is why WPA3-only networks are unsupported.
+//! - Link: [`Wifi::is_connected`] is the station's association state; the uplink checks it before
+//!   each heartbeat and after any network error, and re-joins. [`Wifi::leave`] disconnects.
 //!
 //! Neither the SSID nor the passphrase is logged.
 
@@ -137,6 +139,16 @@ impl Wifi for BoardWifi {
                 let _ = self.controller.disconnect_async().await;
                 Err(JoinError::Failed)
             }
+        }
+    }
+
+    fn is_connected(&self) -> bool {
+        self.controller.is_connected()
+    }
+
+    async fn leave(&mut self) {
+        if self.controller.is_connected() {
+            let _ = self.controller.disconnect_async().await;
         }
     }
 }

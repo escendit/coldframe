@@ -1,0 +1,11 @@
+{
+  "serverTime": "2026-09-29T12:34:56.789Z",
+  "coldframeFixtureUnknownField": {
+    "nested": [
+      1,
+      "two",
+      true,
+      null
+    ]
+  }
+}

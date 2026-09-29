@@ -1,0 +1,21 @@
+# Integration tests for coldframe-uplink: BSSID choice, backoff, the heartbeat schedule, server URLs,
+# RFC 3339 times, monotonic stamps, signing against packages/crypto-spec/vectors.json, the Story 3.5
+# uplink rows through `Uplink::step`, and the golden JSON fixtures of packages/openapi.
+[package]
+name = "coldframe-uplink-tests"
+description = "Integration tests for coldframe-uplink"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+coldframe-crypto = { path = "../../../packages/rs/crypto" }
+coldframe-hal = { path = "../../../packages/rs/hal", features = ["mock"] }
+coldframe-uplink = { path = "../../../packages/rs/uplink" }
+serde_json = "=1.0.151"
+
+[lints]
+workspace = true

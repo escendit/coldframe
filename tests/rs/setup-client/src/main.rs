@@ -4,11 +4,16 @@
 //! ```text
 //! coldframe-setup-client scan [--seconds N]
 //! coldframe-setup-client setup --code CODE --ssid SSID --password PASSWORD --site SITE_ID \
-//!     --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N]
+//!     --server https://HOST[:PORT] --enrolment-key BASE64URL [--fingerprint HEX] \
+//!     [--address ADDRESS] [--seconds N] [--enrolled yes]
 //! ```
 //!
-//! `setup` runs identity, the Wi-Fi scan list, the Site binding, enrolment and the Wi-Fi config,
-//! prints each result, and prints the `EnrolDeviceRequest` body for `POST /sites/{siteId}/devices`.
+//! `setup` runs identity, the Wi-Fi scan list, the Site binding (with the Server address the Hub
+//! reports to) and enrolment, then prints the `EnrolDeviceRequest` body for
+//! `POST /sites/{siteId}/devices` and waits for Enter: the Server must know the Hub before the Hub
+//! checks it, as the app does (enrol, then `WifiConfig`). `--enrolled yes` skips the wait for a Hub
+//! the Server already knows. It then sends the Wi-Fi config and prints the result: `CONNECTED`
+//! once the Hub has joined and the Server accepted its heartbeat, `NO_SERVER` otherwise.
 //! A wrong code exits non-zero with `wrong setup code`. BlueZ negotiates the ATT MTU on connect;
 //! the client fragments to whatever was negotiated.
 
@@ -37,13 +42,14 @@ use coldframe_setup::{
 use futures::{Stream, StreamExt as _};
 use uuid::Uuid;
 
-/// How long to wait for one reply frame.
-const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long to wait for one reply frame: a `WifiConfig` takes a scan, a join of up to 30 s and a
+/// Server check of up to 40 s.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
 
 type Failure = Box<dyn std::error::Error>;
 
 fn usage() -> &'static str {
-    "usage:\n  coldframe-setup-client scan [--seconds N]\n  coldframe-setup-client setup --code CODE --ssid SSID --password PASSWORD --site SITE_ID --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N]"
+    "usage:\n  coldframe-setup-client scan [--seconds N]\n  coldframe-setup-client setup --code CODE --ssid SSID --password PASSWORD --site SITE_ID --server https://HOST[:PORT] --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N] [--enrolled yes]"
 }
 
 /// Parsed `--name value` options.
@@ -329,6 +335,7 @@ async fn setup(options: &Options) -> Result<ExitCode, Failure> {
     let ssid = options.require("ssid")?;
     let password = options.require("password")?;
     let site = options.require("site")?;
+    let server = options.require("server")?;
     let server_key: [u8; X25519_KEY_LENGTH] = from_base64url(options.require("enrolment-key")?)?
         .try_into()
         .map_err(|_| "the enrolment key is not 32 bytes")?;
@@ -345,20 +352,57 @@ async fn setup(options: &Options) -> Result<ExitCode, Failure> {
     println!("hub {} ({})", hub.address, hub.name);
 
     let mut link = Link::open(hub.peripheral).await?;
-    let result = run_session(&mut link, code, ssid, password, site, &server_key, options).await;
+    let target = Target {
+        code,
+        ssid,
+        password,
+        site,
+        server,
+    };
+    let result = run_session(&mut link, &target, &server_key, options).await;
     let _ = link.peripheral.disconnect().await;
     result
 }
 
+/// What the operator sets the Hub up with. Deliberately not `Debug`: it holds the password.
+struct Target<'a> {
+    code: &'a str,
+    ssid: &'a str,
+    password: &'a str,
+    site: &'a str,
+    server: &'a str,
+}
+
+/// Waits until the operator presses Enter.
+async fn wait_for_enter() -> Result<(), Failure> {
+    tokio::task::spawn_blocking(|| {
+        let mut byte = [0u8; 1];
+        loop {
+            match std::io::stdin().read(&mut byte) {
+                Ok(0) => return Ok(()),
+                Ok(_) if byte[0] == b'\n' => return Ok(()),
+                Ok(_) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await??;
+    Ok(())
+}
+
 async fn run_session(
     link: &mut Link,
-    code: &str,
-    ssid: &str,
-    password: &str,
-    site: &str,
+    target: &Target<'_>,
     server_key: &[u8; X25519_KEY_LENGTH],
     options: &Options,
 ) -> Result<ExitCode, Failure> {
+    let Target {
+        code,
+        ssid,
+        password,
+        site,
+        server,
+    } = *target;
     let mut client = AppClient::new(random_key()?);
     let mut frame = vec![0u8; MAX_FRAME];
     let length = client.hello(&mut frame)?;
@@ -401,8 +445,8 @@ async fn run_session(
         }
     }
 
-    post(link, &mut client, site_binding(site)?).await?;
-    println!("site binding sent site={site}");
+    post(link, &mut client, site_binding(site, server)?).await?;
+    println!("site binding sent site={site} server={server}");
 
     let enrolment = enrolment_request(server_key, options.get("fingerprint"))?;
     let Body::EnrolmentResponse(enrolled) =
@@ -412,6 +456,17 @@ async fn run_session(
     };
     println!("enrolment sealed device_id={}", hex(&enrolled.device_id));
 
+    // The Server must know the Hub before the Hub checks it (packages/proto README).
+    println!("POST /sites/{site}/devices");
+    println!(
+        "{}",
+        enrol_device_request(&enrolled.device_id, &enrolled.enc, &enrolled.ciphertext)
+    );
+    if options.get("enrolled") != Some("yes") {
+        println!("post it, then press Enter once the Server answered 201");
+        wait_for_enter().await?;
+    }
+
     let Body::WifiResult(result) = body(
         request(link, &mut client, wifi_config(ssid, password)?).await?,
         "wifi",
@@ -420,12 +475,6 @@ async fn run_session(
         return Err("wifi: unexpected reply".into());
     };
     println!("wifi result {}", status(result.status));
-
-    println!("POST /sites/{site}/devices");
-    println!(
-        "{}",
-        enrol_device_request(&enrolled.device_id, &enrolled.enc, &enrolled.ciphertext)
-    );
     Ok(if result.status == WifiStatus::Connected {
         ExitCode::SUCCESS
     } else {

@@ -2,8 +2,10 @@
 //! Device is provisioned.
 //!
 //! [`run_setup`] owns the loop. Per connection it reassembles frames, feeds them to the session
-//! and carries out what the session asks for: send a frame, scan or join Wi-Fi, store the
-//! provisioning record, or disconnect. A connection ends when the app disconnects, when the
+//! and carries out what the session asks for: send a frame, scan or join Wi-Fi, check the Server
+//! ([`check_server`]: DHCP, SNTP and one signed heartbeat within
+//! [`coldframe_uplink::SERVER_CHECK_TIMEOUT_MS`]), leave the network, store the provisioning
+//! record, or disconnect. A connection ends when the app disconnects, when the
 //! session closes it, or after [`SESSION_IDLE_TIMEOUT_MS`] without a write; the Device then
 //! advertises again. Once a session has stored the provisioning record, the service lets that
 //! connection finish and returns.
@@ -11,7 +13,8 @@
 use core::fmt;
 
 use coldframe_crypto::DeviceKeys;
-use coldframe_hal::{AccessPoint, Flash, LinkError, SetupLink, Trng, Wifi};
+use coldframe_hal::{AccessPoint, Flash, LinkError, Net, Rtc, SetupLink, Timer, Trng, Wifi};
+use coldframe_uplink::{CheckError, ServerCheck, check_server};
 
 use crate::code::SetupCode;
 use crate::framing::{Reassembler, fragments};
@@ -29,6 +32,8 @@ pub const MAX_PAYLOAD: usize = 512;
 pub struct Provisioned {
     /// What was stored in the provisioning record.
     pub record: ProvisioningRecord,
+    /// The Server check that passed: the clock is set, and later heartbeats stamp above it.
+    pub check: ServerCheck,
 }
 
 /// What the Device found in `cf_setup` at boot. Deliberately not `Debug`: it holds the code.
@@ -97,15 +102,24 @@ impl core::error::Error for SetupError {}
 
 /// Runs BLE setup sessions until one stores the provisioning record.
 ///
-/// `keys` are the Device's keys (for the Device ID and enrolment); `code` is its setup code;
-/// `firmware_version` goes into `Identity`.
+/// `link` is the BLE setup link, `wifi` the station and `net` its IP stack; `rtc` is set by SNTP
+/// and then to the Server's time during the Server check, which `timer` bounds. `keys` are the
+/// Device's keys (for the Device ID, enrolment and the heartbeat signature); `code` is its setup
+/// code; `firmware_version` goes into `Identity`.
 ///
 /// # Errors
 ///
 /// [`SetupError::Link`] when the link cannot accept a connection.
-pub async fn run_setup<L, W, T, F>(
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one parameter per piece of hardware"
+)]
+pub async fn run_setup<L, W, N, R, M, T, F>(
     link: &mut L,
     wifi: &mut W,
+    net: &mut N,
+    rtc: &mut R,
+    timer: &mut M,
     trng: &mut T,
     flash: &mut F,
     keys: &DeviceKeys,
@@ -115,34 +129,68 @@ pub async fn run_setup<L, W, T, F>(
 where
     L: SetupLink,
     W: Wifi,
+    N: Net,
+    R: Rtc,
+    M: Timer,
     T: Trng,
     F: Flash,
 {
+    let mut hardware = Hardware {
+        wifi,
+        net,
+        rtc,
+        timer,
+        trng,
+        flash,
+        keys,
+    };
     loop {
         link.accept().await.map_err(SetupError::Link)?;
         let mut session = Session::new(code, keys, firmware_version);
-        let record = serve(link, wifi, trng, flash, &mut session).await;
+        let stored = serve(link, &mut hardware, &mut session).await;
         link.disconnect().await;
-        if let Some(record) = record {
-            return Ok(Provisioned { record });
+        if let Some((record, check)) = stored {
+            return Ok(Provisioned { record, check });
         }
     }
 }
 
-/// Serves one connection until it ends; returns the provisioning record it stored, if any.
-async fn serve<L, W, T, F>(
+/// Everything a session drives besides the link.
+struct Hardware<'a, W, N, R, M, T, F> {
+    wifi: &'a mut W,
+    net: &'a mut N,
+    rtc: &'a mut R,
+    timer: &'a mut M,
+    trng: &'a mut T,
+    flash: &'a mut F,
+    keys: &'a DeviceKeys,
+}
+
+/// Serves one connection until it ends; returns the provisioning record it stored and the Server
+/// check that allowed it, if any.
+async fn serve<L, W, N, R, M, T, F>(
     link: &mut L,
-    wifi: &mut W,
-    trng: &mut T,
-    flash: &mut F,
+    hardware: &mut Hardware<'_, W, N, R, M, T, F>,
     session: &mut Session<'_>,
-) -> Option<ProvisioningRecord>
+) -> Option<(ProvisioningRecord, ServerCheck)>
 where
     L: SetupLink,
     W: Wifi,
+    N: Net,
+    R: Rtc,
+    M: Timer,
     T: Trng,
     F: Flash,
 {
+    let Hardware {
+        wifi,
+        net,
+        rtc,
+        timer,
+        trng,
+        flash,
+        keys,
+    } = hardware;
     let mut reassembler = Reassembler::new();
     let mut payload = [0u8; MAX_PAYLOAD];
     let mut out = [0u8; MAX_FRAME];
@@ -153,7 +201,7 @@ where
             return stored;
         };
         let mut action = match reassembler.push(&payload[..length]) {
-            Ok(Some(frame)) => session.on_frame(trng, frame, &mut out),
+            Ok(Some(frame)) => session.on_frame(&mut **trng, frame, &mut out),
             Ok(None) => continue,
             Err(_) => session.on_frame_error(&mut out),
         };
@@ -190,14 +238,35 @@ where
                     };
                     session.on_join(result, &mut out)
                 }
+                Action::CheckServer => {
+                    let result = match session.server().cloned() {
+                        Some(server) => {
+                            check_server(
+                                &mut **net,
+                                &mut **rtc,
+                                &mut **timer,
+                                &mut **trng,
+                                keys,
+                                &server,
+                            )
+                            .await
+                        }
+                        None => Err(CheckError::Internal),
+                    };
+                    session.on_server_check(result)
+                }
+                Action::Leave => {
+                    wifi.leave().await;
+                    session.on_left(&mut out)
+                }
                 Action::Persist => {
                     let record = session.provisioning_record();
-                    let saved = match &record {
-                        Some(record) => store_provisioning(flash, record).is_ok(),
-                        None => false,
+                    let saved = match (&record, session.server_check()) {
+                        (Some(record), Some(_)) => store_provisioning(&mut **flash, record).is_ok(),
+                        _ => false,
                     };
                     if saved {
-                        stored = record;
+                        stored = record.zip(session.server_check());
                     }
                     session.on_persisted(saved, &mut out)
                 }

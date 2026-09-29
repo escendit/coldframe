@@ -1,0 +1,20 @@
+{
+  "name": "@coldframe/openapi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The REST contract (OpenAPI 3.1) and the golden Hub JSON fixtures generated from it",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./coldframe.openapi.json": "./coldframe.openapi.json"
+  },
+  "scripts": {
+    "generate": "node scripts/generate-fixtures.ts",
+    "check": "node scripts/generate-fixtures.ts --check",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0"
+  }
+}

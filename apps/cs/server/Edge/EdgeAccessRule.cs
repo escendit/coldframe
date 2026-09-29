@@ -4,11 +4,15 @@ namespace Coldframe.Server.Edge;
 
 /// <summary>
 /// The access rule an Edge API endpoint declares in its metadata: a minimum <see cref="SiteRole"/> on the
-/// Site named by the route value <c>siteId</c>, or any authenticated User. Every endpoint declares exactly
-/// one; a test rejects an endpoint without one.
+/// Site named by the route value <c>siteId</c>, any authenticated User, or an authenticated Device. Every
+/// endpoint declares exactly one; a test rejects an endpoint without one.
 /// </summary>
-/// <param name="MinimumRole">The minimum Role, or <see langword="null"/> for any authenticated User.</param>
-public sealed record EdgeAccessRule(SiteRole? MinimumRole)
+/// <param name="MinimumRole">The minimum Role, or <see langword="null"/> for any authenticated User or a Device.</param>
+/// <param name="IsDevice">
+/// <see langword="true"/> for a <c>/device/*</c> endpoint: no Keycloak token, the Device signs the request
+/// (AD-12) and the handler checks it.
+/// </param>
+public sealed record EdgeAccessRule(SiteRole? MinimumRole, bool IsDevice = false)
 {
     /// <summary>
     /// The name of the "any authenticated User" rule, as the contract's <c>x-coldframe-minimum-role</c> writes it.
@@ -16,14 +20,25 @@ public sealed record EdgeAccessRule(SiteRole? MinimumRole)
     public const string AuthenticatedName = "Authenticated";
 
     /// <summary>
+    /// The name of the "authenticated Device" rule, as the contract's <c>x-coldframe-minimum-role</c> writes it.
+    /// </summary>
+    public const string DeviceName = "Device";
+
+    /// <summary>
     /// Any authenticated User may call the endpoint.
     /// </summary>
     public static EdgeAccessRule AuthenticatedCaller { get; } = new((SiteRole?)null);
 
     /// <summary>
-    /// The rule as the contract writes it: a <see cref="SiteRole"/> name or <see cref="AuthenticatedName"/>.
+    /// A Device that signs its request may call the endpoint; a Keycloak token neither helps nor hurts.
     /// </summary>
-    public override string ToString() => MinimumRole?.ToString() ?? AuthenticatedName;
+    public static EdgeAccessRule DeviceCaller { get; } = new((SiteRole?)null, IsDevice: true);
+
+    /// <summary>
+    /// The rule as the contract writes it: a <see cref="SiteRole"/> name, <see cref="AuthenticatedName"/> or
+    /// <see cref="DeviceName"/>.
+    /// </summary>
+    public override string ToString() => IsDevice ? DeviceName : MinimumRole?.ToString() ?? AuthenticatedName;
 }
 
 /// <summary>
@@ -61,5 +76,17 @@ public static class EdgeAccessRuleExtensions
         ArgumentNullException.ThrowIfNull(builder);
 
         return builder.WithMetadata(EdgeAccessRule.AuthenticatedCaller).RequireAuthorization(AuthenticatedCallerPolicy);
+    }
+
+    /// <summary>
+    /// A Device calls the endpoint (<c>/device/*</c>): it is anonymous to JWT, and its handler authenticates the
+    /// Device's signature itself, answering 401 <c>device-unauthorized</c> when it does not hold.
+    /// </summary>
+    public static TBuilder RequireDevice<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        return builder.WithMetadata(EdgeAccessRule.DeviceCaller).AllowAnonymous();
     }
 }
