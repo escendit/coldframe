@@ -23,8 +23,9 @@ public data class FirstRunTile(
 )
 
 /**
- * The first-run tiles of an empty Site. [actionable] tiles start their flow (mobile, Admin+, once
- * the flow exists); [memberNotice] adds "Only Owners and Administrators can add Devices."
+ * The first-run tiles of an empty Site. When [actionable], the next step's tile (Add a Hub)
+ * starts its flow (mobile, Admin+); later steps never act. [memberNotice] adds "Only Owners and
+ * Administrators can add Devices."
  */
 public data class FirstRunSteps(
     val tiles: List<FirstRunTile>,
@@ -33,12 +34,13 @@ public data class FirstRunSteps(
 ) {
     public companion object {
         /**
-         * The tiles for [role]. No Hub or Node exists in Story 1.8, so Add a Hub is next and the
-         * rest are later. [flowAvailable] turns on with the Add a Hub flow (a later epic).
+         * The tiles for [role]. No Hub or Node is listed yet (Story 3.7), so Add a Hub is next and
+         * the rest are later. The mobile core has the Add a Hub flow (Story 3.6), so
+         * [flowAvailable] is on unless a caller has no flow to start.
          */
         public fun of(
             role: SiteRole,
-            flowAvailable: Boolean = false,
+            flowAvailable: Boolean = true,
         ): FirstRunSteps =
             FirstRunSteps(
                 tiles =

@@ -22,9 +22,23 @@ class FirstRunStepsTest {
     }
 
     @Test
-    fun uxDr54TilesAreNotActionableUntilTheFlowExists() {
-        assertFalse(FirstRunSteps.of(SiteRole.Owner).actionable)
-        assertFalse(FirstRunSteps.of(SiteRole.Administrator).actionable)
+    fun uxDr66TheAddAHubTileStartsTheFlowForAdministratorsAndOwnersOnMobile() {
+        assertTrue(FirstRunSteps.of(SiteRole.Owner).actionable)
+        assertTrue(FirstRunSteps.of(SiteRole.Administrator).actionable)
+        assertFalse(FirstRunSteps.of(SiteRole.Member).actionable)
+        assertEquals(
+            FirstRunStep.AddHub,
+            FirstRunSteps
+                .of(SiteRole.Owner)
+                .tiles
+                .first { it.state == StepState.Next }
+                .step,
+        )
+    }
+
+    @Test
+    fun uxDr54WithoutAFlowNoTileActs() {
+        assertFalse(FirstRunSteps.of(SiteRole.Owner, flowAvailable = false).actionable)
     }
 
     @Test

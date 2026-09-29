@@ -42,6 +42,9 @@
 		<string>UbuntuCondensed-Regular.ttf</string>
 		<string>UbuntuMono-Regular.ttf</string>
 	</array>
+	<!-- Add a Hub (AD-25): the core scans for and connects to the Hub over Bluetooth LE. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Coldframe uses Bluetooth to find your Hub and send it your Wi-Fi when you add it.</string>
 	<key>ColdframeServerURL</key>
 	<string>$(COLDFRAME_SERVER_URL)</string>
 	<key>ColdframeKeycloakIssuer</key>

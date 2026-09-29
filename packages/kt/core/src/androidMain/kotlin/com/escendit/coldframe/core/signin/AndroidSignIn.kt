@@ -3,6 +3,9 @@ package com.escendit.coldframe.core.signin
 import android.content.Context
 import androidx.activity.ComponentActivity
 import com.escendit.coldframe.core.lots.LotsEngine
+import com.escendit.coldframe.core.setup.AndroidRadioState
+import com.escendit.coldframe.core.setup.HubSetupEngine
+import com.escendit.coldframe.core.setup.KableSetupRadio
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesWiring
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -50,6 +53,10 @@ public class AndroidSignIn private constructor(
 
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
     public val lots: LotsEngine = SitesWiring.lots(api, sites, scope)
+
+    /** Add a Hub over Kable; Bluetooth is only touched once the flow opens. */
+    public val hubSetup: HubSetupEngine =
+        SitesWiring.hubSetup(config, api, KableSetupRadio(AndroidRadioState(context)), sites, scope)
 
     /** Call in every `onCreate` of the activity that starts sign-in, before it is started. */
     public fun registerActivity(activity: ComponentActivity) {

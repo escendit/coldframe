@@ -38,6 +38,9 @@ final class CoreSignInService: SignInService {
   /// The Lots half of the same core instance, for `CoreLotsService`.
   var lots: IosLots { core.lots }
 
+  /// Add a Hub of the same core instance, for `CoreHubSetupService`.
+  var hubSetup: IosHubSetup { core.hubSetup }
+
   func signIn() { core.signIn() }
 
   func resume() { core.resume() }

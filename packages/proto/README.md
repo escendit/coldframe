@@ -46,7 +46,13 @@ packages/proto/check-compat.sh --base <git-ref>
   types with heapless containers of fixed capacity (SSID 32, password 64, Site and Lot ID 36, keys
   and `enc` 32, enrolment ciphertext 48, fingerprint 64, 16 networks), each with a compile-time
   `MAX_SIZE`. `WifiConfig` and `SetupMessage` (and its `Body`) implement no `Debug`.
-- The **Kotlin** core arrives with Story 3.6.
+- **Kotlin**: [`packages/kt/core`](../kt/core) generates `coldframe.setup.v1` at build time with the
+  Wire 7.1.0 Gradle plugin (`generateCommonMainProtos`, into `build/generated/source/wire`) for
+  every target of the core (JVM, Android, iOS). The app side of the session is
+  `com.escendit.coldframe.core.setup.SetupSession` over the pure-Kotlin crypto in
+  `com.escendit.coldframe.core.crypto` (X25519, HKDF-SHA256, ChaCha20-Poly1305), checked against
+  [`vectors.json`](../crypto-spec/vectors.json) on every target and against the JDK on the JVM.
+  `HubSetupEngine` runs the Hub message order below over Kable 0.45 (`KableSetupRadio`).
 
 ## BLE transport
 
@@ -107,6 +113,11 @@ Messages only the Device sends (`Identity`, `WifiScanList`, `WifiResult`, `Enrol
 `CONNECTED` the Hub answers `SiteBinding`, `EnrolmentRequest` and `WifiConfig` with
 `UNEXPECTED_MESSAGE`, finishes the session (the app disconnects, or the idle timeout) and stops
 advertising for good.
+
+**WPA3-only networks are not supported.** The Hub joins with WPA2 (including WPA2/WPA3 transition
+networks); a WPA3-only or enterprise network is listed as `WIFI_SECURITY_WPA3_ONLY` or
+`WIFI_SECURITY_OTHER`, and the apps show it hatched and unselectable with "Not supported: the Hub
+needs WPA2 or mixed WPA2/WPA3."
 
 **The app enrols before it sends `WifiConfig`.** The Server accepts the Hub's heartbeat only once it
 knows the Device, so the app posts the `EnrolmentResponse` to `POST /sites/{siteId}/devices` and waits

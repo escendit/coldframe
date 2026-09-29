@@ -15,6 +15,8 @@ import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
+import com.escendit.coldframe.android.ui.setup.AddHubFlow
+import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.shell.AppShell
 import com.escendit.coldframe.android.ui.signin.SignInScreen
 import com.escendit.coldframe.android.ui.sites.CreateSiteScreen
@@ -25,6 +27,7 @@ import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
@@ -32,7 +35,8 @@ import com.escendit.coldframe.designtokens.Spacing
 /**
  * Maps the core's state to a surface. No branching on errors, URLs or tokens here: the shell
  * only renders [SignInState], [SitesState] and [ThemePreference]. Signed in, the Sites decide:
- * Create Site replaces the tab shell without a Membership, and covers it from "New Site".
+ * Create Site replaces the tab shell without a Membership, and covers it from "New Site"; Add a
+ * Hub covers it while its flow is open.
  */
 @Composable
 fun ColdframeRoot(
@@ -46,13 +50,36 @@ fun ColdframeRoot(
     systemIsDark: Boolean = isSystemInDarkTheme(),
     lots: LotsState = LotsState.Idle,
     lotsActions: LotsActions = LotsActions.None,
+    hubSetup: HubSetupState = HubSetupState.CLOSED,
+    hubSetupActions: HubSetupActions = HubSetupActions.None,
 ) {
     ColdframeTheme(isDark = theme.isDark(systemIsDark)) {
         when (state) {
-            SignInState.Restoring -> Background()
-            SignInState.Working -> SignInScreen(notice = null, working = true, onSignIn = onSignIn)
-            is SignInState.SignedOut -> SignInScreen(notice = state.notice, working = false, onSignIn = onSignIn)
-            is SignInState.SignedIn -> SignedIn(sites, theme, onSignOut, onSelectTheme, sitesActions, lots, lotsActions)
+            SignInState.Restoring -> {
+                Background()
+            }
+
+            SignInState.Working -> {
+                SignInScreen(notice = null, working = true, onSignIn = onSignIn)
+            }
+
+            is SignInState.SignedOut -> {
+                SignInScreen(notice = state.notice, working = false, onSignIn = onSignIn)
+            }
+
+            is SignInState.SignedIn -> {
+                SignedIn(
+                    sites,
+                    theme,
+                    onSignOut,
+                    onSelectTheme,
+                    sitesActions,
+                    lots,
+                    lotsActions,
+                    hubSetup,
+                    hubSetupActions,
+                )
+            }
         }
     }
 }
@@ -66,6 +93,8 @@ private fun SignedIn(
     actions: SitesActions,
     lots: LotsState,
     lotsActions: LotsActions,
+    hubSetup: HubSetupState,
+    hubSetupActions: HubSetupActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -104,6 +133,8 @@ private fun SignedIn(
             val creating = sites.creating
             if (creating != null) {
                 CreateSiteScreen(form = creating, actions = actions)
+            } else if (hubSetup.open) {
+                AddHubFlow(state = hubSetup, actions = hubSetupActions)
             } else {
                 AppShell(
                     sites = sites,
@@ -113,6 +144,7 @@ private fun SignedIn(
                     actions = actions,
                     lots = lots,
                     lotsActions = lotsActions,
+                    onAddHub = hubSetupActions.open,
                 )
             }
         }

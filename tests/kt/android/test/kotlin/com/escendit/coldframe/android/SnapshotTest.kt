@@ -17,6 +17,7 @@ import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.LotSummary
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.SiteNameForm
+import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.SiteRole
@@ -30,7 +31,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Roborazzi snapshots of Create Site, the Garden with Lots and Site settings, light and dark, at
+ * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings and every Add a Hub
+ * step and outcome, light and dark, at
  * the largest font scale (2×). Baselines live in tests/kt/android/snapshots; `check` compares against them and
  * `./gradlew :android:recordRoborazziDebug` rewrites them.
  */
@@ -77,6 +79,7 @@ class SnapshotTest {
         lots: LotsState = (sites as? SitesState.Ready)?.let { lotsOf(it.current.role) } ?: LotsState.Idle,
         siteSettings: Boolean = false,
         scrollTo: String? = null,
+        hubSetup: HubSetupState = HubSetupState.CLOSED,
     ) {
         compose.setContent {
             AtFontScale(2f) {
@@ -89,6 +92,7 @@ class SnapshotTest {
                     onSelectTheme = {},
                     sitesActions = SitesActions.None,
                     lots = lots,
+                    hubSetup = hubSetup,
                 )
             }
         }
@@ -145,4 +149,62 @@ class SnapshotTest {
             ThemePreference.Light,
             siteSettings = true,
         )
+
+    private fun hub(
+        name: String,
+        state: HubSetupState,
+    ) {
+        snapshot("$name-light", readySites(), ThemePreference.Light, hubSetup = state)
+    }
+
+    private fun hubDark(
+        name: String,
+        state: HubSetupState,
+    ) {
+        snapshot("$name-dark", readySites(), ThemePreference.Dark, hubSetup = state)
+    }
+
+    @Test
+    fun `UX-DR39 UX-DR37 Add a Hub step 1, light, font scale 2`() = hub("add-hub-scan", HubStates.scan)
+
+    @Test
+    fun `UX-DR39 UX-DR37 Add a Hub step 1, dark, font scale 2`() = hubDark("add-hub-scan", HubStates.scan)
+
+    @Test
+    fun `UX-DR41 Add a Hub step 2, light, font scale 2`() = hub("add-hub-code", HubStates.wrongCode)
+
+    @Test
+    fun `UX-DR41 Add a Hub step 2, dark, font scale 2`() = hubDark("add-hub-code", HubStates.code)
+
+    @Test
+    fun `UX-DR42 Add a Hub step 3, light, font scale 2`() = hub("add-hub-wifi", HubStates.wifi)
+
+    @Test
+    fun `UX-DR42 Add a Hub step 3, dark, font scale 2`() = hubDark("add-hub-wifi", HubStates.wifi)
+
+    @Test
+    fun `UX-DR66 Add a Hub step 4, light, font scale 2`() = hub("add-hub-site", HubStates.site)
+
+    @Test
+    fun `UX-DR66 Add a Hub step 4, dark, font scale 2`() = hubDark("add-hub-site", HubStates.site)
+
+    @Test
+    fun `UX-DR40 Add a Hub step 5, light, font scale 2`() = hub("add-hub-progress", HubStates.progress)
+
+    @Test
+    fun `UX-DR40 Add a Hub step 5, dark, font scale 2`() = hubDark("add-hub-progress", HubStates.progress)
+
+    @Test
+    fun `UX-DR55 Hub is online, light, font scale 2`() = hub("add-hub-online", HubStates.online)
+
+    @Test
+    fun `UX-DR55 Hub is online, dark, font scale 2`() = hubDark("add-hub-online", HubStates.online)
+
+    @Test
+    fun `UX-DR55 UX-DR95 wrong Wi-Fi password, light, font scale 2`() =
+        hub("add-hub-wrong-password", HubStates.wrongPassword)
+
+    @Test
+    fun `UX-DR55 UX-DR95 wrong Wi-Fi password, dark, font scale 2`() =
+        hubDark("add-hub-wrong-password", HubStates.wrongPassword)
 }

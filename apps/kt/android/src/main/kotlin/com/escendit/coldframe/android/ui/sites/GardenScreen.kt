@@ -41,6 +41,7 @@ import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.sites.FirstRunStep
 import com.escendit.coldframe.core.sites.FirstRunSteps
 import com.escendit.coldframe.core.sites.FirstRunTile
 import com.escendit.coldframe.core.sites.SitesState
@@ -50,8 +51,8 @@ import com.escendit.coldframe.designtokens.Typography
 
 /**
  * The Garden of a Site without Readings (UX-DR62, UX-DR82): the Site summary header, "No
- * Readings yet" and the four first-run step tiles; no tile starts a flow yet, and Members also
- * see the read-only notice. Below them, the Site's Lots as tiles in the Server's order
+ * Readings yet" and the four first-run step tiles; for Administrators and Owners the Add a Hub
+ * tile starts Add a Hub (UX-DR66), and Members see the read-only notice instead. Below them, the Site's Lots as tiles in the Server's order
  * (UX-DR18, UX-DR20); a failed Lot load shows its notice in place of the grid. The Site
  * switcher and the Site menu hang off the header.
  */
@@ -63,6 +64,7 @@ fun GardenScreen(
     modifier: Modifier = Modifier,
     lots: LotsState = LotsState.Idle,
     lotsActions: LotsActions = LotsActions.None,
+    onAddHub: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
@@ -81,7 +83,7 @@ fun GardenScreen(
             onOpenSwitcher = { switcherOpen = true },
             menu = { SiteMenu(site = sites.current, onOpenSiteSettings = onOpenSiteSettings) },
         )
-        FirstRunTiles(steps)
+        FirstRunTiles(steps, onAddHub = onAddHub)
         if (steps.memberNotice) {
             InlineNotice(message = stringResource(R.string.garden_member_notice))
         }
@@ -161,12 +163,14 @@ fun SiteSummaryHeader(
 /**
  * First-run step tiles (UX-DR54): 2×2, STEP 1–4. The next step is solid `primary` with
  * `ink-on-bright`; later steps have a 1 dp dashed `border-strong` outline; done steps a
- * checkmark. Each tile is one accessibility element; none is actionable until its flow exists.
+ * checkmark. Each tile is one accessibility element; when [FirstRunSteps.actionable], the next
+ * step (Add a Hub) is a button that starts its flow.
  */
 @Composable
 fun FirstRunTiles(
     steps: FirstRunSteps,
     modifier: Modifier = Modifier,
+    onAddHub: () -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.TILE_GAP.dp)) {
         Text(
@@ -180,7 +184,10 @@ fun FirstRunTiles(
                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.TILE_GAP.dp),
             ) {
-                row.forEach { tile -> StepTile(tile, Modifier.weight(1f).fillMaxHeight()) }
+                row.forEach { tile ->
+                    val acts = steps.actionable && tile.state == StepState.Next && tile.step == FirstRunStep.AddHub
+                    StepTile(tile, Modifier.weight(1f).fillMaxHeight(), onClick = if (acts) onAddHub else null)
+                }
             }
         }
     }
@@ -190,6 +197,7 @@ fun FirstRunTiles(
 private fun StepTile(
     tile: FirstRunTile,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     val colors = Coldframe.colors
     val next = tile.state == StepState.Next
@@ -204,6 +212,7 @@ private fun StepTile(
             modifier
                 .heightIn(min = 120.dp)
                 .then(surface)
+                .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
                 .semantics(mergeDescendants = true) {}
                 .padding(Spacing.TILE_PADDING.dp),
     ) {

@@ -232,7 +232,7 @@ public struct GardenPresentation: Equatable, Sendable {
   public let siteName: String
   public let role: SiteRoleKind
   public let tiles: [FirstRunTilePresentation]
-  /// Tiles start their flow only once it exists (not in Story 1.8).
+  /// Administrators and Owners: the next step's tile (Add a Hub) starts its flow (Story 3.6).
   public let tilesActionable: Bool
   public let switcherRows: [SiteSwitcherRow]
   public let menuItems: [SiteMenuItem]
@@ -261,6 +261,12 @@ public struct GardenPresentation: Equatable, Sendable {
 
   /// "Only Owners and Administrators can add Devices." for Members only.
   public var memberNotice: L10n? { showsMemberNotice ? .gardenMemberNotice : nil }
+
+  /// Whether [tile] starts a flow: only Add a Hub as the next step, for Administrators and
+  /// Owners (UX-DR66); the other steps' flows arrive in Epic 4 and later.
+  public func startsFlow(_ tile: FirstRunTilePresentation) -> Bool {
+    tilesActionable && tile.step == .addHub && tile.state == .next
+  }
 }
 
 /// Which Sites surface shows while signed in.

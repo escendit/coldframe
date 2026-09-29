@@ -21,8 +21,17 @@ Swift runtimes.
   Owners and Administrators; read-only with one notice for a Member). Its actions are `load`,
   `setSiteName`, `renameSite`, `setNewLotName`, `createLot`, `startRename`, `setRename`, `rename`,
   `cancelRename`, `askRemove`, `confirmRemove` and `cancelRemove`.
+  `HubSetupService` (Story 3.6) carries Add a Hub as a `HubSetupPresentation` built from the
+  core's flat `HubSetupSnapshot`: the five steps in the Setup flow shell, the Setup progress and
+  the outcome screens. BLE (Kable over Core Bluetooth), the session crypto and every rule stay in
+  the core; the views keep the idle timer off while the flow is open, move VoiceOver focus to
+  each step title or headline, post the announcements and report `announcing` until VoiceOver
+  finishes one, so the progress timeout waits (UX-DR103). The app needs
+  `NSBluetoothAlwaysUsageDescription` (both Info.plists) and links `CoreBluetooth`. WPA3-only
+  networks are shown but cannot be chosen.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
-  (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`), the
+  (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`,
+  `CoreHubSetupService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
 - `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
   is not committed. `ios/Config` holds the build-time configuration and the Info.plists.

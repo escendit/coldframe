@@ -42,6 +42,11 @@ data class ColdframeColors(
     val overlay: Color,
     val statusNoNodeBorder: Color,
     val statusNoNodeInk: Color,
+    val supportSuccess: Color,
+    val setupDone: Color,
+    val statusHatchGround: Color,
+    val statusHatchLine: Color,
+    val statusUnknownBorder: Color,
 ) {
     companion object {
         /** Resolves every token for [isDark]; nothing else in the app names a colour. */
@@ -72,6 +77,11 @@ data class ColdframeColors(
                 overlay = ColorTokens.overlay.color(),
                 statusNoNodeBorder = ColorTokens.statusNoNodeBorder.color(),
                 statusNoNodeInk = ColorTokens.statusNoNodeInk.color(),
+                supportSuccess = ColorTokens.supportSuccess.color(),
+                setupDone = ColorTokens.setupDone.color(),
+                statusHatchGround = ColorTokens.statusHatchGround.color(),
+                statusHatchLine = ColorTokens.statusHatchLine.color(),
+                statusUnknownBorder = ColorTokens.statusUnknownBorder.color(),
             )
         }
     }

@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.wire)
 }
 
 group = "com.escendit.coldframe"
@@ -15,6 +16,26 @@ version = "0.0.0"
 
 // Tests live under tests/kt/, mirroring the module (see docs/quickstart.md).
 val testRoot = rootDir.resolve("tests/kt/core")
+
+// The shared crypto vectors reach commonTest as a generated constant, so every target runs the
+// production crypto against the one source, packages/crypto-spec/vectors.json.
+val generateTestVectors =
+    tasks.register("generateTestVectors") {
+        val source = rootDir.resolve("packages/crypto-spec/vectors.json")
+        val out = layout.buildDirectory.dir("generated/testVectors/kotlin")
+        inputs.file(source)
+        outputs.dir(out)
+        doLast {
+            val text = source.readText().replace("$", "\${'$'}")
+            val file = out.get().file("com/escendit/coldframe/core/crypto/VectorsJson.kt").asFile
+            file.parentFile.mkdirs()
+            file.writeText(
+                "// Generated from packages/crypto-spec/vectors.json. Do not edit.\n\n" +
+                    "package com.escendit.coldframe.core.crypto\n\n" +
+                    "internal const val VECTORS_JSON: String = \"\"\"" + text + "\"\"\"\n",
+            )
+        }
+    }
 
 kotlin {
     explicitApi()
@@ -82,6 +103,8 @@ kotlin {
                 implementation(libs.ktor.serialization.kotlinx.json)
                 implementation(libs.kotlinx.serialization.json)
                 api(libs.multiplatform.settings)
+                implementation(libs.kable.core)
+                implementation(libs.wire.runtime)
             }
         }
 
@@ -110,6 +133,7 @@ kotlin {
 
         commonTest {
             kotlin.setSrcDirs(listOf(testRoot.resolve("commonTest/kotlin")))
+            kotlin.srcDir(generateTestVectors)
             resources.setSrcDirs(listOf(testRoot.resolve("commonTest/resources")))
 
             dependencies {
@@ -123,6 +147,17 @@ kotlin {
             kotlin.setSrcDirs(listOf(testRoot.resolve("jvmTest/kotlin")))
             resources.setSrcDirs(listOf(testRoot.resolve("jvmTest/resources")))
         }
+    }
+}
+
+// The BLE setup messages (AD-25), generated from the one contract in packages/proto.
+wire {
+    sourcePath {
+        srcDir(rootDir.resolve("packages/proto"))
+        include("coldframe/setup/v1/setup.proto")
+    }
+    kotlin {
+        javaInterop = false
     }
 }
 

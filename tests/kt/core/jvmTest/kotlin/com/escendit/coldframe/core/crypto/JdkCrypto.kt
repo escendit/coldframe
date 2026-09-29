@@ -21,10 +21,16 @@ import javax.crypto.spec.SecretKeySpec
  * scope only: it proves the generated [CryptoSpec] constants reproduce the shared vectors on the JVM. The
  * multiplatform production crypto is Story 3.6's.
  */
-internal enum class Failure { AUTHENTICATION_FAILED, WRONG_SETUP_CODE, REPLAY, INVALID_PUBLIC_KEY, INVALID_SETUP_CODE }
+internal enum class JdkFailure {
+    AUTHENTICATION_FAILED,
+    WRONG_SETUP_CODE,
+    REPLAY,
+    INVALID_PUBLIC_KEY,
+    INVALID_SETUP_CODE,
+}
 
-internal class CryptoFailure(
-    val failure: Failure,
+internal class JdkCryptoFailure(
+    val failure: JdkFailure,
 ) : Exception(failure.name)
 
 internal object JdkCrypto {
@@ -102,9 +108,9 @@ internal object JdkCrypto {
                 )
                 agreement.generateSecret()
             } catch (exception: Exception) {
-                throw CryptoFailure(Failure.INVALID_PUBLIC_KEY)
+                throw JdkCryptoFailure(JdkFailure.INVALID_PUBLIC_KEY)
             }
-        if (shared.all { it == 0.toByte() }) throw CryptoFailure(Failure.INVALID_PUBLIC_KEY)
+        if (shared.all { it == 0.toByte() }) throw JdkCryptoFailure(JdkFailure.INVALID_PUBLIC_KEY)
         return shared
     }
 
@@ -136,11 +142,11 @@ internal object JdkCrypto {
         aad: ByteArray,
         sealed: ByteArray,
     ): ByteArray {
-        if (sealed.size < CryptoSpec.AEAD_TAG_LENGTH) throw CryptoFailure(Failure.AUTHENTICATION_FAILED)
+        if (sealed.size < CryptoSpec.AEAD_TAG_LENGTH) throw JdkCryptoFailure(JdkFailure.AUTHENTICATION_FAILED)
         return try {
             cipher(Cipher.DECRYPT_MODE, key, nonce, aad).doFinal(sealed)
         } catch (exception: AEADBadTagException) {
-            throw CryptoFailure(Failure.AUTHENTICATION_FAILED)
+            throw JdkCryptoFailure(JdkFailure.AUTHENTICATION_FAILED)
         }
     }
 
@@ -213,7 +219,7 @@ internal object JdkCrypto {
         }
 
         fun accept(counter: Long) {
-            if (!wouldAccept(counter)) throw CryptoFailure(Failure.REPLAY)
+            if (!wouldAccept(counter)) throw JdkCryptoFailure(JdkFailure.REPLAY)
             val top = highest
             when {
                 top == null -> {
@@ -241,7 +247,7 @@ internal object JdkCrypto {
         sealed: ByteArray,
         window: ReplayWindow,
     ): ByteArray {
-        if (!window.wouldAccept(counter)) throw CryptoFailure(Failure.REPLAY)
+        if (!window.wouldAccept(counter)) throw JdkCryptoFailure(JdkFailure.REPLAY)
         val plaintext = openFrame(key, deviceId, counter, sealed)
         window.accept(counter)
         return plaintext
@@ -344,7 +350,7 @@ internal object JdkCrypto {
         popCode: String,
     ): Pair<ByteArray, ByteArray> {
         if (popCode.isEmpty() || popCode.length > CryptoSpec.SETUP_MAX_CODE_LENGTH || popCode.any { it.code > 0x7f }) {
-            throw CryptoFailure(Failure.INVALID_SETUP_CODE)
+            throw JdkCryptoFailure(JdkFailure.INVALID_SETUP_CODE)
         }
         val okm =
             hkdf(
@@ -394,12 +400,12 @@ internal object JdkCrypto {
             counter: Long,
             ciphertext: ByteArray,
         ): ByteArray {
-            if (java.lang.Long.compareUnsigned(counter, nextReceive) < 0) throw CryptoFailure(Failure.REPLAY)
+            if (java.lang.Long.compareUnsigned(counter, nextReceive) < 0) throw JdkCryptoFailure(JdkFailure.REPLAY)
             val plaintext =
                 try {
                     open(receiveKey, setupNonce(counter), aad, ciphertext)
-                } catch (failure: CryptoFailure) {
-                    throw if (openedAny) failure else CryptoFailure(Failure.WRONG_SETUP_CODE)
+                } catch (failure: JdkCryptoFailure) {
+                    throw if (openedAny) failure else JdkCryptoFailure(JdkFailure.WRONG_SETUP_CODE)
                 }
             openedAny = true
             nextReceive = counter + 1

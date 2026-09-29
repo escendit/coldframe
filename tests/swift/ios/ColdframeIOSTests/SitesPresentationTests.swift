@@ -187,7 +187,7 @@ func emptyGardenHeader() {
   #expect(garden?.subline == .gardenNoReadingsDetail)
 }
 
-@Test("UX-DR54 four step tiles: Add a Hub next, the others later, none actionable yet")
+@Test("UX-DR54 UX-DR66 four step tiles: Add a Hub next and the only one that starts a flow")
 func firstRunTiles() {
   let tiles = garden(snapshot())?.tiles ?? []
 
@@ -200,6 +200,9 @@ func firstRunTiles() {
       .gardenStepAddHub, .gardenStepAddNode, .gardenStepCalibrate, .gardenStepSetThreshold,
     ])
   #expect(garden(snapshot())?.tilesActionable == false)
+  let owner = garden(snapshot(stepsActionable: true))
+  #expect(owner?.tilesActionable == true)
+  #expect(tiles.map { owner?.startsFlow($0) } == [true, false, false, false])
 }
 
 @Test("UX-DR54 a done step carries a checkmark")
