@@ -253,11 +253,12 @@ class SitesScreensTest {
     }
 
     @Test
-    fun `UX-DR54 UX-DR82 four step tiles, Add a Hub next, none actionable, no notice for an Owner`() {
+    fun `UX-DR54 UX-DR82 UX-DR66 four step tiles, only Add a Hub acts, no notice for an Owner`() {
         show(readySites())
 
         listOf("STEP 1", "STEP 2", "STEP 3", "STEP 4").forEach { compose.onNodeWithText(it).assertExists() }
-        listOf("Add a Hub", "Add a Node", "Calibrate", "Set a low Threshold").forEach {
+        compose.onAllNodes(hasText("Add a Hub").and(hasClickAction())).assertCountEquals(1)
+        listOf("Add a Node", "Calibrate", "Set a low Threshold").forEach {
             compose.onNodeWithText(it).assertExists()
             compose.onAllNodes(hasText(it).and(hasClickAction())).assertCountEquals(0)
         }

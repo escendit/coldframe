@@ -163,4 +163,75 @@
     #expect(
       renders(SiteSwitcherSheet(rows: emptyGarden.switcherRows, onSelect: { _ in }, onNewSite: {})))
   }
+
+  private func flow(_ presentation: HubSetupPresentation) -> some View {
+    AddHubFlowView(presentation: presentation, actions: .none)
+  }
+
+  @Test(
+    "UX-DR39 UX-DR37 UX-DR94 Add a Hub step 1 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addHubScanAtAccessibility5(dark: Bool) {
+    #expect(renders(flow(hubSetup(noHubYet: true)), dark: dark))
+    #expect(renders(flow(hubSetup(radio: "off")), dark: dark))
+  }
+
+  @Test(
+    "UX-DR41 UX-DR95 Add a Hub step 2 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addHubCodeAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(flow(hubSetup(step: 2, codeText: "K7M2Q9XQ", codeError: "wrongCode")), dark: dark))
+    #expect(
+      renders(
+        flow(
+          hubSetup(step: 2, codeText: "K7M2Q9XP", codeAccepted: true, deviceId: "3f2a9c01b2d4e6f8")),
+        dark: dark))
+  }
+
+  @Test(
+    "UX-DR42 Add a Hub step 3 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addHubWifiAtAccessibility5(dark: Bool) {
+    #expect(renders(flow(hubSetup(step: 3, networksLoaded: true, ssid: "Novak-Home")), dark: dark))
+  }
+
+  @Test(
+    "UX-DR66 Add a Hub step 4 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addHubSiteAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        flow(hubSetup(step: 4, fingerprint: String(repeating: "7b12", count: 16))), dark: dark))
+  }
+
+  @Test(
+    "UX-DR40 Add a Hub step 5 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addHubProgressAtAccessibility5(dark: Bool) {
+    #expect(renders(flow(hubSetup(step: 5, progressReached: 2, elapsedSeconds: 23)), dark: dark))
+  }
+
+  @Test(
+    "UX-DR55 UX-DR95 the Add a Hub outcomes render at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addHubOutcomesAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        flow(hubSetup(step: 5, ssid: "Novak-Home", progressReached: 4, outcome: "online")),
+        dark: dark))
+    #expect(
+      renders(
+        flow(
+          hubSetup(
+            step: 5, ssid: "Novak-Home", outcome: "wrongPassword",
+            outcomePrimary: "reenterPassword", outcomeSecondary: "otherNetwork")),
+        dark: dark))
+  }
 #endif

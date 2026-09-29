@@ -131,6 +131,20 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun theEnrolmentOperationsExistWithTheirIdsAndParameters() {
+        assertEquals("getEnrolmentKey", operation("/enrolment-key", "get")["operationId"]!!.jsonPrimitive.content)
+        val enrol = operation("/sites/{siteId}/devices", "post")
+        assertEquals("enrolDevice", enrol["operationId"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId", ColdframeApi.IDEMPOTENCY_KEY), parameterNames(enrol))
+        val responses = enrol["responses"]!!.jsonObject
+        for (status in listOf("201", "400", "401", "403", "404", "409", "422")) {
+            assertNotNull(responses[status], "enrolDevice $status")
+        }
+        val kinds = schema("DeviceKind")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(com.escendit.coldframe.core.setup.HubSetupEngine.DEVICE_KIND_HUB in kinds)
+    }
+
+    @Test
     fun theLotStatusesAreTheContractValuesInTheServerOrder() {
         val statuses = schema("LotStatus")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertEquals(
@@ -151,6 +165,9 @@ class OpenApiContractTest {
         assertMirrors("SiteList", SiteListDto.serializer().descriptor)
         assertMirrors("CreateSiteRequest", CreateSiteRequestDto.serializer().descriptor)
         assertMirrors("ProblemDetails", ProblemDto.serializer().descriptor)
+        assertMirrors("EnrolmentKey", EnrolmentKeyDto.serializer().descriptor)
+        assertMirrors("EnrolDeviceRequest", EnrolDeviceRequestDto.serializer().descriptor)
+        assertMirrors("Device", DeviceDto.serializer().descriptor)
     }
 
     @Test
@@ -169,6 +186,7 @@ class OpenApiContractTest {
                 .jsonArray
                 .map { it.jsonPrimitive.content }
         assertTrue(ColdframeApi.PROBLEM_VALIDATION in types)
+        assertTrue(ColdframeApi.PROBLEM_DEVICE_ON_ANOTHER_SITE in types)
         for (slug in listOf("forbidden", "site-not-found", "lot-not-found", "lot-claimed", "idempotency-key-reused")) {
             assertTrue("urn:coldframe:problem:$slug" in types, slug)
         }

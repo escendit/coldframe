@@ -94,4 +94,12 @@ class SitesSnapshotTest {
         )
         assertEquals(listOf("next", "later", "done"), StepState.entries.map { it.key() })
     }
+
+    @Test
+    fun uxDr66AnOwnersSnapshotMakesTheAddAHubTileActionable() {
+        for (role in listOf(SiteRole.Owner, SiteRole.Administrator)) {
+            val site = SiteSummary("a", "Home", role)
+            assertTrue(snapshotOf(SitesState.Ready(listOf(site), site, creating = null)).stepsActionable, "$role")
+        }
+    }
 }

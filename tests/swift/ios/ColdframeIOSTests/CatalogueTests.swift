@@ -35,9 +35,14 @@ func voiceRules() throws {
 @Test("UX-DR130 uppercase comes from style, never from the string")
 func noUppercaseCopy() throws {
   let shouting = try NSRegularExpression(pattern: #"\b\p{Lu}{2,}\b"#)
+  // Acronyms are words, not style: the Hub's LED (UX-DR94) and its Device ID.
+  let acronyms: Set<String> = ["LED", "ID"]
   for (key, value) in try Catalogue.entries() {
     let range = NSRange(value.startIndex..., in: value)
-    #expect(shouting.firstMatch(in: value, range: range) == nil, "\(key)")
+    let found = shouting.matches(in: value, range: range).compactMap {
+      Range($0.range, in: value).map { String(value[$0]) }
+    }
+    #expect(found.allSatisfy { acronyms.contains($0) }, "\(key)")
   }
 }
 

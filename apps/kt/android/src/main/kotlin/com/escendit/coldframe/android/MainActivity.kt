@@ -12,10 +12,14 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 
-/** Registers the Custom Tabs flow, resumes the session on every foreground, renders the root. */
+/**
+ * Registers the Custom Tabs flow, resumes the session on every foreground, renders the root.
+ * Add a Hub keeps the screen on through its own view while the flow is open.
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val app = application as ColdframeApplication
@@ -27,11 +31,14 @@ class MainActivity : ComponentActivity() {
         val sitesActions = SitesActions.of(sites)
         val lots = app.signIn.lots
         val lotsActions = LotsActions.of(lots)
+        val hubSetup = app.signIn.hubSetup
+        val hubSetupActions = HubSetupActions.of(hubSetup)
         setContent {
             val state by engine.state.collectAsStateWithLifecycle()
             val theme by appearance.theme.collectAsStateWithLifecycle()
             val sitesState by sites.state.collectAsStateWithLifecycle()
             val lotsState by lots.state.collectAsStateWithLifecycle()
+            val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDark = theme.isDark(systemIsDark)
             // System bar icons follow the app's theme, which may differ from the OS appearance.
@@ -57,6 +64,8 @@ class MainActivity : ComponentActivity() {
                 systemIsDark = systemIsDark,
                 lots = lotsState,
                 lotsActions = lotsActions,
+                hubSetup = hubSetupState,
+                hubSetupActions = hubSetupActions,
             )
         }
     }

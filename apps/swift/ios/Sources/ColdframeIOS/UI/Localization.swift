@@ -24,3 +24,21 @@
     }
   }
 #endif
+
+#if canImport(SwiftUI)
+  import Foundation
+
+  extension Copy {
+    /// The catalogue entry with its arguments filled in.
+    public var string: String {
+      let values: [CVarArg] = arguments.map { argument in
+        switch argument {
+        case .text(let text): text as NSString
+        case .number(let number): number
+        }
+      }
+      return values.isEmpty
+        ? key.string : String(format: key.string, locale: .current, arguments: values)
+    }
+  }
+#endif

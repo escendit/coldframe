@@ -201,6 +201,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: medium
 reason: The Add a Hub flow is a later epic. When it lands, pass flowAvailable = true on mobile so the next step starts the flow for Administrators and Owners; the tile states and the Member notice are already real. Done steps (checkmark) also need Hub/Node data.
 status: open
+progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data.
 
 ### DW-27: The Kotlin API client and DTOs are hand-written instead of generated from coldframe.openapi.json (AD-10 deviation).
 origin: spec-deferred ec8f62ba78ca
@@ -355,4 +356,20 @@ location: apps/rs/hub/src/main.rs (provisioned path); packages/rs/setup/src/serv
 source_spec: `spec-3-5-hub-joins-wi-fi-and-heartbeats-to-the-server.md`
 severity: medium
 reason: Since Story 3.4 the Hub advertises only while unprovisioned (apps/rs/hub/src/main.rs, Boot::advertises). Story 3.5's uplink retries joins and heartbeats forever with backoff. The only recovery is espflash erase-region 0xC000 0x2000. It needs a Device lifecycle decision: a reset button, a factory-reset gesture, or re-provisioning after N failures.
+status: open
+
+### DW-47: A Hub abandoned after its enrolment answered 201 stays enrolled on that Site; setting it up on another Site later answers 409 and the app shows "Hub 3F2A is on another Site".
+origin: spec-deferred f50597d6e0ec
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/HubSetupEngine.kt (startProgress); apps/cs/server/Devices/DeviceGrain.cs (Enrol)
+source_spec: `spec-3-6-add-a-hub-from-my-phone.md`
+severity: medium
+reason: Enrolment must precede WifiConfig (the Server refuses heartbeats from unknown Devices), so a flow left after the 201 leaves an idempotent same-Site enrolment and an unprovisioned Hub that advertises again. Setting it up again on the same Site converges; moving it needs the Device release/move lifecycle (see DW-44).
+status: open
+
+### DW-48: ADD A NODE on the "Hub is online" outcome closes the flow to the Garden instead of starting Add a Node.
+origin: spec-deferred 6cd4c3d9230c
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/HubSetupEngine.kt (outcomeAction AddNode); apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/setup/SetupOutcome.kt; apps/swift/ios/Sources/ColdframeIOS/UI/HubSetupViews.swift
+source_spec: `spec-3-6-add-a-hub-from-my-phone.md`
+severity: low
+reason: The Add a Node flow arrives in Epic 4; wire OutcomeAction.AddNode to it there.
 status: open

@@ -301,4 +301,63 @@ class ColdframeApiTest {
 
             assertEquals(ApiResult.Failed(ApiFailure.IdentityProviderUnavailable), api().renameSite("a", "Home garden"))
         }
+
+    @Test
+    fun uxDr66EnrolmentKeyIsAGetOfTheKeyAndFingerprint() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"publicKey":"${"A".repeat(43)}","fingerprint":"${"0".repeat(64)}"}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result = api().enrolmentKey()
+
+            assertEquals(ApiResult.Ok(EnrolmentKeyDto("A".repeat(43), "0".repeat(64))), result)
+            assertEquals(HttpMethod.Get, requests.single().method)
+            assertEquals("https://server.example/enrolment-key", requests.single().url.toString())
+        }
+
+    @Test
+    fun uxDr66EnrolDeviceRelaysTheSealedKeyWithTheIdempotencyKey() =
+        runTest {
+            answer =
+                { respond("""{"id":"3f2a9c01b2d4e6f8","kind":"hub","siteId":"a"}""", HttpStatusCode.Created, json) }
+            val request = EnrolDeviceRequestDto("3f2a9c01b2d4e6f8", "hub", "e".repeat(43), "c".repeat(64))
+
+            val result = api().enrolDevice("a", request, "key-1")
+
+            assertEquals(ApiResult.Ok(DeviceDto("3f2a9c01b2d4e6f8", "hub", "a")), result)
+            val sent = requests.single()
+            assertEquals(HttpMethod.Post, sent.method)
+            assertEquals("https://server.example/sites/a/devices", sent.url.toString())
+            assertEquals("key-1", sent.headers[ColdframeApi.IDEMPOTENCY_KEY])
+            assertEquals(
+                """{"deviceId":"3f2a9c01b2d4e6f8","kind":"hub","enc":"${"e".repeat(
+                    43,
+                )}","ciphertext":"${"c".repeat(64)}"}""",
+                sent.text(),
+            )
+        }
+
+    @Test
+    fun uxDr95EnrolmentProblemsMapToTheirFailures() =
+        runTest {
+            val request = EnrolDeviceRequestDto("3f2a9c01b2d4e6f8", "hub", "e", "c")
+            val cases =
+                listOf(
+                    Triple(HttpStatusCode.Conflict, "device-on-another-site", ApiFailure.DeviceOnAnotherSite),
+                    Triple(HttpStatusCode.Forbidden, "forbidden", ApiFailure.Forbidden),
+                    Triple(HttpStatusCode.NotFound, "site-not-found", ApiFailure.NotFound),
+                    Triple(HttpStatusCode.UnprocessableEntity, "idempotency-key-reused", ApiFailure.KeyReused),
+                    Triple(HttpStatusCode.InternalServerError, "internal", ApiFailure.Unexpected),
+                )
+            for ((status, type, failure) in cases) {
+                answer = { respond(problem(type), status, problem) }
+                assertEquals(ApiResult.Failed(failure), api().enrolDevice("a", request, "key-1"), type)
+            }
+        }
 }

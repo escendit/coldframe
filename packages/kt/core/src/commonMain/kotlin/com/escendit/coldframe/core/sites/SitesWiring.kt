@@ -3,6 +3,9 @@ package com.escendit.coldframe.core.sites
 import com.escendit.coldframe.core.api.ColdframeApi
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.lots.LotsEngine
+import com.escendit.coldframe.core.setup.EnrolmentApi
+import com.escendit.coldframe.core.setup.HubSetupEngine
+import com.escendit.coldframe.core.setup.SetupRadio
 import com.escendit.coldframe.core.signin.CoreConfig
 import com.escendit.coldframe.core.signin.SignInEngine
 import com.russhwolf.settings.Settings
@@ -39,6 +42,16 @@ public object SitesWiring {
         sites: SitesEngine,
         scope: CoroutineScope,
     ): LotsEngine = LotsEngine(api = api, sites = sites, scope = scope)
+
+    /** Add a Hub over [radio], enrolling on the Sites of [sites]; the Hub reports to the Server of [config]. */
+    public fun hubSetup(
+        config: CoreConfig,
+        api: EnrolmentApi,
+        radio: SetupRadio,
+        sites: SitesEngine,
+        scope: CoroutineScope,
+    ): HubSetupEngine =
+        HubSetupEngine(radio = radio, api = api, sites = sites.state, serverUrl = config.serverUrl, scope = scope)
 
     /** The API client, authorised by [signIn]; a 401 ends the session. */
     public fun api(
