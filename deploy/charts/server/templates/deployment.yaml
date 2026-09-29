@@ -67,6 +67,18 @@ spec:
                 secretKeyRef:
                   name: coldframe-oidc-clients
                   key: server-client-secret
+            # Device enrolment (AD-12): the X25519 enrolment private key and the key-encryption key of
+            # every stored K_dev. Both are required; the Server refuses to start without them.
+            - name: Enrolment__PrivateKeyPem
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-enrolment-key
+                  key: private-key.pem
+            - name: Enrolment__DeviceKeyEncryptionKey
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-device-kek
+                  key: kek
             - name: KeycloakEvents__TargetHost
               value: {{ .Values.keycloakEvents.targetHost | quote }}
             - name: KeycloakEvents__Namespace

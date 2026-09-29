@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Events;
 
 namespace Coldframe.Contracts.Sites;
@@ -93,3 +94,20 @@ public sealed record LotCreationRequested(
 [GenerateSerializer]
 [Alias("coldframe.site-lot-creation-completed")]
 public sealed record LotCreationCompleted([property: Id(0)] string Key);
+
+/// <summary>
+/// A Device joined the Site's roster (AD-18). Journaled once per Device, before the Device journals its
+/// enrolment.
+/// </summary>
+/// <param name="DeviceId">The Device ID, 16 lowercase hex digits.</param>
+/// <param name="Kind">Hub or Node.</param>
+/// <param name="IdempotencyKey">The idempotency key, scoped to its caller: <c>{sub}:{Idempotency-Key}</c>.</param>
+/// <param name="RegisteredAt">When the Device was registered; the key expires 24 h later.</param>
+[EventType("site.device-registered")]
+[GenerateSerializer]
+[Alias("coldframe.site-device-registered")]
+public sealed record DeviceRegistered(
+    [property: Id(0)] string DeviceId,
+    [property: Id(1)] DeviceKind Kind,
+    [property: Id(2)] string IdempotencyKey,
+    [property: Id(3)] DateTimeOffset RegisteredAt);

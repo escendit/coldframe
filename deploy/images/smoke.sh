@@ -41,6 +41,9 @@ random_secret() {
 
 postgres_password=$(random_secret)
 client_secret=$(random_secret)
+# Throwaway Device enrolment keys: an X25519 PKCS#8 PEM (its newlines are kept) and a KEK of 48 characters.
+enrolment_key_pem=$(openssl genpkey -algorithm X25519)
+device_kek=$(random_secret)
 connection_string="Host=postgres;Port=5432;Database=coldframe;Username=postgres;Password=${postgres_password}"
 
 cleanup() {
@@ -139,6 +142,8 @@ start server --publish 127.0.0.1::8080 \
   --env KeycloakEvents__TargetHost=temporal:7233 \
   --env KeycloakEvents__Namespace=coldframe \
   --env KeycloakEvents__RealmId=coldframe \
+  --env Enrolment__PrivateKeyPem="${enrolment_key_pem}" \
+  --env Enrolment__DeviceKeyEncryptionKey="${device_kek}" \
   "${server_image}"
 
 server_url=$(host_url server 8080)

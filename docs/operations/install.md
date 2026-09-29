@@ -75,8 +75,11 @@ kubectl -n fleet-local get clusters.fleet.cattle.io    # "local", with a LAST-SE
 ## 2. Secrets and the realm
 
 In the namespace `coldframe`, create every Secret of [`deploy/SECRETS.md`](../../deploy/SECRETS.md)
-(the database Secrets with the label `cnpg.io/reload=true`, `coldframe-backup-s3`, `coldframe-dns01`
-and the others), and the ConfigMap `coldframe-realm` holding the `coldframe` realm file with the
+(the database Secrets with the label `cnpg.io/reload=true`, `coldframe-backup-s3`, `coldframe-dns01`,
+the Device enrolment key `coldframe-enrolment-key` and the Device key-encryption key
+`coldframe-device-kek`, and the others; record the `coldframe-device-kek` value first and keep it
+apart from the database backups and their credentials, since no enrolled Device works without it and
+together with a backup it decrypts every Device key), and the ConfigMap `coldframe-realm` holding the `coldframe` realm file with the
 redirect URIs of your hosts ([`deploy/charts/README.md`](../../deploy/charts/README.md#prerequisites),
 items 1 to 4):
 

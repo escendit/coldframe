@@ -1,5 +1,6 @@
 using System.Net;
 using Coldframe.Contracts.Sites;
+using Coldframe.Server.IntegrationTests.Devices;
 using Coldframe.Server.Tests.Edge;
 
 namespace Coldframe.Server.IntegrationTests.Edge;
@@ -30,6 +31,9 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
     /// </summary>
     private readonly Dictionary<string, Sample> _samples = new(StringComparer.Ordinal)
     {
+        ["GET /enrolment-key"] = new(
+            (server, _, cancellationToken) => server.GetAsync(new Uri("/enrolment-key", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
         ["GET /sites"] = new(
             (server, _, cancellationToken) => server.GetAsync(new Uri("/sites", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),
@@ -62,6 +66,11 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
     public AuthorizationMatrixTests(EdgeApiFixture edge)
     {
         _edge = edge;
+
+        // Each call enrols a fresh simulated Device, sealed to the Server's key, so no call meets an enrolled one.
+        _samples["POST /sites/{siteId}/devices"] = new(
+            (server, siteId, cancellationToken) => EnrolmentTests.PostFreshDeviceAsync(_edge, server, siteId, cancellationToken),
+            HttpStatusCode.Created);
 
         // Each call gets a fresh Lot of the Site it targets, so a removal never meets a removed Lot.
         _samples["GET /sites/{siteId}/lots/{lotId}"] = new(

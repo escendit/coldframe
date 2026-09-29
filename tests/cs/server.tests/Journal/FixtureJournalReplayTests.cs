@@ -1,6 +1,8 @@
 using System.Text.Json;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
+using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Journal;
 using Coldframe.Server.Lots;
@@ -22,6 +24,7 @@ public sealed class FixtureJournalReplayTests
     // Each alias prefix names the state its events apply to. A new aggregate adds its state here.
     private static readonly Dictionary<string, Func<object>> States = new(StringComparer.Ordinal)
     {
+        ["device"] = () => new DeviceState(),
         ["lot"] = () => new LotState(),
         ["sample"] = () => new SampleState(),
         ["site"] = () => new SiteState(),
@@ -64,6 +67,16 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(SiteRole.Member, site.Members["8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
         var lotCreation = site.LotCreations["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:lk1"];
         Assert.Equal(("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01", "Tomatoes", true), (lotCreation.LotId, lotCreation.Name, lotCreation.Completed));
+
+        // A Hub joined the roster, then enrolled with its key wrapped.
+        Assert.Equal(DeviceKind.Hub, site.Devices["92064422c012f481"]);
+        Assert.Equal("92064422c012f481", site.DeviceRegistrations["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:dk1"].DeviceId);
+
+        var device = Assert.IsType<DeviceState>(states["device/92064422c012f481"]);
+        Assert.Equal(("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", DeviceKind.Hub), (device.SiteId, device.Kind));
+        Assert.Equal("0123456789abcdef", device.WrappedKey?.KekId);
+        Assert.Equal(12, device.WrappedKey?.Nonce.Length);
+        Assert.Equal(48, device.WrappedKey?.Sealed.Length);
 
         // Created, renamed, claimed and released by a Node, then removed: the tombstone keeps name and Site.
         var removed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01"]);
