@@ -1189,6 +1189,13 @@
           "BouncyCastle.Cryptography": "[2.7.0, )"
         }
       },
+      "coldframe.devicesimulator": {
+        "type": "Project",
+        "dependencies": {
+          "Coldframe.Crypto": "[1.0.0, )",
+          "Coldframe.Protocol": "[1.0.0, )"
+        }
+      },
       "coldframe.migrations": {
         "type": "Project",
         "dependencies": {
@@ -1198,6 +1205,12 @@
           "FluentMigrator.Extensions.Postgres": "[8.0.1, )",
           "FluentMigrator.Runner.Postgres": "[8.0.1, )",
           "Npgsql": "[10.0.3, )"
+        }
+      },
+      "coldframe.protocol": {
+        "type": "Project",
+        "dependencies": {
+          "Google.Protobuf": "[3.36.2, )"
         }
       },
       "coldframe.server": {

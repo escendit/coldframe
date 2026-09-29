@@ -13,7 +13,6 @@
         "summary": "A Hub reports that it is alive",
         "description": "Authenticated as a Device (security scheme deviceHmac), never with a Keycloak token. The Server rejects a bad signature, a timestamp more than 300000 ms off its clock and a replayed nonce; a valid heartbeat updates the Device's last-seen time. The Hub adopts serverTime for its own timing only and never stamps data with it.",
         "x-coldframe-minimum-role": "Device",
-        "x-coldframe-planned": "3.5",
         "security": [{ "deviceHmac": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/DeviceIdHeader" },
@@ -539,14 +538,16 @@
         "properties": {
           "protocolVersion": { "type": "integer", "minimum": 1, "description": "The Device's wire major." },
           "uptimeMs": { "type": "integer", "minimum": 0, "description": "Milliseconds since the Device booted." }
-        }
+        },
+        "examples": [{ "protocolVersion": 1 }, { "protocolVersion": 1, "uptimeMs": 3600000 }]
       },
       "HeartbeatResponse": {
         "type": "object",
         "required": ["serverTime"],
         "properties": {
           "serverTime": { "type": "string", "format": "date-time", "description": "The Server clock, ISO-8601 UTC with Z." }
-        }
+        },
+        "examples": [{ "serverTime": "2026-09-29T12:34:56.789Z" }, { "serverTime": "2026-09-29T12:34:56Z" }]
       },
       "EnrolmentKey": {
         "type": "object",

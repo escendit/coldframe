@@ -60,6 +60,15 @@ public sealed class EdgeEndpointDiscoveryTests
     }
 
     [Fact]
+    public void TheHeartbeatIsMappedWithTheDeviceRule()
+    {
+        var heartbeat = Assert.Single(EdgeEndpointCatalog.Describe(), operation => operation.Key == "POST /device/heartbeat");
+
+        Assert.Equal(EdgeAccessRule.DeviceName, heartbeat.Rule.ToString());
+        Assert.Contains("POST /device/heartbeat Device", ReadContractOperations(planned: false));
+    }
+
+    [Fact]
     public void NoPlannedOperationIsMappedYet()
     {
         var planned = ReadContractOperations(planned: true);

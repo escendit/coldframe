@@ -56,6 +56,7 @@ fn main() {
         ("WifiConfig.password", 64),
         ("SiteBinding.site_id", 36),
         ("SiteBinding.lot_id", 36),
+        ("SiteBinding.server_url", 100),
         ("EnrolmentRequest.server_public_key", 32),
         ("EnrolmentRequest.fingerprint", 64),
         ("EnrolmentResponse.device_id", 8),

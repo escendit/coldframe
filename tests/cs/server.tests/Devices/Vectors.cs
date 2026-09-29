@@ -12,6 +12,8 @@ internal static class Vectors
 
     public static JsonElement Enrolment(int index) => Document.Value.RootElement.GetProperty("enrolment")[index];
 
+    public static JsonElement Heartbeat(int index) => Document.Value.RootElement.GetProperty("heartbeat")[index];
+
     public static string Text(this JsonElement element, string field) =>
         element.GetProperty(field).GetString() ?? throw new InvalidDataException($"{field} is null");
 

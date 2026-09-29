@@ -104,11 +104,14 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection; 404 once the Site is `Deleted` |
 | `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
+| `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 
 - **Authentication.** JWT bearer against `Identity:Authority` (the realm URL), audience
   `Identity:Audience` (`coldframe-server`); `Identity:RequireHttpsMetadata` defaults to `true` and only
   the local stack turns it off. Inbound claims are not mapped, so the User ID is the claim `sub`.
-  Every request needs a token except the health endpoints under `/.well-known/healthz`.
+  Every request needs a token except the health endpoints under `/.well-known/healthz` and the
+  `Device` endpoints (`/device/*`), which are anonymous to JWT and authenticate the Device's
+  signature instead (a user token there is ignored).
 - **Authorization.** The caller's Role comes from the identity projection, never from token claims.
   One policy reads the `siteId` route value, looks the Site and the caller's Role up in
   `IdentityReadModel`, and decides with `SiteAccess.Decide(minimum, siteExists, callerRole)`: 404
@@ -208,13 +211,44 @@ Settings, section `Enrolment`, both required and checked at start: `PrivateKeyPe
 `DeviceKeyEncryptionKey` (at least 32 characters; Secret `coldframe-device-kek`). The AppHost generates
 both.
 
+### A Hub heartbeat, step by step
+
+Heartbeats (AD-12, FR-13) are served by `POST /device/heartbeat` in `server/Edge/EdgeApi.cs` and
+verified by the Device grain.
+
+1. The handler parses the four headers (`X-Coldframe-Device`, 16 lowercase hex digits;
+   `X-Coldframe-Timestamp`, 1–19 digits that fit a `long`; `X-Coldframe-Nonce`, 32 lowercase hex
+   digits; `X-Coldframe-Signature`, 64 lowercase hex digits), exactly one of each. A missing or
+   malformed one is 401 `device-unauthorized`.
+2. It reads the raw body, at most 4 KiB, and parses it: a JSON object with `protocolVersion` 1 and
+   an optional non-negative `uptimeMs`; other properties are ignored. Anything else is 400
+   `validation`. Nothing is verified yet.
+3. `DeviceGrain.Heartbeat` verifies inside the grain, so the plaintext `K_dev` never crosses a grain
+   boundary. It refuses (401, reason never told) an unenrolled Device, a timestamp more than
+   `HeartbeatMaxSkewMs` (300 000 ms) off `Clock`, a timestamp at or below the persisted
+   `LastHeartbeatTimestampMs`, a nonce it has seen, and a bad signature: it unwraps `K_dev` with
+   `DeviceKeyVault`, derives the `hub-auth/v1` key, checks the HMAC with
+   `Coldframe.Crypto.Heartbeat.Verify` and zeroes both keys.
+4. An accepted heartbeat journals `device.seen` `{seenAt, deviceTimestampMs, uptimeMs?}` and the
+   handler answers 200 `{"serverTime":"yyyy-MM-ddTHH:mm:ss.fffZ"}` from `TimeProvider`.
+
+Replay protection needs no shared cache: Orleans keeps one activation per Device, so the in-memory
+nonce set (pruned beyond the skew window) is authoritative while it is active, and the persisted
+timestamp rule covers a reactivation. The Hub's timestamps strictly increase, so neither rule
+refuses a legitimate Hub. Every accepted heartbeat is journaled (about 2 000 small rows per Hub per
+day), so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read real events.
+
+Tests drive the Device path through the Device simulator only
+(`SimulatedDevice.HeartbeatRequest`), never through hand-built headers.
+
 ### Add an endpoint
 
 1. **Contract.** Add the operation to `packages/openapi/coldframe.openapi.json` with its
    `x-coldframe-minimum-role`: a `SiteRole` or `Authenticated` (or `Device` for `/device/*`). If the
    contract already has it with `x-coldframe-planned`, remove that mark in the same change.
 2. **Rule.** Map it in `MapEdgeApi()` with exactly one of `.RequireSiteRole(SiteRole.X)` (the route
-   must contain `{siteId}`) or `.RequireAuthenticatedCaller()`. Handlers call grains and read only read
+   must contain `{siteId}`), `.RequireAuthenticatedCaller()` or, for `/device/*`, `.RequireDevice()`
+   (anonymous to JWT; the handler authenticates the Device). Handlers call grains and read only read
    models.
 3. **Matrix sample.** Add a sample request to `Samples` in
    [`AuthorizationMatrixTests`](../../tests/cs/server.integration/Edge/AuthorizationMatrixTests.cs): how to
@@ -223,4 +257,6 @@ both.
 `EdgeEndpointDiscoveryTests` fails when an endpoint declares no rule or more than one, or when the
 mapped endpoints and rules differ from the contract. `AuthorizationMatrixTests` fails when an endpoint
 has no sample; otherwise it runs every endpoint as Owner, Administrator and Member on their own Site and
-on another Site, and expects exactly what the declared minimum implies.
+on another Site, and expects exactly what the declared minimum implies. A `Device` endpoint's sample
+carries no Device headers, and every caller, whatever its token and Role, must get 401
+`device-unauthorized`.

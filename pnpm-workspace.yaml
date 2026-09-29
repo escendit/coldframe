@@ -3,6 +3,7 @@ packages:
   - packages/ts/*
   - packages/design-tokens
   - packages/crypto-spec
+  - packages/openapi
   - tests/ts/*
 
 packageExtensions:

@@ -17,7 +17,69 @@ public interface IDeviceGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("enrol")]
     Task<DeviceEnrolmentResult> Enrol(EnrolDevice request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Verifies a Hub's signed heartbeat (AD-12, FR-13) and, when it holds, journals <see cref="DeviceSeen"/>.
+    /// The grain verifies inside itself, so the plaintext <c>K_dev</c> never crosses a grain boundary: it
+    /// unwraps <c>K_dev</c>, derives the <c>hub-auth/v1</c> key, checks the signature and zeroes both. It
+    /// refuses an unenrolled Device, a bad signature, a timestamp more than
+    /// <c>HeartbeatMaxSkewMs</c> off its clock, a nonce it has seen, and a timestamp not above the last
+    /// one it accepted. Nothing is journaled on a refusal.
+    /// </summary>
+    /// <param name="request">The request as the Hub signed it.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("heartbeat")]
+    Task<DeviceHeartbeatResult> Heartbeat(DeviceHeartbeat request, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// A Hub's heartbeat as the Edge API hands it to the Device grain: the parts of the signed request, parsed
+/// but not yet verified.
+/// </summary>
+/// <param name="Method">The HTTP method, uppercase.</param>
+/// <param name="Path">The request path, exactly as sent.</param>
+/// <param name="Body">The exact body bytes (at most 4 KiB).</param>
+/// <param name="TimestampMs">The <c>X-Coldframe-Timestamp</c>, Unix milliseconds.</param>
+/// <param name="Nonce">The <c>X-Coldframe-Nonce</c>, 16 bytes.</param>
+/// <param name="Signature">The <c>X-Coldframe-Signature</c>, 32 bytes.</param>
+/// <param name="UptimeMs">The body's <c>uptimeMs</c>, when sent.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-heartbeat")]
+public sealed record DeviceHeartbeat(
+    [property: Id(0)] string Method,
+    [property: Id(1)] string Path,
+    [property: Id(2)] byte[] Body,
+    [property: Id(3)] long TimestampMs,
+    [property: Id(4)] byte[] Nonce,
+    [property: Id(5)] byte[] Signature,
+    [property: Id(6)] long? UptimeMs);
+
+/// <summary>
+/// How a heartbeat ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-heartbeat-outcome")]
+public enum DeviceHeartbeatOutcome
+{
+    /// <summary>
+    /// The heartbeat is authentic and new; <see cref="DeviceSeen"/> was journaled.
+    /// </summary>
+    Accepted = 0,
+
+    /// <summary>
+    /// The Device authentication failed: unknown Device, bad signature, skew, a replayed nonce or an old
+    /// timestamp. Nothing was journaled; the reason is not told to the caller.
+    /// </summary>
+    Unauthorized = 1,
+}
+
+/// <summary>
+/// The result of <see cref="IDeviceGrain.Heartbeat"/>.
+/// </summary>
+/// <param name="Outcome">How the heartbeat ended.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-heartbeat-result")]
+public sealed record DeviceHeartbeatResult([property: Id(0)] DeviceHeartbeatOutcome Outcome);
 
 /// <summary>
 /// An enrolment request as the Edge API hands it to the Device grain, after it opened and wrapped <c>K_dev</c>.

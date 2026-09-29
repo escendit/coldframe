@@ -1,10 +1,11 @@
 //! FR-1 input check: the Hub image must not carry Wi-Fi credentials, so nothing that goes into it
 //! may read them in at build time. This test scans the sources the image links (the Hub crate and
-//! `packages/rs/{setup,protocol,crypto,hal}`) and their build scripts: an environment read other
+//! `packages/rs/{setup,uplink,protocol,crypto,hal}`) and their build scripts: an environment read other
 //! than Cargo's `CARGO_PKG_*`, `OUT_DIR` or `CARGO_MANIFEST_DIR`, any `include_str!` or
 //! `include_bytes!`, and an `[env]` table in the Hub's Cargo configuration all fail it.
 //! `apps/rs/hub/check-image.sh` checks the built image for canary values. Neither proves FR-1 on
 //! its own; together they catch the build-time ways a credential could get in.
+//! It also checks that the Hub's TLS keeps checking certificate validity dates (H-2).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,7 @@ fn image_crates() -> Vec<PathBuf> {
     vec![
         repo.join("apps/rs/hub"),
         repo.join("packages/rs/setup"),
+        repo.join("packages/rs/uplink"),
         repo.join("packages/rs/protocol"),
         repo.join("packages/rs/crypto"),
         repo.join("packages/rs/hal"),
@@ -124,6 +126,35 @@ fn hub_cargo_configuration_sets_no_env() {
             file.display()
         );
     }
+}
+
+/// Whether the `mbedtls-rs` dependency line of a Cargo manifest enables `hook-wall-clock`.
+fn mbedtls_checks_dates(manifest: &str) -> bool {
+    manifest
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("mbedtls-rs") && line.contains('='))
+        .is_some_and(|line| line.contains("\"hook-wall-clock\""))
+}
+
+/// H-2 (AD-11, AD-13): the Hub checks certificate validity dates, which mbedtls-rs does only with
+/// `hook-wall-clock`. Without it an expired certificate would pass, and no host test would notice.
+#[test]
+fn hub_tls_checks_certificate_dates() {
+    let manifest = fs::read_to_string(hub().join("Cargo.toml")).expect("readable manifest");
+    assert!(
+        mbedtls_checks_dates(&manifest),
+        "apps/rs/hub/Cargo.toml: the mbedtls-rs dependency must enable `hook-wall-clock`"
+    );
+    assert!(mbedtls_checks_dates(
+        r#"mbedtls-rs = { version = "=0.3.0", features = ["esp32s3", "hook-wall-clock"] }"#
+    ));
+    assert!(!mbedtls_checks_dates(
+        r#"mbedtls-rs = { version = "=0.3.0", features = ["esp32s3"] }"#
+    ));
+    assert!(!mbedtls_checks_dates(
+        "# mbedtls-rs with hook-wall-clock\nlog = \"=0.4\""
+    ));
 }
 
 #[test]

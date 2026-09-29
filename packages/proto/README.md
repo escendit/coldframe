@@ -82,20 +82,33 @@ The setup protocol runs over one GATT service (AD-25). The Rust constants are in
    at most 16; hidden SSIDs are left out; WPA3-only networks appear as `WIFI_SECURITY_WPA3_ONLY`.
    Allowed at any time.
 3. `SiteBinding`: a non-empty `site_id`, no `lot_id` (a Hub has no Lot; `lot_id` is
-   `MALFORMED_MESSAGE`). **No reply on success**; a failure is a `SetupError`.
+   `MALFORMED_MESSAGE`), and a `server_url`: `https://` + a lowercase DNS host + an optional `:port`
+   (1–65535), with no path, query, fragment, userinfo or IP literal, at most 100 bytes (for example
+   `https://coldframe.example.org` or `https://coldframe.example.org:8443`). A missing or invalid
+   `server_url` is `MALFORMED_MESSAGE`. A Node omits `server_url`. **No reply on success**; a failure
+   is a `SetupError`.
 4. `EnrolmentRequest` → `EnrolmentResponse` (`K_dev` sealed with HPKE to the key). A key that is not 32
    bytes is `MALFORMED_MESSAGE`; a fingerprint that does not match is `FINGERPRINT_MISMATCH` and nothing
    is sealed.
 5. `WifiConfig` → `WifiResult`. Only after steps 3 and 4 in the same session, otherwise
    `UNEXPECTED_MESSAGE`. The Hub scans, picks the strongest BSSID of the SSID and joins it:
    `NETWORK_NOT_FOUND` when the SSID was not heard, `UNSUPPORTED_SECURITY` for WPA3-only and other
-   unsupported networks (no join attempted), `WRONG_PASSWORD` (the session stays open for a retry),
-   `CONNECTED` after a successful join once the provisioning record is stored. Any other join failure
-   is `SetupError` `INTERNAL`. Nothing is stored on the Hub unless the join succeeds.
+   unsupported networks (no join attempted), `WRONG_PASSWORD` (the session stays open for a retry).
+   After a successful join the Hub checks the Server within 40 s: it brings up IP (DHCP), sets its
+   clock (SNTP) and sends one signed `POST /device/heartbeat` to `server_url`. An HTTP 200 with a valid
+   `serverTime` stores the provisioning record and answers `CONNECTED`. Anything else (no IP, DNS, SNTP
+   or TLS, a non-200 such as a 401 for a Hub the Server does not know, or the 40 s budget running out)
+   answers `NO_SERVER`: the Hub leaves the network, stores nothing, and the session stays open for a
+   retry. Any other join failure is `SetupError` `INTERNAL`. Nothing is stored on the Hub unless the
+   join and the Server check succeed.
 
 Messages only the Device sends (`Identity`, `WifiScanList`, `WifiResult`, `EnrolmentResponse`) are
 `UNEXPECTED_MESSAGE` when the app sends them. A `SetupError` from the app is ignored. After
 `CONNECTED` the Hub answers `SiteBinding`, `EnrolmentRequest` and `WifiConfig` with
 `UNEXPECTED_MESSAGE`, finishes the session (the app disconnects, or the idle timeout) and stops
-advertising for good. In Story 3.4 `CONNECTED` means association and key handshake; Story 3.5 adds
-the Server check and `NO_SERVER`.
+advertising for good.
+
+**The app enrols before it sends `WifiConfig`.** The Server accepts the Hub's heartbeat only once it
+knows the Device, so the app posts the `EnrolmentResponse` to `POST /sites/{siteId}/devices` and waits
+for its 201 before it sends `WifiConfig`. Otherwise the Server check answers `NO_SERVER`; the app can
+then enrol and send the same `WifiConfig` again in the same session.

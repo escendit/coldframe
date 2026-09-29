@@ -12,13 +12,17 @@
 //!     Device's own keys, then close;
 //!   - a later message does not open, or its counter does not increase → close, no reply.
 //! - `IdentityRequest` and `WifiScanRequest` may come at any time.
-//! - `SiteBinding` needs a non-empty `site_id` and no `lot_id`; it has no reply on success.
+//! - `SiteBinding` needs a non-empty `site_id`, no `lot_id` and a valid `server_url`
+//!   ([`ServerUrl`]); it has no reply on success.
 //! - `EnrolmentRequest` needs a 32-byte key whose fingerprint matches; the reply is `K_dev`
 //!   sealed with HPKE, from 32 fresh TRNG bytes.
 //! - `WifiConfig` is accepted only after a `SiteBinding` and an `EnrolmentResponse` in this
-//!   session. The Device scans, takes the strongest BSSID for the SSID and joins it unless that
-//!   network is WPA3-only or otherwise unsupported. Only after a successful join is the
-//!   provisioning record written, and only then is `CONNECTED` sent.
+//!   session. The Device scans and joins the strongest supported BSSID for the SSID
+//!   ([`select_bssid`]); a network heard only as WPA3-only or otherwise unsupported is not
+//!   joined. After a successful join the service checks the Server
+//!   ([`coldframe_uplink::check_server`]): an accepted heartbeat stores the provisioning record
+//!   and sends `CONNECTED`; anything else leaves the network, stores nothing and sends
+//!   `NO_SERVER`, and the session stays open for a retry.
 //! - Messages only the Device sends (`Identity`, `WifiScanList`, `WifiResult`,
 //!   `EnrolmentResponse`) are `UNEXPECTED_MESSAGE` when the app sends them; a `SetupError` from
 //!   the app is ignored.
@@ -38,6 +42,7 @@ use coldframe_protocol::setup_v1::{
     WifiNetwork, WifiResult, WifiScanList, WifiSecurity, WifiStatus,
 };
 use coldframe_protocol::{PROTOCOL_VERSION, SETUP_MESSAGE_MAX_SIZE, decode, encode};
+use coldframe_uplink::{CheckError, SelectError, ServerCheck, ServerUrl, select_bssid};
 
 use crate::code::SetupCode;
 use crate::store::ProvisioningRecord;
@@ -58,6 +63,11 @@ pub enum Action {
     Scan,
     /// Join [`Session::join_target`] and pass the result to [`Session::on_join`].
     Join,
+    /// Check the Server at [`Session::server`] and pass the result to
+    /// [`Session::on_server_check`].
+    CheckServer,
+    /// Leave the Wi-Fi network, then call [`Session::on_left`].
+    Leave,
     /// Store [`Session::provisioning_record`] and pass the outcome to [`Session::on_persisted`].
     Persist,
 }
@@ -89,7 +99,11 @@ enum Pending {
     ConfigScan,
     /// A `WifiConfig` waits for its join.
     Join,
-    /// A successful join waits for the provisioning record.
+    /// A successful join waits for the Server check.
+    Check,
+    /// A failed Server check waits for the station to leave.
+    Leave,
+    /// A passed Server check waits for the provisioning record.
     Persist,
 }
 
@@ -109,9 +123,11 @@ pub struct Session<'a> {
     firmware_version: &'a str,
     phase: Phase,
     site_id: Option<heapless::String<SITE_ID_MAX_LENGTH>>,
+    server: Option<ServerUrl>,
     enrolled: bool,
     wifi: Option<RequestedWifi>,
     pending: Pending,
+    check: Option<ServerCheck>,
     provisioned: bool,
 }
 
@@ -135,9 +151,11 @@ impl<'a> Session<'a> {
             firmware_version,
             phase: Phase::AwaitHello,
             site_id: None,
+            server: None,
             enrolled: false,
             wifi: None,
             pending: Pending::None,
+            check: None,
             provisioned: false,
         }
     }
@@ -146,6 +164,12 @@ impl<'a> Session<'a> {
     #[must_use]
     pub fn is_provisioned(&self) -> bool {
         self.provisioned
+    }
+
+    /// The Server check that let this session store its record.
+    #[must_use]
+    pub fn server_check(&self) -> Option<ServerCheck> {
+        self.check
     }
 
     /// Handles one reassembled frame.
@@ -276,7 +300,12 @@ impl<'a> Session<'a> {
         if binding.site_id.is_empty() || binding.lot_id().is_some() {
             return self.error(SetupErrorCode::MalformedMessage, out);
         }
+        // A Hub reports to the Server the app names; without a valid one it could never check it.
+        let Some(Ok(server)) = binding.server_url().map(|url| ServerUrl::parse(url)) else {
+            return self.error(SetupErrorCode::MalformedMessage, out);
+        };
         self.site_id = Some(binding.site_id.clone());
+        self.server = Some(server);
         Action::Nothing
     }
 
@@ -358,14 +387,10 @@ impl<'a> Session<'a> {
         let Some(wifi) = self.wifi.as_mut() else {
             return self.error(SetupErrorCode::Internal, out);
         };
-        let strongest = heard
-            .iter()
-            .filter(|ap| ap.ssid() == wifi.ssid.as_bytes())
-            .max_by_key(|ap| ap.rssi);
-        let status = match strongest {
-            None => WifiStatus::NetworkNotFound,
-            Some(ap) if !ap.security.is_supported() => WifiStatus::UnsupportedSecurity,
-            Some(ap) => {
+        let status = match select_bssid(heard, wifi.ssid.as_bytes()) {
+            Err(SelectError::NotHeard) => WifiStatus::NetworkNotFound,
+            Err(SelectError::Unsupported) => WifiStatus::UnsupportedSecurity,
+            Ok(ap) => {
                 wifi.bssid = ap.bssid;
                 wifi.channel = ap.channel;
                 self.pending = Pending::Join;
@@ -395,8 +420,8 @@ impl<'a> Session<'a> {
         self.pending = Pending::None;
         let status = match result {
             Ok(()) => {
-                self.pending = Pending::Persist;
-                return Action::Persist;
+                self.pending = Pending::Check;
+                return Action::CheckServer;
             }
             Err(JoinError::WrongPassword) => WifiStatus::WrongPassword,
             Err(JoinError::NotFound) => WifiStatus::NetworkNotFound,
@@ -410,7 +435,41 @@ impl<'a> Session<'a> {
         self.wifi_result(status, out)
     }
 
-    /// The record an [`Action::Persist`] asks to store: the joined network and the bound Site.
+    /// The Server an [`Action::CheckServer`] asks to check.
+    #[must_use]
+    pub fn server(&self) -> Option<&ServerUrl> {
+        if self.pending != Pending::Check {
+            return None;
+        }
+        self.server.as_ref()
+    }
+
+    /// Handles the outcome of the Server check an [`Action::CheckServer`] asked for: store the
+    /// record when the Server accepted the Hub, leave the network otherwise.
+    pub fn on_server_check(&mut self, result: Result<ServerCheck, CheckError>) -> Action {
+        match result {
+            Ok(check) => {
+                self.check = Some(check);
+                self.pending = Pending::Persist;
+                Action::Persist
+            }
+            Err(_) => {
+                self.pending = Pending::Leave;
+                Action::Leave
+            }
+        }
+    }
+
+    /// Answers `NO_SERVER` once the station has left the network after a failed Server check.
+    /// Nothing was stored; the session stays open for a retry.
+    pub fn on_left(&mut self, out: &mut [u8]) -> Action {
+        self.pending = Pending::None;
+        self.wifi = None;
+        self.wifi_result(WifiStatus::NoServer, out)
+    }
+
+    /// The record an [`Action::Persist`] asks to store: the joined network, the bound Site and
+    /// its Server.
     #[must_use]
     pub fn provisioning_record(&self) -> Option<ProvisioningRecord> {
         if self.pending != Pending::Persist {
@@ -418,7 +477,8 @@ impl<'a> Session<'a> {
         }
         let wifi = self.wifi.as_ref()?;
         let site_id = self.site_id.as_ref()?;
-        ProvisioningRecord::new(&wifi.ssid, &wifi.password, site_id).ok()
+        let server = self.server.as_ref()?;
+        ProvisioningRecord::new(&wifi.ssid, &wifi.password, site_id, server.as_str()).ok()
     }
 
     /// Handles the outcome of storing the provisioning record: `CONNECTED` when it was stored.
@@ -426,6 +486,7 @@ impl<'a> Session<'a> {
         self.pending = Pending::None;
         self.wifi = None;
         if !stored {
+            self.check = None;
             return self.error(SetupErrorCode::Internal, out);
         }
         self.provisioned = true;

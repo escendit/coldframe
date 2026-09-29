@@ -1,8 +1,9 @@
-//! Wi-Fi station: scan every channel and join one access point (Hub only).
+//! Wi-Fi station: scan every channel, join one access point, watch the link (Hub only).
 //!
-//! The setup session decides which access point to join (the strongest BSSID for the SSID,
-//! never the first match); this trait only scans and joins. A password passed to
-//! [`Wifi::join`] is never logged or returned in an error.
+//! The caller decides which access point to join (the strongest BSSID for the SSID, never the
+//! first match, `coldframe_uplink::select_bssid`); this trait only scans, joins, reports whether
+//! the station is still associated and leaves. A password passed to [`Wifi::join`] is never
+//! logged or returned in an error.
 
 use core::fmt;
 
@@ -154,4 +155,11 @@ pub trait Wifi {
         bssid: [u8; 6],
         channel: u8,
     ) -> Result<(), JoinError>;
+
+    /// Whether the station is associated right now. Turns `false` when the access point drops
+    /// the link, and after [`Wifi::leave`].
+    fn is_connected(&self) -> bool;
+
+    /// Leaves the network, if joined. Idempotent.
+    async fn leave(&mut self);
 }
