@@ -227,13 +227,15 @@ jobs:
             ~/.rustup/toolchains/esp
             ~/export-esp.sh
 
+      # On the runner's stable toolchain: apps/rs/hub/rust-toolchain.toml names `esp`, which is not
+      # installed until the next step.
       - name: Install espup and espflash
         run: |
           if [[ "$(espup --version 2>/dev/null)" != "espup ${ESPUP_VERSION}" ]]; then
-            cargo install espup --version "${ESPUP_VERSION}" --locked --force
+            rustup run stable cargo install espup --version "${ESPUP_VERSION}" --locked --force
           fi
           if [[ "$(espflash --version 2>/dev/null)" != "espflash ${ESPFLASH_VERSION}" ]]; then
-            cargo install espflash --version "${ESPFLASH_VERSION}" --locked --force
+            rustup run stable cargo install espflash --version "${ESPFLASH_VERSION}" --locked --force
           fi
 
       - name: Install the esp toolchain
