@@ -2,7 +2,7 @@
 title: 'Fleet smoke proves ordered install, upgrade and restart durability'
 type: 'feature'
 created: '2026-09-28'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'e2c78273821e2f7e3c492e984bc829c576d4de70'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -207,3 +207,10 @@ Status: awaiting-operator
 - The domain tables are empty in CI, so their digest is a weak signal; the markers carry the durability proof.
 - The deferred items from 2.5a are untouched: takeOwnership adoption, restore under a paused GitRepo, and the keycloak→temporal edge.
 
+## Operator Confirmation
+
+Confirmed 2026-09-29: the external actions this story owed were carried out.
+
+- Push the loop branch chore/bmad-gzp-module-install (PR #10) and confirm that the Images CI job passes, including its new 'Fleet smoke' step on k3d, within the job's 170-minute timeout. If it fails, read the bundle, BundleDeployment and pod diagnostics the step prints.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._
