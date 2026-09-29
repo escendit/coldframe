@@ -175,6 +175,10 @@ jobs:
       - name: Build
         run: cargo build --workspace --all-targets --locked
 
+      # Without the test crates, `mock` is not unified in, so this proves hal and crypto stay no_std.
+      - name: Build the firmware crates without mocks
+        run: cargo build -p coldframe-hal -p coldframe-crypto --locked
+
       - name: Lint
         run: |
           cargo fmt --all --check

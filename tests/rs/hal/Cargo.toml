@@ -10,7 +10,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dev-dependencies]
-coldframe-hal = { path = "../../../packages/rs/hal" }
+coldframe-hal = { path = "../../../packages/rs/hal", features = ["mock"] }
 
 [lints]
 workspace = true
