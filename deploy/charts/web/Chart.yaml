@@ -1,0 +1,12 @@
+apiVersion: v2
+name: web
+description: >-
+  The Coldframe web backend-for-frontend (SvelteKit on Node.js). Its OIDC client secret comes
+  only from the coldframe-oidc-clients Secret (deploy/SECRETS.md).
+type: application
+# The chart version and the appVersion both equal the release version (deploy/charts/README.md).
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe

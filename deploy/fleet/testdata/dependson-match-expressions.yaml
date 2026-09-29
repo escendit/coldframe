@@ -1,0 +1,16 @@
+# check-fleet.py fixture (merged over the repository's bundles): web selects server through
+# matchExpressions instead of matchLabels on the bundle label.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-web
+spec:
+  dependsOn:
+    - selector:
+        matchExpressions:
+          - key: coldframe.escendit.io/bundle
+            operator: In
+            values: [server]
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: keycloak

@@ -1,0 +1,15 @@
+# Fixture for test.sh: a Traefik IngressRoute on the web entrypoint without tls fails
+# check-ingress.py.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: web-route
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`coldframe.example.invalid`)
+      kind: Rule
+      services:
+        - name: web
+          port: 3000

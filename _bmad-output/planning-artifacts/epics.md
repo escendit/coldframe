@@ -884,29 +884,55 @@ So that phones, browsers and the Hub connect securely without anyone installing 
 **When** CI runs chart unit tests
 **Then** they assert that TLS is set on every Ingress and IngressRoute, the Issuer uses DNS-01, and no route serves port 80
 
-### Story 2.5: GitOps deployment to my RKE2 server
+### Story 2.5a: GitOps bundles and install guide for my RKE2 server
 
 As Simon,
-I want my home server to deploy Coldframe from Git with Fleet,
-So that upgrading means changing a version in Git, and a restart never loses data.
+I want Coldframe described as Fleet bundles in Git with an install guide,
+So that my home server can deploy it from Git with Fleet, and upgrading means changing a version in Git.
+
+Split from Story 2.5 (two dev sessions timed out on the whole story). This half is the repository side and needs no cluster; Story 2.5b proves it on a cluster.
 
 **Acceptance Criteria:**
 
-**Given** single-node RKE2 (the stable v1.36 line) with Fleet v0.16.2
-**When** I point a Fleet GitRepo at `deploy/` per `docs/operations/install.md`
-**Then** Fleet installs CloudNativePG, the database, ingress and TLS, and all Coldframe charts in dependency order, and every pod becomes ready (NFR7)
+**Given** Fleet v0.16.2 bundles under `deploy/` (cert-manager, CloudNativePG and the Barman Cloud plugin as pinned upstream charts, the RKE2 Traefik `HelmChartConfig`, and all seven Coldframe charts) and one reference GitRepo `deploy/fleet/gitrepo.yaml` whose `revision` is the release tag
+**When** `deploy/charts/test.sh` runs (the Charts CI job)
+**Then** `fleet apply -o -` over the GitRepo's `paths` produces exactly those bundles, a checker proves every bundle is labelled, the `dependsOn` graph matches the dependency order (operators, then database, ingress and TLS, then the Coldframe charts) with no cycle or dangling selector, and every pin equals `deploy/charts/dependencies.env`, and each checker failure is proven by a fixture
 
-**Given** a running installation
-**When** I change the release version in my Fleet configuration
-**Then** the upgrade runs migrations first and then restarts the Server with stop-then-start, and Sites and Lots are intact afterwards
-
-**Given** a running installation with Sites and Lots
-**When** the Server pod, the database pod or the whole node restarts
-**Then** no stored data, setting or event is lost, and the apps reconnect when the Server is back (NFR3)
+**Given** the site-specific values (domain, S3, issuer and origin URLs, ACME email)
+**When** I install
+**Then** they come from one out-of-band ConfigMap through `helm.valuesFrom`, documented by an example CI renders, and Git holds no secret values
 
 **Given** `docs/operations/install.md`
 **When** I follow it on the home server
-**Then** a manual verification checklist confirms: pods ready; HTTPS valid on all three hosts; sign-in works from phone and browser; restart durability; a backup exists in S3
+**Then** it covers prerequisites, applying the GitRepo, watching bundles, upgrading by changing the tag, moving from a manual install, and a manual verification checklist: pods ready; HTTPS valid on all three hosts; sign-in works from phone and browser; restart durability; a backup exists in S3
+
+Implementation note: the timed-out attempt's spec on branch `backup/2-5-attempt` (`_bmad-output/implementation-artifacts/spec-2-5-gitops-deployment-to-my-rke2-server.md`) records decisions verified with the fleet CLI 0.16.2 (bundle folder layout, label-selector `dependsOn`, pins and sha256s, the cert-manager `extraArgs` replacing the manual patch). Reuse them; that branch predates later fixes, so do not merge it.
+
+### Story 2.5b: Fleet smoke proves ordered install, upgrade and restart durability
+
+As Simon,
+I want CI to install Coldframe with Fleet on a throwaway cluster, upgrade it and restart it,
+So that I know an install converges, an upgrade is safe, and a restart never loses data before I run it at home.
+
+Split from Story 2.5; depends on Story 2.5a's bundles.
+
+**Acceptance Criteria:**
+
+**Given** single-node k3d (kind locally) with Fleet v0.16.2 and the Story 2.5a bundles applied with `fleet apply` from the reference GitRepo's `paths`
+**When** `deploy/fleet/smoke.sh` runs in the Images CI job
+**Then** Fleet installs CloudNativePG, the database, ingress and TLS, and all Coldframe charts in dependency order, and every pod becomes ready (NFR7)
+
+**Given** a running installation
+**When** the release version changes (charts and images bumped, bundles re-applied)
+**Then** the upgrade runs migrations first and then restarts the Server with stop-then-start, and committed data is intact afterwards
+
+**Given** a running installation with committed data
+**When** the Server pod, the database pod or the whole node restarts
+**Then** no stored data, setting or event is lost, and the Server answers healthy over HTTPS again (NFR3)
+
+**Given** the smoke's run time
+**When** it runs in CI
+**Then** it fits the Images job timeout and, on failure, prints bundle, BundleDeployment and pod diagnostics
 
 ## Epic 3: Bring the Hub online
 

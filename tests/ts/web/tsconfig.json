@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "resolveJsonModule": true,
+    "types": ["node", "vite/client", "svelte"],
+    "paths": {
+      "$lib": ["../../../apps/ts/web/src/lib"],
+      "$lib/*": ["../../../apps/ts/web/src/lib/*"]
+    }
+  },
+  "include": ["**/*.ts", "../../../apps/ts/web/src/app.d.ts"]
+}

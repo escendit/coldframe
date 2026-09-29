@@ -1,0 +1,23 @@
+# check-fleet.py fixture: the GitRepo scans "deploy", which has no fleet.yaml of its own; Fleet
+# would make a catch-all bundle of its files (the charts' test fixtures included).
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: coldframe
+  namespace: fleet-local
+spec:
+  repo: https://github.com/escendit/coldframe
+  revision: v0.1.0
+  paths:
+    - deploy
+    - deploy/fleet/cert-manager
+    - deploy/fleet/cloudnative-pg
+    - deploy/fleet/barman-cloud
+    - deploy/rke2
+    - deploy/charts/database
+    - deploy/charts/ingress
+    - deploy/charts/nats
+    - deploy/charts/temporal
+    - deploy/charts/keycloak
+    - deploy/charts/server
+    - deploy/charts/web

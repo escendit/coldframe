@@ -1,0 +1,22 @@
+# check-fleet.py fixture: the GitRepo follows the branch main instead of a release tag, so the
+# charts and the images would no longer be pinned together.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: coldframe
+  namespace: fleet-local
+spec:
+  repo: https://github.com/escendit/coldframe
+  revision: main
+  paths:
+    - deploy/fleet/cert-manager
+    - deploy/fleet/cloudnative-pg
+    - deploy/fleet/barman-cloud
+    - deploy/rke2
+    - deploy/charts/database
+    - deploy/charts/ingress
+    - deploy/charts/nats
+    - deploy/charts/temporal
+    - deploy/charts/keycloak
+    - deploy/charts/server
+    - deploy/charts/web

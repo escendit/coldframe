@@ -1,0 +1,58 @@
+{{/*
+Creates the Temporal namespace after install and upgrade when it is absent; an existing namespace
+is left as it is. Retries until the frontend answers.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "temporal.fullname" . }}-namespace
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+    app.kubernetes.io/component: namespace
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ int .Values.adminTools.backoffLimit }}
+  activeDeadlineSeconds: {{ int .Values.adminTools.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "temporal.labels" . | nindent 8 }}
+        app.kubernetes.io/component: namespace
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "temporal.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: namespace
+          image: {{ include "temporal.image" (list . .Values.adminTools.image) | quote }}
+          imagePullPolicy: {{ .Values.adminTools.image.pullPolicy }}
+          securityContext:
+            {{- include "temporal.containerSecurityContext" . | nindent 12 }}
+          command:
+            - sh
+            - -ec
+            - |
+              until temporal operator cluster health >/dev/null 2>&1; do
+                echo "waiting for the Temporal frontend at ${TEMPORAL_ADDRESS}"
+                sleep 3
+              done
+              if temporal operator namespace describe --namespace "${NAMESPACE}" >/dev/null 2>&1; then
+                echo "namespace ${NAMESPACE} exists; left as it is"
+              else
+                temporal operator namespace create --namespace "${NAMESPACE}" --retention "${RETENTION}"
+              fi
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: {{ printf "%s:%d" (include "temporal.fullname" .) (int .Values.service.port) | quote }}
+            - name: NAMESPACE
+              value: {{ .Values.namespace.name | quote }}
+            - name: RETENTION
+              value: {{ .Values.namespace.retention | quote }}
+          {{- with .Values.adminTools.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

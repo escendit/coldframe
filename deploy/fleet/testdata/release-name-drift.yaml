@@ -1,0 +1,9 @@
+# check-fleet.py fixture (merged over the repository's bundles): the server bundle's release name
+# differs from the release of deploy/charts/README.md, so Fleet would install a second Server.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-server
+spec:
+  helm:
+    releaseName: coldframe-server

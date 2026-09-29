@@ -1,0 +1,22 @@
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ include "database.objectStoreName" . }}
+  labels:
+    {{- include "database.labels" . | nindent 4 }}
+spec:
+  retentionPolicy: {{ .Values.backup.retentionPolicy | quote }}
+  configuration:
+    destinationPath: {{ .Values.backup.destinationPath | quote }}
+    endpointURL: {{ .Values.backup.endpointURL | quote }}
+    s3Credentials:
+      accessKeyId:
+        name: coldframe-backup-s3
+        key: access-key-id
+      secretAccessKey:
+        name: coldframe-backup-s3
+        key: secret-access-key
+    wal:
+      compression: gzip
+    data:
+      compression: gzip

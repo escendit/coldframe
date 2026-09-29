@@ -1,0 +1,319 @@
+### DW-1: The architecture Stack pins Temporal Server 1.31.3, but no public container image exists for that version; the local stack uses the Temporal CLI development server instead.
+origin: spec-deferred d24a3b6afbf1
+location: _bmad-output/planning-artifacts/architecture/architecture-coldframe-2026-09-26/ARCHITECTURE-SPINE.md (Stack table)
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: low
+reason: Docker Hub temporalio/server lists 1.31.0, 1.31.1, 1.31.2 and 1.32.0 only; temporalio/auto-setup stops at 1.29.7 (checked 2026-09-28).
+status: open
+
+### DW-2: The Escendit hosting packages extend the concrete HostApplicationBuilder only, so an ASP.NET Core host cannot call AddServiceDefaults() or any Orleans extension of Escendit.Extensions.Hosting.Orleans;
+origin: spec-deferred bc3a356a215e
+location: apps/cs/server/Hosting/ServiceDefaultsExtensions.cs
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: medium
+reason: The XML documentation of Escendit.Extensions.Hosting.ServiceDefaults 0.1.0-rc.4 lists AddServiceDefaults(HostApplicationBuilder, ...) and no overload for IHostApplicationBuilder or WebApplicationBuilder. Story 1.2 meets the same limit when it adds AdoNet clustering and NATS streams. Needs an upstream change (target IHostApplicationBuilder) or a decision to keep the shim.
+status: open
+
+### DW-3: No test asserts that the server exports telemetry when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+origin: spec-deferred 5f08a759f34d
+location: apps/cs/server/Hosting/ServiceDefaultsExtensions.cs
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: low
+reason: The integration run executes the branch but asserts nothing about telemetry. An assertion needs an OTLP collector in the test host.
+status: open
+
+### DW-4: The health test may fail on a slow runner when the server process is running but does not listen within the retry budget of the HTTP resilience handler.
+origin: spec-deferred a7f34e0af370
+location: tests/cs/server.integration/ServerHealthTests.cs
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+reason: Not observed in any local run. To settle it, measure the time from the Running state to the first accepted connection on a GitHub runner and compare it with the retry budget of the standard resilience handler.
+status: open
+
+### DW-5: The CI jobs are not required status checks on main, so a failing job does not block a merge.
+origin: spec-deferred eb356faf4c50
+location: .github/workflows/ci.yml
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: medium
+reason: The GitHub API reports no branch protection on main and a ruleset with deletion and non_fast_forward only. This is a repository setting; it is listed under operator_actions.
+status: open
+
+### DW-6: The CI workflow has never run on GitHub; the macOS Swift job and the Docker-based .NET and secrets jobs are verified only by running their commands locally.
+origin: spec-deferred 7c23aad3bce0
+location: .github/workflows/ci.yml
+source_spec: `spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md`
+severity: medium
+reason: This run may not push or open a pull request. It is listed under operator_actions.
+status: open
+
+### DW-7: AD-21 asks for journal snapshots on a fixed event interval; this story has no acceptance criterion for them and no grain yet has a long stream, so the CustomStorage read replays the full stream.
+origin: spec-deferred a59fe982da88
+location: apps/cs/server/Journal/
+source_spec: `spec-1-2-event-journal-migrations-and-projection-pipeline.md`
+severity: low
+reason: Story 1.2 acceptance criteria in epics.md (lines 527-561) name append, outbox, projectors, polling, time and replay, not snapshots.
+status: open
+
+### DW-8: Escendit.Orleans.Migrations.Cluster.PostgreSQL 10.3.1-rc.1 is published; the architecture and the story pin 10.3.1-rc.0, which this story keeps.
+origin: spec-deferred 9c186f8991dd
+location: Directory.Packages.props
+source_spec: `spec-1-2-event-journal-migrations-and-projection-pipeline.md`
+severity: low
+reason: nuget.org flat container index lists 10.3.1-rc.0 and 10.3.1-rc.1 (checked 2026-09-28).
+status: open
+
+### DW-9: DESIGN.md sets hero-value, tile-value and tile-value-web to Ubuntu Condensed weight 300, but Ubuntu Condensed exists only in 400, so those roles render at 400.
+origin: spec-deferred c0e9a91eb7ae
+location: packages/design-tokens/tokens/tokens.json (hero-value, tile-value, tile-value-web)
+source_spec: `spec-1-3-design-tokens-and-themes.md`
+severity: low
+reason: google/fonts ufl/ubuntucondensed ships only UbuntuCondensed-Regular.ttf; generated fonts.css has no Ubuntu Condensed 300 face. The token copies DESIGN.md faithfully; the design needs a decision (use 400, or Ubuntu Light for values).
+status: open
+
+### DW-10: No test drives a real authorization-code exchange between apps/ts/web and the coldframe realm in Keycloak; e2e tests use a fake OIDC provider and the realm is checked only as configuration.
+origin: spec-deferred 7ffd886da898
+location: aspire/keycloak/realms/coldframe-realm.json, tests/ts/web.e2e/fixtures/fake-idp.ts
+source_spec: `spec-1-4-sign-in-on-the-web.md`
+reason: Unverified (maybe-false). KeycloakTests.cs asserts the discovery document and the coldframe-web client settings; every browser test targets tests/ts/web.e2e/fixtures/fake-idp.ts. To settle it, sign in to the web app against the Aspire stack's Keycloak (docs/quickstart.md "Run the web app") with a registered user, or add an AppHost-hosted e2e run.
+status: open
+
+### DW-11: The CI workflow, including the new Playwright install and report-upload steps, has not run on GitHub; it is verified only by running the same commands locally.
+origin: spec-deferred 9a6aaa58a7b5
+location: .github/workflows/ci.yml
+source_spec: `spec-1-4-sign-in-on-the-web.md`
+severity: low
+reason: Pre-existing and already tracked as DW-6 (spec-1-1). This run does not push.
+status: open
+
+### DW-12: The UX-DR92 unreachable notice says "Check that this phone is on your home Wi-Fi." on the web too; EXPERIENCE.md has no web variant.
+origin: spec-deferred 1ad0b8ebf510
+location: apps/ts/web/src/lib/i18n/en.json
+source_spec: `spec-1-4-sign-in-on-the-web.md`
+severity: low
+reason: EXPERIENCE.md lines 155-164 give one copy for all platforms; the catalogue uses it verbatim. Changing it needs a UX decision in EXPERIENCE.md, which this story may not edit.
+status: open
+
+### DW-13: The iOS tab bar marks the selected tab with the native selected state and the primary-text tint, not the filled icon DESIGN.md asks for.
+origin: spec-deferred fba6f0588ff2
+location: apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (AppTabView)
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: The vendored Carbon set in packages/design-tokens has no filled variants of grid, notification, box or settings. Needs filled glyphs added to the token subset or a UX decision; the spec forbids inventing glyphs.
+status: open
+
+### DW-14: The Android app and the Android targets compile against API 37 (platform android-37.0), not the compileSdk 36 the story names; targetSdk stays 36.
+origin: spec-deferred 333a9b4f984d
+location: gradle/libs.versions.toml (android-compile-sdk)
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: Compose 1.12.1 from BOM 2026.09.00, Lifecycle 2.11.0 and OkHttp 5.5.0 (through Ktor 3.6.0) declare minCompileSdk 37 in their AAR metadata, so checkDebugAarMetadata fails at 36. Every pinned version was kept; CI installs platforms;android-37.0.
+status: open
+
+### DW-15: kotlin-multiplatform-oidc 0.18.3 falls back to a WebView on Android when no Custom Tabs browser is installed, even with useWebView = false.
+origin: spec-deferred 9396e567c2cc
+location: packages/kt/core/src/androidMain/kotlin/com/escendit/coldframe/core/signin/AndroidSignIn.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: medium
+reason: AndroidCodeAuthFlowFactory.createWebFlow picks WebViewFlow when getCustomTabProviders() is empty. The story forbids WebView sign-in. Needs an upstream option, a wrapper factory that refuses to start without a Custom Tabs provider (and a notice for that case), or a UX decision.
+status: open
+
+### DW-16: The Android and iOS apps have no app icon; DESIGN.md says the icon uses the Coldframe mark, and no mark asset exists in packages/design-tokens.
+origin: spec-deferred 819e72a47758
+location: apps/kt/android/src/main/AndroidManifest.xml, apps/swift/ios/project.yml
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: Android lint reports MissingApplicationIcon (warning). The web app renders the mark as the word Coldframe in the headline role. Needs the mark as a vector asset.
+status: open
+
+### DW-17: Material 3 NavigationBar and AlertDialog animate their indicator, ripple and entry internally; UX-DR101 asks for no animations.
+origin: spec-deferred 8b023ac942ea
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/shell/AppShell.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: The shell's own code has no animation (source-scan test). The Material components honour the system animator duration scale (Remove animations) but cannot be switched off per app without replacing them.
+status: open
+
+### DW-18: The iOS certificate classifier (CertificateErrors.ios.kt, NSURLErrorDomain -1200...-1206) has no test, and it is unverified whether a DarwinHttpRequestException stays in the cause chain after the
+origin: spec-deferred 9b6d4d207d17
+location: packages/kt/core/src/iosMain/kotlin/com/escendit/coldframe/core/signin/CertificateErrors.ios.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+reason: Unverified (maybe-false). Only the JVM classifier is tested; iOS tests cannot run on Linux and the ios CI job only runs xcodebuild build. Settle it with an iosTest mirroring CertificateErrorsTest run via ./gradlew :core:iosSimulatorArm64Test on macOS, and a real untrusted-certificate sign-in on an iPhone.
+status: open
+
+### DW-19: If the browser flow never returns (activity destroyed mid-flow, lost ASWebAuthenticationSession callback), the engine may stay in Working with SIGN IN disabled and signOut waiting on the mutex.
+origin: spec-deferred 285c44893882
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/signin/SignInEngine.kt
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+reason: Unverified (maybe-false). Depends on whether kotlin-multiplatform-oidc's flows always resume or throw when the hosting activity/session goes away; process death is covered by canContinueLogin. Settle it by rotating/backgrounding the app during the Custom Tab on a device and by reading PlatformCodeAuthFlow's suspension handling.
+status: open
+
+### DW-20: The iOS UX-DR104 and UX-DR126 render tests only assert that ImageRenderer produces an image; they do not check the announcement text/priority or clipping.
+origin: spec-deferred 4f517ad1edcd
+location: tests/swift/ios/ColdframeIOSTests/RenderTests.swift, apps/swift/ios/Sources/ColdframeIOS/UI/Components.swift
+source_spec: `spec-1-5-sign-in-on-ios-and-android.md`
+severity: low
+reason: RenderTests.swift asserts renders(...) == true only; deleting .onAppear { announce() } in Components.swift breaks no test. Needs a macOS-only seam (e.g. a tested builder for the announcement AttributedString).
+status: open
+
+### DW-21: Keycloak events dropped while Temporal is down are never replayed, so a quiet Site stays drifted until another event touches it.
+origin: spec-deferred 9866fdc345ff
+location: apps/cs/server/Identity/Reconciliation/IdentityReconciliationActivities.cs
+source_spec: `spec-1-7-reconcile-identity-changes-from-keycloak.md`
+severity: medium
+reason: keycloak-temporal-extensions v0.0.1-rc.2 logs and drops an event when its workflow start fails (upstream, pre-existing). Reconciliation is event-triggered only. A periodic full-roster sweep (for example a Temporal schedule or an Orleans reminder per Site) would close the gap.
+status: open
+
+### DW-22: A single GET /orgs/{id} 404 during any reconcile deletes the Site permanently, and a misconfigured service account might cause such 404s.
+origin: spec-deferred 764627bf3268
+location: apps/cs/server/Identity/SiteGrain.cs (Reconcile, RaiseDeleted)
+source_spec: `spec-1-7-reconcile-identity-changes-from-keycloak.md`
+reason: Unverified: whether Phase Two answers 404 (not 403) to GET /orgs/{id} when the coldframe-server service account lacks view-organizations. If it does, one event per Site would move every touched Site to Deleted (terminal, AD-20). Settle it on a live container by removing the role and calling the endpoint.
+status: open
+
+### DW-23: The time zone confirmed on Create Site is kept per device (web cookie cf_time_zone, mobile DeviceChoices) and never reaches the Server.
+origin: spec-deferred f53f05a8f999
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/DeviceChoices.kt, apps/ts/web/src/lib/server/create-site.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: AD-11 and FR16 make the time zone a User preference; POST /sites takes only {name}. The Notification Window story (epics.md 1667-1696, UX-DR48) adds the User time-zone endpoint and must send the stored per-device choice once, then read it from the Server.
+status: open
+
+### DW-24: The Site menu renders only Site settings; Pause/Resume and the stale-mode disabled state exist only in the menu models (core SiteMenu.items, web site-menu.ts).
+origin: spec-deferred fb1a514d4b3c
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/SiteMenu.kt, apps/ts/web/src/lib/site-menu.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: medium
+reason: UX-DR22 in full needs the Pause sheet (UX-DR46/70) and stale mode, which arrive in later epics; rendering a Pause item that does nothing would break controls-you-cannot-use-are-hidden. Turn on pauseAvailable with the Pause story and stale with stale mode, and render the Needs your Server state on all three clients.
+status: open
+
+### DW-25: Site settings in the Site menu opens the Settings index, not a Site settings surface.
+origin: spec-deferred cd4566c213ff
+location: apps/ts/web/src/lib/components/SiteMenu.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/SiteMenu.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: The Site settings surface arrives in Story 1.9; point the item at it there.
+status: resolved
+resolution: Story 1.9 (`spec-1-9-manage-my-site-and-lots.md`): the Site menu item opens Site settings on every client (web `/settings/site`, Android and iOS the Site settings sub-screen).
+
+### DW-26: The first-run step tiles are never actionable (flowAvailable = false on every client).
+origin: spec-deferred 501fdb82f35d
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/FirstRunSteps.kt, apps/ts/web/src/lib/first-run.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: medium
+reason: The Add a Hub flow is a later epic. When it lands, pass flowAvailable = true on mobile so the next step starts the flow for Administrators and Owners; the tile states and the Member notice are already real. Done steps (checkmark) also need Hub/Node data.
+status: open
+
+### DW-27: The Kotlin API client and DTOs are hand-written instead of generated from coldframe.openapi.json (AD-10 deviation).
+origin: spec-deferred ec8f62ba78ca
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/api/
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: openapi-generator's multiplatform output does not fit explicitApi(), Ktor 3.6 and the value-result style. OpenApiContractTest (tests/kt/core/jvmTest) fails when an operation, path, method, header or DTO property the core uses is missing from the contract; it does not detect new contract fields the core ignores. Revisit if a generator fits later.
+status: open
+
+### DW-28: Pull-to-refresh on the mobile Garden and refetch on focus on the web (UX-DR62) are not built.
+origin: spec-deferred 1d32e1d55b52
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/GardenScreen.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift, apps/ts/web/src/routes/(app)/+layout.server.ts
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: low
+reason: Story 1.8 forbids a polling loop and has no Lot data to refresh yet; the Sites list reloads on sign-in (mobile) and on every navigation (web). Add refresh with the Lot grid.
+status: open
+
+### DW-29: On iOS, "New Site" in the Site switcher may never open Create Site, because the Create Site sheet is requested while the switcher sheet is still closing.
+origin: spec-deferred review-1-8-ios-sheet
+location: apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift (GardenView onNewSite), apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (ColdframeRootView .sheet)
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+severity: medium (unverified)
+reason: Unverified: SwiftUI often drops a sheet presentation requested during another sheet's dismissal, and `creating` would then stay set, so later New Site taps are ignored. Settle it on a Mac or iPhone; if it happens, call actions.newSite() from the switcher sheet's onDismiss.
+status: open
+
+### DW-30: On iOS, "New Site" in the switcher may never open Create Site, because the root view asks for the Create Site sheet while GardenView's switcher sheet is still closing.
+origin: spec-deferred 6c80305c2a33
+location: apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift (GardenView onNewSite), apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (ColdframeRootView .sheet)
+source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
+reason: Unverified (maybe-false): SwiftUI often drops a sheet presentation requested during another sheet's dismissal. If it does, `creating` stays set and `newSite()` then ignores every tap, so Create Site cannot be reached until the app restarts. Settle it on a Mac or iPhone: open the switcher, tap New Site, and check that Create Site appears. If it does not, call actions.newSite() from the switcher sheet's onDismiss. SwiftUI cannot compile or run on Linux.
+status: open
+
+### DW-31: Lot tiles are not tappable: no Lot detail, and a no-Node tile does not start Add a Node (UX-DR20 tap behaviour).
+origin: spec-deferred story-1-9-1
+location: apps/ts/web/src/lib/components/LotTiles.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/LotTile.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SiteSettingsViews.swift (LotTile)
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Lot detail and the Add a Node flow arrive in Epic 4. The web tile is exposed as role="img" so it reads as one element; switch it to a link or button (and Android/iOS to a button role) when tiles become tappable.
+status: open
+
+### DW-32: Only the no-Node tile variant is drawn; any other LotStatus renders the Lot name alone (UX-DR18 needsWater, needsCalibration, unknown, ok, paused variants).
+origin: spec-deferred story-1-9-2
+location: apps/ts/web/src/lib/components/LotTiles.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/LotTile.kt, apps/swift/ios/Sources/ColdframeIOS/LotsPresentation.swift
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: The other statuses need Readings, Calibration and Pause (Epic 5). In 1.9 the projection sets unknown for a claimed Lot (reachable only through a fixture claim), noNode otherwise.
+status: open
+
+### DW-33: Site settings has no Site Reminder cadence control (UX-DR50, UX-DR74 part).
+origin: spec-deferred story-1-9-3
+location: apps/ts/web/src/routes/(app)/settings/site/+page.svelte, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/settings/SiteSettingsScreen.kt, apps/swift/ios/Sources/ColdframeIOS/UI/SiteSettingsViews.swift
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Reminders arrive in a later epic; add the Segmented choice (Owner/Admin) to the same surface then.
+status: open
+
+### DW-34: The Lot grain has no Claim/Release methods; LotClaimed/LotReleased are only journaled by fixtures.
+origin: spec-deferred story-1-9-4
+location: apps/cs/server/Lots/LotGrain.cs, packages/cs/contracts/Lots/LotGrains.cs
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Node assignment arrives in Epic 4 (AD-18); the removal refusal is tested with a fixture LotClaimed event. The Lot read model's refetch on readmodel.changed also waits for that epic; DW-28 stays open.
+status: open
+
+### DW-35: Renaming a Site reads the whole Keycloak Organization and writes it back with the new displayName, so a concurrent Organization edit between the read and the write can be overwritten.
+origin: spec-deferred story-1-9-5
+location: apps/cs/server/Identity/PhaseTwoOrganizations.cs (UpdateDisplayNameAsync)
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Phase Two's organization update takes the full representation. RenameSiteTests checks that the creation tag survives; other attributes are not re-checked. Reconciliation (Story 1.7) repairs displayName drift but not other fields.
+status: open
+
+### DW-36: On Android, the per-row "Rename Lot" and "Remove Lot" buttons in Site settings do not carry the Lot name, so TalkBack reads the same label on every row.
+origin: spec-deferred story-1-9-6
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/settings/SiteSettingsScreen.kt
+source_spec: `spec-1-9-manage-my-site-and-lots.md`
+severity: low
+reason: Add a content description with the Lot name (new string keys on Android and iOS, parity-checked by StringsTest) and check the web and iOS rows the same way.
+status: open
+
+### DW-37: Nothing alerts when WAL archiving or base backups fail.
+origin: spec-deferred 3f8131c18a6e
+location: deploy/charts/database/templates/cluster.yaml
+source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md`
+severity: medium
+reason: ContinuousArchiving turning False is only visible through a manual kubectl check in restore.md; no PodMonitor or alert rule exists, and Epic 2 has no monitoring stack.
+status: open
+
+### DW-38: The backup ObjectStore offers no region or endpointCA setting.
+origin: spec-deferred b15e11d2e666
+location: deploy/charts/database/templates/objectstore.yaml
+source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md`
+reason: Unverified: settle by archiving to an S3 provider that requires a non-default signing region (AWS outside us-east-1, some Backblaze or Wasabi endpoints) with only endpointURL set. Adding a region key changes the Secret contract.
+status: open
+
+### DW-39: Password rotation of coldframe-db-* through CNPG managed roles is documented but never exercised.
+origin: spec-deferred c610cc8e55f9
+location: deploy/SECRETS.md
+source_spec: `spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md`
+severity: medium
+reason: SECRETS.md says updating a Secret labelled cnpg.io/reload=true changes the role password; no smoke step rotates a Secret and checks the new password logs in and the old one does not.
+status: open
+
+### DW-40: The Traefik checks render rke2-traefik without the values RKE2 itself injects into the chart.
+origin: spec-deferred 38a6cbe94bbd
+location: deploy/rke2/rke2-traefik-config.yaml
+source_spec: `spec-2-4-tls-with-public-certificates-on-my-home-network.md`
+reason: Unverified: test.sh and smoke.sh layer only the HelmChartConfig valuesContent over the chart defaults. If RKE2 v1.36.4's own HelmChart values set anything under ports.web, the node could differ. Settle on the home server with `kubectl -n kube-system get helmchart rke2-traefik -o jsonpath='{.spec.valuesContent}'` and `kubectl -n kube-system get svc rke2-traefik` (443 only).
+status: open
+
+### DW-41: The Fleet smoke has only run on kind; the k3d path that CI uses, and the Images job timeout of 170 minutes, are unproven.
+origin: spec-deferred f6fa9df6ca1f
+location: .github/workflows/images-verify.yml (Fleet smoke); deploy/fleet/smoke.sh
+source_spec: `spec-2-5b-fleet-smoke-proves-ordered-install-upgrade-and-restart-durability.md`
+reason: Unverified: .github/ has no SMOKE_CLUSTER setting, so CI runs the k3d path (the real k3s HelmChartConfig CRD, k3d image import, docker restart of the k3d node), and every local run used kind. It is settled by one green Images job on GitHub Actions that includes the "Fleet smoke" step, together with its step duration.
+status: open

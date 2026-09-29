@@ -1,0 +1,9 @@
+# check-fleet.py fixture (merged over the repository's bundles): the ingress bundle no longer reads
+# its site values, so the domain would stay a placeholder.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-ingress
+spec:
+  helm:
+    valuesFrom: null

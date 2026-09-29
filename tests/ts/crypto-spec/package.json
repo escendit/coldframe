@@ -1,0 +1,17 @@
+{
+  "name": "@coldframe/crypto-spec-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tests for @coldframe/crypto-spec: generated outputs are fresh and the vectors reproduce",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@coldframe/crypto-spec": "workspace:*",
+    "@types/node": "24.19.0"
+  }
+}

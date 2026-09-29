@@ -1,0 +1,7 @@
+# Symbols that code under apps/cs and packages/cs must not use (RS0030).
+# Server code reads time only from an injected TimeProvider (AD-6), so tests can substitute FakeTimeProvider.
+P:System.DateTime.Now;Read the time from an injected TimeProvider (AD-6)
+P:System.DateTime.UtcNow;Read the time from an injected TimeProvider (AD-6)
+P:System.DateTime.Today;Read the time from an injected TimeProvider (AD-6)
+P:System.DateTimeOffset.Now;Read the time from an injected TimeProvider (AD-6)
+P:System.DateTimeOffset.UtcNow;Read the time from an injected TimeProvider (AD-6)

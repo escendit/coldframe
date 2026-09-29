@@ -1,0 +1,40 @@
+# The reference GitRepo (Story 2.5a): Fleet on the cluster itself (namespace fleet-local) installs
+# the Coldframe stack from this repository at a release tag. Apply it once Fleet runs and the
+# Secrets, the realm ConfigMap and the ConfigMap coldframe-values exist
+# (docs/operations/install.md):
+#
+#   kubectl apply -f deploy/fleet/gitrepo.yaml
+#
+# revision is the release tag: the charts' version and appVersion equal it (check-version.sh), so
+# it pins the charts and the images together. An upgrade is a change of revision to a newer tag.
+# It must name an existing release tag that contains deploy/fleet (the first release cut after
+# Story 2.5a, or a later one): change the tag below before applying. check-fleet.py fails when it
+# is not of the form vX.Y.Z.
+#
+# paths lists the bundle folders, each with its fleet.yaml; the bundles order themselves through
+# dependsOn on the label coldframe.escendit.io/bundle. Not "deploy/": Fleet would turn its own
+# files (and the charts' test fixtures) into a catch-all bundle. deploy/charts/test.sh renders
+# exactly these paths with the fleet CLI and checks them (deploy/fleet/check-fleet.py); the Fleet
+# smoke (deploy/fleet/smoke.sh) installs them.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: coldframe
+  namespace: fleet-local
+spec:
+  repo: https://github.com/escendit/coldframe
+  revision: v0.1.0
+  paths:
+    # Operators and cluster configuration.
+    - deploy/fleet/cert-manager
+    - deploy/fleet/cloudnative-pg
+    - deploy/fleet/barman-cloud
+    - deploy/rke2
+    # The Coldframe charts (release names and namespace of deploy/charts/README.md).
+    - deploy/charts/database
+    - deploy/charts/ingress
+    - deploy/charts/nats
+    - deploy/charts/temporal
+    - deploy/charts/keycloak
+    - deploy/charts/server
+    - deploy/charts/web

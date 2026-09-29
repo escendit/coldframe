@@ -1,0 +1,60 @@
+/* Base styles of the web app. Every value comes from @coldframe/design-tokens. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  /* No motion anywhere: state changes swap instantly (UX-DR101). */
+  transition: none;
+  animation: none;
+}
+
+html {
+  /* Focus is never hidden under the sticky AppHeader (UX-DR16). */
+  scroll-padding-top: var(--cf-spacing-header-height);
+  background: var(--cf-color-background);
+  color: var(--cf-color-text-primary);
+  font-family: var(--cf-type-body-font-family);
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--cf-color-background);
+  color: var(--cf-color-text-primary);
+  font-family: var(--cf-type-body-font-family);
+  font-size: var(--cf-type-body-font-size);
+  font-weight: var(--cf-type-body-font-weight);
+  line-height: var(--cf-type-body-line-height);
+}
+
+/* Two-tone focus indicator: 2 px ring outside a 2 px gap, never orange (UX-DR16). */
+:focus-visible {
+  outline: var(--cf-spacing-focus-ring) solid var(--cf-color-focus);
+  outline-offset: var(--cf-spacing-focus-offset);
+  box-shadow: 0 0 0 var(--cf-spacing-focus-offset) var(--cf-color-focus-gap);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+a {
+  color: var(--cf-color-primary-text);
+}
+
+.cf-page-title {
+  margin: 0 0 var(--cf-spacing-6);
+  font-family: var(--cf-type-title-font-family);
+  font-size: var(--cf-type-title-font-size);
+  font-weight: var(--cf-type-title-font-weight);
+  line-height: var(--cf-type-title-line-height);
+}
+
+.cf-section-title {
+  margin: 0 0 var(--cf-spacing-4);
+  font-family: var(--cf-type-section-font-family);
+  font-size: var(--cf-type-section-font-size);
+  font-weight: var(--cf-type-section-font-weight);
+  line-height: var(--cf-type-section-line-height);
+}

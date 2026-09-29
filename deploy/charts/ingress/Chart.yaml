@@ -1,0 +1,15 @@
+apiVersion: v2
+name: ingress
+description: >-
+  HTTPS for the Coldframe web app, Server API and Keycloak on a real domain: a namespaced
+  cert-manager Issuer for Let's Encrypt with a Cloudflare DNS-01 solver (token from the Secret
+  coldframe-dns01), one Certificate for the three hosts, and one Traefik Ingress on the websecure
+  entrypoint only. Nothing serves port 80.
+type: application
+# The chart version equals the release version; the appVersion is the cert-manager it targets.
+version: 0.1.0
+appVersion: "1.21.2"
+home: https://github.com/escendit/coldframe
+sources:
+  - https://github.com/escendit/coldframe
+  - https://github.com/cert-manager/cert-manager

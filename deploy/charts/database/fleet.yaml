@@ -1,0 +1,23 @@
+# Fleet bundle "database" (Story 2.5a): the chart in this folder as release "database" in namespace
+# coldframe (deploy/charts/README.md). The CloudNativePG Cluster needs the operator and the Barman
+# Cloud plugin; the bundle is Ready when the Cluster is.
+defaultNamespace: coldframe
+labels:
+  coldframe.escendit.io/bundle: database
+dependsOn:
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: cloudnative-pg
+  - selector:
+      matchLabels:
+        coldframe.escendit.io/bundle: barman-cloud
+helm:
+  releaseName: database
+  timeoutSeconds: 600
+  # Site values: key "database" of the ConfigMap coldframe-values
+  # (deploy/fleet/values.example.yaml).
+  valuesFrom:
+    - configMapKeyRef:
+        name: coldframe-values
+        namespace: coldframe
+        key: database

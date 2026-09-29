@@ -1,0 +1,7 @@
+# CI overrides (deploy/charts/test.sh and smoke.sh): no ACME; the smoke's test CA
+# (testdata/smoke-ca.yaml) issues the certificate.
+domain: coldframe.smoke.test
+acme:
+  enabled: false
+externalIssuer:
+  name: smoke-ca

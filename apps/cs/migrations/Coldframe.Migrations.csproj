@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The migration job (AD-22): applies the one forward-only migration set, then exits.
+    It runs before the silo starts; the Server itself never references FluentMigrator.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Coldframe.Migrations</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Escendit.Extensions.Hosting.ServiceDefaults" />
+    <PackageReference Include="Escendit.Orleans.Migrations.Cluster.PostgreSQL" />
+    <PackageReference Include="FluentMigrator" />
+    <PackageReference Include="FluentMigrator.Extensions.Postgres" />
+    <PackageReference Include="FluentMigrator.Runner.Postgres" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+</Project>

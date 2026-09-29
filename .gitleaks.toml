@@ -1,0 +1,31 @@
+# Secret scanning for CI (the "secrets" job) and for local checks, see docs/quickstart.md.
+title = "Coldframe"
+
+[extend]
+useDefault = true
+
+# Vendored BMAD tooling trips the generic API key rule with file hashes and documentation examples.
+[[allowlists]]
+description = "Vendored BMAD tooling"
+paths = [
+  '''^_bmad/_config/files-manifest\.csv$''',
+  '''^\.claude/skills/[^/]+/resources/knowledge/api-testing-patterns\.md$''',
+]
+
+# The shared crypto test vectors hold fixed, public test keys (RFC anchors and derived vectors), never
+# real secrets.
+[[allowlists]]
+description = "Crypto test vectors"
+paths = [
+  '''^packages/crypto-spec/vectors\.json$''',
+]
+
+# Story 2-4's spec names the Secret coldframe-dns01 next to "Cloudflare API token"; the generic API key
+# rule reads the name as a key. Only that commit and file are allowed.
+[[allowlists]]
+description = "Story 2-4 spec names a Secret, not a key"
+condition = "AND"
+commits = ["b515f4c91cd5d75c24d4e244b9671efc7e475f26"]
+paths = [
+  '''^_bmad-output/implementation-artifacts/spec-2-4-tls-with-public-certificates-on-my-home-network\.md$''',
+]

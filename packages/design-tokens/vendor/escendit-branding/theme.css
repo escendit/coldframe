@@ -1,0 +1,301 @@
+@theme {
+    --color-white: #fefefe;
+    --color-black: #0a0a0a;
+
+    --color-primary: #ff770f;
+    --color-primary-50: #fff3ed;
+    --color-primary-100: #ffe3d1;
+    --color-primary-200: #ffcba6;
+    --color-primary-300: #ffb078;
+    --color-primary-400: #ff9645;
+    --color-primary-500: #ff770f;
+    --color-primary-600: #cf5d00;
+    --color-primary-700: #9c4e00;
+    --color-primary-800: #6b3700;
+    --color-primary-900: #402100;
+
+    --color-secondary: #670fff;
+    --color-secondary-50: #f2edff;
+    --color-secondary-100: #e0d1ff;
+    --color-secondary-200: #c5a6ff;
+    --color-secondary-300: #a778ff;
+    --color-secondary-400: #8945ff;
+    --color-secondary-500: #670fff;
+    --color-secondary-600: #4f00cf;
+    --color-secondary-700: #43009c;
+    --color-secondary-800: #30006b;
+    --color-secondary-900: #1d0040;
+
+    --color-gray: #858585;
+    --color-gray-50: #ebebeb;
+    --color-gray-100: #d6d6d6;
+    --color-gray-200: #c2c2c2;
+    --color-gray-300: #adadad;
+    --color-gray-400: #999999;
+    --color-gray-500: #858585;
+    --color-gray-600: #707070;
+    --color-gray-700: #5c5c5c;
+    --color-gray-800: #474747;
+    --color-gray-850: #333333;
+    --color-gray-900: #1f1f1f;
+
+    --color-blue: #0f43ff;
+    --color-blue-50: #edf3ff;
+    --color-blue-100: #d1ddff;
+    --color-blue-200: #a6bbff;
+    --color-blue-300: #7897ff;
+    --color-blue-400: #456dff;
+    --color-blue-500: #0f43ff;
+    --color-blue-600: #0029cf;
+    --color-blue-700: #00179c;
+    --color-blue-800: #000e6b;
+    --color-blue-900: #000840;
+
+    --color-red: #ff0f17;
+    --color-red-50: #fff0f1;
+    --color-red-100: #ffd1d4;
+    --color-red-200: #ffa6aa;
+    --color-red-300: #ff787f;
+    --color-red-400: #ff454b;
+    --color-red-500: #ff0f17;
+    --color-red-600: #cf0003;
+    --color-red-700: #9c0800;
+    --color-red-800: #6b0700;
+    --color-red-900: #400400;
+
+    --color-orange: #ff4f0f;
+    --color-orange-50: #fff0ed;
+    --color-orange-100: #ffd1d1;
+    --color-orange-200: #ffcba6;
+    --color-orange-300: #ffb078;
+    --color-orange-400: #ff9645;
+    --color-orange-500: #ff4f0f;
+    --color-orange-600: #cf3b00;
+    --color-orange-700: #9c3400;
+    --color-orange-800: #6b2500;
+    --color-orange-900: #401600;
+
+    --color-yellow: #ffcb0f;
+    --color-yellow-50: #fff9ed;
+    --color-yellow-100: #fff4d1;
+    --color-yellow-200: #ffeaa6;
+    --color-yellow-300: #ffdf78;
+    --color-yellow-400: #ffd745;
+    --color-yellow-500: #ffcb0f;
+    --color-yellow-600: #cfa500;
+    --color-yellow-700: #9c8400;
+    --color-yellow-800: #6b5d00;
+    --color-yellow-900: #403700;
+
+    --color-green: #67ff0f;
+    --color-green-50: #f2ffe3;
+    --color-green-100: #d1ffd1;
+    --color-green-200: #a6ffa6;
+    --color-green-300: #78ff78;
+    --color-green-400: #45ff45;
+    --color-green-500: #67ff0f;
+    --color-green-600: #48cf00;
+    --color-green-700: #2f9c00;
+    --color-green-800: #1e6b00;
+    --color-green-900: #124000;
+
+    --color-signature-radial: radial-gradient(
+        farthest-corner at 5% 5%,
+        var(--color-primary),
+        var(--color-secondary)
+    ) no-repeat;
+
+    --color-focus: var(--color-primary);
+
+    --color-support-error:        var(--color-red-400);
+    --color-support-success:      var(--color-green-600);
+    --color-support-warning:      var(--color-yellow-500);
+    --color-support-info:         var(--color-blue-500);
+
+    --font-sans:           'Ubuntu', system-ui, -apple-system, BlinkMacSystemFont, '.SFNSText-Regular', sans-serif;
+    --font-sans-condensed: 'Ubuntu Condensed', system-ui, -apple-system, BlinkMacSystemFont, '.SFNSText-Regular', sans-serif;
+    --font-mono:           'Ubuntu Mono', system-ui, -apple-system, BlinkMacSystemFont, monospace;
+    --font-serif:          'Quattrocento', Georgia, 'Times New Roman', serif;
+}
+
+@theme {
+  /* ---------- 2. Scales (new) — Carbon spacing, email-design radii/shadows ---------- */
+  /* Steps 10-13 are zero-padded to 3 digits (010-013) so they don't collide with Tailwind's
+     own auto-generated bare-number spacing keys (--spacing-10, -11, -12, -13), which utilities
+     like h-10/h-12 resolve through — an unpadded key here silently overrides Tailwind's default
+     rem-based value for that utility. Steps 01-09 don't need this: Tailwind never generates a
+     zero-padded key, so there's no collision to avoid. */
+  --spacing-01: 2px;  --spacing-02: 4px;  --spacing-03: 8px;  --spacing-04: 12px; --spacing-05: 16px;
+  --spacing-06: 24px; --spacing-07: 32px; --spacing-08: 40px; --spacing-09: 48px; --spacing-010: 64px;
+  --spacing-011: 80px; --spacing-012: 96px; --spacing-013: 160px;
+
+  --radius-none: 0; --radius-sm: 2px; --radius: 4px; --radius-md: 6px; --radius-lg: 8px;
+  --radius-xl: 12px; --radius-2xl: 16px; --radius-3xl: 24px;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / .05);
+  --shadow:    0 1px 3px 0 rgb(0 0 0 / .1), 0 1px 2px -1px rgb(0 0 0 / .1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / .1), 0 2px 4px -2px rgb(0 0 0 / .1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / .1), 0 4px 6px -4px rgb(0 0 0 / .1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / .1), 0 8px 10px -6px rgb(0 0 0 / .1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / .25);
+  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / .05);
+
+  /* Type scale — Carbon productive, anchored 16pt h2 */
+  --text-helper: 0.75rem;  --text-helper--line-height: 1.34;
+  --text-body:   0.875rem; --text-body--line-height: 1.43;
+  --text-body-lg: 1rem;    --text-body-lg--line-height: 1.5;
+  --text-h4: 1rem;         --text-h4--line-height: 1.2;
+  --text-h3: 1.25rem;      --text-h3--line-height: 1.2;
+  --text-h2: 1.5rem;       --text-h2--line-height: 1.2;
+  --text-h1: 2.25rem;      --text-h1--line-height: 1.2;
+  --text-display: 3rem;    --text-display--line-height: 1.1;
+
+  --tracking-cta: 0.02em;
+
+  /* Component sizing */
+  --size-field: 40px;     /* inputs, selects, sm/md buttons */
+  --size-button: 48px;    /* default (lg) button */
+  --size-header: 48px;    /* app header bar */
+}
+
+/* ---------- 3. Semantic tokens — themeable. Defaults = light (Carbon white). ---------- */
+:root, [data-theme="light"] {
+  --esc-background:       var(--color-white);
+  --esc-layer-01:         #f4f4f4;
+  --esc-layer-02:         var(--color-white);
+  --esc-field-01:         #f4f4f4;
+  --esc-overlay:          rgb(22 22 22 / .5);
+  --esc-row-hover:        #e8e8e8;
+
+  --esc-text-primary:     #161616;
+  --esc-text-secondary:   #525252;
+  --esc-text-helper:      var(--color-gray-600);
+  --esc-text-on-color:    var(--color-white);
+  --esc-text-disabled:    #c6c6c6;
+
+  --esc-border-subtle:    #e0e0e0;
+  --esc-border-strong:    #8d8d8d;
+  --esc-border-inverse:   #161616;
+
+  --esc-link-primary:       var(--color-primary);
+  --esc-link-primary-hover: #e06a00;
+
+  --esc-button-primary:        var(--color-primary);
+  --esc-button-primary-hover:  #e06a00;   /* darken 5% */
+  --esc-button-primary-active: #c25c00;   /* darken 10% */
+  --esc-button-secondary:        #393939;
+  --esc-button-secondary-hover:  #4c4c4c;
+  --esc-button-accept:        var(--color-green-600);
+  --esc-button-accept-hover:  #3fb800;
+  --esc-button-decline:       var(--color-red-600);
+  --esc-button-decline-hover: #b80003;
+
+  --esc-tag-bg: var(--color-primary-50);
+  --esc-tag-fg: var(--color-primary-700);
+
+  --esc-header-bg: #161616;
+  --esc-header-border: #393939;
+}
+
+.dark, [data-theme="dark"] {
+  --esc-background:     #262626;
+  --esc-layer-01:       #393939;
+  --esc-layer-02:       #525252;
+  --esc-field-01:       #393939;
+  --esc-overlay:        rgb(22 22 22 / .7);
+  --esc-row-hover:      #4c4c4c;
+
+  --esc-text-primary:   #f4f4f4;
+  --esc-text-secondary: #c6c6c6;
+  --esc-text-helper:    var(--color-gray-300);
+  --esc-text-disabled:  #6f6f6f;
+
+  --esc-border-subtle:  #525252;
+  --esc-border-strong:  #6f6f6f;
+  --esc-border-inverse: #f4f4f4;
+
+  --esc-link-primary-hover: #ff8a2e;   /* lighten 5% */
+  --esc-button-secondary: #6f6f6f;
+  --esc-button-secondary-hover: #606060;
+
+  --esc-tag-bg: var(--color-primary-800);
+  --esc-tag-fg: var(--color-primary-200);
+}
+
+/* Expose semantic tokens as Tailwind utilities: bg-background, text-text-primary, border-border-subtle … */
+@theme inline {
+  --color-background:   var(--esc-background);
+  --color-layer-01:     var(--esc-layer-01);
+  --color-layer-02:     var(--esc-layer-02);
+  --color-field-01:     var(--esc-field-01);
+  --color-overlay:      var(--esc-overlay);
+  --color-row-hover:    var(--esc-row-hover);
+
+  --color-text-primary:   var(--esc-text-primary);
+  --color-text-secondary: var(--esc-text-secondary);
+  --color-text-helper:    var(--esc-text-helper);
+  --color-text-on-color:  var(--esc-text-on-color);
+  --color-text-disabled:  var(--esc-text-disabled);
+
+  --color-border-subtle:  var(--esc-border-subtle);
+  --color-border-strong:  var(--esc-border-strong);
+  --color-border-inverse: var(--esc-border-inverse);
+
+  --color-link:        var(--esc-link-primary);
+  --color-link-hover:  var(--esc-link-primary-hover);
+
+  --color-button-primary:        var(--esc-button-primary);
+  --color-button-primary-hover:  var(--esc-button-primary-hover);
+  --color-button-primary-active: var(--esc-button-primary-active);
+  --color-button-secondary:       var(--esc-button-secondary);
+  --color-button-secondary-hover: var(--esc-button-secondary-hover);
+  --color-button-accept:        var(--esc-button-accept);
+  --color-button-accept-hover:  var(--esc-button-accept-hover);
+  --color-button-decline:       var(--esc-button-decline);
+  --color-button-decline-hover: var(--esc-button-decline-hover);
+
+  --color-tag-bg: var(--esc-tag-bg);
+  --color-tag-fg: var(--esc-tag-fg);
+  --color-header-bg: var(--esc-header-bg);
+  --color-header-border: var(--esc-header-border);
+}
+
+/* Dark variant follows the data-theme attribute or .dark class (not prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------- 4. Base ---------- */
+@layer base {
+  html, body {
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    color: var(--esc-text-primary);
+    background: var(--esc-background);
+  }
+  h1, h2, h3, h4, h5, h6 { font-family: var(--font-sans-condensed); font-weight: 400; line-height: 1.2; }
+  a { color: var(--esc-link-primary); text-decoration: none; }
+  a:hover { color: var(--esc-link-primary-hover); text-decoration: underline; }
+  code, kbd, pre, samp { font-family: var(--font-mono); }
+  .prose { font-family: var(--font-serif); line-height: 1.625; }
+}
+
+/* ---------- 5. Utilities that Tailwind cannot derive ---------- */
+@utility bg-signature { background: var(--color-signature-radial); }
+@utility text-cta {
+  font-family: var(--font-sans-condensed);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-cta);
+}
+@utility focus-ring {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+/*
+ * Tailwind's `h-*` scale reads `--spacing-*` keys, not `--size-*` — so
+ * `h-field` never auto-generates from `--size-field` above. Hand-declared,
+ * same pattern as bg-signature/text-cta/focus-ring. Purely additive: does
+ * not rename or touch `--size-field` itself.
+ */
+@utility h-field { height: var(--size-field); }
+/* Same rationale as h-field above — Tailwind's `h-*` scale never auto-generates from `--size-header`. */
+@utility h-header { height: var(--size-header); }

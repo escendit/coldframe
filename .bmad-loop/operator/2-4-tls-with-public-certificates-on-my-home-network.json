@@ -1,0 +1,16 @@
+{
+  "actions": [
+    "Host the DNS zone of your domain at Cloudflare and choose a dedicated subdomain (e.g. coldframe.<your-domain>) as the ingress chart value domain.",
+    "Create a Cloudflare API token with Zone DNS Edit and Zone Read on that zone only, and store it as the Secret coldframe-dns01 (key api-token) in the coldframe namespace, as in deploy/SECRETS.md.",
+    "On the home RKE2 server, apply deploy/rke2/rke2-traefik-config.yaml and confirm that kubectl -n kube-system get svc rke2-traefik lists 443 only and that curl http://<node-lan-address>/ is refused (deploy/rke2/README.md).",
+    "Apply the guarded cert-manager recursive-nameserver patch from docs/operations/split-dns.md step 2 and confirm both flags appear once in the cert-manager args.",
+    "Add per-host split-DNS records for the web, api and auth hosts on your router or local DNS pointing to the server LAN address, and confirm the node and the cluster resolve auth.<domain> to it (docs/operations/split-dns.md step 5).",
+    "Install the ingress chart with your domain and confirm certificate/coldframe-tls becomes Ready from Let's Encrypt production with a renewalTime before notAfter.",
+    "From a phone on the home Wi-Fi, open https://<domain> and https://auth.<domain>/realms/coldframe/.well-known/openid-configuration and confirm no certificate warning and the expected issuer (docs/operations/split-dns.md step 7).",
+    "Watch the first pull-request CI run and confirm the k3d chart smoke install, including the TLS phase, passes (it has only run on kind locally)."
+  ],
+  "parked_at": "2026-09-28",
+  "run_id": "20260927-235655-b4dd",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-2-4-tls-with-public-certificates-on-my-home-network.md",
+  "story_key": "2-4-tls-with-public-certificates-on-my-home-network"
+}

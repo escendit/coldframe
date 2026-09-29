@@ -1,0 +1,14 @@
+{
+  "actions": [
+    "Provide an S3-compatible bucket off the home server, and create the Secret coldframe-backup-s3 (access-key-id, secret-access-key) with read, write, list and delete rights on it, as in deploy/SECRETS.md.",
+    "On the home server, install cert-manager v1.21.2, CloudNativePG 1.30.1 and the Barman Cloud plugin v0.15.0 with the commands in deploy/charts/README.md (Prerequisites).",
+    "Install the database chart on the home server with your bucket (backup.endpointURL, backup.destinationPath) and confirm ContinuousArchiving is True and the first Backup is completed.",
+    "Once Sites, Lots and Memberships exist, follow docs/operations/restore.md once on the home server and confirm the Server is healthy and the Sites, Lots and Memberships appear in the apps.",
+    "Watch the first pull-request CI run and confirm the k3d chart smoke install, including the backup-and-restore phase, passes (it has only run on kind locally).",
+    "Confirm the Secret rename coldframe-db-server -> coldframe-db-coldframe before creating the Secrets on the home server."
+  ],
+  "parked_at": "2026-09-28",
+  "run_id": "20260927-235655-b4dd",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-2-3-database-cluster-with-off-node-backups-and-tested-restore.md",
+  "story_key": "2-3-database-cluster-with-off-node-backups-and-tested-restore"
+}

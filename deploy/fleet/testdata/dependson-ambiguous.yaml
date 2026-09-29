@@ -1,0 +1,14 @@
+# check-fleet.py fixture (added to the repository's bundles): a second bundle labelled database,
+# so every selector of database matches two bundles.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-database-copy
+  labels:
+    coldframe.escendit.io/bundle: database
+spec:
+  defaultNamespace: coldframe
+  helm:
+    releaseName: database
+  resources:
+    - name: Chart.yaml

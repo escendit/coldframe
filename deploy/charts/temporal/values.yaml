@@ -1,0 +1,50 @@
+# Temporal Server for the Keycloak event pipeline (AD-3, AD-5). The database credentials are never
+# values: they come from the Secret coldframe-db-temporal (deploy/SECRETS.md).
+
+# Resource names default to the release name.
+fullnameOverride: ""
+
+# 1.31.3 (the epic pin) is not published; 1.31.2 is what the Aspire stack runs.
+image:
+  repository: docker.io/temporalio/server
+  # Empty: the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The admin tools of the same version run the schema and namespace hook Jobs.
+adminTools:
+  image:
+    repository: docker.io/temporalio/admin-tools
+    # Empty: the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  resources: {}
+
+# PostgreSQL (plugin postgres12). One role owns both databases. The default host is the
+# read-write Service of the CloudNativePG cluster "coldframe-db" (Story 2.3).
+database:
+  host: coldframe-db-rw
+  port: 5432
+  name: temporal
+  visibilityName: temporal_visibility
+
+# The namespace the post-install hook creates when it is absent.
+namespace:
+  name: coldframe
+  retention: 72h
+
+# Fixed at creation of the persistence store: never change it afterwards.
+numHistoryShards: 4
+
+# Dynamic configuration, rendered into a ConfigMap (no credentials).
+dynamicConfig: {}
+
+# The numeric UID of the images' "temporal" user.
+runAsUser: 1000
+
+resources: {}
+
+service:
+  port: 7233

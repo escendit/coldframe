@@ -1,0 +1,24 @@
+{
+  "name": "@coldframe/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript client for the Coldframe REST API, generated from packages/openapi",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generate": "./scripts/generate.ts"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.ts",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "openapi-typescript": "7.13.0"
+  }
+}

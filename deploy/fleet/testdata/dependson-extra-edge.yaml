@@ -1,0 +1,17 @@
+# check-fleet.py fixture (merged over the repository's bundles): nats also waits for keycloak, an
+# edge the order does not list (lists are replaced, so the order's edges are repeated).
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-nats
+spec:
+  dependsOn:
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: database
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: ingress
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: keycloak

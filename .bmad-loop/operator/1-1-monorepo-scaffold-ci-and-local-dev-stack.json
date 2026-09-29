@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "Create a new branch from main that carries this story's commit, because the pull request of chore/bmad-gzp-module-install is already merged; push it and open a pull request.",
+    "Confirm on that pull request that the six CI jobs (.NET, Rust, Kotlin, TypeScript, Swift, Secrets) pass, including the Swift job on the macos-26 runner.",
+    "In the GitHub repository settings, make .NET, Rust, Kotlin, TypeScript, Swift and Secrets required status checks on main."
+  ],
+  "parked_at": "2026-09-28",
+  "run_id": "20260927-235655-b4dd",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-1-1-monorepo-scaffold-ci-and-local-dev-stack.md",
+  "story_key": "1-1-monorepo-scaffold-ci-and-local-dev-stack"
+}

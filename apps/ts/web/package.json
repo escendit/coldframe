@@ -1,0 +1,29 @@
+{
+  "name": "@coldframe/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Coldframe web app: SvelteKit backend-for-frontend with OIDC sign-in through Keycloak",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "svelte-kit sync && svelte-check --fail-on-warnings",
+    "lint": "svelte-kit sync && eslint --max-warnings 0 ."
+  },
+  "dependencies": {
+    "@coldframe/api-client": "workspace:*",
+    "@escendit/sveltekit-auth-keycloak": "0.1.0-rc.12",
+    "@escendit/sveltekit-session": "0.1.0-rc.12"
+  },
+  "devDependencies": {
+    "@coldframe/design-tokens": "workspace:*",
+    "@sveltejs/adapter-node": "5.5.7",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "24.19.0",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6"
+  }
+}

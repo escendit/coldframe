@@ -1,0 +1,18 @@
+# Fixture for test.sh: an ObjectStore s3Credentials key that SECRETS.md does not list must fail.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: unknown-s3-key
+spec:
+  configuration:
+    destinationPath: s3://bucket/
+    s3Credentials:
+      accessKeyId:
+        name: coldframe-backup-s3
+        key: access-key-id
+      secretAccessKey:
+        name: coldframe-backup-s3
+        key: secret-access-key
+      region:
+        name: coldframe-backup-s3
+        key: region

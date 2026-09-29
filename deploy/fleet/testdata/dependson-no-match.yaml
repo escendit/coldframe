@@ -1,0 +1,14 @@
+# check-fleet.py fixture (merged over the repository's bundles): web's selector matches no bundle,
+# so Fleet would wait for it forever.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-web
+spec:
+  dependsOn:
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: sever
+    - selector:
+        matchLabels:
+          coldframe.escendit.io/bundle: keycloak

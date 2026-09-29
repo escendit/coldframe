@@ -1,0 +1,79 @@
+{{- include "database.validate" . -}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "database.clusterName" . }}
+  labels:
+    {{- include "database.labels" . | nindent 4 }}
+spec:
+  instances: {{ int .Values.instances }}
+  imageName: {{ .Values.imageName | quote }}
+  enableSuperuserAccess: false
+  storage:
+    size: {{ .Values.storage.size }}
+    {{- with .Values.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  postgresql:
+    parameters:
+      # Bounds the recovery point: a WAL segment is archived at least this often
+      # (docs/operations/restore.md).
+      archive_timeout: {{ .Values.backup.archiveTimeout | quote }}
+  {{- with .Values.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  bootstrap:
+    {{- if .Values.recovery.enabled }}
+    # A fresh cluster from the base backup and archived WAL of recovery.sourceServerName.
+    recovery:
+      source: source
+      database: coldframe
+      owner: {{ .Values.roles.server | quote }}
+      secret:
+        name: coldframe-db-coldframe
+      {{- with .Values.recovery.targetTime }}
+      recoveryTarget:
+        targetTime: {{ . | quote }}
+      {{- end }}
+    {{- else }}
+    initdb:
+      database: coldframe
+      owner: {{ .Values.roles.server | quote }}
+      secret:
+        name: coldframe-db-coldframe
+    {{- end }}
+  {{- if .Values.recovery.enabled }}
+  externalClusters:
+    - name: source
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: {{ include "database.objectStoreName" . }}
+          serverName: {{ include "database.sourceServerName" . | quote }}
+  {{- end }}
+  # Continuous WAL archiving to the object store (the plugin is the cluster's WAL archiver).
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ include "database.objectStoreName" . }}
+        serverName: {{ include "database.serverName" . | quote }}
+  # One login role per consumer; CloudNativePG keeps each password equal to its Secret.
+  managed:
+    roles:
+      - name: {{ .Values.roles.server | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: coldframe-db-coldframe
+      - name: {{ .Values.roles.temporal | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: coldframe-db-temporal
+      - name: {{ .Values.roles.keycloak | quote }}
+        ensure: present
+        login: true
+        passwordSecret:
+          name: coldframe-db-keycloak

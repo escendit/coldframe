@@ -1,0 +1,392 @@
+suite: database
+templates:
+  - templates/cluster.yaml
+  - templates/databases.yaml
+  - templates/objectstore.yaml
+  - templates/scheduledbackup.yaml
+tests:
+  - it: renders no Secret, with default values
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: renders no Secret, in recovery mode
+    set:
+      recovery.enabled: true
+      backup.serverName: coldframe-db-restored
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: runs one PostgreSQL 18 instance named coldframe-db, without superuser access
+    template: templates/cluster.yaml
+    asserts:
+      - isKind:
+          of: Cluster
+      - isAPIVersion:
+          of: postgresql.cnpg.io/v1
+      - equal:
+          path: metadata.name
+          value: coldframe-db
+      - equal:
+          path: spec.instances
+          value: 1
+      - equal:
+          path: spec.imageName
+          value: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+      - equal:
+          path: spec.enableSuperuserAccess
+          value: false
+      - equal:
+          path: spec.storage
+          value:
+            size: 10Gi
+
+  - it: sets the StorageClass when given
+    template: templates/cluster.yaml
+    set:
+      storage.storageClass: local-path
+      storage.size: 20Gi
+    asserts:
+      - equal:
+          path: spec.storage
+          value:
+            size: 20Gi
+            storageClass: local-path
+
+  - it: creates the database coldframe owned by the Server role from coldframe-db-coldframe
+    template: templates/cluster.yaml
+    asserts:
+      - equal:
+          path: spec.bootstrap
+          value:
+            initdb:
+              database: coldframe
+              owner: coldframe
+              secret:
+                name: coldframe-db-coldframe
+      - notExists:
+          path: spec.externalClusters
+
+  - it: manages one login role per consumer, each with its own Secret
+    template: templates/cluster.yaml
+    asserts:
+      - equal:
+          path: spec.managed.roles
+          value:
+            - name: coldframe
+              ensure: present
+              login: true
+              passwordSecret:
+                name: coldframe-db-coldframe
+            - name: temporal
+              ensure: present
+              login: true
+              passwordSecret:
+                name: coldframe-db-temporal
+            - name: keycloak
+              ensure: present
+              login: true
+              passwordSecret:
+                name: coldframe-db-keycloak
+
+  - it: takes the role names from values
+    set:
+      roles.server: cf
+      roles.temporal: tmp
+      roles.keycloak: kc
+    asserts:
+      - equal:
+          path: spec.managed.roles[0].name
+          value: cf
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.bootstrap.initdb.owner
+          value: cf
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.owner
+          value: tmp
+        template: templates/databases.yaml
+        documentIndex: 0
+      - equal:
+          path: spec.owner
+          value: kc
+        template: templates/databases.yaml
+        documentIndex: 2
+
+  - it: creates temporal, temporal_visibility and keycloak with their owners, never dropping them
+    template: templates/databases.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: Database
+      - equal:
+          path: spec.cluster.name
+          value: coldframe-db
+      - equal:
+          path: spec.databaseReclaimPolicy
+          value: retain
+      - equal:
+          path: spec
+          value:
+            cluster:
+              name: coldframe-db
+            name: temporal
+            owner: temporal
+            ensure: present
+            databaseReclaimPolicy: retain
+        documentIndex: 0
+      - equal:
+          path: spec.name
+          value: temporal_visibility
+        documentIndex: 1
+      - equal:
+          path: spec.owner
+          value: temporal
+        documentIndex: 1
+      - equal:
+          path: spec.name
+          value: keycloak
+        documentIndex: 2
+      - equal:
+          path: spec.owner
+          value: keycloak
+        documentIndex: 2
+
+  - it: archives WAL through the Barman Cloud plugin into the cluster's folder
+    template: templates/cluster.yaml
+    asserts:
+      - equal:
+          path: spec.plugins
+          value:
+            - name: barman-cloud.cloudnative-pg.io
+              isWALArchiver: true
+              parameters:
+                barmanObjectName: coldframe-db-backup
+                serverName: coldframe-db
+      - notExists:
+          path: spec.backup
+
+  - it: reads the S3 credentials from coldframe-backup-s3 and compresses WAL and data
+    template: templates/objectstore.yaml
+    asserts:
+      - isKind:
+          of: ObjectStore
+      - isAPIVersion:
+          of: barmancloud.cnpg.io/v1
+      - equal:
+          path: metadata.name
+          value: coldframe-db-backup
+      - equal:
+          path: spec.configuration.s3Credentials
+          value:
+            accessKeyId:
+              name: coldframe-backup-s3
+              key: access-key-id
+            secretAccessKey:
+              name: coldframe-backup-s3
+              key: secret-access-key
+      - equal:
+          path: spec.configuration.wal.compression
+          value: gzip
+      - equal:
+          path: spec.configuration.data.compression
+          value: gzip
+      - equal:
+          path: spec.retentionPolicy
+          value: 30d
+
+  - it: defaults to placeholder S3 values that render but point nowhere
+    template: templates/objectstore.yaml
+    asserts:
+      - equal:
+          path: spec.configuration.endpointURL
+          value: https://s3.example.invalid
+      - equal:
+          path: spec.configuration.destinationPath
+          value: s3://coldframe-backups/
+
+  - it: points at RustFS with the CI values
+    template: templates/objectstore.yaml
+    values:
+      - ../ci-values.yaml
+    asserts:
+      - equal:
+          path: spec.configuration.endpointURL
+          value: http://rustfs:9000
+
+  - it: takes daily base backups through the plugin, the first one immediately
+    template: templates/scheduledbackup.yaml
+    asserts:
+      - isKind:
+          of: ScheduledBackup
+      - equal:
+          path: spec
+          value:
+            cluster:
+              name: coldframe-db
+            method: plugin
+            pluginConfiguration:
+              name: barman-cloud.cloudnative-pg.io
+            schedule: "0 0 3 * * *"
+            immediate: true
+            backupOwnerReference: self
+
+  - it: restores from the source folder and archives to the new one in recovery mode
+    template: templates/cluster.yaml
+    set:
+      recovery.enabled: true
+      backup.serverName: coldframe-db-restored
+    asserts:
+      - equal:
+          path: spec.bootstrap
+          value:
+            recovery:
+              source: source
+              database: coldframe
+              owner: coldframe
+              secret:
+                name: coldframe-db-coldframe
+      - equal:
+          path: spec.externalClusters
+          value:
+            - name: source
+              plugin:
+                name: barman-cloud.cloudnative-pg.io
+                parameters:
+                  barmanObjectName: coldframe-db-backup
+                  serverName: coldframe-db
+      - equal:
+          path: spec.plugins[0].parameters.serverName
+          value: coldframe-db-restored
+      - equal:
+          path: spec.plugins[0].isWALArchiver
+          value: true
+
+  - it: recovers to a point in time when targetTime is set
+    template: templates/cluster.yaml
+    set:
+      recovery.enabled: true
+      recovery.sourceServerName: coldframe-db-restored
+      recovery.targetTime: "2026-09-28T10:00:00Z"
+    asserts:
+      - equal:
+          path: spec.bootstrap.recovery.recoveryTarget
+          value:
+            targetTime: "2026-09-28T10:00:00Z"
+      - equal:
+          path: spec.externalClusters[0].plugin.parameters.serverName
+          value: coldframe-db-restored
+      - equal:
+          path: spec.plugins[0].parameters.serverName
+          value: coldframe-db
+
+  - it: refuses to restore into the source's archive folder
+    template: templates/cluster.yaml
+    set:
+      recovery.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "backup.serverName \\(coldframe-db\\) must differ from recovery.sourceServerName \\(coldframe-db\\)"
+
+  - it: refuses an explicit serverName equal to the source
+    template: templates/cluster.yaml
+    set:
+      recovery.enabled: true
+      backup.serverName: old
+      recovery.sourceServerName: old
+    asserts:
+      - failedTemplate:
+          errorPattern: "backup.serverName \\(old\\) must differ from recovery.sourceServerName \\(old\\)"
+
+  - it: labels every object as part of coldframe
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/part-of"]
+          value: coldframe
+      - equal:
+          path: metadata.labels["app.kubernetes.io/version"]
+          value: "18.6"
+
+  - it: sets archive_timeout explicitly, bounding the recovery point
+    template: templates/cluster.yaml
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.archive_timeout
+          value: 5min
+
+  - it: takes archive_timeout from backup.archiveTimeout
+    template: templates/cluster.yaml
+    set:
+      backup.archiveTimeout: 1min
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.archive_timeout
+          value: 1min
+
+  - it: restores from the cluster's own folder name when sourceServerName is empty
+    template: templates/cluster.yaml
+    set:
+      clusterName: pg
+      recovery.enabled: true
+      recovery.sourceServerName: ""
+      backup.serverName: pg-restored
+    asserts:
+      - equal:
+          path: spec.externalClusters[0].plugin.parameters.serverName
+          value: pg
+      - equal:
+          path: spec.plugins[0].parameters.serverName
+          value: pg-restored
+
+  - it: refuses the default source folder when serverName is also the default
+    template: templates/cluster.yaml
+    set:
+      clusterName: pg
+      recovery.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "backup.serverName \\(pg\\) must differ from recovery.sourceServerName \\(pg\\)"
+
+  - it: renders names that YAML would read as numbers or booleans as strings
+    set:
+      roles.server: 123
+      roles.temporal: "yes"
+      roles.keycloak: "007"
+      imageName: "1234"
+      storage.storageClass: "true"
+    asserts:
+      - equal:
+          path: spec.managed.roles[0].name
+          value: "123"
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.managed.roles[1].name
+          value: "yes"
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.bootstrap.initdb.owner
+          value: "123"
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.imageName
+          value: "1234"
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.storage.storageClass
+          value: "true"
+        template: templates/cluster.yaml
+      - equal:
+          path: spec.owner
+          value: "yes"
+        template: templates/databases.yaml
+        documentIndex: 0
+      - equal:
+          path: spec.owner
+          value: "007"
+        template: templates/databases.yaml
+        documentIndex: 2

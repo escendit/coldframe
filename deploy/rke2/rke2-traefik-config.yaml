@@ -1,0 +1,17 @@
+# Removes the web entrypoint (port 80) from RKE2's bundled Traefik (Story 2.4, AD-13): nothing on
+# the node serves plain HTTP. With it gone, rke2-traefik renders no hostPort 80, no Service port 80
+# and no web entrypoint; the websecure entrypoint (hostPort 443) stays. Helm treats null in a later
+# values file as deletion, and helm-controller layers valuesContent over RKE2's own values.
+#
+# Apply on the server node: copy to /var/lib/rancher/rke2/server/manifests/, or kubectl apply -f.
+# See deploy/rke2/README.md. deploy/charts/test.sh renders the pinned rke2-traefik chart with this
+# valuesContent and fails on any port 80 or web entrypoint.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web: null

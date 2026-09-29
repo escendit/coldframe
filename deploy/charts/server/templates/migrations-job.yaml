@@ -1,0 +1,42 @@
+{{/*
+The migration Job (AD-22): a pre-install and pre-upgrade hook, so Helm runs it to completion
+before it changes the Deployment. A failed migration fails the release and leaves the running
+Server as it is. The previous Job is deleted only when the next hook is created, so its status
+and logs stay available.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "server.fullname" . }}-migrations
+  labels:
+    {{- include "server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ int .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ int .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "server.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "server.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrations
+          image: {{ include "server.image" (list . .Values.migrations.image) | quote }}
+          imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
+          securityContext:
+            {{- include "server.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "server.databaseEnv" . | nindent 12 }}
+          {{- with .Values.migrations.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

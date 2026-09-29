@@ -1,0 +1,14 @@
+{{/* The dynamic configuration file the server requires. It holds no credentials. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "temporal.fullname" . }}-dynamicconfig
+  labels:
+    {{- include "temporal.labels" . | nindent 4 }}
+data:
+  dynamicconfig.yaml: |
+    {{- if .Values.dynamicConfig }}
+    {{- toYaml .Values.dynamicConfig | nindent 4 }}
+    {{- else }}
+    {}
+    {{- end }}

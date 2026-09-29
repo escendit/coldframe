@@ -1,0 +1,24 @@
+# container-structure-test for ghcr.io/escendit/coldframe/server (deploy/images/README.md).
+schemaVersion: 2.0.0
+
+metadataTest:
+  entrypoint: ["dotnet", "Coldframe.Server.dll"]
+  cmd: []
+  workdir: /app
+  # Numeric, so Kubernetes runAsNonRoot can verify it without an /etc/passwd lookup.
+  user: "1654"
+  exposedPorts: ["8080", "11111", "30000"]
+  envVars:
+    - key: ASPNETCORE_HTTP_PORTS
+      value: "8080"
+
+fileExistenceTests:
+  - name: entry assembly
+    path: /app/Coldframe.Server.dll
+    shouldExist: true
+  - name: runtime configuration
+    path: /app/Coldframe.Server.runtimeconfig.json
+    shouldExist: true
+  - name: no native app host for the build platform
+    path: /app/Coldframe.Server
+    shouldExist: false

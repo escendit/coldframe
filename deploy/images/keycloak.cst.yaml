@@ -1,0 +1,32 @@
+# container-structure-test for ghcr.io/escendit/coldframe/keycloak (deploy/images/README.md).
+schemaVersion: 2.0.0
+
+metadataTest:
+  entrypoint: ["/opt/keycloak/bin/kc.sh"]
+  cmd: []
+  workdir: /opt/keycloak
+  # Numeric, so Kubernetes runAsNonRoot can verify it without an /etc/passwd lookup. The base
+  # image's "keycloak" user is UID 2000.
+  user: "2000"
+  exposedPorts: ["8080", "9000"]
+  envVars:
+    - key: KC_DB
+      value: postgres
+    - key: KC_HEALTH_ENABLED
+      value: "true"
+
+fileExistenceTests:
+  - name: keycloak-temporal-extensions provider
+    path: /opt/keycloak/providers/listener-temporal-1.0.0-SNAPSHOT.jar
+    shouldExist: true
+  - name: Temporal SDK next to the provider
+    path: /opt/keycloak/providers/temporal-sdk-1.37.0.jar
+    shouldExist: true
+  - name: optimized Quarkus build ("kc.sh build" ran)
+    path: /opt/keycloak/lib/quarkus/quarkus-application.dat
+    shouldExist: true
+  - name: data directory owned by the keycloak user
+    path: /opt/keycloak/data
+    shouldExist: true
+    uid: 2000
+    gid: 2000

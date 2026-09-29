@@ -1,0 +1,14 @@
+# Fixture for test.sh: an ACME Issuer with an HTTP-01 solver fails check-ingress.py.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: http01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: coldframe-letsencrypt-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

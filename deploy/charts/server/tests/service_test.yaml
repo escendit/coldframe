@@ -1,0 +1,19 @@
+suite: server Service
+templates:
+  - templates/service.yaml
+tests:
+  - it: is a ClusterIP Service on port 8080
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports
+          value:
+            - name: http
+              port: 8080
+              targetPort: http
+              protocol: TCP
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: server

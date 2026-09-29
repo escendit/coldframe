@@ -1,0 +1,4 @@
+# CI overrides (deploy/charts/test.sh and smoke.sh): the in-cluster Keycloak serves plain HTTP.
+identity:
+  authority: http://keycloak:8080/realms/coldframe
+  requireHttpsMetadata: false

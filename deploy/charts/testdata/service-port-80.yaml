@@ -1,0 +1,14 @@
+# Fixture for test.sh: a Service on port 80 fails check-ingress.py.
+apiVersion: v1
+kind: Service
+metadata:
+  name: port-80
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

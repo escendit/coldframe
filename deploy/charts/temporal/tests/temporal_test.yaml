@@ -1,0 +1,157 @@
+suite: temporal
+templates:
+  - templates/configmap.yaml
+  - templates/deployment.yaml
+  - templates/service.yaml
+  - templates/schema-job.yaml
+  - templates/namespace-job.yaml
+tests:
+  - it: renders no Secret
+    asserts:
+      - isKind:
+          of: Secret
+        not: true
+
+  - it: runs every service in one replica on PostgreSQL
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB
+            value: postgres12
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DBNAME
+            value: temporal
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: VISIBILITY_DBNAME
+            value: temporal_visibility
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_SEEDS
+            value: coldframe-db-rw
+
+  - it: reads the database credentials from the contract
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-temporal
+                key: username
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PWD
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-temporal
+                key: password
+
+  - it: gives the schema Job the same credentials
+    template: templates/schema-job.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SQL_USER
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-temporal
+                key: username
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-temporal
+                key: password
+
+  - it: sets up and updates both schemas before install and upgrade
+    template: templates/schema-job.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "0"
+            helm.sh/hook-delete-policy: before-hook-creation
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: update-schema -d "\$\{schema\}/visibility/versioned"
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/temporalio/admin-tools:1.31.2
+
+  - it: creates the namespace after install and upgrade
+    template: templates/namespace-job.yaml
+    release:
+      name: temporal
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: post-install,post-upgrade
+            helm.sh/hook-weight: "0"
+            helm.sh/hook-delete-policy: before-hook-creation
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NAMESPACE
+            value: coldframe
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TEMPORAL_ADDRESS
+            value: temporal:7233
+
+  - it: uses the upstream server image at the chart's appVersion
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/temporalio/server:1.31.2
+
+  - it: serves the frontend on 7233 inside the cluster only
+    template: templates/service.yaml
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 7233
+
+  - it: runs every pod as the numeric non-root user with a restricted security context
+    templates:
+      - templates/deployment.yaml
+      - templates/schema-job.yaml
+      - templates/namespace-job.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

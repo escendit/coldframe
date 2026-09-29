@@ -1,0 +1,9 @@
+# check-fleet.py fixture (merged over the repository's bundles): the barman-cloud bundle's Helm repo
+# differs from BARMAN_CLOUD_PLUGIN_HELM_REPO in dependencies.env.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-fleet-barman-cloud
+spec:
+  helm:
+    repo: https://charts.example.org

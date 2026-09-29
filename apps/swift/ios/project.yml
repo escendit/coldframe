@@ -1,0 +1,67 @@
+# XcodeGen spec of the iOS app (`xcodegen generate` in this folder writes Coldframe.xcodeproj,
+# which is not committed). The SwiftUI shell comes from the SwiftPM package in the repository
+# root; the shared Kotlin core is built by Gradle as the static framework ColdframeCore.
+name: Coldframe
+options:
+  bundleIdPrefix: com.escendit
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Coldframe.xcconfig
+  Release: Config/Coldframe.xcconfig
+packages:
+  Coldframe:
+    path: ../../..
+targets:
+  Coldframe:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Config
+        buildPhase: none
+      - path: ../../../packages/design-tokens/fonts
+        includes:
+          - "*.ttf"
+        buildPhase: resources
+    dependencies:
+      - package: Coldframe
+        product: ColdframeIOS
+      - package: Coldframe
+        product: ColdframeDesignTokens
+    preBuildScripts:
+      - name: Build ColdframeCore (Kotlin)
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/../../.."
+          ./gradlew :core:embedAndSignAppleFrameworkForXcode
+    settings:
+      base:
+        PRODUCT_NAME: Coldframe
+        PRODUCT_BUNDLE_IDENTIFIER: com.escendit.coldframe
+        MARKETING_VERSION: 0.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/../../../packages/kt/core/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS: $(inherited) -framework ColdframeCore
+        # ColdframeCore builds iosArm64 and iosSimulatorArm64 only (Kotlin deprecates the x86_64
+        # Apple targets), so the simulator build is arm64 even for a generic destination.
+        ARCHS[sdk=iphonesimulator*]: arm64
+      configs:
+        Debug:
+          INFOPLIST_FILE: Config/Info-Debug.plist
+        Release:
+          INFOPLIST_FILE: Config/Info.plist
+schemes:
+  Coldframe:
+    build:
+      targets:
+        Coldframe: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "After the first release, make the GHCR packages ghcr.io/escendit/coldframe/server, web and migrations public (Package settings > Change visibility).",
+    "Add the CI job \"Images / Build, structure-test and smoke\" as a required status check on main.",
+    "Protect release tags: add a tag ruleset on the repository restricting creation of v* tags to maintainers, and push release tags only from commits on main.",
+    "Push the first release tag (git tag vX.Y.Z && git push origin vX.Y.Z) and confirm the Release run pushes amd64 and arm64 manifest lists."
+  ],
+  "parked_at": "2026-09-28",
+  "run_id": "20260927-235655-b4dd",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-2-1-container-images-published-per-release.md",
+  "story_key": "2-1-container-images-published-per-release"
+}

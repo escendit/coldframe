@@ -1,0 +1,72 @@
+# The Coldframe Server. Credentials are never values: they come from the Secrets
+# coldframe-db-coldframe and coldframe-oidc-clients (deploy/SECRETS.md).
+
+# Resource names default to the release name.
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/escendit/coldframe/server
+  # Empty: the chart's appVersion, which equals the release version.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The migration Job runs as a pre-install and pre-upgrade hook: the Server changes only after it
+# has succeeded (AD-22).
+migrations:
+  image:
+    repository: ghcr.io/escendit/coldframe/migrations
+    # Empty: the chart's appVersion, the same version as the Server.
+    tag: ""
+    pullPolicy: IfNotPresent
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  resources: {}
+
+# The PostgreSQL database of the Server. The default host is the read-write Service of the
+# CloudNativePG cluster "coldframe-db" (Story 2.3).
+database:
+  host: coldframe-db-rw
+  port: 5432
+  name: coldframe
+
+# The NATS client URL (the "nats" release).
+nats:
+  url: nats://nats:4222
+
+# Token validation: the issuer of the coldframe realm and the Server's audience. The default is a
+# placeholder: set the public https issuer (Story 2.4). An http:// authority renders only with
+# requireHttpsMetadata: false.
+identity:
+  authority: https://auth.example.invalid/realms/coldframe
+  audience: coldframe-server
+  # Keep true in production, with an https authority (Story 2.4).
+  requireHttpsMetadata: true
+
+# The Server's service account in Keycloak. Its secret is key server-client-secret of
+# coldframe-oidc-clients.
+keycloak:
+  baseUrl: http://keycloak:8080
+  realm: coldframe
+  clientId: coldframe-server
+
+# The Temporal frontend of the Keycloak event pipeline (the "temporal" release).
+keycloakEvents:
+  targetHost: temporal:7233
+  namespace: coldframe
+  realmId: coldframe
+
+# Graceful shutdown: the host gets shutdownTimeoutSeconds to drain the silo, and Kubernetes waits
+# terminationGracePeriodSeconds before it kills the pod. The grace period must be longer.
+shutdownTimeoutSeconds: 45
+terminationGracePeriodSeconds: 60
+
+# The numeric UID of the image's "app" user.
+runAsUser: 1654
+
+# Additional non-secret environment variables, e.g. OTEL_EXPORTER_OTLP_ENDPOINT.
+extraEnv: []
+
+resources: {}
+
+service:
+  port: 8080

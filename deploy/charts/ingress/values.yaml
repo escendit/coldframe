@@ -1,0 +1,48 @@
+# HTTPS for the web app, the Server API and Keycloak (Story 2.4). The DNS-01 token is never a
+# value: it comes from key api-token of the Secret coldframe-dns01 (deploy/SECRETS.md).
+# Split DNS and verification: docs/operations/split-dns.md.
+
+# Resource names default to the release name.
+fullnameOverride: ""
+
+# The domain you own and whose DNS zone the DNS-01 token can edit. The default is a placeholder
+# that only renders: set your domain.
+domain: coldframe.example.invalid
+
+# The public host names. Empty: web = <domain>, api = api.<domain>, auth = auth.<domain>.
+hosts:
+  web: ""
+  api: ""
+  auth: ""
+
+# The Service and port each host routes to (the default release names of the other charts).
+backends:
+  web:
+    service: web
+    port: 3000
+  api:
+    service: server
+    port: 8080
+  auth:
+    service: keycloak
+    port: 8080
+
+# The IngressClass of RKE2's bundled Traefik.
+ingressClassName: traefik
+
+# Let's Encrypt through DNS-01 (Cloudflare). The Issuer coldframe-letsencrypt keeps its ACME
+# account key in the Secret coldframe-letsencrypt-account, which cert-manager generates.
+acme:
+  enabled: true
+  # Production. For trials use staging, whose certificates are not publicly trusted:
+  # https://acme-staging-v02.api.letsencrypt.org/directory
+  server: https://acme-v02.api.letsencrypt.org/directory
+  # Optional: a contact address for the ACME account only. Let's Encrypt no longer sends expiry
+  # emails; watch the Certificate instead (docs/operations/split-dns.md, renewals).
+  email: ""
+
+# An Issuer you manage yourself, used only when acme.enabled is false: the documented private-CA
+# fallback (unsupported: phones and the Hub trust public roots only) and the CI smoke's path.
+externalIssuer:
+  name: ""
+  kind: Issuer

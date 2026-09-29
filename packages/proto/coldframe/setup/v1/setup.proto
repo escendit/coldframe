@@ -1,0 +1,209 @@
+// The BLE setup protocol (AD-25): one message set for Hub and Node.
+//
+// The app and the Device first exchange X25519 public keys in plaintext (SessionHello,
+// SessionHelloReply). Every later message is a SetupMessage sealed into a SealedSetupMessage
+// with the session keys packages/crypto-spec derives from the key exchange and the Device's
+// proof-of-possession (PoP) code. The PoP code itself is never sent.
+//
+// Wrong setup code: when the Device cannot open the app's first SealedSetupMessage, it still replies
+// with a SealedSetupMessage carrying a SetupError, sealed under the keys it derived itself (counter 0
+// of its direction). With different codes the app cannot open that reply either; the app treats a
+// first reply that does not open as a wrong setup code and says so. Neither side learns the other's
+// code.
+//
+// Within a major version changes are additive only. A field number is never reused; reserve a
+// removed field's number and name.
+syntax = "proto3";
+
+package coldframe.setup.v1;
+
+option csharp_namespace = "Coldframe.Protocol.Setup.V1";
+
+// App to Device, plaintext: opens a session.
+message SessionHello {
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // The app's ephemeral X25519 public key, 32 bytes.
+  bytes app_public_key = 2;
+}
+
+// Device to app, plaintext: completes the key exchange.
+message SessionHelloReply {
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // The Device's ephemeral X25519 public key, 32 bytes.
+  bytes device_public_key = 2;
+}
+
+// Either direction: one SetupMessage sealed with that direction's session key.
+message SealedSetupMessage {
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // Starts at 0 in each direction and increases by one per message.
+  uint64 counter = 2;
+  // The sealed SetupMessage followed by the 16-byte tag.
+  bytes ciphertext = 3;
+}
+
+// The plaintext inside a SealedSetupMessage.
+message SetupMessage {
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // Exactly one step of the setup flow.
+  oneof body {
+    // App to Device: who are you?
+    IdentityRequest identity_request = 2;
+    // Device to app.
+    Identity identity = 3;
+    // App to Device (Hub only): scan every channel.
+    WifiScanRequest wifi_scan_request = 4;
+    // Device to app (Hub only).
+    WifiScanList wifi_scan_list = 5;
+    // App to Device (Hub only).
+    WifiConfig wifi_config = 6;
+    // Device to app (Hub only).
+    WifiResult wifi_result = 7;
+    // App to Device: the Site, and for a Node its Lot.
+    SiteBinding site_binding = 8;
+    // App to Device: seal K_dev to this Server key.
+    EnrolmentRequest enrolment_request = 9;
+    // Device to app, relayed unread to the Server.
+    EnrolmentResponse enrolment_response = 10;
+    // Either direction: the step failed.
+    SetupError error = 11;
+  }
+}
+
+// What kind of Device answers.
+enum DeviceKind {
+  DEVICE_KIND_UNSPECIFIED = 0;
+  DEVICE_KIND_HUB = 1;
+  DEVICE_KIND_NODE = 2;
+}
+
+// Asks the Device for its Identity.
+message IdentityRequest {}
+
+// The Device's identity.
+message Identity {
+  // The 8-byte Device ID derived from the eFuse-bound identity.
+  bytes device_id = 1;
+  // Hub or Node.
+  DeviceKind kind = 2;
+  // The firmware version, SemVer.
+  string firmware_version = 3;
+}
+
+// Asks the Hub to scan every Wi-Fi channel.
+message WifiScanRequest {}
+
+// How a Wi-Fi network authenticates, as the Hub sees it.
+enum WifiSecurity {
+  WIFI_SECURITY_UNSPECIFIED = 0;
+  WIFI_SECURITY_OPEN = 1;
+  WIFI_SECURITY_WPA2_PERSONAL = 2;
+  // WPA2/WPA3 transition mode; the Hub joins with WPA2.
+  WIFI_SECURITY_WPA3_TRANSITION = 3;
+  // WPA3-only networks are unsupported: shown, never selectable.
+  WIFI_SECURITY_WPA3_ONLY = 4;
+  // Anything else (enterprise, WEP): unsupported.
+  WIFI_SECURITY_OTHER = 5;
+}
+
+// One network the Hub heard.
+message WifiNetwork {
+  // The SSID, UTF-8.
+  string ssid = 1;
+  // The 6-byte BSSID of the strongest access point for this SSID.
+  bytes bssid = 2;
+  // Signal strength in dBm.
+  sint32 rssi = 3;
+  // How the network authenticates.
+  WifiSecurity security = 4;
+  // The channel the strongest access point is on.
+  uint32 channel = 5;
+}
+
+// The Hub's scan, strongest first, one entry per SSID.
+message WifiScanList {
+  // The networks heard.
+  repeated WifiNetwork networks = 1;
+}
+
+// The network the Hub joins. It picks the strongest BSSID for the SSID itself.
+message WifiConfig {
+  // The SSID, UTF-8.
+  string ssid = 1;
+  // The passphrase; empty for an open network. Never logged.
+  string password = 2;
+}
+
+// The outcome of joining.
+enum WifiStatus {
+  WIFI_STATUS_UNSPECIFIED = 0;
+  // Joined and the Server answered.
+  WIFI_STATUS_CONNECTED = 1;
+  // The access point refused the passphrase.
+  WIFI_STATUS_WRONG_PASSWORD = 2;
+  // No access point with this SSID was heard.
+  WIFI_STATUS_NETWORK_NOT_FOUND = 3;
+  // The network is WPA3-only or otherwise unsupported.
+  WIFI_STATUS_UNSUPPORTED_SECURITY = 4;
+  // Joined the network, but the Server could not be reached.
+  WIFI_STATUS_NO_SERVER = 5;
+}
+
+// The Hub's answer to a WifiConfig.
+message WifiResult {
+  // What happened.
+  WifiStatus status = 1;
+}
+
+// Binds the Device to a Site, and a Node to a Lot.
+message SiteBinding {
+  // The Site ID (the Keycloak Organization ID).
+  string site_id = 1;
+  // The Lot ID (UUIDv7) for a Node; absent for a Hub.
+  optional string lot_id = 2;
+}
+
+// The Server's enrolment key, fetched by the app from GET /enrolment-key.
+message EnrolmentRequest {
+  // The Server's X25519 enrolment public key, 32 bytes.
+  bytes server_public_key = 1;
+  // Lowercase hex SHA-256 of server_public_key. The Device refuses a mismatch, but that is an
+  // integrity check only: the fingerprint travels with the key. Authenticity comes from the app's TLS
+  // fetch of GET /enrolment-key and the fingerprint the app shows the user.
+  string fingerprint = 2;
+}
+
+// K_dev sealed to the Server with HPKE; the app relays it unread to POST /sites/{siteId}/devices.
+message EnrolmentResponse {
+  // The 8-byte Device ID, also the HPKE associated data.
+  bytes device_id = 1;
+  // The HPKE encapsulated key, 32 bytes.
+  bytes enc = 2;
+  // K_dev sealed with HPKE, 48 bytes.
+  bytes ciphertext = 3;
+}
+
+// Why a step failed.
+enum SetupErrorCode {
+  SETUP_ERROR_CODE_UNSPECIFIED = 0;
+  // The message did not parse or had missing fields.
+  SETUP_ERROR_CODE_MALFORMED_MESSAGE = 1;
+  // The message is not valid at this point of the flow.
+  SETUP_ERROR_CODE_UNEXPECTED_MESSAGE = 2;
+  // The enrolment key does not match its fingerprint (corrupted in transit; an integrity check, not
+  // authentication of the key).
+  SETUP_ERROR_CODE_FINGERPRINT_MISMATCH = 3;
+  // The Device failed internally.
+  SETUP_ERROR_CODE_INTERNAL = 4;
+}
+
+// A failed step. A Device whose first open fails sends one, sealed under its own derived keys, so the
+// app's failure to open it signals a wrong setup code (see the file header).
+message SetupError {
+  // Why.
+  SetupErrorCode code = 1;
+}

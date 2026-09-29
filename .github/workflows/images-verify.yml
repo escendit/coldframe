@@ -1,0 +1,153 @@
+# Verifies the four container images (Stories 2.1 to 2.5): builds every Dockerfile for each
+# platform its final base image provides, runs the container-structure tests, the smoke run
+# against real dependencies, the chart smoke install on a disposable k3d cluster, including the
+# HTTPS routes through RKE2's Traefik and the database backup-and-restore round trip, and the
+# Fleet smoke on another one (ordered install, upgrade, restarts). CI calls it on every pull
+# request, and the release workflow calls it before any image is pushed. It pushes nothing.
+#
+# Actions are pinned to a commit; the comment names the release. container-structure-test, helm,
+# k3d and the fleet CLI are pinned to a release and their downloads are checked against a sha256.
+name: Images verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build, structure-test and smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 170
+    env:
+      CST_VERSION: v1.22.1
+      # sha256 of container-structure-test-linux-amd64 v1.22.1 (the release's checksums.txt).
+      CST_SHA256: fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca
+      HELM_VERSION: v4.2.2
+      # sha256 of helm-v4.2.2-linux-amd64.tar.gz (get.helm.sh/<file>.sha256sum).
+      HELM_SHA256: 9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6
+      K3D_VERSION: v5.9.0
+      # sha256 of k3d-linux-amd64 v5.9.0 (the release's checksums.txt).
+      K3D_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+      COMPONENTS: >-
+        server:apps/cs/server/Dockerfile
+        web:apps/ts/web/Dockerfile
+        migrations:apps/cs/migrations/Dockerfile
+        keycloak:aspire/keycloak/Dockerfile
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the release scripts
+        run: deploy/images/test.sh
+
+      - name: Install container-structure-test
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          mkdir -p "${bin}"
+          curl --fail --silent --show-error --location --output "${bin}/container-structure-test" \
+            "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${CST_VERSION}/container-structure-test-linux-amd64"
+          echo "${CST_SHA256}  ${bin}/container-structure-test" | sha256sum --check --strict
+          chmod +x "${bin}/container-structure-test"
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      # Build stages run on the runner's platform and final stages only copy, so arm64 needs no QEMU.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker-container
+
+      # Every platform the release would push, kept in the builder's cache only.
+      - name: Build for every release platform
+        shell: bash
+        run: |
+          for entry in ${COMPONENTS}; do
+            component="${entry%%:*}"
+            dockerfile="${entry#*:}"
+            echo "::group::${component}"
+            platforms=$(deploy/images/platforms.sh "${dockerfile}")
+            echo "Platforms: ${platforms}"
+            docker buildx build --platform "${platforms}" --file "${dockerfile}" .
+            echo "::endgroup::"
+          done
+
+      - name: Load linux/amd64 images
+        shell: bash
+        run: |
+          for entry in ${COMPONENTS}; do
+            component="${entry%%:*}"
+            dockerfile="${entry#*:}"
+            echo "::group::${component}"
+            docker buildx build --platform linux/amd64 --file "${dockerfile}" \
+              --tag "coldframe/${component}:ci" --load .
+            echo "::endgroup::"
+          done
+
+      - name: Structure tests
+        shell: bash
+        run: |
+          for entry in ${COMPONENTS}; do
+            component="${entry%%:*}"
+            container-structure-test test --image "coldframe/${component}:ci" \
+              --config "deploy/images/${component}.cst.yaml"
+          done
+
+      # CST cannot probe HTTP: the health endpoints and the migration exit codes are checked here.
+      - name: Smoke run
+        run: deploy/images/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
+
+      - name: Install helm, k3d and the fleet CLI
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          downloads="${RUNNER_TEMP}/downloads"
+          mkdir -p "${bin}" "${downloads}"
+
+          curl --fail --silent --show-error --location --output "${downloads}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${downloads}/helm.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm.tar.gz" --directory "${downloads}" linux-amd64/helm
+          install -m 0755 "${downloads}/linux-amd64/helm" "${bin}/helm"
+
+          curl --fail --silent --show-error --location --output "${bin}/k3d" \
+            "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          echo "${K3D_SHA256}  ${bin}/k3d" | sha256sum --check --strict
+          chmod +x "${bin}/k3d"
+
+          # The fleet CLI: version, URL and sha256 pinned in deploy/charts/dependencies.env.
+          # shellcheck source=/dev/null
+          source deploy/charts/dependencies.env
+          curl --fail --silent --show-error --location --output "${downloads}/fleet" "${FLEET_CLI_URL_AMD64}"
+          echo "${FLEET_CLI_SHA256_AMD64}  ${downloads}/fleet" | sha256sum --check --strict
+          install -m 0755 "${downloads}/fleet" "${bin}/fleet"
+
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      # smoke.sh reads the Traefik HelmChartConfig with PyYAML.
+      - name: Check PyYAML
+        run: python3 -c "import yaml" || sudo apt-get install --yes --no-install-recommends python3-yaml
+
+      # Every chart on k3s (pinned in the script) with placeholder Secrets, on CloudNativePG with
+      # RustFS as the S3 backup target and RKE2's Traefik without port 80
+      # (deploy/charts/dependencies.env): every pod ready, the Server healthy, the web app, Server
+      # and Keycloak over HTTPS through Traefik with a test CA (docs/operations/split-dns.md), the
+      # migration hook Job gating upgrades, and a backup-and-restore round trip of the database
+      # (docs/operations/restore.md).
+      - name: Chart smoke install
+        run: >
+          deploy/charts/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
+          coldframe/keycloak:ci
+
+      # The GitOps path (docs/operations/install.md) on another k3s cluster: Fleet installs the
+      # bundles of deploy/fleet/gitrepo.yaml in dependency order (every pod ready, HTTPS on the
+      # three hosts); a chart-version bump upgrades with the migration Job first and a
+      # stop-then-start Server; restarting the Server pod, the database pod and the node loses no
+      # committed data.
+      - name: Fleet smoke
+        run: >
+          deploy/fleet/smoke.sh coldframe/server:ci coldframe/web:ci coldframe/migrations:ci
+          coldframe/keycloak:ci

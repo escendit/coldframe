@@ -1,0 +1,20 @@
+# Keeps the image build context small and host build outputs out of the images.
+# Every Dockerfile builds from the repository root (deploy/images/README.md).
+.git
+**/bin
+**/obj
+**/node_modules
+**/.svelte-kit
+apps/ts/web/build
+**/target
+**/build
+.build
+**/.gradle
+.kotlin
+_bmad*
+.bmad-loop
+.claude
+.idea
+*.env
+**/*.env
+**/.env*

@@ -1,0 +1,45 @@
+# Keycloak (Phase Two + keycloak-temporal-extensions). Credentials are never values: they come
+# from the Secrets coldframe-db-keycloak, coldframe-keycloak-admin and coldframe-oidc-clients
+# (deploy/SECRETS.md).
+
+# Resource names default to the release name.
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/escendit/coldframe/keycloak
+  # Empty: the chart's appVersion, which equals the release version.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The PostgreSQL database of Keycloak. The default host is the read-write Service of the
+# CloudNativePG cluster "coldframe-db" (Story 2.3).
+database:
+  host: coldframe-db-rw
+  port: 5432
+  name: keycloak
+
+# The public host name, e.g. auth.example.org (Story 2.4). Empty: Keycloak derives it from each
+# request (KC_HOSTNAME_STRICT=false), which suits in-cluster tests only.
+hostname: ""
+
+# The Temporal frontend and namespace of the Keycloak event pipeline (the "temporal" release).
+temporal:
+  targetHost: temporal:7233
+  namespace: coldframe
+
+# The realm to import on start. Set configMap to the name of a ConfigMap the adopter creates,
+# holding one or more realm JSON files; they are mounted at /opt/keycloak/data/import and started
+# with --import-realm. A realm that already exists is left as it is. Empty: no import.
+realmImport:
+  configMap: ""
+
+# The numeric UID of the image's "keycloak" user.
+runAsUser: 2000
+
+# Additional non-secret environment variables, e.g. KC_LOG_LEVEL.
+extraEnv: []
+
+resources: {}
+
+service:
+  port: 8080

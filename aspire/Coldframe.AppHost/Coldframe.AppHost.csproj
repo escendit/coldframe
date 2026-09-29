@@ -1,0 +1,21 @@
+<Project Sdk="Aspire.AppHost.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      The orchestrator and the dashboard come from the Aspire CLI bundle, not from host-specific
+      NuGet packages, so packages.lock.json is the same on every platform. DnxPinned fetches the
+      CLI that matches the AppHost SDK version from nuget.org and ignores any other CLI on PATH.
+    -->
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <AspireCliInvocationMode>DnxPinned</AspireCliInvocationMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.Nats" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\apps\cs\migrations\Coldframe.Migrations.csproj" />
+    <ProjectReference Include="..\..\apps\cs\server\Coldframe.Server.csproj" />
+  </ItemGroup>
+</Project>

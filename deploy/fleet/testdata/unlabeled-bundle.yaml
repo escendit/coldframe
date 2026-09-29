@@ -1,0 +1,8 @@
+# check-fleet.py fixture (merged over the repository's bundles; null deletes): the nats bundle has
+# lost its label, so no selector can find it.
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: coldframe-deploy-charts-nats
+  labels:
+    coldframe.escendit.io/bundle: null

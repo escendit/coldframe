@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/cs/">
+    <Project Path="apps/cs/migrations/Coldframe.Migrations.csproj" />
+    <Project Path="apps/cs/server/Coldframe.Server.csproj" />
+  </Folder>
+  <Folder Name="/aspire/">
+    <Project Path="aspire/Coldframe.AppHost/Coldframe.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/packages/" />
+  <Folder Name="/packages/cs/">
+    <Project Path="packages/cs/contracts/Coldframe.Contracts.csproj" />
+    <Project Path="packages/cs/crypto/Coldframe.Crypto.csproj" />
+    <Project Path="packages/cs/protocol/Coldframe.Protocol.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/cs/">
+    <Project Path="tests/cs/crypto.tests/Coldframe.Crypto.Tests.csproj" />
+    <Project Path="tests/cs/device-simulator/Coldframe.DeviceSimulator.csproj" />
+    <Project Path="tests/cs/server.integration/Coldframe.Server.IntegrationTests.csproj" />
+    <Project Path="tests/cs/server.tests/Coldframe.Server.Tests.csproj" />
+  </Folder>
+</Solution>

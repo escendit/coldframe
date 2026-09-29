@@ -1,0 +1,525 @@
+# Builds, tests and lints every language in the monorepo, and scans for committed secrets.
+# The jobs are meant to be required status checks on main (AD-24). That is configured in the
+# repository settings, not in this file.
+#
+# Actions are pinned to a commit; the comment names the release. Images and toolchains are
+# pinned to an explicit version here or in the file the step reads.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Decides which jobs a pull request needs, from the files it changes. A new push to a pull
+  # request is compared with its previous head when CI passed there (every job either ran green
+  # or was skipped as unaffected), so a long-lived pull request does not rerun everything on
+  # each push; otherwise, and for a new pull request, with the merge base. A job whose inputs
+  # did not change is skipped, and a skipped job satisfies a required status check. Everything
+  # runs on a push to main, and when this workflow, .editorconfig or .gitattributes change. The
+  # shared contract, crypto-spec and design-token packages count for every job that uses them.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      dotnet: ${{ steps.filter.outputs.dotnet }}
+      rust: ${{ steps.filter.outputs.rust }}
+      kotlin: ${{ steps.filter.outputs.kotlin }}
+      typescript: ${{ steps.filter.outputs.typescript }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+      swift: ${{ steps.filter.outputs.swift }}
+      ios: ${{ steps.filter.outputs.ios }}
+      charts: ${{ steps.filter.outputs.charts }}
+      images: ${{ steps.filter.outputs.images }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Filter the changed files
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          shared='^packages/(proto|openapi|asyncapi|crypto-spec|design-tokens)/'
+          dotnet='^(apps/cs|aspire|packages/cs|tests/cs)/|^(Coldframe\.slnx|Directory\.Build\.props|Directory\.Packages\.props|global\.json|nuget\.config|BannedSymbols\.txt)$'
+          rust='^(apps/rs|packages/rs|tests/rs)/|^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$'
+          kotlin='^(apps/kt|packages/kt|tests/kt|gradle)/|^(build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties|gradlew|gradlew\.bat)$'
+          typescript='^(apps/ts|packages/ts|tests/ts)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|\.node-version|tsconfig\.base\.json|eslint\.config\.js)$'
+          swift='^(apps/swift|packages/swift|tests/swift)/|^Package\.swift$'
+          declare -A patterns=(
+            [dotnet]="${dotnet}|${shared}"
+            [rust]="${rust}|${shared}"
+            [kotlin]="${kotlin}|${shared}"
+            [typescript]="${typescript}|${shared}"
+            [contracts]='^packages/(proto|openapi|asyncapi)/'
+            [swift]="${swift}|${shared}"
+            # The iOS build compiles the Kotlin core with Gradle.
+            [ios]="${swift}|${kotlin}|${shared}"
+            [charts]='^deploy/'
+            # The images are the Server, the migrations, Keycloak (.NET side) and the web app.
+            [images]="${dotnet}|${typescript}|${shared}|^deploy/|^\.github/workflows/images-verify\.yml$"
+          )
+
+          run_all=
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            run_all=1
+          else
+            # HEAD is GitHub's merge commit; compare the pull request's own head.
+            base="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+            if [[ "${EVENT_ACTION}" == "synchronize" && -n "${BEFORE}" ]] \
+              && git merge-base --is-ancestor "${BEFORE}" "${HEAD_SHA}" 2>/dev/null; then
+              # The latest run of this workflow on the previous head must have succeeded.
+              workflow_path="${WORKFLOW_REF#*/*/}"
+              workflow_path="${workflow_path%@*}"
+              previous="$(gh api "repos/${REPO}/actions/runs?head_sha=${BEFORE}&event=pull_request&per_page=20" \
+                --jq "[.workflow_runs[] | select(.path == \"${workflow_path}\")] | sort_by(.created_at) | last | .conclusion // \"\"" \
+                || true)"
+              echo "CI on the previous head ${BEFORE}: '${previous}'"
+              if [[ "${previous}" == "success" ]]; then
+                base="${BEFORE}"
+              fi
+            fi
+            git diff --name-only "${base}" "${HEAD_SHA}" > "${RUNNER_TEMP}/changed"
+            echo "Changed files against ${base}:"
+            cat "${RUNNER_TEMP}/changed"
+            if grep -qE '^(\.github/workflows/ci\.yml|\.editorconfig|\.gitattributes)$' "${RUNNER_TEMP}/changed"; then
+              run_all=1
+            fi
+          fi
+
+          for job in "${!patterns[@]}"; do
+            if [[ -n "${run_all}" ]] || grep -qE "${patterns[${job}]}" "${RUNNER_TEMP}/changed"; then
+              value=true
+            else
+              value=false
+            fi
+            echo "${job}=${value}" | tee -a "${GITHUB_OUTPUT}"
+          done
+
+  dotnet:
+    name: .NET
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore in locked mode
+        run: dotnet restore --locked-mode
+
+      - name: Build
+        run: dotnet build --no-restore -warnaserror
+
+      - name: Lint
+        run: dotnet format --verify-no-changes --no-restore
+
+      # Starts the Aspire AppHost on the runner's Docker engine.
+      - name: Test
+        run: dotnet test --no-build
+
+  rust:
+    name: Rust
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the toolchain named in rust-toolchain.toml.
+      - name: Set up Rust
+        run: rustup toolchain install
+
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+
+      - name: Lint
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  kotlin:
+    name: Kotlin
+    needs: changes
+    if: needs.changes.outputs.kotlin == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # The Android app and the Android targets compile against API 37 (see libs.versions.toml).
+      - name: Install Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
+
+      # "check" compiles, runs the tests (core on the JVM, the Android app under Robolectric) and
+      # runs ktlint and Android lint.
+      - name: Build, test and lint
+        run: ./gradlew check
+
+      - name: Compile the core for iOS
+        run: ./gradlew :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64
+
+  typescript:
+    name: TypeScript
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the pnpm version named in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm -r lint
+
+      # The web app's end-to-end tests run in Chromium against a fake OIDC provider.
+      - name: Install Playwright Chromium
+        run: pnpm --filter @coldframe/web-e2e exec playwright install --with-deps chromium
+
+      - name: Test
+        run: pnpm -r test
+
+      # Playwright's HTML report and traces (paths are the defaults of playwright.config.ts).
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            tests/ts/web.e2e/playwright-report/
+            tests/ts/web.e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Fails when a generated design-token output is stale, and prints the recomputed contrast
+      # table, failing below 4.5:1 for text or 3:1 for UI (NFR14).
+      - name: Design tokens
+        run: pnpm --filter @coldframe/design-tokens run check
+
+      # Fails when the Rust, C# or Kotlin crypto-spec constants or vectors.json are stale, or when the
+      # reference implementation no longer reproduces the RFC anchors.
+      - name: Crypto spec
+        run: pnpm --filter @coldframe/crypto-spec run check
+
+  # Wire-contract compatibility (AD-10, AD-24): buf lint, buf breaking (FILE) and oasdiff breaking against
+  # the merge base of a pull request, or the previous commit on a push. The self-test first proves that a
+  # removed .proto field, a removed operation and a newly required property fail. Tools are pinned and
+  # checksum-verified by packages/proto/install-tools.sh.
+  contracts:
+    name: Contracts
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install buf and oasdiff
+        run: |
+          packages/proto/install-tools.sh "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: Self-test
+        run: packages/proto/check-compat.sh --self-test
+
+      - name: Check compatibility
+        # On a push the baseline is the commit before the whole push, so a break in any of its commits
+        # counts; HEAD^ only when that is unknown (a new branch) or not in the local history.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          elif [[ -n "${BEFORE}" && ! "${BEFORE}" =~ ^0+$ ]] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            base="${BEFORE}"
+          else
+            base="$(git rev-parse HEAD^)"
+          fi
+          packages/proto/check-compat.sh --base "${base}"
+
+  swift:
+    name: Swift
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          swift --version
+
+      - name: Build
+        run: swift build
+
+      # swift test copies the String Catalog verbatim; Xcode's build system compiles it, so the
+      # tests that read catalogue text run under xcodebuild.
+      - name: Test
+        run: xcodebuild test -scheme Coldframe-Package -destination 'platform=macOS'
+
+      - name: Lint
+        run: swift format lint --strict --recursive .
+
+  ios:
+    name: iOS app
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          xcodebuild -version
+
+      # Gradle configures every project, so the Android SDK must be present for the core's build.
+      - name: Install Android SDK packages
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
+
+      # Homebrew serves one version; the check fails the job when it moves on from the pinned one.
+      - name: Install XcodeGen
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install xcodegen
+          xcodegen --version | grep -Fx "Version: 2.46.0"
+
+      - name: Generate the Xcode project
+        working-directory: apps/swift/ios
+        run: xcodegen generate
+
+      # The pre-build script builds ColdframeCore with Gradle, then Xcode builds the SwiftUI app.
+      - name: Build
+        working-directory: apps/swift/ios
+        run: >
+          xcodebuild build -project Coldframe.xcodeproj -scheme Coldframe
+          -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+
+  # Static checks of the Helm charts (Stories 2.2 to 2.5a): helm lint, helm-unittest, kubeconform
+  # (the CloudNativePG, Barman Cloud and cert-manager kinds against strict schemas generated from
+  # the CRD manifests pinned in deploy/charts/dependencies.env), the Secret contract, and TLS on
+  # every route, DNS-01 on every ACME issuer and no port 80, also on the pinned rke2-traefik chart
+  # rendered with deploy/rke2/rke2-traefik-config.yaml (deploy/charts/test.sh downloads the pins
+  # and checks their sha256), and the Fleet bundles of deploy/fleet/gitrepo.yaml (Story 2.5a):
+  # rendered with the fleet CLI, checked by deploy/fleet/check-fleet.py, and each chart rendered
+  # with its fleet.yaml values and the example values ConfigMap. The smoke install runs in the
+  # images job.
+  charts:
+    name: Charts
+    needs: changes
+    if: needs.changes.outputs.charts == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      HELM_VERSION: v4.2.2
+      # sha256 of helm-v4.2.2-linux-amd64.tar.gz (get.helm.sh/<file>.sha256sum).
+      HELM_SHA256: 9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6
+      HELM_UNITTEST_VERSION: 1.1.2
+      # sha256 of helm-unittest-linux-amd64-1.1.2.tgz (the release's helm-unittest-checksum.sha).
+      HELM_UNITTEST_SHA256: de03d6b7ba7683282064702d0b36fbbe812ab2a22691fa3a8b2ce57c2682609c
+      KUBECONFORM_VERSION: v0.8.0
+      # sha256 of kubeconform-linux-amd64.tar.gz v0.8.0 (the release's CHECKSUMS).
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install helm, helm-unittest, kubeconform and the fleet CLI
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          plugins="${RUNNER_TEMP}/helm-plugins"
+          downloads="${RUNNER_TEMP}/downloads"
+          mkdir -p "${bin}" "${plugins}/unittest" "${downloads}"
+
+          curl --fail --silent --show-error --location --output "${downloads}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${downloads}/helm.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm.tar.gz" --directory "${downloads}" linux-amd64/helm
+          install -m 0755 "${downloads}/linux-amd64/helm" "${bin}/helm"
+
+          curl --fail --silent --show-error --location --output "${downloads}/helm-unittest.tgz" \
+            "https://github.com/helm-unittest/helm-unittest/releases/download/v${HELM_UNITTEST_VERSION}/helm-unittest-linux-amd64-${HELM_UNITTEST_VERSION}.tgz"
+          echo "${HELM_UNITTEST_SHA256}  ${downloads}/helm-unittest.tgz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm-unittest.tgz" --directory "${plugins}/unittest"
+
+          curl --fail --silent --show-error --location --output "${downloads}/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  ${downloads}/kubeconform.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/kubeconform.tar.gz" --directory "${bin}" kubeconform
+
+          # The fleet CLI: version, URL and sha256 pinned in deploy/charts/dependencies.env.
+          # shellcheck source=/dev/null
+          source deploy/charts/dependencies.env
+          curl --fail --silent --show-error --location --output "${downloads}/fleet" "${FLEET_CLI_URL_AMD64}"
+          echo "${FLEET_CLI_SHA256_AMD64}  ${downloads}/fleet" | sha256sum --check --strict
+          install -m 0755 "${downloads}/fleet" "${bin}/fleet"
+
+          echo "${bin}" >> "${GITHUB_PATH}"
+          echo "HELM_PLUGINS=${plugins}" >> "${GITHUB_ENV}"
+
+      - name: Check PyYAML
+        run: python3 -c "import yaml" || sudo apt-get install --yes --no-install-recommends python3-yaml
+
+      - name: Test the charts
+        run: |
+          helm version
+          helm plugin list
+          fleet --version
+          deploy/charts/test.sh
+
+  # Builds every Dockerfile, runs the container-structure tests, the smoke run (Story 2.1) and the
+  # chart smoke install on k3d (Stories 2.2 and 2.3), with its database backup-and-restore phase.
+  images:
+    name: Images
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    uses: ./.github/workflows/images-verify.yml
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Proves that the scan below can fail: the same image and configuration must reject
+      # a throwaway repository that holds a generated fake key.
+      - name: Self-test
+        shell: bash
+        run: |
+          probe="${RUNNER_TEMP}/gitleaks-self-test"
+          mkdir -p "${probe}"
+          git -C "${probe}" init --quiet
+          cp .gitleaks.toml "${probe}/"
+          printf 'token = "ghp_%s"\n' "$(openssl rand -hex 18)" > "${probe}/settings.toml"
+          git -C "${probe}" add --all
+          git -C "${probe}" -c user.name=ci -c user.email=ci@example.invalid \
+            commit --quiet --message "test: fake key"
+
+          if docker run --rm --volume "${probe}:/repo:ro" "${GITLEAKS_IMAGE}" \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --no-color; then
+            echo "::error::gitleaks accepted a repository with a committed fake key."
+            exit 1
+          fi
+
+      # gitleaks exits 0 when it finds no commits, so the commit count is checked as well.
+      - name: Scan the history with gitleaks
+        shell: bash
+        run: |
+          docker run --rm --volume "${GITHUB_WORKSPACE}:/repo:ro" "${GITLEAKS_IMAGE}" \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --no-color \
+            2>&1 | tee "${RUNNER_TEMP}/gitleaks.log"
+
+          if ! grep --quiet --extended-regexp '[1-9][0-9]* commits scanned' "${RUNNER_TEMP}/gitleaks.log"; then
+            echo "::error::gitleaks scanned no commits."
+            exit 1
+          fi

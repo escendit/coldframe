@@ -1,0 +1,17 @@
+{
+  "name": "@coldframe/api-client-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tests for @coldframe/api-client",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@coldframe/api-client": "workspace:*",
+    "@types/node": "24.19.0"
+  }
+}

@@ -1,0 +1,19 @@
+# Fixture for test.sh: a reference to a key that SECRETS.md does not list must fail the check.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unknown-key
+spec:
+  containers:
+    - name: app
+      image: example.invalid/app:1
+      volumeMounts:
+        - name: db
+          mountPath: /secrets
+  volumes:
+    - name: db
+      secret:
+        secretName: coldframe-db-coldframe
+        items:
+          - key: connection-string
+            path: connection-string

@@ -1,0 +1,22 @@
+# NATS Server with JetStream (AD-5). No credentials: only the Server connects, inside the cluster.
+
+# Resource names default to the release name.
+fullnameOverride: ""
+
+image:
+  repository: docker.io/library/nats
+  # Empty: the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The JetStream store lives in an emptyDir: it is lost with the pod, by design (AD-5).
+jetstream:
+  storageSizeLimit: 1Gi
+
+# Any non-root UID: the image has no user of its own.
+runAsUser: 1000
+
+resources: {}
+
+service:
+  port: 4222

@@ -1,0 +1,21 @@
+{
+  "name": "@coldframe/crypto-spec",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Device crypto contract (labels, algorithms, nonce layout, header names) and its shared test vectors, generated into Rust, C# and Kotlin",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./crypto-spec.json": "./crypto-spec.json",
+    "./vectors.json": "./vectors.json"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.ts",
+    "check": "node scripts/generate.ts --check",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0"
+  }
+}

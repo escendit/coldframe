@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "On a Mac with Xcode 26.6, run `swift build && swift test && swift format lint --strict -r .` at the repository root and fix any compile or test failure in the never-compiled SwiftUI code (apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift, Screens.swift), including the new RenderTests for Create Site, Garden and the Site switcher at .accessibility5.",
+    "On that Mac, run `xcodegen generate` and `xcodebuild build -scheme Coldframe -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO` in apps/swift/ios, and confirm apps/swift/ios/App/CoreSitesService.swift compiles against the ColdframeCore framework (it calls `doNewSite()` on the assumption that Kotlin/Native renames `newSite`; adjust if the exported name differs).",
+    "Install the Android app against a real Server and Keycloak, sign in with a new user, and verify: Create Site (name, time-zone Confirm and Change) lands on the empty Garden; the switcher lists Sites with Role and New Site; the Site menu holds Site settings; Server off shows the Unreachable notice; at font scale 2 with TalkBack nothing clips.",
+    "Run the iOS app against the same Server on an iPhone and verify the same Create Site, Garden, switcher and menu behaviour at the largest Dynamic Type size with VoiceOver, including tapping New Site in the Site switcher and checking that Create Site opens (deferred item in this spec)."
+  ],
+  "parked_at": "2026-09-28",
+  "run_id": "20260927-235655-b4dd",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-1-8-create-site-and-the-empty-garden-in-the-apps.md",
+  "story_key": "1-8-create-site-and-the-empty-garden-in-the-apps"
+}

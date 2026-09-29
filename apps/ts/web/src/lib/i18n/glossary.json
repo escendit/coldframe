@@ -1,0 +1,18 @@
+{
+  "description": "Coldframe glossary (UX-DR131). Proper nouns: capitalised in every source string and kept as terms by translators. Device IDs, setup codes, SSIDs and Server URLs are never translated or reformatted.",
+  "terms": [
+    "Site",
+    "Lot",
+    "Node",
+    "Hub",
+    "Sensor",
+    "Reading",
+    "Threshold",
+    "Alert",
+    "Reminder",
+    "Notification Window",
+    "Silence Window",
+    "Pause",
+    "Calibration"
+  ]
+}

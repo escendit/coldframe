@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The shared crypto vectors, RFC anchors and negative cases in C#, and the Device simulator against them. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Coldframe.Crypto.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\packages\cs\crypto\Coldframe.Crypto.csproj" />
+    <ProjectReference Include="..\..\..\packages\cs\protocol\Coldframe.Protocol.csproj" />
+    <ProjectReference Include="..\device-simulator\Coldframe.DeviceSimulator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The single source of the vectors, read at test time. -->
+    <None Include="..\..\..\packages\crypto-spec\vectors.json" Link="Fixtures\vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

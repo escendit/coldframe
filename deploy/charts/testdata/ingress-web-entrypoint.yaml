@@ -1,0 +1,26 @@
+# Fixture for test.sh: an Ingress on the web entrypoint (port 80) fails check-ingress.py, even
+# with tls.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-entrypoint
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: coldframe-tls
+      hosts:
+        - coldframe.example.invalid
+  rules:
+    - host: coldframe.example.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000

@@ -1,0 +1,21 @@
+{
+  "name": "@coldframe/web-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright end-to-end tests for @coldframe/web against a fake OIDC provider",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "pnpm --filter @coldframe/web build && playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@coldframe/web": "workspace:*",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.0",
+    "jose": "6.2.12",
+    "selfsigned": "5.5.0"
+  }
+}
