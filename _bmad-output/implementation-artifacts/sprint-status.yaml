@@ -58,7 +58,7 @@ development_status:
 
   epic-3: backlog
   3-1-wire-and-crypto-contracts-with-shared-test-vectors: done
-  3-2-hub-firmware-foundation-with-a-hardware-bound-identity: backlog
+  3-2-hub-firmware-foundation-with-a-hardware-bound-identity: awaiting-operator
   3-3-server-side-device-enrolment: backlog
   3-4-hub-ble-setup-service: backlog
   3-5-hub-joins-wi-fi-and-heartbeats-to-the-server: backlog

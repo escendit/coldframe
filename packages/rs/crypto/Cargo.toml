@@ -3,13 +3,16 @@ name = "coldframe-crypto"
 description = "Coldframe Device key hierarchy, frame sealing, HPKE enrolment, BLE setup session and heartbeat signing (packages/crypto-spec)"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# The Hub firmware links this crate with the `esp` toolchain (Rust 1.95), so it stays buildable there.
+rust-version = "1.95"
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
 # no_std, no alloc: the firmware links this crate. Exact versions (AD-15); Cargo.lock pins the rest.
 [dependencies]
+# The HAL traits only, no features: identity logic never sees esp-hal (AD-24).
+coldframe-hal = { path = "../hal" }
 chacha20poly1305 = { version = "=0.11.0", default-features = false }
 hkdf = { version = "=0.13.0", default-features = false }
 hmac = { version = "=0.13.0", default-features = false }

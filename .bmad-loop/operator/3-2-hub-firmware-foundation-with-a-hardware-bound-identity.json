@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "On a spare ESP32-S3 whose eFuse key blocks you accept losing, run the release path of docs/bench/hub-identity-checklist.md: record `espefuse summary` key purposes, flash `cargo run --release` from apps/rs/hub, confirm the first boot logs `source=burned KEYn`, then confirm exactly one block now shows HMAC_UP and is read-protected (espflash 4.5 board-info does not print key purposes, so use espefuse).",
+    "Reboot that board and confirm it logs `source=existing KEYn` with the same device_id, and that `espefuse summary` shows no further key-purpose changes.",
+    "On a second ESP32-S3, flash the debug `cargo run --features dev-mode` build twice and confirm it logs `mode=dev source=generated`, then `source=stored` with the same device_id, while `espefuse summary` is unchanged before and after.",
+    "Record the results (date, board, Device IDs, pass or fail) in the Result table of docs/bench/hub-identity-checklist.md and commit it."
+  ],
+  "parked_at": "2026-09-29",
+  "run_id": "20260929-135654-2bf0",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-3-2-hub-firmware-foundation-with-a-hardware-bound-identity.md",
+  "story_key": "3-2-hub-firmware-foundation-with-a-hardware-bound-identity"
+}
