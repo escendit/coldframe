@@ -6,17 +6,23 @@
 //! - [`MockHmac`] shares the eFuse state and computes a real HMAC-SHA256 over the block's key.
 //! - [`MockTrng`] refuses to produce bytes while its [`MockRadio`] is off.
 //! - [`MockFlash`] has NOR semantics: erase to `0xFF`, writes only clear bits.
+//! - [`MockSetupLink`] plays scripted connections and can answer each send through a peer
+//!   callback, so a test drives a whole BLE session.
+//! - [`MockWifi`] returns a scripted scan and a join outcome per SSID and password.
 //!
 //! Each mock can inject a failure so tests reach every error path.
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
+use std::string::String;
+use std::vec::Vec;
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 use crate::adc::{Adc, AdcError};
+use crate::ble::{LinkError, SetupLink};
 use crate::efuse::{Efuse, EfuseError, KEY_LENGTH, KeyBlock, KeyPurpose};
 use crate::flash::{Flash, FlashError};
 use crate::gpio::{GpioError, InputPin, OutputPin};
@@ -24,6 +30,7 @@ use crate::hmac::{HMAC_LENGTH, HmacError, HmacPeripheral};
 use crate::radio::{Radio, RadioError};
 use crate::rng::{Trng, TrngError};
 use crate::rtc::{Rtc, RtcError};
+use crate::wifi::{AccessPoint, JoinError, Wifi, WifiError};
 
 // ---------------------------------------------------------------------------------------------
 // eFuse
@@ -570,5 +577,299 @@ impl InputPin for MockPin {
     fn is_high(&mut self) -> Result<bool, GpioError> {
         self.check()?;
         Ok(self.high)
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// BLE setup link
+
+/// One scripted event on a [`MockSetupLink`] connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkEvent {
+    /// The app writes this payload.
+    Payload(Vec<u8>),
+    /// The app disconnects.
+    Disconnect,
+}
+
+/// Answers each payload the Device sends with the payloads the app writes back.
+pub type Peer = Box<dyn FnMut(&[u8]) -> Vec<Vec<u8>>>;
+
+struct MockConnection {
+    max_payload: usize,
+    incoming: VecDeque<LinkEvent>,
+    peer: Option<Peer>,
+}
+
+/// A scripted BLE setup link.
+///
+/// - [`MockSetupLink::connect`] queues a connection; [`SetupLink::accept`] opens the next one,
+///   and fails with [`LinkError::Transport`] once none is left, which ends a test run.
+/// - [`SetupLink::receive`] returns the connection's scripted events in order. With nothing left
+///   it returns [`LinkError::Timeout`], as if the app went quiet, and records the timeout asked
+///   for.
+/// - Every [`SetupLink::send`] is recorded, and the connection's peer callback (or the link's
+///   default one), if set, answers it: its payloads are queued as incoming writes on the same
+///   connection.
+pub struct MockSetupLink {
+    pending: VecDeque<MockConnection>,
+    current: Option<MockConnection>,
+    peer: Option<Peer>,
+    sent: Vec<Vec<Vec<u8>>>,
+    accepts: usize,
+    disconnects: usize,
+    timeouts: Vec<u32>,
+}
+
+impl Default for MockSetupLink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MockSetupLink {
+    /// A link with no connection scripted.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            pending: VecDeque::new(),
+            current: None,
+            peer: None,
+            sent: Vec::new(),
+            accepts: 0,
+            disconnects: 0,
+            timeouts: Vec::new(),
+        }
+    }
+
+    /// Queues a connection with ATT payload size `max_payload` (the MTU minus 3) whose app first
+    /// writes `payloads`.
+    pub fn connect(&mut self, max_payload: usize, payloads: Vec<Vec<u8>>) {
+        self.connect_with(
+            max_payload,
+            payloads.into_iter().map(LinkEvent::Payload).collect(),
+        );
+    }
+
+    /// Queues a connection that plays `events`.
+    pub fn connect_with(&mut self, max_payload: usize, events: Vec<LinkEvent>) {
+        self.pending.push_back(MockConnection {
+            max_payload,
+            incoming: events.into(),
+            peer: None,
+        });
+    }
+
+    /// Queues a connection whose app first writes `payloads` and then answers every send with
+    /// its own `peer`.
+    pub fn connect_with_peer(
+        &mut self,
+        max_payload: usize,
+        payloads: Vec<Vec<u8>>,
+        peer: impl FnMut(&[u8]) -> Vec<Vec<u8>> + 'static,
+    ) {
+        self.pending.push_back(MockConnection {
+            max_payload,
+            incoming: payloads.into_iter().map(LinkEvent::Payload).collect(),
+            peer: Some(Box::new(peer)),
+        });
+    }
+
+    /// Answers every later send on a connection without its own peer with `peer`.
+    pub fn set_peer(&mut self, peer: impl FnMut(&[u8]) -> Vec<Vec<u8>> + 'static) {
+        self.peer = Some(Box::new(peer));
+    }
+
+    /// The payloads sent, one list per accepted connection.
+    #[must_use]
+    pub fn sent(&self) -> &[Vec<Vec<u8>>] {
+        &self.sent
+    }
+
+    /// How many connections were accepted.
+    #[must_use]
+    pub fn accept_count(&self) -> usize {
+        self.accepts
+    }
+
+    /// How many times the Device disconnected an open connection.
+    #[must_use]
+    pub fn disconnect_count(&self) -> usize {
+        self.disconnects
+    }
+
+    /// The timeouts of the receives that timed out, in milliseconds.
+    #[must_use]
+    pub fn timeouts(&self) -> &[u32] {
+        &self.timeouts
+    }
+
+    /// Whether a connection is open.
+    #[must_use]
+    pub fn is_connected(&self) -> bool {
+        self.current.is_some()
+    }
+}
+
+impl SetupLink for MockSetupLink {
+    async fn accept(&mut self) -> Result<(), LinkError> {
+        let next = self.pending.pop_front().ok_or(LinkError::Transport)?;
+        self.current = Some(next);
+        self.sent.push(Vec::new());
+        self.accepts += 1;
+        Ok(())
+    }
+
+    async fn receive(&mut self, buffer: &mut [u8], timeout_ms: u32) -> Result<usize, LinkError> {
+        let connection = self.current.as_mut().ok_or(LinkError::Disconnected)?;
+        match connection.incoming.pop_front() {
+            Some(LinkEvent::Payload(payload)) => {
+                let length = payload.len().min(buffer.len());
+                buffer[..length].copy_from_slice(&payload[..length]);
+                Ok(length)
+            }
+            Some(LinkEvent::Disconnect) => {
+                self.current = None;
+                Err(LinkError::Disconnected)
+            }
+            None => {
+                self.timeouts.push(timeout_ms);
+                Err(LinkError::Timeout)
+            }
+        }
+    }
+
+    async fn send(&mut self, payload: &[u8]) -> Result<(), LinkError> {
+        let connection = self.current.as_mut().ok_or(LinkError::Disconnected)?;
+        assert!(
+            payload.len() <= connection.max_payload,
+            "a send exceeds the ATT payload size"
+        );
+        if let Some(sent) = self.sent.last_mut() {
+            sent.push(payload.to_vec());
+        }
+        if let Some(peer) = connection.peer.as_mut().or(self.peer.as_mut()) {
+            for answer in peer(payload) {
+                connection.incoming.push_back(LinkEvent::Payload(answer));
+            }
+        }
+        Ok(())
+    }
+
+    fn max_payload(&self) -> usize {
+        self.current
+            .as_ref()
+            .map_or(20, |connection| connection.max_payload)
+    }
+
+    async fn disconnect(&mut self) {
+        if self.current.take().is_some() {
+            self.disconnects += 1;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wi-Fi
+
+/// One join the [`MockWifi`] saw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinAttempt {
+    /// The SSID.
+    pub ssid: String,
+    /// The passphrase (a test fixture, never a real one).
+    pub password: String,
+    /// The BSSID asked for.
+    pub bssid: [u8; 6],
+    /// The channel asked for.
+    pub channel: u8,
+}
+
+/// A Wi-Fi station with a scripted scan and scripted join outcomes.
+///
+/// A join with an SSID and password pair that has no scripted outcome fails with
+/// [`JoinError::WrongPassword`].
+pub struct MockWifi {
+    scan: Vec<AccessPoint>,
+    scan_failure: Option<WifiError>,
+    outcomes: Vec<(String, String, Result<(), JoinError>)>,
+    joins: Vec<JoinAttempt>,
+    scans: usize,
+}
+
+impl MockWifi {
+    /// A station whose every scan hears `access_points`.
+    #[must_use]
+    pub fn new(access_points: Vec<AccessPoint>) -> Self {
+        Self {
+            scan: access_points,
+            scan_failure: None,
+            outcomes: Vec::new(),
+            joins: Vec::new(),
+            scans: 0,
+        }
+    }
+
+    /// Makes a join with `ssid` and `password` end with `outcome`.
+    pub fn set_join_outcome(&mut self, ssid: &str, password: &str, outcome: Result<(), JoinError>) {
+        self.outcomes
+            .push((ssid.to_owned(), password.to_owned(), outcome));
+    }
+
+    /// Makes every later scan fail with `error`, or succeed again with `None`.
+    pub fn fail_scan(&mut self, error: Option<WifiError>) {
+        self.scan_failure = error;
+    }
+
+    /// Every join attempted, in order.
+    #[must_use]
+    pub fn joins(&self) -> &[JoinAttempt] {
+        &self.joins
+    }
+
+    /// How many joins were attempted.
+    #[must_use]
+    pub fn join_count(&self) -> usize {
+        self.joins.len()
+    }
+
+    /// How many scans ran.
+    #[must_use]
+    pub fn scan_count(&self) -> usize {
+        self.scans
+    }
+}
+
+impl Wifi for MockWifi {
+    async fn scan(&mut self, out: &mut [AccessPoint]) -> Result<usize, WifiError> {
+        self.scans += 1;
+        if let Some(error) = self.scan_failure {
+            return Err(error);
+        }
+        let mut heard = self.scan.clone();
+        // Keep the strongest when the buffer is too small, as the trait requires.
+        heard.sort_by_key(|access_point| std::cmp::Reverse(access_point.rssi));
+        let count = heard.len().min(out.len());
+        out[..count].copy_from_slice(&heard[..count]);
+        Ok(count)
+    }
+
+    async fn join(
+        &mut self,
+        ssid: &str,
+        password: &str,
+        bssid: [u8; 6],
+        channel: u8,
+    ) -> Result<(), JoinError> {
+        self.joins.push(JoinAttempt {
+            ssid: ssid.to_owned(),
+            password: password.to_owned(),
+            bssid,
+            channel,
+        });
+        self.outcomes
+            .iter()
+            .find(|(s, p, _)| s == ssid && p == password)
+            .map_or(Err(JoinError::WrongPassword), |(_, _, outcome)| *outcome)
     }
 }

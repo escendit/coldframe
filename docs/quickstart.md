@@ -234,7 +234,14 @@ mocks of `coldframe-hal`: the key-hierarchy vectors through the mock HMAC periph
 eFuse burn and the reuse on later boots, the dev-mode flash record, and every error case.
 `tests/rs/hal` checks that the mocks keep the hardware contracts: an eFuse block burns only once and
 hides its key, the HMAC refuses a block with the wrong purpose, the TRNG refuses to run while the
-radio is off, and flash has NOR semantics. Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
+radio is off, and flash has NOR semantics. `tests/rs/protocol` round-trips every BLE setup message
+through the micropb types of `coldframe-protocol` and checks their sizes and capacities.
+`tests/rs/setup` runs every row of the Story 3.4 I/O matrix through `coldframe_setup::run_setup` with
+the BLE link, Wi-Fi, TRNG and flash mocks (the happy path against the crypto-spec vectors, wrong code,
+wrong password, malformed, tampered and replayed messages, idle timeout), covers the setup code and
+provisioning records and the BLE framing, and guards the Hub sources against build-time environment
+reads (FR-1). `tests/rs/setup-client` is the desktop BLE client for the bench checklist; it depends on
+`libdbus-sys` with `vendored`, so it builds without a system libdbus but needs a C compiler. Integration tests for a crate live in a test crate of their own, `tests/rs/<crate>`, which is a
 member of the workspace. Cargo discovers every file in its `tests/` folder; a new file needs no
 registration.
 
@@ -248,10 +255,12 @@ cargo build --release
 cargo build --features dev-mode
 cargo fmt --check
 cargo clippy --release -- -D warnings
+./check-image.sh   # FR-1: no Wi-Fi credential canary in the ELF or the flash image
 ```
 
 CI does not build firmware. The Hub's on-device behaviour is checked by hand with
-[`docs/bench/hub-identity-checklist.md`](bench/hub-identity-checklist.md).
+[`docs/bench/hub-identity-checklist.md`](bench/hub-identity-checklist.md) and
+[`docs/bench/hub-setup-checklist.md`](bench/hub-setup-checklist.md).
 
 ### TypeScript
 

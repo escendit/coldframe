@@ -1,0 +1,22 @@
+# Integration tests for coldframe-setup: the setup code and provisioning store, framing, every row of
+# the Story 3.4 I/O matrix through `run_setup` with the coldframe-hal mocks, and the image guard.
+[package]
+name = "coldframe-setup-tests"
+description = "Integration tests for coldframe-setup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+coldframe-crypto = { path = "../../../packages/rs/crypto" }
+coldframe-hal = { path = "../../../packages/rs/hal", features = ["mock"] }
+coldframe-protocol = { path = "../../../packages/rs/protocol" }
+coldframe-setup = { path = "../../../packages/rs/setup" }
+heapless = "=0.9.3"
+serde_json = "=1.0.151"
+
+[lints]
+workspace = true

@@ -6,17 +6,21 @@ use esp_radio::wifi::WifiController;
 /// The radio, on for as long as this value lives.
 ///
 /// Creating the esp-radio [`WifiController`] initialises the radio and registers it as an entropy
-/// source of the TRNG. Stories 3.4 and 3.5 add BLE and Wi-Fi join on top of it.
+/// source of the TRNG. [`BoardRadio::into_controller`] hands the controller on to the Wi-Fi
+/// station adapter once the identity is provisioned.
 pub struct BoardRadio {
-    _controller: WifiController<'static>,
+    controller: WifiController<'static>,
 }
 
 impl BoardRadio {
     /// Takes over a controller that `WifiController::new` has just started.
     pub fn new(controller: WifiController<'static>) -> Self {
-        Self {
-            _controller: controller,
-        }
+        Self { controller }
+    }
+
+    /// The controller, for the Wi-Fi station adapter. The radio stays on while it lives.
+    pub fn into_controller(self) -> WifiController<'static> {
+        self.controller
     }
 }
 

@@ -2,15 +2,16 @@
 target = "xtensa-esp32s3-none-elf"
 
 [target.xtensa-esp32s3-none-elf]
-# Flashes the partition table that holds the dev-mode identity partition `cf_ident`.
+# Flashes the partition table with the Coldframe data partitions `cf_setup` and `cf_ident`.
 runner = "espflash flash --monitor --partition-table partitions.csv"
 rustflags = [
   "-C", "link-arg=-Wl,-Tlinkall.x",
   "-C", "link-arg=-nostartfiles",
 ]
 
-[env]
-ESP_LOG = "info"
+# No [env] table: the image must not pick up build-time environment (FR-1, no Wi-Fi credentials
+# in the image). tests/rs/setup/tests/image_guard.rs and check-image.sh enforce it. The log level is
+# set in code.
 
 [unstable]
 build-std = ["alloc", "core"]

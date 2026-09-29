@@ -1,0 +1,33 @@
+# Desktop BLE client for the Hub setup bench checklist (docs/bench/hub-setup-checklist.md): plays the
+# app's side of the AD-25 setup session over btleplug.
+[package]
+name = "coldframe-setup-client"
+description = "Desktop BLE setup client for the Hub bench checklist"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "coldframe-setup-client"
+path = "src/main.rs"
+
+[dependencies]
+btleplug = "=0.13.3"
+coldframe-crypto = { path = "../../../packages/rs/crypto" }
+coldframe-protocol = { path = "../../../packages/rs/protocol" }
+coldframe-setup = { path = "../../../packages/rs/setup" }
+futures = "=0.3.34"
+# Build libdbus from source: no system libdbus (or its -dev package) is needed on Linux, in CI or on
+# the bench machine.
+libdbus-sys = { version = "=0.2.7", features = ["vendored"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "time"] }
+uuid = "=1.26.1"
+
+[dev-dependencies]
+serde_json = "=1.0.151"
+
+[lints]
+workspace = true
