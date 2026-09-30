@@ -62,7 +62,7 @@ development_status:
   3-3-server-side-device-enrolment: awaiting-operator
   3-4-hub-ble-setup-service: backlog
   3-5-hub-joins-wi-fi-and-heartbeats-to-the-server: awaiting-operator
-  3-6-add-a-hub-from-my-phone: backlog
+  3-6-add-a-hub-from-my-phone: awaiting-operator
   3-7-see-my-hub-in-devices: backlog
   epic-3-retrospective: optional
 

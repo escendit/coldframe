@@ -262,6 +262,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "coldframe-sensing"
+version = "0.0.0"
+dependencies = [
+ "coldframe-hal",
+ "heapless",
+ "sha2",
+]
+
+[[package]]
+name = "coldframe-sensing-tests"
+version = "0.0.0"
+dependencies = [
+ "coldframe-hal",
+ "coldframe-sensing",
+]
+
+[[package]]
 name = "coldframe-setup"
 version = "0.0.0"
 dependencies = [

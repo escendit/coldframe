@@ -1,0 +1,19 @@
+# Integration tests for coldframe-sensing: the battery curve, the persisted counters (reservation,
+# resets, torn records, sector rollover, corruption) and the wake cycle (switch order, failures,
+# measured_at, sleep arithmetic), over the coldframe-hal mocks.
+[package]
+name = "coldframe-sensing-tests"
+description = "Integration tests for coldframe-sensing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+coldframe-hal = { path = "../../../packages/rs/hal", features = ["mock"] }
+coldframe-sensing = { path = "../../../packages/rs/sensing" }
+
+[lints]
+workspace = true
