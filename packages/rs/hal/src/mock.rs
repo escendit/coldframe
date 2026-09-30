@@ -12,6 +12,7 @@
 //!   and a link state a test (or a [`MockNet`]) can drop.
 //! - [`MockNet`] plays scripted DHCP, SNTP and HTTPS results and records every request.
 //! - [`MockTimer`] returns at once and records every wait.
+//! - [`MockRawAdc`] and [`MockEnvSensor`] return a settable result and count their calls.
 //!
 //! Each mock can inject a failure so tests reach every error path.
 
@@ -34,6 +35,7 @@ use crate::net::{HttpRequest, HttpResponse, Net, NetError};
 use crate::radio::{Radio, RadioError};
 use crate::rng::{Trng, TrngError};
 use crate::rtc::{Rtc, RtcError};
+use crate::sensor::{EnvError, EnvSample, EnvSensor, RawAdc};
 use crate::timer::Timer;
 use crate::wifi::{AccessPoint, JoinError, Wifi, WifiError};
 
@@ -1150,5 +1152,89 @@ impl MockTimer {
 impl Timer for MockTimer {
     async fn sleep_ms(&mut self, ms: u32) {
         self.sleeps.push(ms);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sensors
+
+/// A raw ADC input: scripted conversions first, then a settable result, and a call count.
+#[derive(Clone, Debug)]
+pub struct MockRawAdc {
+    /// The result once the scripted conversions are used up.
+    pub reading: Result<u16, AdcError>,
+    queued: VecDeque<Result<u16, AdcError>>,
+    calls: usize,
+}
+
+impl MockRawAdc {
+    /// An input that always reads `raw`.
+    #[must_use]
+    pub fn new(raw: u16) -> Self {
+        Self {
+            reading: Ok(raw),
+            queued: VecDeque::new(),
+            calls: 0,
+        }
+    }
+
+    /// Makes every later conversion return `reading`.
+    pub fn set(&mut self, reading: Result<u16, AdcError>) {
+        self.reading = reading;
+    }
+
+    /// Queues one conversion result, returned before the settable one.
+    pub fn push(&mut self, reading: Result<u16, AdcError>) {
+        self.queued.push_back(reading);
+    }
+
+    /// How many conversions were asked for.
+    #[must_use]
+    pub fn call_count(&self) -> usize {
+        self.calls
+    }
+}
+
+impl RawAdc for MockRawAdc {
+    fn read_raw(&mut self) -> Result<u16, AdcError> {
+        self.calls += 1;
+        self.queued.pop_front().unwrap_or(self.reading)
+    }
+}
+
+/// An environment sensor with a settable result and a call count.
+#[derive(Clone, Copy, Debug)]
+pub struct MockEnvSensor {
+    /// What every measurement returns.
+    pub result: Result<EnvSample, EnvError>,
+    calls: usize,
+}
+
+impl MockEnvSensor {
+    /// A sensor that measures `sample`.
+    #[must_use]
+    pub const fn new(sample: EnvSample) -> Self {
+        Self {
+            result: Ok(sample),
+            calls: 0,
+        }
+    }
+
+    /// Makes every later measurement return `result`.
+    pub fn set(&mut self, result: Result<EnvSample, EnvError>) {
+        self.result = result;
+    }
+
+    /// How many measurements were asked for.
+    #[must_use]
+    pub fn call_count(&self) -> usize {
+        self.calls
+    }
+}
+
+impl EnvSensor for MockEnvSensor {
+    fn measure_forced(&mut self) -> Result<EnvSample, EnvError> {
+        self.calls += 1;
+        self.result
     }
 }

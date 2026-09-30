@@ -388,3 +388,11 @@ location: packages/kt/core/src/iosMain/kotlin/com/escendit/coldframe/core/setup/
 source_spec: `spec-3-6-add-a-hub-from-my-phone.md`
 reason: IosRadioState initialises MutableStateFlow(RadioState.Off) and maps every non-listed CBManagerState to Off. Whether the notice renders (and VoiceOver announces it) before centralManagerDidUpdateState arrives can only be settled on a real iPhone; RadioState has no Unknown value today.
 status: open
+
+### DW-51: The Node copies the Hub's ESP32-S3 board adapters (eFuse, HMAC, flash, TRNG, timer) instead of sharing them.
+origin: spec-deferred 0a96fec2fb86
+location: apps/rs/node/src/board/{efuse,hmac,flash,rng,timer}.rs; apps/rs/hub/src/board/{efuse,hmac,flash,rng,timer}.rs
+source_spec: `spec-4-1-node-firmware-foundation-wake-measure-sleep.md`
+severity: low
+reason: apps/rs is outside the host workspace and Story 4.1 must not change the Hub, so the adapters were copied (the Node's flash adapter already differs: word-aligned writes are plain NOR programs, which the counters need for power-loss safety). Extract a shared ESP32-S3 board crate (for example packages/rs/board-esp32s3, built only with the esp toolchain) and move both firmwares onto it; decide then whether the Hub's flash writes should also avoid read-erase-rewrite. A shared board adapter must keep plain NOR writes for the counter partitions (`cf_seq`, `cf_boot`), never read-erase-rewrite.
+status: open

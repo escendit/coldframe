@@ -175,10 +175,12 @@ jobs:
       - name: Build
         run: cargo build --workspace --all-targets --locked
 
-      # Without the test crates, `mock` is not unified in, so this proves the crates the Hub links stay
-      # no_std.
+      # Without the test crates, `mock` is not unified in, so this proves the crates the Hub and the
+      # Node link stay no_std.
       - name: Build the firmware crates without mocks
-        run: cargo build -p coldframe-hal -p coldframe-crypto -p coldframe-protocol -p coldframe-setup -p coldframe-uplink --locked
+        run: >-
+          cargo build -p coldframe-hal -p coldframe-crypto -p coldframe-protocol -p coldframe-setup
+          -p coldframe-uplink -p coldframe-sensing --locked
 
       - name: Lint
         run: |
@@ -188,10 +190,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
-  # The Hub firmware on the esp toolchain (spike H-2, DW-43): the release image with certificate
-  # validity dates checked (mbedtls-rs `hook-wall-clock`, which rebuilds mbedTLS and needs cmake and
-  # ninja), the dev-mode build, clippy, rustfmt, and the FR-1 canary check of the built image. No
-  # hardware is involved (AD-24); the bench checklists cover the board.
+  # The Hub and Node firmware on the esp toolchain (spike H-2, DW-43). Hub: the release image with
+  # certificate validity dates checked (mbedtls-rs `hook-wall-clock`, which rebuilds mbedTLS and needs
+  # cmake and ninja), the dev-mode build, clippy, rustfmt, and the FR-1 canary check of the built
+  # image. Node, in order: the release + dev-mode refusal (AD-12), the release and dev-mode builds,
+  # rustfmt, and clippy on both. No hardware is involved (AD-24); the bench checklists cover the boards.
   firmware:
     name: Firmware
     needs: changes
@@ -220,7 +223,9 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: apps/rs/hub
+          workspaces: |
+            apps/rs/hub
+            apps/rs/node
           key: espup-${{ env.ESPUP_VERSION }}-esp-${{ env.ESP_TOOLCHAIN_VERSION }}-espflash-${{ env.ESPFLASH_VERSION }}
           cache-bin: "true"
           cache-directories: |
@@ -265,6 +270,38 @@ jobs:
         run: |
           source "${HOME}/export-esp.sh"
           ./check-image.sh
+
+      # The Node firmware (Story 4.1), in order: a release build must refuse `dev-mode` with the
+      # `compile_error!` message (AD-12); the release and dev-mode builds; rustfmt; clippy on both.
+      - name: Assert the Node release build refuses dev-mode
+        working-directory: apps/rs/node
+        run: |
+          source "${HOME}/export-esp.sh"
+          if cargo build --release --features dev-mode --locked > dev-mode-release.log 2>&1; then
+            cat dev-mode-release.log
+            echo "::error::a release build with dev-mode succeeded"
+            exit 1
+          fi
+          if ! grep -q 'the `dev-mode` feature is refused in release builds' dev-mode-release.log; then
+            cat dev-mode-release.log
+            echo "::error::the release + dev-mode build failed without the compile_error! message"
+            exit 1
+          fi
+
+      - name: Build the Node
+        working-directory: apps/rs/node
+        run: |
+          source "${HOME}/export-esp.sh"
+          cargo build --release --locked
+          cargo build --features dev-mode --locked
+
+      - name: Lint the Node
+        working-directory: apps/rs/node
+        run: |
+          source "${HOME}/export-esp.sh"
+          cargo fmt --check
+          cargo clippy --release --locked -- -D warnings
+          cargo clippy --features dev-mode --locked -- -D warnings
 
   kotlin:
     name: Kotlin
