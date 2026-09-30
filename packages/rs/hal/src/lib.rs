@@ -14,6 +14,7 @@
 //! - [`net`]: the IP uplink: DHCP, SNTP and one HTTPS `POST` at a time.
 //! - [`timer`]: waiting for a while.
 //! - [`adc`], [`rtc`], [`gpio`]: analogue input, clocks and digital pins.
+//! - [`sensor`]: a raw ADC count and an environment sensor in forced mode.
 //!
 //! Every trait has its own small `Copy` error type. None of them carries key material, a
 //! payload or a password. The BLE, Wi-Fi, network and timer traits are `async` for a
@@ -33,6 +34,7 @@ pub mod net;
 pub mod radio;
 pub mod rng;
 pub mod rtc;
+pub mod sensor;
 pub mod timer;
 pub mod wifi;
 
@@ -46,6 +48,7 @@ pub use net::{HttpRequest, HttpResponse, Net, NetError};
 pub use radio::{Radio, RadioError};
 pub use rng::{Trng, TrngError};
 pub use rtc::{Rtc, RtcError};
+pub use sensor::{EnvError, EnvSample, EnvSensor, RawAdc};
 pub use timer::Timer;
 pub use wifi::{AccessPoint, JoinError, Security, Wifi, WifiError};
 

@@ -23,6 +23,23 @@ Node and Hub facts that bind firmware and hardware work. Evidence: PRD addendum 
 - No Wi-Fi on the Node. Keep wakes short, with a channel re-scan only on acknowledgement failure.
 - **Open:** BLE (setup mode) and ESP-NOW coexistence on the Node is not yet validated. The spike's Node ran ESP-NOW only. Validate it in the Node epic.
 
+### Node reference wiring (Story 4.1)
+
+No Node board exists yet (Epic 10 designs one). The firmware's single source for pins is `apps/rs/node/src/board/pins.rs`; this table matches it.
+
+| Signal | Pin | Notes |
+| --- | --- | --- |
+| Soil probe analogue out | GPIO1 (ADC1_CH0) | raw count, 11 dB attenuation |
+| Battery divider midpoint | GPIO2 (ADC1_CH1) | calibrated mV, 11 dB, 100 kΩ / 100 kΩ |
+| Probe power switch | GPIO4 | high-side switch (P-MOSFET or load switch), high = on; control pulled down externally (pads float in deep sleep) |
+| Divider switch | GPIO5 | high-side switch between the cell and the divider top, high = on; control pulled down externally |
+| Charger status (`CHRG`) | GPIO6 | active low, internal pull-up |
+| I²C SDA / SCL | GPIO8 / GPIO9 | BME680 at 0x77 (SDO high), not switched |
+
+- ADC1 only: ADC2 conflicts with the radio.
+- **Switch topology:** the probe feed and the battery divider are switched on the **high side** (P-MOSFET with driver, or a load switch, enabled from the GPIO), off while the GPIO is low or pulled down, so the ADC pins see 0 V while off. A low-side N-MOSFET would leave the divider midpoint (GPIO2) at up to 4.2 V through the top resistor while off, and leak.
+- **Divider settle:** the divider midpoint capacitor must be ≤ 10 nF (RC = 50 kΩ × 10 nF = 0.5 ms with 100 kΩ / 100 kΩ), so the 10 ms `DIVIDER_SETTLE_MS` is ≫ 5·RC. A larger capacitor needs `DIVIDER_SETTLE_MS` raised to at least 5·RC.
+
 ## Power budget (NFR-4)
 - 800 mAh LiPo, about 640 mAh usable. One wake every 15 min (96/day): boot, read Sensors, ESP-NOW send.
 
@@ -31,6 +48,9 @@ Node and Hub facts that bind firmware and hardware work. Evidence: PRD addendum 
 | Optimized custom | 0.3 s @ 80 mA | ~20 µA | ~1.1 | ~1 year (self-discharge) |
 | Reasonable custom | 0.5 s @ 100 mA | ~50 µA | ~2.5 | ~8 months |
 | Stock dev board | 0.5 s @ 100 mA | ~1 mA | ~25 | ~3–4 weeks |
+| **Measured** (Story 4.1) | pending | pending | — | — |
+
+- **Measured:** pending the bench run of [`docs/bench/node-power-checklist.md`](../../../docs/bench/node-power-checklist.md). Record the average sleep current and wake duration from its `## Result` table here, against the ≤ ~100 µA budget.
 
 - A 6-month season without sun needs about 3.5 mAh/day, i.e. an average sleep current of ≤ ~100 µA. Prefer a low-quiescent custom board, and switch Sensors off during sleep.
 - **Solar:** a ~1 W panel yields about 500 mAh/day in full sun and 25–50 mAh/day in heavy overcast. Both exceed the budget, so the real question is how many dark days the battery bridges (≈ 250 days at 2.5 mAh/day).

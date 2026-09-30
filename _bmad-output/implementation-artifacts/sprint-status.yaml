@@ -67,7 +67,7 @@ development_status:
   epic-3-retrospective: optional
 
   epic-4: backlog
-  4-1-node-firmware-foundation-wake-measure-sleep: backlog
+  4-1-node-firmware-foundation-wake-measure-sleep: awaiting-operator
   4-2-node-pairing-setup-mode-enrolment-and-lot-assignment: backlog
   4-3-add-a-node-from-my-phone: backlog
   4-4-esp-now-transport-from-node-to-hub: backlog

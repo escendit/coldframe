@@ -164,6 +164,7 @@
       renders(SiteSwitcherSheet(rows: emptyGarden.switcherRows, onSelect: { _ in }, onNewSite: {})))
   }
 
+  @MainActor
   private func flow(_ presentation: HubSetupPresentation) -> some View {
     AddHubFlowView(presentation: presentation, actions: .none)
   }
