@@ -33,9 +33,14 @@ public static class EdgeProblems
     public const string LotNotFound = "urn:coldframe:problem:lot-not-found";
 
     /// <summary>
-    /// 409: a Node is assigned to the Lot, so it cannot be removed.
+    /// 409: a Node is assigned to the Lot, so it cannot be removed or take another Node.
     /// </summary>
     public const string LotClaimed = "urn:coldframe:problem:lot-claimed";
+
+    /// <summary>
+    /// 409: the Node is assigned to another Lot already; enrolment does not move it.
+    /// </summary>
+    public const string DeviceAssigned = "urn:coldframe:problem:device-assigned";
 
     /// <summary>
     /// 409: the Device is already enrolled on another Site.

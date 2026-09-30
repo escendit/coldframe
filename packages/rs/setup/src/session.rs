@@ -28,6 +28,18 @@
 //!   the app is ignored.
 //! - Once this session has stored the provisioning record, `SiteBinding`, `EnrolmentRequest` and
 //!   `WifiConfig` are `UNEXPECTED_MESSAGE`: nothing is joined or stored a second time.
+//!
+//! # Rules (Node, [`Session::node`])
+//!
+//! The hello, the wrong-code handling, `IdentityRequest` and `EnrolmentRequest` are the Hub's.
+//! Otherwise:
+//!
+//! - `Identity.kind` is `NODE`.
+//! - `SiteBinding` needs a non-empty `site_id`, a non-empty `lot_id` and no `server_url`;
+//!   otherwise `MALFORMED_MESSAGE`. It is validated only and nothing is kept: the Server, not the
+//!   Node, holds the Lot assignment (AD-18). It has no reply on success.
+//! - `WifiScanRequest` and `WifiConfig` are `UNEXPECTED_MESSAGE`: a Node never touches Wi-Fi.
+//! - [`Session::is_enrolled`] tells the setup window that `K_dev` was handed out.
 
 use coldframe_crypto::hpke::{fingerprint, public_key, seal_enrolment};
 use coldframe_crypto::setup::{Role, SetupSession};
@@ -89,6 +101,13 @@ enum Phase {
     Open(SetupSession),
 }
 
+/// Which kind of Device this session speaks for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Profile {
+    Hub,
+    Node,
+}
+
 /// The Wi-Fi work in flight.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Pending {
@@ -121,6 +140,7 @@ pub struct Session<'a> {
     code: &'a SetupCode,
     keys: &'a DeviceKeys,
     firmware_version: &'a str,
+    profile: Profile,
     phase: Phase,
     site_id: Option<heapless::String<SITE_ID_MAX_LENGTH>>,
     server: Option<ServerUrl>,
@@ -142,13 +162,30 @@ impl<const N: usize> Drop for Wiped<N> {
 }
 
 impl<'a> Session<'a> {
-    /// A session that waits for its `SessionHello`.
+    /// A Hub session that waits for its `SessionHello`.
     #[must_use]
     pub fn new(code: &'a SetupCode, keys: &'a DeviceKeys, firmware_version: &'a str) -> Self {
+        Self::with_profile(Profile::Hub, code, keys, firmware_version)
+    }
+
+    /// A Node session that waits for its `SessionHello`; see the Node rules in the module
+    /// documentation.
+    #[must_use]
+    pub fn node(code: &'a SetupCode, keys: &'a DeviceKeys, firmware_version: &'a str) -> Self {
+        Self::with_profile(Profile::Node, code, keys, firmware_version)
+    }
+
+    fn with_profile(
+        profile: Profile,
+        code: &'a SetupCode,
+        keys: &'a DeviceKeys,
+        firmware_version: &'a str,
+    ) -> Self {
         Self {
             code,
             keys,
             firmware_version,
+            profile,
             phase: Phase::AwaitHello,
             site_id: None,
             server: None,
@@ -158,6 +195,12 @@ impl<'a> Session<'a> {
             check: None,
             provisioned: false,
         }
+    }
+
+    /// Whether this session sent an `EnrolmentResponse`: `K_dev`, sealed to the Server.
+    #[must_use]
+    pub fn is_enrolled(&self) -> bool {
+        self.enrolled
     }
 
     /// Whether this session stored a provisioning record.
@@ -269,6 +312,13 @@ impl<'a> Session<'a> {
                 self.error(SetupErrorCode::UnexpectedMessage, out)
             }
             Body::IdentityRequest(_) => self.identity(out),
+            // A Node never touches Wi-Fi.
+            Body::WifiScanRequest(_) | Body::WifiConfig(_) if self.profile == Profile::Node => {
+                self.error(SetupErrorCode::UnexpectedMessage, out)
+            }
+            Body::SiteBinding(binding) if self.profile == Profile::Node => {
+                self.node_binding(&binding, out)
+            }
             Body::WifiScanRequest(_) => {
                 self.pending = Pending::ScanList;
                 Action::Scan
@@ -290,7 +340,10 @@ impl<'a> Session<'a> {
         };
         let identity = Identity {
             device_id: heapless::Vec::from_array(*self.keys.device_id.as_bytes()),
-            kind: DeviceKind::Hub,
+            kind: match self.profile {
+                Profile::Hub => DeviceKind::Hub,
+                Profile::Node => DeviceKind::Node,
+            },
             firmware_version,
         };
         self.reply(Body::Identity(identity), out)
@@ -306,6 +359,16 @@ impl<'a> Session<'a> {
         };
         self.site_id = Some(binding.site_id.clone());
         self.server = Some(server);
+        Action::Nothing
+    }
+
+    /// A Node's binding: a Site and a Lot, no Server. Validated only; the Server holds the
+    /// assignment (AD-18), so nothing is kept.
+    fn node_binding(&mut self, binding: &SiteBinding, out: &mut [u8]) -> Action {
+        let has_lot = binding.lot_id().is_some_and(|lot| !lot.is_empty());
+        if binding.site_id.is_empty() || !has_lot || binding.server_url().is_some() {
+            return self.error(SetupErrorCode::MalformedMessage, out);
+        }
         Action::Nothing
     }
 

@@ -82,6 +82,12 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(new DateTimeOffset(2026, 9, 29, 8, 1, 15, 500, TimeSpan.Zero), device.LastSeenAt);
         Assert.Equal(1_790_668_875_100, device.LastHeartbeatTimestampMs);
 
+        // A Node enrolled and assigned to a Lot in one step.
+        var node = Assert.IsType<DeviceState>(states["device/5a4b3c2d1e0f7c20"]);
+        Assert.Equal(("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", DeviceKind.Node), (node.SiteId, node.Kind));
+        Assert.Equal("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", node.LotId);
+        Assert.Null(device.LotId);
+
         // Created, renamed, claimed and released by a Node, then removed: the tombstone keeps name and Site.
         var removed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01"]);
         Assert.Equal(LotLifecycle.Removed, removed.Lifecycle);

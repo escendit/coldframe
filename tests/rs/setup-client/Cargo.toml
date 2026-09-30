@@ -1,8 +1,8 @@
-# Desktop BLE client for the Hub setup bench checklist (docs/bench/hub-setup-checklist.md): plays the
-# app's side of the AD-25 setup session over btleplug.
+# Desktop BLE client for the Hub and Node setup bench checklists (docs/bench/*-setup-checklist.md):
+# plays the app's side of the AD-25 setup session over btleplug.
 [package]
 name = "coldframe-setup-client"
-description = "Desktop BLE setup client for the Hub bench checklist"
+description = "Desktop BLE setup client for the Hub and Node bench checklists"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

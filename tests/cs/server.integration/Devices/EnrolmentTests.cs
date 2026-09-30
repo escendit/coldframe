@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
@@ -270,6 +271,129 @@ public sealed class EnrolmentTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
     }
 
     [Fact]
+    public async Task ANodePutInAFreeLotEnrolsOntoItAndTheLotHasANode()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var site = await SeedSiteAsync(cancellationToken);
+        var lotId = await edge.SeedLotAsync(site.Id, "Tomatoes", cancellationToken);
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        using var server = edge.CreateServerClient(site.Administrator.AccessToken);
+
+        // The Lot ID is canonicalized: the uppercase form names the same Lot.
+        var body = Body(await SealAsync(node, site.Id, lotId.ToUpperInvariant(), cancellationToken));
+        using var response = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), body, cancellationToken);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(new DeviceBody(node.DeviceId.ToString(), "node", site.Id, lotId), await ReadDeviceAsync(response, cancellationToken));
+        Assert.Equal(["device.enrolled", "device.assigned"], await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
+        Assert.Equal(["lot.created", "lot.claimed"], await edge.AliasesAsync($"lot/{lotId}", cancellationToken));
+
+        var assigned = Assert.IsType<DeviceAssigned>((await edge.ReadStreamAsync($"device/{node.DeviceId}", cancellationToken))[1].Data);
+        Assert.Equal((site.Id, lotId), (assigned.SiteId, assigned.LotId));
+
+        // A retry answers the same and journals nothing.
+        using var retry = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), body, cancellationToken);
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(new DeviceBody(node.DeviceId.ToString(), "node", site.Id, lotId), await ReadDeviceAsync(retry, cancellationToken));
+        Assert.Equal(["device.enrolled", "device.assigned"], await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
+    }
+
+    [Fact]
+    public async Task ASecondNodeForTheSameLotIsRefusedAsLotClaimed()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var site = await SeedSiteAsync(cancellationToken);
+        var lotId = await edge.SeedLotAsync(site.Id, "Tomatoes", cancellationToken);
+        var first = SimulatedDevice.Create(ProtocolKind.Node);
+        var second = SimulatedDevice.Create(ProtocolKind.Node);
+        using var server = edge.CreateServerClient(site.Administrator.AccessToken);
+
+        using var enrolled = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), Body(await SealAsync(first, site.Id, lotId, cancellationToken)), cancellationToken);
+        Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+
+        using var refused = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), Body(await SealAsync(second, site.Id, lotId, cancellationToken)), cancellationToken);
+
+        await EdgeApiTests.AssertProblemAsync(refused, HttpStatusCode.Conflict, "urn:coldframe:problem:lot-claimed", cancellationToken);
+        Assert.Equal("This Lot already has a Node.", await TitleAsync(refused, cancellationToken));
+        Assert.Empty(await edge.AliasesAsync($"device/{second.DeviceId}", cancellationToken));
+        Assert.Equal(["lot.created", "lot.claimed"], await edge.AliasesAsync($"lot/{lotId}", cancellationToken));
+    }
+
+    [Fact]
+    public async Task AnUnknownRemovedOrOtherSitesLotIsNotFound()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var site = await SeedSiteAsync(cancellationToken);
+        var otherSite = await SeedSiteAsync(cancellationToken);
+        var removed = await edge.SeedLotAsync(site.Id, "Gone", cancellationToken, new Coldframe.Contracts.Lots.LotRemoved());
+        var elsewhere = await edge.SeedLotAsync(otherSite.Id, "Elsewhere", cancellationToken);
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        using var server = edge.CreateServerClient(site.Administrator.AccessToken);
+
+        foreach (var lotId in new[] { Guid.CreateVersion7().ToString(), removed, elsewhere })
+        {
+            using var response = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), Body(await SealAsync(node, site.Id, lotId, cancellationToken)), cancellationToken);
+            await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.NotFound, "urn:coldframe:problem:lot-not-found", cancellationToken);
+        }
+
+        Assert.Empty(await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
+        Assert.Equal(["lot.created"], await edge.AliasesAsync($"lot/{elsewhere}", cancellationToken));
+    }
+
+    [Fact]
+    public async Task ANodeOnALotIsRefusedAnotherLotAsDeviceAssigned()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var site = await SeedSiteAsync(cancellationToken);
+        var lotA = await edge.SeedLotAsync(site.Id, "Tomatoes", cancellationToken);
+        var lotB = await edge.SeedLotAsync(site.Id, "Beans", cancellationToken);
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        using var server = edge.CreateServerClient(site.Administrator.AccessToken);
+
+        using var enrolled = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), Body(await SealAsync(node, site.Id, lotA, cancellationToken)), cancellationToken);
+        Assert.Equal(HttpStatusCode.Created, enrolled.StatusCode);
+
+        using var refused = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), Body(await SealAsync(node, site.Id, lotB, cancellationToken)), cancellationToken);
+
+        await EdgeApiTests.AssertProblemAsync(refused, HttpStatusCode.Conflict, "urn:coldframe:problem:device-assigned", cancellationToken);
+        Assert.Equal(["device.enrolled", "device.assigned"], await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
+        Assert.Equal(["lot.created"], await edge.AliasesAsync($"lot/{lotB}", cancellationToken));
+    }
+
+    [Fact]
+    public async Task AHubWithALotOrAMalformedLotIdIsAValidationProblem()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var site = await SeedSiteAsync(cancellationToken);
+        var lotId = await edge.SeedLotAsync(site.Id, "Tomatoes", cancellationToken);
+        var hub = SimulatedDevice.Create(ProtocolKind.Hub);
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        using var server = edge.CreateServerClient(site.Administrator.AccessToken);
+
+        // Each case has its own detail: a Hub with a Lot, and a lotId that is not a Lot ID.
+        const string HubWithLot = "A Hub is never put in a Lot. Send lotId only for a Node.";
+        const string NotALotId = "Send lotId as a Lot ID (a UUID).";
+        (EnrolBody Body, string Detail)[] cases =
+        [
+            (Body(await SealAsync(hub, site.Id, lotId, cancellationToken)), HubWithLot),
+            (Body(await SealAsync(hub, site.Id, "not-a-lot", cancellationToken)), HubWithLot),
+            (Body(await SealAsync(node, site.Id, "not-a-lot", cancellationToken)), NotALotId),
+            (Body(await SealAsync(node, site.Id, string.Empty, cancellationToken)), NotALotId),
+        ];
+
+        foreach (var (body, detail) in cases)
+        {
+            using var response = await PostAsync(server, site.Id, Guid.NewGuid().ToString(), body, cancellationToken);
+            Assert.Equal(detail, await ReadProblemDetailAsync(response, cancellationToken));
+        }
+
+        Assert.Equal(SeededSite, await edge.AliasesAsync($"site/{site.Id}", cancellationToken));
+        Assert.Empty(await edge.AliasesAsync($"device/{hub.DeviceId}", cancellationToken));
+        Assert.Empty(await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
+        Assert.Equal(["lot.created"], await edge.AliasesAsync($"lot/{lotId}", cancellationToken));
+    }
+
+    [Fact]
     public async Task AMissingKeyIsRefused()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -352,7 +476,8 @@ public sealed class EnrolmentTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         return response;
     }
 
-    private static EnrolBody Body(SimulatedEnrolment enrolment) => new(enrolment.DeviceId, enrolment.Kind, enrolment.Enc, enrolment.Ciphertext);
+    private static EnrolBody Body(SimulatedEnrolment enrolment) =>
+        new(enrolment.DeviceId, enrolment.Kind, enrolment.Enc, enrolment.Ciphertext, enrolment.LotId);
 
     // Flips one bit in the middle of a base64url value, keeping its length and alphabet.
     private static string Flip(string text)
@@ -362,20 +487,44 @@ public sealed class EnrolmentTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         return Base64Url.EncodeToString(bytes);
     }
 
+    // A Device without a Lot has no lotId property at all: absent optionals are omitted.
     private static async Task<DeviceBody> ReadDeviceAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
         using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
-        Assert.Equal(["id", "kind", "siteId"], body.RootElement.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        var lotId = body.RootElement.TryGetProperty("lotId", out var lot) ? lot.GetString() : null;
+        Assert.Equal(
+            lotId is null ? ["id", "kind", "siteId"] : ["id", "kind", "lotId", "siteId"],
+            body.RootElement.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
 
         return new DeviceBody(
             body.RootElement.GetProperty("id").GetString()!,
             body.RootElement.GetProperty("kind").GetString()!,
-            body.RootElement.GetProperty("siteId").GetString()!);
+            body.RootElement.GetProperty("siteId").GetString()!,
+            lotId);
     }
 
     private async Task<SimulatedEnrolment> SealAsync(SimulatedDevice device, string siteId, CancellationToken cancellationToken) =>
         device.SealEnrolment(await edge.GetEnrolmentPublicKeyAsync(cancellationToken), siteId);
+
+    private async Task<SimulatedEnrolment> SealAsync(SimulatedDevice device, string siteId, string lotId, CancellationToken cancellationToken) =>
+        device.SealEnrolment(await edge.GetEnrolmentPublicKeyAsync(cancellationToken), siteId, lotId);
+
+    // A 400 validation problem's detail.
+    private static async Task<string?> ReadProblemDetailAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using var problem = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+        Assert.Equal("urn:coldframe:problem:validation", problem.RootElement.GetProperty("type").GetString());
+        return problem.RootElement.GetProperty("detail").GetString();
+    }
+
+    private static async Task<string?> TitleAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        return problem.RootElement.GetProperty("title").GetString();
+    }
 
     private async Task<string> RawPayloadAsync(string streamId, CancellationToken cancellationToken)
     {
@@ -408,10 +557,15 @@ public sealed class EnrolmentTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
 
     private sealed record SeededSiteUsers(string Id, TestUser Administrator, TestUser Member);
 
-    private sealed record DeviceBody(string Id, string Kind, string SiteId);
+    private sealed record DeviceBody(string Id, string Kind, string SiteId, string? LotId = null);
 }
 
 /// <summary>
-/// The body of <c>POST /sites/{siteId}/devices</c>, as the app relays it.
+/// The body of <c>POST /sites/{siteId}/devices</c>, as the app relays it; <c>lotId</c> only for a Node put in a Lot.
 /// </summary>
-internal sealed record EnrolBody(string DeviceId, string Kind, string Enc, string Ciphertext);
+internal sealed record EnrolBody(
+    string DeviceId,
+    string Kind,
+    string Enc,
+    string Ciphertext,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LotId = null);

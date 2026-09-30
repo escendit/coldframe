@@ -20,7 +20,15 @@ namespace Coldframe.DeviceSimulator;
 /// <param name="Enc">The HPKE encapsulated key, base64url without padding.</param>
 /// <param name="Ciphertext">The sealed <c>K_dev</c>, base64url without padding.</param>
 /// <param name="Response">The Protobuf message the Device sends over BLE.</param>
-public sealed record SimulatedEnrolment(string SiteId, string DeviceId, string Kind, string Enc, string Ciphertext, EnrolmentResponse Response);
+/// <param name="LotId">The Lot a Node is put in (the app's choice, not the Device's), or <see langword="null"/>.</param>
+public sealed record SimulatedEnrolment(
+    string SiteId,
+    string DeviceId,
+    string Kind,
+    string Enc,
+    string Ciphertext,
+    EnrolmentResponse Response,
+    string? LotId = null);
 
 /// <summary>
 /// A simulated Hub or Node for Server and end-to-end tests (AD-24): it has a software root key and does
@@ -79,6 +87,13 @@ public sealed class SimulatedDevice
     /// </summary>
     public SimulatedEnrolment SealEnrolment(ReadOnlySpan<byte> serverPublicKey, string siteId) =>
         SealEnrolment(serverPublicKey, siteId, RandomNumberGenerator.GetBytes(CryptoSpec.X25519KeyLength));
+
+    /// <summary>
+    /// Seals a Node's <c>K_dev</c> to the Server's enrolment key with a fresh ephemeral key, for the Lot the
+    /// app puts it in. The sealed key is the same for any Lot; only the request body names it.
+    /// </summary>
+    public SimulatedEnrolment SealEnrolment(ReadOnlySpan<byte> serverPublicKey, string siteId, string lotId) =>
+        SealEnrolment(serverPublicKey, siteId) with { LotId = lotId };
 
     /// <summary>
     /// Seals <c>K_dev</c> to the Server's enrolment key with an ephemeral key derived from <paramref name="ikmE"/>.

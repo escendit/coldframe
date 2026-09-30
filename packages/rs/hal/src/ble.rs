@@ -44,6 +44,16 @@ pub trait SetupLink {
     /// fatal; an adapter retries transient failures itself.
     async fn accept(&mut self) -> Result<(), LinkError>;
 
+    /// Like [`SetupLink::accept`], but gives up after `timeout_ms` when no central has connected.
+    /// Whether advertising continues after a timeout is the adapter's business; the Node drops
+    /// its BLE controller when its setup window closes.
+    ///
+    /// # Errors
+    ///
+    /// [`LinkError::Timeout`] when nobody connects in time; [`LinkError::Transport`] as for
+    /// [`SetupLink::accept`].
+    async fn accept_within(&mut self, timeout_ms: u32) -> Result<(), LinkError>;
+
     /// Waits up to `timeout_ms` for the next write payload and copies it into `buffer`; returns
     /// its length. A payload longer than `buffer` is truncated.
     ///

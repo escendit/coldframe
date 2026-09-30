@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Coldframe.Contracts.Devices;
+using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 using Coldframe.Server.Journal;
@@ -8,9 +9,11 @@ namespace Coldframe.Server.Devices;
 
 /// <summary>
 /// A Device, keyed by its Device ID. The only writer of the Device's state and the owner of its Site
-/// (AD-1, AD-18): it joins a Site by calling <see cref="ISiteGrain.RegisterDevice"/> before it journals
-/// <see cref="DeviceEnrolled"/>. It only ever receives <c>K_dev</c> wrapped, and unwraps it only inside
-/// <see cref="Heartbeat"/>, where it verifies the Hub's signature and zeroes the keys again.
+/// (AD-1, AD-18): it joins a Site by calling <see cref="ISiteGrain.RegisterDevice"/>, and a Node claims its
+/// Lot with <see cref="ILotGrain.Claim"/>, before it journals <see cref="DeviceEnrolled"/> and
+/// <see cref="DeviceAssigned"/>. It is the only source of which Lot a Node is on. It only ever receives
+/// <c>K_dev</c> wrapped, and unwraps it only inside <see cref="Heartbeat"/>, where it verifies the Hub's
+/// signature and zeroes the keys again.
 /// </summary>
 /// <remarks>
 /// Replay (AD-12): Orleans keeps one activation per Device, so the nonces seen while it is active are
@@ -38,6 +41,13 @@ public sealed class DeviceGrain : JournaledStreamGrain<DeviceState>, IDeviceGrai
         ArgumentException.ThrowIfNullOrEmpty(request.IdempotencyKey);
         ArgumentNullException.ThrowIfNull(request.WrappedKey);
 
+        // Only a Node is put in a Lot; the Edge API refuses a Hub with a Lot before it gets here.
+        var kind = State.SiteId is null ? request.Kind : State.Kind;
+        if (request.LotId is not null && (request.Kind != DeviceKind.Node || kind != DeviceKind.Node))
+        {
+            throw new ArgumentException("Only a Node is assigned to a Lot.", nameof(request));
+        }
+
         // 1. A Device belongs to one Site (AD-18); nothing is asked of either Site.
         if (State.SiteId is { } current && !string.Equals(current, request.SiteId, StringComparison.Ordinal))
         {
@@ -62,16 +72,58 @@ public sealed class DeviceGrain : JournaledStreamGrain<DeviceState>, IDeviceGrai
                 throw new InvalidOperationException($"Unexpected Device registration outcome {registration.Outcome}.");
         }
 
-        // 3. Only after the Site has registered it. Enrolling again on the same Site journals nothing.
+        // 3. The Lot grain owns occupancy (AD-18): its claim is the only check. A refused claim leaves only
+        // the Site's idempotent registration, which a retry with any Lot reuses.
+        var claimed = false;
+        if (request.LotId is { } lotId && !string.Equals(State.LotId, lotId, StringComparison.Ordinal))
+        {
+            if (State.LotId is not null)
+            {
+                // Moving a Node is its own operation (Story 4.9).
+                return new DeviceEnrolmentResult(DeviceEnrolmentOutcome.AlreadyAssigned);
+            }
+
+            var claim = await GrainFactory
+                .GetGrain<ILotGrain>(lotId)
+                // Not cancelled by the caller: a claim the Lot journaled must reach the Device's journal too.
+                .Claim(request.SiteId, DeviceId, CancellationToken.None);
+
+            switch (claim.Outcome)
+            {
+                case LotOutcome.NotFound or LotOutcome.AlreadyRemoved:
+                    return new DeviceEnrolmentResult(DeviceEnrolmentOutcome.LotNotFound);
+                case LotOutcome.Claimed:
+                    return new DeviceEnrolmentResult(DeviceEnrolmentOutcome.LotOccupied);
+                case LotOutcome.Held:
+                    claimed = true;
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected Lot claim outcome {claim.Outcome}.");
+            }
+        }
+
+        // 4. Only after the Site registered it and the Lot granted the claim, in one write. Enrolling again on
+        // the same Site and Lot journals nothing.
         if (State.SiteId is null)
         {
             RaiseEvent(new DeviceEnrolled(request.SiteId, request.Kind, request.WrappedKey, Clock.GetUtcNow()));
+        }
+
+        if (claimed)
+        {
+            RaiseEvent(new DeviceAssigned(request.SiteId, request.LotId!, Clock.GetUtcNow()));
+        }
+
+        // 5. No compensating release: Orleans' log-consistency adaptor retries a failed or conflicting write
+        // until it lands, so a claim the Lot granted is always recorded while this activation lives.
+        if (State.SiteId is null || claimed)
+        {
             await ConfirmEvents();
         }
 
         return new DeviceEnrolmentResult(
             DeviceEnrolmentOutcome.Enrolled,
-            new DeviceSummary(DeviceId, State.Kind, State.SiteId!));
+            new DeviceSummary(DeviceId, State.Kind, State.SiteId!, State.LotId));
     }
 
     /// <inheritdoc />

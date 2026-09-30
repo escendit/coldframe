@@ -396,3 +396,11 @@ source_spec: `spec-4-1-node-firmware-foundation-wake-measure-sleep.md`
 severity: low
 reason: apps/rs is outside the host workspace and Story 4.1 must not change the Hub, so the adapters were copied (the Node's flash adapter already differs: word-aligned writes are plain NOR programs, which the counters need for power-loss safety). Extract a shared ESP32-S3 board crate (for example packages/rs/board-esp32s3, built only with the esp toolchain) and move both firmwares onto it; decide then whether the Hub's flash writes should also avoid read-erase-rewrite. A shared board adapter must keep plain NOR writes for the counter partitions (`cf_seq`, `cf_boot`), never read-erase-rewrite.
 status: open
+
+### DW-52: The Node flash adapter's plain-NOR write path, which the counters' power-loss safety depends on, is not checked by any automated test.
+origin: spec-deferred 47f7c720ad7c
+location: apps/rs/node/src/board/flash.rs (BoardFlash::write)
+source_spec: `spec-4-1-node-firmware-foundation-wake-measure-sleep.md`
+severity: low
+reason: Host counter tests run over MockFlash only; apps/rs/node/src/board/flash.rs is only cross-compiled in CI. Reverting BoardFlash::write to esp-storage's read-erase-rewrite would pass every automated check. Mitigated by the bench power-cut step in docs/bench/node-power-checklist.md Part B and the DW-51 note; a host test needs the board adapter extracted into a crate that can run over a fake NOR backend (DW-51).
+status: open

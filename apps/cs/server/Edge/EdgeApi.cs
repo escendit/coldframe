@@ -82,7 +82,8 @@ public sealed record EnrolmentKeyResponse(string PublicKey, string Fingerprint);
 /// <param name="Kind"><c>hub</c> or <c>node</c>.</param>
 /// <param name="Enc">The HPKE encapsulated key (32 bytes), base64url without padding.</param>
 /// <param name="Ciphertext">The sealed <c>K_dev</c> (48 bytes), base64url without padding.</param>
-public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? Enc, string? Ciphertext);
+/// <param name="LotId">The Lot a Node is put in, or <see langword="null"/>; never sent for a Hub.</param>
+public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? Enc, string? Ciphertext, string? LotId = null);
 
 /// <summary>
 /// A Device as the Edge API returns it.
@@ -90,7 +91,8 @@ public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? 
 /// <param name="Id">The Device ID.</param>
 /// <param name="Kind"><c>hub</c> or <c>node</c>.</param>
 /// <param name="SiteId">The Site the Device is enrolled on.</param>
-public sealed record DeviceResponse(string Id, string Kind, string SiteId);
+/// <param name="LotId">The Lot a Node is on; omitted otherwise.</param>
+public sealed record DeviceResponse(string Id, string Kind, string SiteId, string? LotId = null);
 
 /// <summary>
 /// The body of <c>POST /device/heartbeat</c>'s 200.
@@ -584,6 +586,26 @@ public static class EdgeApi
                 "Send a JSON body with deviceId (16 lowercase hex digits), kind (hub or node), and enc (32 bytes) and ciphertext (48 bytes), both base64url without padding.");
         }
 
+        // Only a Node is put in a Lot (AD-18), and only a Lot ID names one.
+        if (request!.LotId is not null && kind != DeviceKind.Node)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The enrolment request is not valid.",
+                "A Hub is never put in a Lot. Send lotId only for a Node.");
+        }
+
+        var lotId = request.LotId is { } requested ? CanonicalizeLotId(requested) : null;
+        if (request.LotId is not null && lotId is null)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The enrolment request is not valid.",
+                "Send lotId as a Lot ID (a UUID).");
+        }
+
         // K_dev exists in plaintext only here: it is wrapped before any grain sees it, and never logged.
         WrappedDeviceKey wrapped;
         byte[]? deviceKey = null;
@@ -617,7 +639,7 @@ public static class EdgeApi
         var result = await grains
             .GetGrain<IDeviceGrain>(deviceId.ToString())
             .Enrol(
-                new EnrolDevice(canonical, kind, wrapped, CallerId(httpContext), httpContext.Request.Headers[IdempotencyKeyHeader][0]!),
+                new EnrolDevice(canonical, kind, wrapped, CallerId(httpContext), httpContext.Request.Headers[IdempotencyKeyHeader][0]!, lotId),
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 
@@ -625,8 +647,9 @@ public static class EdgeApi
     }
 
     /// <summary>
-    /// Maps the Device grain's answer to the HTTP response: 201 with the Device, 404 <c>site-not-found</c>,
-    /// 409 <c>device-on-another-site</c> or 422 <c>idempotency-key-reused</c>.
+    /// Maps the Device grain's answer to the HTTP response: 201 with the Device, 404 <c>site-not-found</c> or
+    /// <c>lot-not-found</c>, 409 <c>device-on-another-site</c>, <c>lot-claimed</c> or <c>device-assigned</c>,
+    /// or 422 <c>idempotency-key-reused</c>.
     /// </summary>
     internal static IResult ToHttpResult(DeviceEnrolmentResult result)
     {
@@ -636,7 +659,7 @@ public static class EdgeApi
         {
             { Outcome: DeviceEnrolmentOutcome.Enrolled, Device: { } device } => TypedResults.Created(
                 (string?)null,
-                new DeviceResponse(device.Id, EdgeValidation.DeviceKindName(device.Kind), device.SiteId)),
+                new DeviceResponse(device.Id, EdgeValidation.DeviceKindName(device.Kind), device.SiteId, device.LotId)),
             { Outcome: DeviceEnrolmentOutcome.OnAnotherSite } => EdgeProblems.Result(
                 StatusCodes.Status409Conflict,
                 EdgeProblems.DeviceOnAnotherSite,
@@ -648,6 +671,17 @@ public static class EdgeApi
                 "The Idempotency-Key was used for a different request.",
                 "Nothing was enrolled. Use a new key for another Device."),
             { Outcome: DeviceEnrolmentOutcome.SiteNotFound } => SiteNotFound(),
+            { Outcome: DeviceEnrolmentOutcome.LotNotFound } => LotNotFound(),
+            { Outcome: DeviceEnrolmentOutcome.LotOccupied } => EdgeProblems.Result(
+                StatusCodes.Status409Conflict,
+                EdgeProblems.LotClaimed,
+                "This Lot already has a Node.",
+                "Nothing was assigned. Choose another Lot."),
+            { Outcome: DeviceEnrolmentOutcome.AlreadyAssigned } => EdgeProblems.Result(
+                StatusCodes.Status409Conflict,
+                EdgeProblems.DeviceAssigned,
+                "The Node is in another Lot.",
+                "Nothing changed. Move the Node instead."),
             _ => throw new InvalidOperationException($"Unexpected Device enrolment result {result.Outcome}."),
         };
     }

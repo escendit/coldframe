@@ -43,6 +43,33 @@ public interface ILotGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("describe")]
     Task<LotResult> Describe(string siteId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Claims the Lot for a Node (AD-18): the only occupancy check. A free Lot journals
+    /// <see cref="LotClaimed"/> and answers <see cref="LotOutcome.Held"/>; a Lot this Node holds already
+    /// answers <see cref="LotOutcome.Held"/> and journals nothing. A Lot another Node holds answers
+    /// <see cref="LotOutcome.Claimed"/>, a removed Lot <see cref="LotOutcome.AlreadyRemoved"/>, and an
+    /// uncreated Lot or one of another Site <see cref="LotOutcome.NotFound"/>; none of them journals anything.
+    /// Only the Device grain calls it.
+    /// </summary>
+    /// <param name="siteId">The Site ID the Node is enrolled on.</param>
+    /// <param name="nodeId">The Node's Device ID.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("claim")]
+    Task<LotResult> Claim(string siteId, string nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Releases the Lot from a Node (AD-18). When <paramref name="nodeId"/> holds the Lot it journals
+    /// <see cref="LotReleased"/> and answers <see cref="LotOutcome.Released"/>; otherwise (another Node holds
+    /// it, or nobody) it journals nothing and answers <see cref="LotOutcome.Unchanged"/>. An uncreated Lot or
+    /// one of another Site answers <see cref="LotOutcome.NotFound"/>. Idempotent. Only the Device grain calls
+    /// it, to move or unassign a Node (Story 4.9).
+    /// </summary>
+    /// <param name="siteId">The Site ID the Node is enrolled on.</param>
+    /// <param name="nodeId">The Node's Device ID.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("release")]
+    Task<LotResult> Release(string siteId, string nodeId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -78,7 +105,8 @@ public enum LotOutcome
     AlreadyRemoved = 4,
 
     /// <summary>
-    /// A Node is assigned to the Lot, so it cannot be removed. Nothing was journaled.
+    /// A Node is assigned to the Lot, so it cannot be removed, or (for a claim) another Node holds it.
+    /// Nothing was journaled.
     /// </summary>
     Claimed = 5,
 
@@ -91,6 +119,16 @@ public enum LotOutcome
     /// The Lot exists; <see cref="LotResult.Lot"/> describes it.
     /// </summary>
     Found = 7,
+
+    /// <summary>
+    /// The claiming Node holds the Lot, now or already.
+    /// </summary>
+    Held = 8,
+
+    /// <summary>
+    /// The releasing Node held the Lot, and the Lot is free now.
+    /// </summary>
+    Released = 9,
 }
 
 /// <summary>

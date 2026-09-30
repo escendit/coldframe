@@ -12,6 +12,7 @@
 //!   and a link state a test (or a [`MockNet`]) can drop.
 //! - [`MockNet`] plays scripted DHCP, SNTP and HTTPS results and records every request.
 //! - [`MockTimer`] returns at once and records every wait.
+//! - [`MockButton`] replays a scripted sequence of pin reads, then holds the last one.
 //! - [`MockRawAdc`] and [`MockEnvSensor`] return a settable result and count their calls.
 //!
 //! Each mock can inject a failure so tests reach every error path.
@@ -587,6 +588,52 @@ impl InputPin for MockPin {
     }
 }
 
+/// A button input that replays scripted reads, then holds the last one.
+///
+/// Each [`InputPin::is_high`] takes the next scripted result; once the script is used up, every
+/// read repeats the last result (a pin that reads high when the script is empty). It counts its
+/// reads.
+#[derive(Clone, Debug)]
+pub struct MockButton {
+    script: VecDeque<Result<bool, GpioError>>,
+    last: Result<bool, GpioError>,
+    reads: usize,
+}
+
+impl MockButton {
+    /// A button whose reads return `levels` in order (`true` is high), then the last one forever.
+    #[must_use]
+    pub fn new(levels: impl IntoIterator<Item = bool>) -> Self {
+        Self::with_reads(levels.into_iter().map(Ok))
+    }
+
+    /// A button whose reads return `reads` in order, then the last one forever.
+    #[must_use]
+    pub fn with_reads(reads: impl IntoIterator<Item = Result<bool, GpioError>>) -> Self {
+        Self {
+            script: reads.into_iter().collect(),
+            last: Ok(true),
+            reads: 0,
+        }
+    }
+
+    /// How many times the pin was read.
+    #[must_use]
+    pub fn reads(&self) -> usize {
+        self.reads
+    }
+}
+
+impl InputPin for MockButton {
+    fn is_high(&mut self) -> Result<bool, GpioError> {
+        self.reads += 1;
+        if let Some(next) = self.script.pop_front() {
+            self.last = next;
+        }
+        self.last
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // BLE setup link
 
@@ -612,6 +659,10 @@ struct MockConnection {
 ///
 /// - [`MockSetupLink::connect`] queues a connection; [`SetupLink::accept`] opens the next one,
 ///   and fails with [`LinkError::Transport`] once none is left, which ends a test run.
+///   [`SetupLink::accept_within`] also opens the next one; with none left it records the timeout
+///   asked for ([`MockSetupLink::accept_timeouts`]) and fails with [`LinkError::Timeout`], as if
+///   nobody connected in time. [`MockSetupLink::fail_accept_within`] makes the next one fail with a
+///   given error instead, opening nothing.
 /// - [`SetupLink::receive`] returns the connection's scripted events in order. With nothing left
 ///   it returns [`LinkError::Timeout`], as if the app went quiet, and records the timeout asked
 ///   for.
@@ -626,6 +677,8 @@ pub struct MockSetupLink {
     accepts: usize,
     disconnects: usize,
     timeouts: Vec<u32>,
+    accept_timeouts: Vec<u32>,
+    accept_within_error: Option<LinkError>,
 }
 
 impl Default for MockSetupLink {
@@ -646,6 +699,8 @@ impl MockSetupLink {
             accepts: 0,
             disconnects: 0,
             timeouts: Vec::new(),
+            accept_timeouts: Vec::new(),
+            accept_within_error: None,
         }
     }
 
@@ -711,6 +766,17 @@ impl MockSetupLink {
         &self.timeouts
     }
 
+    /// The timeouts of the bounded accepts that timed out, in milliseconds.
+    #[must_use]
+    pub fn accept_timeouts(&self) -> &[u32] {
+        &self.accept_timeouts
+    }
+
+    /// Makes the next [`SetupLink::accept_within`] fail with `error`, opening no connection.
+    pub fn fail_accept_within(&mut self, error: LinkError) {
+        self.accept_within_error = Some(error);
+    }
+
     /// Whether a connection is open.
     #[must_use]
     pub fn is_connected(&self) -> bool {
@@ -718,13 +784,37 @@ impl MockSetupLink {
     }
 }
 
-impl SetupLink for MockSetupLink {
-    async fn accept(&mut self) -> Result<(), LinkError> {
-        let next = self.pending.pop_front().ok_or(LinkError::Transport)?;
+impl MockSetupLink {
+    fn open_next(&mut self) -> bool {
+        let Some(next) = self.pending.pop_front() else {
+            return false;
+        };
         self.current = Some(next);
         self.sent.push(Vec::new());
         self.accepts += 1;
-        Ok(())
+        true
+    }
+}
+
+impl SetupLink for MockSetupLink {
+    async fn accept(&mut self) -> Result<(), LinkError> {
+        if self.open_next() {
+            Ok(())
+        } else {
+            Err(LinkError::Transport)
+        }
+    }
+
+    async fn accept_within(&mut self, timeout_ms: u32) -> Result<(), LinkError> {
+        if let Some(error) = self.accept_within_error.take() {
+            return Err(error);
+        }
+        if self.open_next() {
+            Ok(())
+        } else {
+            self.accept_timeouts.push(timeout_ms);
+            Err(LinkError::Timeout)
+        }
     }
 
     async fn receive(&mut self, buffer: &mut [u8], timeout_ms: u32) -> Result<usize, LinkError> {

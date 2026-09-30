@@ -121,7 +121,7 @@ export type paths = {
         put?: never;
         /**
          * Enrol a Device on the Site
-         * @description The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. Idempotent per caller and Idempotency-Key for 24 h. Nothing is persisted on any error.
+         * @description The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. A Node sent with lotId claims that Lot: a Lot holds one Node. Idempotent per caller and Idempotency-Key for 24 h; enrolling the same Device on the same Site (and Lot) again answers the same. The Idempotency-Key covers the Device's registration on the Site; lotId is checked against the Device on every request, and a refused claim persists nothing for the Device, so a retry with the same key may name another Lot. Leaving out lotId never unassigns a Node. Nothing is persisted for the Device on any error.
          */
         post: operations["enrolDevice"];
         delete?: never;
@@ -286,6 +286,11 @@ export type components = {
             enc: string;
             /** @description K_dev sealed with HPKE (48 bytes), base64url without padding. */
             ciphertext: string;
+            /**
+             * Format: uuid
+             * @description The Lot of the Site a Node is put in. Only for a Node; a Hub with a lotId is a validation error. A Lot holds one Node.
+             */
+            lotId?: string;
         };
         Device: {
             id: components["schemas"]["DeviceId"];
@@ -295,6 +300,11 @@ export type components = {
              * @description The Site the Device is enrolled on.
              */
             siteId: string;
+            /**
+             * Format: uuid
+             * @description The Lot a Node is on; absent for a Hub and an unassigned Node.
+             */
+            lotId?: string;
         };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
@@ -379,8 +389,17 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
-        /** @description urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. Nothing was persisted. */
-        DeviceOnAnotherSite: {
+        /** @description urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site); nothing was enrolled. */
+        DeviceEnrolmentNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. urn:coldframe:problem:lot-claimed: this Lot already has a Node. urn:coldframe:problem:device-assigned: the Node is in another Lot already; move it instead. Nothing was enrolled or assigned. */
+        DeviceEnrolmentConflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -646,8 +665,8 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["SiteNotFound"];
-            409: components["responses"]["DeviceOnAnotherSite"];
+            404: components["responses"]["DeviceEnrolmentNotFound"];
+            409: components["responses"]["DeviceEnrolmentConflict"];
             422: components["responses"]["IdempotencyKeyReused"];
         };
     };

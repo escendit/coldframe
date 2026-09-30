@@ -6,9 +6,14 @@
 //! `coldframe-hal`.
 //!
 //! The eFuse, HMAC, flash, TRNG and timer adapters are copies of the Hub's (a shared ESP32-S3
-//! board crate is a deferred item). A dev-mode build compiles no eFuse or HMAC adapter at all, so
-//! it cannot touch the fuses.
+//! board crate is a deferred item), and so is the BLE setup link. A dev-mode build compiles no eFuse
+//! or HMAC adapter at all, so it cannot touch the fuses; only a dev-mode build compiles the ESP-NOW
+//! coexistence probe.
 
+pub mod ble;
+pub mod button;
+#[cfg(feature = "dev-mode")]
+pub mod coex;
 #[cfg(not(feature = "dev-mode"))]
 pub mod efuse;
 pub mod flash;

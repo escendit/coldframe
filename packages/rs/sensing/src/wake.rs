@@ -183,12 +183,14 @@ pub enum WakeCause {
     ColdBoot,
     /// The deep-sleep timer: the same boot ID as before the sleep.
     Timer,
+    /// The setup button (Story 4.2): the same boot ID as before the sleep, like a timer wake.
+    Button,
 }
 
 /// The boot ID: a cold boot reserves one value of the boot counter and takes the new ceiling; a
-/// timer wake reads the stored ceiling.
+/// timer or button wake (both deep-sleep wakes) reads the stored ceiling.
 ///
-/// A timer wake that finds the counter at 0 (no cold boot ever completed its reservation)
+/// A deep-sleep wake that finds the counter at 0 (no cold boot ever completed its reservation)
 /// reserves like a cold boot, so a Reading never carries boot ID 0.
 ///
 /// # Errors
@@ -200,7 +202,7 @@ pub fn boot_id<F: Flash>(
 ) -> Result<u64, CounterError> {
     match cause {
         WakeCause::ColdBoot => counter.reserve(1).map(|range| range.end),
-        WakeCause::Timer => match counter.current()? {
+        WakeCause::Timer | WakeCause::Button => match counter.current()? {
             0 => counter.reserve(1).map(|range| range.end),
             boot => Ok(boot),
         },

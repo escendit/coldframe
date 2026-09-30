@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "On an ESP32-S3 Node wired to the reference wiring in apps/rs/node/src/board/pins.rs (high-side probe and divider switches with pulled-down controls, divider midpoint capacitor at most 10 nF, BME680 at 0x77), flash the release build from apps/rs/node and run Part A of docs/bench/node-power-checklist.md: measure the average sleep current over at least three full 15-minute periods and the steady-state wake duration.",
+    "Run the now-required Part B of docs/bench/node-power-checklist.md on the same Node: confirm timer wakes log reset=deep_sleep with an unchanged boot id and the RTC watchdog does not fire during sleep, a reset continues reading_seq without overlap, and at least 20 random power cuts during wakes never produce an overlapping seq range or a decreasing boot id.",
+    "Run Part D of the checklist: record the first-boot wake (identity provisioning with the radio on) separately from steady-state wakes, and confirm normal wakes show no radio current spike.",
+    "Record the results (date, board, build, average sleep \u00b5A, period average \u00b5A, wake ms, pass or fail) in the Result table of docs/bench/node-power-checklist.md, replace the 'pending' Measured row under Power budget in _bmad-output/specs/spec-coldframe/device-hardware.md with the measured value against the ~100 \u00b5A budget, and commit both."
+  ],
+  "parked_at": "2026-09-30",
+  "run_id": "20260929-135654-2bf0",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-4-1-node-firmware-foundation-wake-measure-sleep.md",
+  "story_key": "4-1-node-firmware-foundation-wake-measure-sleep"
+}
