@@ -2,6 +2,9 @@ package com.escendit.coldframe.core.signin
 
 import com.escendit.coldframe.core.Watch
 import com.escendit.coldframe.core.lots.IosLots
+import com.escendit.coldframe.core.setup.IosHubSetup
+import com.escendit.coldframe.core.setup.IosRadioState
+import com.escendit.coldframe.core.setup.KableSetupRadio
 import com.escendit.coldframe.core.sites.IosSites
 import com.escendit.coldframe.core.sites.SitesWiring
 import com.escendit.coldframe.core.watch
@@ -17,7 +20,7 @@ import platform.Foundation.NSUserDefaults
  * the Keychain for the tokens. Swift observes it with [watch].
  */
 public class IosSignIn private constructor(
-    config: CoreConfig,
+    private val config: CoreConfig,
 ) {
     private val scope = MainScope()
     private val authFlowFactory = IosCodeAuthFlowFactory(ephemeralBrowserSession = false)
@@ -46,6 +49,10 @@ public class IosSignIn private constructor(
 
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
     public val lots: IosLots = IosLots(SitesWiring.lots(api, sitesEngine, scope), scope)
+
+    /** Add a Hub over Kable; the Bluetooth prompt appears only when the flow opens. */
+    public val hubSetup: IosHubSetup =
+        IosHubSetup(SitesWiring.hubSetup(config, api, KableSetupRadio(IosRadioState()), sitesEngine, scope), scope)
 
     /** Calls [onEach] on the main thread with the current snapshot and every change. */
     public fun watch(onEach: (SignInSnapshot) -> Unit): Watch = engine.state.watch(scope) { onEach(snapshotOf(it)) }

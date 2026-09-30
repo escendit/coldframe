@@ -20,6 +20,9 @@ public enum class ApiFailure {
     /** 409 `lot-claimed`: a Node is assigned to the Lot; nothing changed. */
     LotClaimed,
 
+    /** 409 `device-on-another-site`: the Device is enrolled on another Site; nothing changed. */
+    DeviceOnAnotherSite,
+
     /** 401, or no session: the engine signs out with the SignedOut notice. */
     Unauthorized,
 
@@ -29,7 +32,7 @@ public enum class ApiFailure {
     /** A certificate could not be verified. Never retried insecurely. */
     Certificate,
 
-    /** Any other answer. */
+    /** Any other answer, including a 5xx other than 503. */
     Unexpected,
 }
 

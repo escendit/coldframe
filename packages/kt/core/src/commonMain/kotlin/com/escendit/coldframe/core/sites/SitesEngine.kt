@@ -298,6 +298,7 @@ public class SitesEngine(
                 ApiFailure.Forbidden,
                 ApiFailure.NotFound,
                 ApiFailure.LotClaimed,
+                ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.Unexpected,
                 -> SitesNotice.Unexpected
             }

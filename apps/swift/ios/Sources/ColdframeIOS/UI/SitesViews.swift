@@ -197,6 +197,7 @@
     let lots: LotsPresentation
     let actions: SitesActions
     let lotsActions: LotsActions
+    let onAddHub: () -> Void
     @State private var switching = false
     @State private var openingSiteSettings = false
     @Environment(\.palette) private var palette
@@ -204,12 +205,13 @@
 
     public init(
       presentation: GardenPresentation, lots: LotsPresentation = .waiting,
-      actions: SitesActions, lotsActions: LotsActions = .none
+      actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {}
     ) {
       self.presentation = presentation
       self.lots = lots
       self.actions = actions
       self.lotsActions = lotsActions
+      self.onAddHub = onAddHub
     }
 
     public var body: some View {
@@ -286,7 +288,13 @@
           spacing: Spacing.tileGap
         ) {
           ForEach(presentation.tiles, id: \.number) { tile in
-            FirstRunTile(tile: tile)
+            if presentation.startsFlow(tile) {
+              Button(action: onAddHub) { FirstRunTile(tile: tile) }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(.isButton)
+            } else {
+              FirstRunTile(tile: tile)
+            }
           }
         }
       }

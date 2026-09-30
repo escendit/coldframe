@@ -47,7 +47,8 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/../../../packages/kt/core/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
-        OTHER_LDFLAGS: $(inherited) -framework ColdframeCore
+        # The static core uses Core Bluetooth (Kable) for Add a Hub and Security for its random bytes.
+        OTHER_LDFLAGS: $(inherited) -framework ColdframeCore -framework CoreBluetooth -framework Security
         # ColdframeCore builds iosArm64 and iosSimulatorArm64 only (Kotlin deprecates the x86_64
         # Apple targets), so the simulator build is arm64 even for a generic destination.
         ARCHS[sdk=iphonesimulator*]: arm64

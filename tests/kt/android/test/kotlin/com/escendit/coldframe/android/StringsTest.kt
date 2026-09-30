@@ -125,7 +125,12 @@ class StringsTest {
 
     @Test
     fun `UX-DR130 UX-DR124 uppercase comes from style, never from the string`() {
-        for ((key, value) in android) assertFalse(Regex("\\b\\p{Lu}{2,}\\b").containsMatchIn(value), key)
+        // Acronyms are words, not style: the Hub's LED (UX-DR94) and its Device ID.
+        val acronyms = setOf("LED", "ID")
+        for ((key, value) in android) {
+            val shouting = Regex("\\b\\p{Lu}{2,}\\b").findAll(value).map { it.value }.filterNot { it in acronyms }
+            assertFalse(shouting.any(), key)
+        }
     }
 
     @Test

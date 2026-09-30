@@ -54,6 +54,33 @@ public data class CreateLotRequestDto(
     val name: String,
 )
 
+/** `EnrolmentKey`: the raw X25519 key, base64url without padding, and its lowercase hex SHA-256. */
+@Serializable
+public data class EnrolmentKeyDto(
+    val publicKey: String,
+    val fingerprint: String,
+)
+
+/**
+ * `EnrolDeviceRequest`: the Device's sealed enrolment, relayed unread. [deviceId] is lowercase
+ * hex; [enc] and [ciphertext] are base64url without padding; [kind] is `hub` or `node`.
+ */
+@Serializable
+public data class EnrolDeviceRequestDto(
+    val deviceId: String,
+    val kind: String,
+    val enc: String,
+    val ciphertext: String,
+)
+
+/** `Device`: an enrolled Device and its Site. */
+@Serializable
+public data class DeviceDto(
+    val id: String,
+    val kind: String,
+    val siteId: String,
+)
+
 /** `ProblemDetails` (RFC 9457). */
 @Serializable
 public data class ProblemDto(

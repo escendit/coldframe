@@ -63,6 +63,7 @@
     let sitesActions: SitesActions
     let lots: LotsPresentation
     let lotsActions: LotsActions
+    let onAddHub: () -> Void
     @State private var selection: AppTab = .garden
     @Environment(\.palette) private var palette
 
@@ -70,7 +71,7 @@
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
       onSignOut: @escaping () -> Void, garden: GardenPresentation? = nil,
       sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
-      lotsActions: LotsActions = .none
+      lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {}
     ) {
       self.theme = theme
       self.onSelectTheme = onSelectTheme
@@ -79,6 +80,7 @@
       self.sitesActions = sitesActions
       self.lots = lots
       self.lotsActions = lotsActions
+      self.onAddHub = onAddHub
     }
 
     public var body: some View {
@@ -111,7 +113,8 @@
       case .garden:
         if let garden {
           GardenView(
-            presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions)
+            presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
+            onAddHub: onAddHub)
         } else {
           palette.background.ignoresSafeArea()
         }
@@ -228,6 +231,8 @@
     let sitesActions: SitesActions
     let lots: LotsPresentation
     let lotsActions: LotsActions
+    let hubSetup: HubSetupPresentation
+    let hubSetupActions: HubSetupActions
     let theme: ThemePreference
     let onSignIn: () -> Void
     let onSignOut: () -> Void
@@ -237,7 +242,8 @@
     public init(
       presentation: SignInPresentation, sites: SitesPresentation = .waiting,
       sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
-      lotsActions: LotsActions = .none, theme: ThemePreference,
+      lotsActions: LotsActions = .none, hubSetup: HubSetupPresentation = .closed,
+      hubSetupActions: HubSetupActions = .none, theme: ThemePreference,
       onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void,
       onSelectTheme: @escaping (ThemePreference) -> Void
     ) {
@@ -246,6 +252,8 @@
       self.sitesActions = sitesActions
       self.lots = lots
       self.lotsActions = lotsActions
+      self.hubSetup = hubSetup
+      self.hubSetupActions = hubSetupActions
       self.theme = theme
       self.onSignIn = onSignIn
       self.onSignOut = onSignOut
@@ -270,6 +278,7 @@
     }
 
     /// No Membership: Create Site replaces the tab shell; "New Site" puts it over the shell.
+    /// Add a Hub replaces the tab shell while its flow is open (one modal level, UX-DR76).
     @ViewBuilder
     private func signedIn(isDark: Bool) -> some View {
       switch sites.surface {
@@ -279,10 +288,13 @@
         SitesFailedView(notice: notice, onTryAgain: sitesActions.load)
       case .createSite(let form):
         CreateSiteView(presentation: form, actions: sitesActions)
+      case .garden(_, _) where hubSetup.isOpen:
+        AddHubFlowView(presentation: hubSetup, actions: hubSetupActions)
       case .garden(let garden, let creating):
         AppTabView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
-          sitesActions: sitesActions, lots: lots, lotsActions: lotsActions
+          sitesActions: sitesActions, lots: lots, lotsActions: lotsActions,
+          onAddHub: hubSetupActions.open
         )
         .sheet(
           isPresented: Binding(
@@ -304,23 +316,32 @@
     @Published public private(set) var theme = ThemePreference.system
     @Published public private(set) var sites = SitesPresentation.waiting
     @Published public private(set) var lots = LotsPresentation.waiting
+    @Published public private(set) var hubSetup = HubSetupPresentation.closed
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
     public let lotsService: LotsService?
+    public let hubSetupService: HubSetupService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
-      lots: LotsService? = nil
+      lots: LotsService? = nil, hubSetup: HubSetupService? = nil
     ) {
       self.signIn = signIn
       self.appearance = appearance
       self.sitesService = sites
       self.lotsService = lots
+      self.hubSetupService = hubSetup
       signIn.observe { [weak self] in self?.presentation = $0 }
       appearance.observe { [weak self] in self?.theme = $0 }
       sites?.observe { [weak self] in self?.sites = $0 }
       lots?.observe { [weak self] in self?.lots = $0 }
+      hubSetup?.observe { [weak self] in self?.hubSetup = $0 }
+    }
+
+    /// The Add a Hub actions for the views; nothing happens without a service.
+    public var hubSetupActions: HubSetupActions {
+      hubSetupService.map(HubSetupActions.init(service:)) ?? .none
     }
 
     /// The Sites actions for the views; nothing happens without a service.

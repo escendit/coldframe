@@ -1,6 +1,7 @@
 package com.escendit.coldframe.core.api
 
 import com.escendit.coldframe.core.lots.LotsApi
+import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
 import com.escendit.coldframe.core.sites.SitesApi
 import io.ktor.client.HttpClient
@@ -44,7 +45,8 @@ public class ColdframeApi(
     private val onUnauthorized: suspend () -> Unit,
     private val certificateError: (Throwable) -> Boolean = ::isCertificateError,
 ) : SitesApi,
-    LotsApi {
+    LotsApi,
+    EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
     /** `GET /sites` (`listSites`). */
@@ -117,6 +119,25 @@ public class ColdframeApi(
         lotId: String,
     ): ApiResult<Unit> = call({ http.delete("${lots(siteId)}/${lotId.encoded()}") { it() } }) { }
 
+    /** `GET /enrolment-key` (`getEnrolmentKey`): the Server's X25519 enrolment key and fingerprint. */
+    override suspend fun enrolmentKey(): ApiResult<EnrolmentKeyDto> =
+        call({ http.get("$base/enrolment-key") { it() } }) { it.body<EnrolmentKeyDto>() }
+
+    /** `POST /sites/{siteId}/devices` (`enrolDevice`, Admin+) with the attempt's [idempotencyKey]. */
+    override suspend fun enrolDevice(
+        siteId: String,
+        request: EnrolDeviceRequestDto,
+        idempotencyKey: String,
+    ): ApiResult<DeviceDto> =
+        call({
+            http.post("$base/sites/${siteId.encoded()}/devices") {
+                it()
+                header(IDEMPOTENCY_KEY, idempotencyKey)
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+        }) { it.body<DeviceDto>() }
+
     private fun lots(siteId: String): String = "$base/sites/${siteId.encoded()}/lots"
 
     private fun String.encoded(): String = encodeURLPathPart()
@@ -170,7 +191,11 @@ public class ColdframeApi(
             }
 
             HttpStatusCode.Conflict -> {
-                ApiFailure.LotClaimed
+                if (problemType(response) == PROBLEM_DEVICE_ON_ANOTHER_SITE) {
+                    ApiFailure.DeviceOnAnotherSite
+                } else {
+                    ApiFailure.LotClaimed
+                }
             }
 
             HttpStatusCode.UnprocessableEntity -> {
@@ -207,6 +232,7 @@ public class ColdframeApi(
 
         public const val IDEMPOTENCY_KEY: String = "Idempotency-Key"
         public const val PROBLEM_VALIDATION: String = "urn:coldframe:problem:validation"
+        public const val PROBLEM_DEVICE_ON_ANOTHER_SITE: String = "urn:coldframe:problem:device-on-another-site"
 
         private val JSON =
             Json {

@@ -4,7 +4,7 @@ Kotlin libraries.
 
 | Folder | What | Arrives in |
 | --- | --- | --- |
-| `core/` | The shared Kotlin Multiplatform core: sign-in and session (story 1.5), the Server API client and Sites (story 1.8), later BLE setup and push tokens | Story 1.5 for sign-in, 1.8 for the API |
+| `core/` | The shared Kotlin Multiplatform core: sign-in and session (story 1.5), the Server API client and Sites (story 1.8), BLE setup of a Hub (story 3.6), later push tokens | Story 1.5 for sign-in, 1.8 for the API, 3.6 for BLE |
 | `design-tokens/` | Colours, typography, spacing, radii and Carbon icon paths (Gradle project `:design-tokens`) | Story 1.3; `generated/` is written by [`packages/design-tokens`](../design-tokens) |
 
 `core/` builds for the JVM (tests), Android and iOS (`iosArm64`, `iosSimulatorArm64`, the static
@@ -28,7 +28,18 @@ Server's order; Android reads `AndroidSignIn.lots`, iOS the flat `LotsSnapshot` 
 `IosSignIn.lots`. `design-tokens/` builds for the JVM and Android; iOS uses the
 Swift package in [`packages/swift/design-tokens`](../swift/design-tokens).
 `core/generated/` holds `crypto/CryptoSpec`, the Device crypto constants written by
-[`packages/crypto-spec`](../crypto-spec) into `commonMain`; `tests/kt/core/jvmTest/.../crypto`
-reproduces the shared vectors with them on the JDK's providers. The multiplatform crypto itself
-arrives with BLE setup (Story 3.6).
+[`packages/crypto-spec`](../crypto-spec) into `commonMain`.
+
+**Add a Hub (Story 3.6).** `crypto/` is pure Kotlin and runs on every target (Android 29, iOS):
+SHA-256, HMAC and HKDF, X25519 (RFC 7748 ladder, clamped, all-zero secret refused) and
+ChaCha20-Poly1305, with `SetupCipher` for the AD-25 session (per-direction counters, nonce
+`0x00000000 ‖ counter_be64`, AAD the protocol major). `commonTest` runs them against
+`packages/crypto-spec/vectors.json` (compiled in as a constant by `generateTestVectors`) and the
+RFC anchors; `jvmTest` cross-checks them against the JDK (`JdkCrypto`). Wire 7.1.0 generates the
+`coldframe.setup.v1` messages from [`packages/proto`](../proto). `setup/` has the framing, the
+setup-code normalization, the app end of the session (`SetupSession`), the `SetupRadio` port with
+its Kable 0.45 adapter (`KableSetupRadio`, radio state from `AndroidRadioState` / `IosRadioState`)
+and `HubSetupEngine`, which runs the flow and every error rule and exposes one `HubSetupState`;
+Android reads `AndroidSignIn.hubSetup`, iOS the flat `HubSetupSnapshot` through
+`IosSignIn.hubSetup`. `ColdframeApi` gains `GET /enrolment-key` and `POST /sites/{siteId}/devices`.
 Tests live in [`tests/kt`](../../tests/kt).

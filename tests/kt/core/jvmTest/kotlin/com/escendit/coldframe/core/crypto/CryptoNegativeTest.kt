@@ -21,13 +21,13 @@ class CryptoNegativeTest {
             JdkCrypto.SetupSession(false, hubPrivateKey, JdkCrypto.x25519PublicKey(appPrivateKey), hubCode)
     }
 
-    private fun failureOf(block: () -> Unit): Failure = assertFailsWith<CryptoFailure> { block() }.failure
+    private fun failureOf(block: () -> Unit): JdkFailure = assertFailsWith<JdkCryptoFailure> { block() }.failure
 
     @Test
     fun aWrongSetupCodeFailsTheFirstMessageWithADistinctError() {
         val (app, hub) = sessions(setup.text("popCode"), setup.text("wrongPopCode"))
         val (counter, ciphertext) = app.seal("identity please".toByteArray())
-        assertEquals(Failure.WRONG_SETUP_CODE, failureOf { hub.open(counter, ciphertext) })
+        assertEquals(JdkFailure.WRONG_SETUP_CODE, failureOf { hub.open(counter, ciphertext) })
     }
 
     @Test
@@ -37,7 +37,7 @@ class CryptoNegativeTest {
         hub.open(first, firstCiphertext)
         val (second, secondCiphertext) = app.seal("two".toByteArray())
         secondCiphertext[0] = (secondCiphertext[0].toInt() xor 1).toByte()
-        assertEquals(Failure.AUTHENTICATION_FAILED, failureOf { hub.open(second, secondCiphertext) })
+        assertEquals(JdkFailure.AUTHENTICATION_FAILED, failureOf { hub.open(second, secondCiphertext) })
     }
 
     @Test
@@ -45,14 +45,14 @@ class CryptoNegativeTest {
         val (app, hub) = sessions(setup.text("popCode"), setup.text("popCode"))
         val (counter, ciphertext) = app.seal("one".toByteArray())
         hub.open(counter, ciphertext)
-        assertEquals(Failure.REPLAY, failureOf { hub.open(counter, ciphertext) })
+        assertEquals(JdkFailure.REPLAY, failureOf { hub.open(counter, ciphertext) })
     }
 
     @Test
     fun anInvalidSetupCodeIsRefused() {
         val code = setup.text("popCode")
         for (wrong in listOf("", "A".repeat(CryptoSpec.SETUP_MAX_CODE_LENGTH + 1), "Ä1B2C3")) {
-            assertEquals(Failure.INVALID_SETUP_CODE, failureOf { sessions(code, wrong) }, wrong)
+            assertEquals(JdkFailure.INVALID_SETUP_CODE, failureOf { sessions(code, wrong) }, wrong)
         }
     }
 
@@ -61,7 +61,7 @@ class CryptoNegativeTest {
         val vector = Vectors.list("enrolment").first()
         val keys = JdkCrypto.deviceKeys(vector.bytes("rootKey"))
         assertEquals(
-            Failure.INVALID_PUBLIC_KEY,
+            JdkFailure.INVALID_PUBLIC_KEY,
             failureOf {
                 JdkCrypto.sealBase(
                     ByteArray(32),
@@ -83,19 +83,22 @@ class CryptoNegativeTest {
         val sealed = vector.bytes("ciphertext")
 
         val flipped = sealed.copyOf().also { it[0] = (it[0].toInt() xor 0x80).toByte() }
-        assertEquals(Failure.AUTHENTICATION_FAILED, failureOf { JdkCrypto.openFrame(key, deviceId, counter, flipped) })
+        assertEquals(
+            JdkFailure.AUTHENTICATION_FAILED,
+            failureOf { JdkCrypto.openFrame(key, deviceId, counter, flipped) },
+        )
         val flippedTag = sealed.copyOf().also { it[it.lastIndex] = (it[it.lastIndex].toInt() xor 1).toByte() }
         assertEquals(
-            Failure.AUTHENTICATION_FAILED,
+            JdkFailure.AUTHENTICATION_FAILED,
             failureOf { JdkCrypto.openFrame(key, deviceId, counter, flippedTag) },
         )
         assertEquals(
-            Failure.AUTHENTICATION_FAILED,
+            JdkFailure.AUTHENTICATION_FAILED,
             failureOf { JdkCrypto.openFrame(key, deviceId, counter + 1, sealed) },
         )
         val otherDevice = deviceId.copyOf().also { it[7] = (it[7].toInt() xor 1).toByte() }
         assertEquals(
-            Failure.AUTHENTICATION_FAILED,
+            JdkFailure.AUTHENTICATION_FAILED,
             failureOf { JdkCrypto.openFrame(key, otherDevice, counter, sealed) },
         )
     }
@@ -111,12 +114,12 @@ class CryptoNegativeTest {
 
         val forged = sealed.copyOf().also { it[1] = (it[1].toInt() xor 1).toByte() }
         assertEquals(
-            Failure.AUTHENTICATION_FAILED,
+            JdkFailure.AUTHENTICATION_FAILED,
             failureOf { JdkCrypto.openFrame(key, deviceId, counter, forged, window) },
         )
         assertNull(window.highest)
         JdkCrypto.openFrame(key, deviceId, counter, sealed, window)
-        assertEquals(Failure.REPLAY, failureOf { JdkCrypto.openFrame(key, deviceId, counter, sealed, window) })
+        assertEquals(JdkFailure.REPLAY, failureOf { JdkCrypto.openFrame(key, deviceId, counter, sealed, window) })
     }
 
     @Test
@@ -129,12 +132,12 @@ class CryptoNegativeTest {
 
         val wrongKey = recipient.copyOf().also { it[0] = (it[0].toInt() xor 0x40).toByte() }
         assertEquals(
-            Failure.AUTHENTICATION_FAILED,
+            JdkFailure.AUTHENTICATION_FAILED,
             failureOf { JdkCrypto.openBase(wrongKey, enc, JdkCrypto.enrolmentInfo, deviceId, ciphertext) },
         )
         val otherId = deviceId.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() }
         assertEquals(
-            Failure.AUTHENTICATION_FAILED,
+            JdkFailure.AUTHENTICATION_FAILED,
             failureOf { JdkCrypto.openBase(recipient, enc, JdkCrypto.enrolmentInfo, otherId, ciphertext) },
         )
     }

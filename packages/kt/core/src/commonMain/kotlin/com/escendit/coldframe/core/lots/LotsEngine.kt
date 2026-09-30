@@ -416,7 +416,11 @@ public class LotsEngine(
                     LotsNotice(LotsNoticeKind.Certificate)
                 }
 
-                ApiFailure.Validation, ApiFailure.Unauthorized, ApiFailure.Unexpected -> {
+                ApiFailure.Validation,
+                ApiFailure.Unauthorized,
+                ApiFailure.DeviceOnAnotherSite,
+                ApiFailure.Unexpected,
+                -> {
                     LotsNotice(
                         LotsNoticeKind.Unexpected,
                     )

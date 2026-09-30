@@ -77,6 +77,7 @@ fun AppShell(
     actions: SitesActions = SitesActions.None,
     lots: LotsState = LotsState.Idle,
     lotsActions: LotsActions = LotsActions.None,
+    onAddHub: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var tab by rememberSaveable { mutableStateOf(Tab.Garden) }
@@ -193,6 +194,7 @@ fun AppShell(
                     },
                     lots = lots,
                     lotsActions = lotsActions,
+                    onAddHub = onAddHub,
                 )
             } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)
