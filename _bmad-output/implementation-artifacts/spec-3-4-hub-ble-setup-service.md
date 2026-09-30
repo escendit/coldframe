@@ -319,3 +319,16 @@ Status: awaiting-operator
 - CI now compiles vendored libdbus for the bench client, which needs a C compiler on the runner.
 - A provisioned reboot stays off Wi-Fi until Story 3.5.
 
+
+### Re-dispatch check — 2026-09-30
+
+Status: awaiting-operator
+
+The loop dispatched story 3-4 again while its sprint row still read `backlog`. The story was already implemented and merged (PR #18, tracking issue #17 closed). Nothing was re-planned or re-implemented. The Verification commands were re-run on `main` at `81f47ad` (after stories 3-5, 3-6, 4-1 and 4-2 had landed):
+
+- `cargo fmt --all --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+- `cargo test --workspace --locked`: 257 passed, 0 failed.
+- `cargo build -p coldframe-hal -p coldframe-crypto -p coldframe-protocol -p coldframe-setup --locked`: passes.
+- In `apps/rs/hub`, with the esp toolchain: `cargo build --release` and `cargo build --features dev-mode` pass, `cargo clippy --release -- -D warnings` and `cargo fmt --check` are clean, and `./check-image.sh` reports no canary in the ELF or the image.
+
+The only acceptance criterion still open is the bench run on real hardware. It is listed under `operator_actions` in the frontmatter and has not changed.
