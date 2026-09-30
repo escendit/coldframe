@@ -4,8 +4,9 @@ using Coldframe.Server.Journal;
 namespace Coldframe.Server.Lots;
 
 /// <summary>
-/// A Lot, keyed by its Lot ID. The only writer of the Lot (AD-2), including its occupancy (AD-18): a Lot
-/// holding a Node refuses removal. Removal is an event plus a tombstone; the ID stays resolvable (AD-20).
+/// A Lot, keyed by its Lot ID. The only writer of the Lot (AD-2), including its occupancy (AD-18): it grants
+/// one Node the claim, and a Lot holding a Node refuses removal. Removal is an event plus a tombstone; the ID
+/// stays resolvable (AD-20).
 /// After each event it brings the lots projection up to date before it returns (read-your-writes).
 /// </summary>
 [GrainType("lot")]
@@ -98,6 +99,59 @@ public sealed class LotGrain : JournaledStreamGrain<LotState>, ILotGrain
             State.Lifecycle == LotLifecycle.Uncreated || !BelongsTo(siteId)
                 ? new LotResult(LotOutcome.NotFound)
                 : Result(LotOutcome.Found));
+    }
+
+    /// <inheritdoc />
+    public async Task<LotResult> Claim(string siteId, string nodeId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+
+        if (State.Lifecycle == LotLifecycle.Uncreated || !BelongsTo(siteId))
+        {
+            return new LotResult(LotOutcome.NotFound);
+        }
+
+        if (State.Lifecycle == LotLifecycle.Removed)
+        {
+            return Result(LotOutcome.AlreadyRemoved);
+        }
+
+        if (State.ClaimedBy is { } holder)
+        {
+            // AD-18: one Node per Lot. The grain is non-reentrant, so two claims never both see it free.
+            return Result(string.Equals(holder, nodeId, StringComparison.Ordinal) ? LotOutcome.Held : LotOutcome.Claimed);
+        }
+
+        RaiseEvent(new LotClaimed(nodeId));
+        await ConfirmEvents();
+        await CatchUpLotsAsync();
+
+        return Result(LotOutcome.Held);
+    }
+
+    /// <inheritdoc />
+    public async Task<LotResult> Release(string siteId, string nodeId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+
+        if (State.Lifecycle == LotLifecycle.Uncreated || !BelongsTo(siteId))
+        {
+            return new LotResult(LotOutcome.NotFound);
+        }
+
+        if (!string.Equals(State.ClaimedBy, nodeId, StringComparison.Ordinal))
+        {
+            // Another Node holds it, or nobody: nothing to release.
+            return Result(LotOutcome.Unchanged);
+        }
+
+        RaiseEvent(new LotReleased(nodeId));
+        await ConfirmEvents();
+        await CatchUpLotsAsync();
+
+        return Result(LotOutcome.Released);
     }
 
     private bool BelongsTo(string siteId) => string.Equals(State.SiteId, siteId, StringComparison.Ordinal);

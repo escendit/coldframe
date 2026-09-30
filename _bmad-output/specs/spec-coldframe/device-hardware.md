@@ -21,7 +21,15 @@ Node and Hub facts that bind firmware and hardware work. Evidence: PRD addendum 
 - **N-3, report now:** a **short press** of the setup button makes the Node take and send one Reading immediately, outside its 15-minute schedule. Calibration uses it, so it takes seconds instead of up to 15 minutes. A **long press** enters BLE setup mode. The exact press timings are decided in the Node epic.
 - Buffer at least 24 h of unacknowledged Readings: 96 per Sensor, a few KB. Keep them in RTC RAM (survives deep sleep) or flash (survives power loss; mind write wear). Batch resends.
 - No Wi-Fi on the Node. Keep wakes short, with a channel re-scan only on acknowledgement failure.
-- **Open:** BLE (setup mode) and ESP-NOW coexistence on the Node is not yet validated. The spike's Node ran ESP-NOW only. Validate it in the Node epic.
+- **Open:** BLE (setup mode) and ESP-NOW coexistence on the Node is not yet validated. The spike's Node ran ESP-NOW only. Story 4.2 builds both stacks into one image (esp-radio `ble`, `coex`, `esp-now`) with a `dev-mode` ESP-NOW probe in setup mode; the result is **pending** the bench run of Part F of [`docs/bench/node-setup-checklist.md`](../../../docs/bench/node-setup-checklist.md).
+
+### Node setup button and setup mode (Story 4.2)
+- **Button:** GPIO7, a momentary switch to ground, active low, internal pull-up kept through deep sleep (the pad is held). It wakes the Node from deep sleep on a low level (esp-hal assigns the pad to `ext0`/`ext1`). The Node arms that wake only while the button reads released, so a stuck button leaves only the timer wake.
+- **Press timings** (polled every 10 ms, timed first thing after the bootloader, before any flash or identity work): released before 50 ms is a bounce (sleep again, a full period); released before 3 s is a **short press** (report now: measure at once, then a full period); held for 3 s is a **long press** (setup mode, entered without waiting for the release). A pin read error counts as a bounce.
+- **Setup mode:** BLE advertises `Coldframe Node XXXX` for at most **180 s** (`SETUP_WINDOW_MS`) from the start of advertising (not the press), or until an enrolled session's connection ends. A connection with no write for 60 s is dropped and the window advertises again. The RTC watchdog is raised to 210 s for it and restored to 30 s after. Then a normal measurement, and a full period of sleep (every press restarts the schedule). BLE is never started on any other path.
+- **Session:** the Hub's AD-25 session with a Node profile: `Identity.kind = NODE`; `SiteBinding` needs a Site and a Lot and no Server, and is only validated (the Server holds the assignment, AD-18); `WifiScanRequest`/`WifiConfig` are refused; enrolment seals `K_dev` exactly as the Hub does.
+- **`cf_setup`** (0x12000, 0x2000): only the `CFPC` setup-code record, drawn on the first long press and never regenerated when corrupt (setup mode is skipped instead). The Node stores no Site, Lot or Wi-Fi settings.
+- **Log lines:** `wake plan=measure|report-now|setup|sleep-again`, `setup code=XXXXXXXX` (a plain serial line), `setup end=enrolled|window-closed`, `sleep ms=<n> button_armed=<bool>` (the sleep actually taken), and in `dev-mode` only `coex espnow tx ok=…` / `coex espnow rx from=<mac>`.
 
 ### Node reference wiring (Story 4.1)
 
@@ -34,6 +42,7 @@ No Node board exists yet (Epic 10 designs one). The firmware's single source for
 | Probe power switch | GPIO4 | high-side switch (P-MOSFET or load switch), high = on; control pulled down externally (pads float in deep sleep) |
 | Divider switch | GPIO5 | high-side switch between the cell and the divider top, high = on; control pulled down externally |
 | Charger status (`CHRG`) | GPIO6 | active low, internal pull-up |
+| Setup button | GPIO7 | switch to ground, active low, internal pull-up kept in deep sleep; wakes the Node (Story 4.2) |
 | I²C SDA / SCL | GPIO8 / GPIO9 | BME680 at 0x77 (SDO high), not switched |
 
 - ADC1 only: ADC2 conflicts with the radio.

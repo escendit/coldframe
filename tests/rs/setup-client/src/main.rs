@@ -1,12 +1,17 @@
-//! `coldframe-setup-client`: the app side of the Hub BLE setup session (AD-25), for the bench
-//! checklist (`docs/bench/hub-setup-checklist.md`).
+//! `coldframe-setup-client`: the app side of the BLE setup session (AD-25), for the bench
+//! checklists (`docs/bench/hub-setup-checklist.md`, `docs/bench/node-setup-checklist.md`).
 //!
 //! ```text
 //! coldframe-setup-client scan [--seconds N]
 //! coldframe-setup-client setup --code CODE --ssid SSID --password PASSWORD --site SITE_ID \
 //!     --server https://HOST[:PORT] --enrolment-key BASE64URL [--fingerprint HEX] \
 //!     [--address ADDRESS] [--seconds N] [--enrolled yes]
+//! coldframe-setup-client node-setup --code CODE --site SITE_ID --lot LOT_ID \
+//!     --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N]
 //! ```
+//!
+//! `scan` lists every Device advertising the setup service: `Coldframe Hub XXXX` and, while a Node
+//! is in setup mode, `Coldframe Node XXXX`.
 //!
 //! `setup` runs identity, the Wi-Fi scan list, the Site binding (with the Server address the Hub
 //! reports to) and enrolment, then prints the `EnrolDeviceRequest` body for
@@ -14,6 +19,11 @@
 //! checks it, as the app does (enrol, then `WifiConfig`). `--enrolled yes` skips the wait for a Hub
 //! the Server already knows. It then sends the Wi-Fi config and prints the result: `CONNECTED`
 //! once the Hub has joined and the Server accepted its heartbeat, `NO_SERVER` otherwise.
+//! `node-setup` runs identity, the Node binding (Site and Lot, no Server) and enrolment against
+//! a Node in setup mode (a long press of its setup button), prints the `EnrolDeviceRequest` body
+//! with `lotId` and disconnects; the Node then ends setup mode and takes a Reading. `--lot` must
+//! be a UUID and is sent in canonical lowercase; anything else is a usage error (exit code 2) before
+//! any BLE traffic.
 //! A wrong code exits non-zero with `wrong setup code`. BlueZ negotiates the ATT MTU on connect;
 //! the client fragments to whatever was negotiated.
 
@@ -32,8 +42,8 @@ use coldframe_crypto::spec::X25519_KEY_LENGTH;
 use coldframe_protocol::setup_v1::SetupMessage_::Body;
 use coldframe_protocol::setup_v1::{SetupMessage, WifiSecurity, WifiStatus};
 use coldframe_setup::app::{
-    AppClient, AppError, enrolment_request, identity_request, site_binding, wifi_config,
-    wifi_scan_request,
+    AppClient, AppError, enrolment_request, identity_request, node_binding, site_binding,
+    wifi_config, wifi_scan_request,
 };
 use coldframe_setup::framing::{Reassembler, fragments};
 use coldframe_setup::{
@@ -49,7 +59,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(120);
 type Failure = Box<dyn std::error::Error>;
 
 fn usage() -> &'static str {
-    "usage:\n  coldframe-setup-client scan [--seconds N]\n  coldframe-setup-client setup --code CODE --ssid SSID --password PASSWORD --site SITE_ID --server https://HOST[:PORT] --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N] [--enrolled yes]"
+    "usage:\n  coldframe-setup-client scan [--seconds N]\n  coldframe-setup-client setup --code CODE --ssid SSID --password PASSWORD --site SITE_ID --server https://HOST[:PORT] --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N] [--enrolled yes]\n  coldframe-setup-client node-setup --code CODE --site SITE_ID --lot LOT_ID --enrolment-key BASE64URL [--fingerprint HEX] [--address ADDRESS] [--seconds N]"
 }
 
 /// Parsed `--name value` options.
@@ -149,8 +159,9 @@ async fn adapter() -> Result<Adapter, Failure> {
         .ok_or_else(|| "no Bluetooth adapter".into())
 }
 
-/// Scans for `duration` and returns the Hubs advertising the setup service, strongest first.
-async fn find_hubs(adapter: &Adapter, duration: Duration) -> Result<Vec<Hub>, Failure> {
+/// Scans for `duration` and returns the Devices (Hubs, and Nodes in setup mode) advertising the
+/// setup service, strongest first.
+async fn find_devices(adapter: &Adapter, duration: Duration) -> Result<Vec<Device>, Failure> {
     let service = Uuid::from_u128(SERVICE_UUID);
     adapter
         .start_scan(ScanFilter {
@@ -159,7 +170,7 @@ async fn find_hubs(adapter: &Adapter, duration: Duration) -> Result<Vec<Hub>, Fa
         .await?;
     tokio::time::sleep(duration).await;
     adapter.stop_scan().await?;
-    let mut hubs = Vec::new();
+    let mut devices = Vec::new();
     for peripheral in adapter.peripherals().await? {
         let Some(properties) = peripheral.properties().await? else {
             continue;
@@ -167,18 +178,36 @@ async fn find_hubs(adapter: &Adapter, duration: Duration) -> Result<Vec<Hub>, Fa
         if !properties.services.contains(&service) {
             continue;
         }
-        hubs.push(Hub {
+        devices.push(Device {
             address: peripheral.address().to_string(),
             name: properties.local_name.unwrap_or_default(),
             rssi: properties.rssi,
             peripheral,
         });
     }
-    hubs.sort_by_key(|hub| std::cmp::Reverse(hub.rssi.unwrap_or(i16::MIN)));
-    Ok(hubs)
+    devices.sort_by_key(|device| std::cmp::Reverse(device.rssi.unwrap_or(i16::MIN)));
+    Ok(devices)
 }
 
-struct Hub {
+/// The Device at `address`, or the strongest whose name starts with `prefix`.
+async fn pick_device(
+    adapter: &Adapter,
+    options: &Options,
+    prefix: &str,
+) -> Result<Device, Failure> {
+    let devices = find_devices(adapter, options.seconds()?).await?;
+    match options.get("address") {
+        Some(address) => devices
+            .into_iter()
+            .find(|device| device.address.eq_ignore_ascii_case(address)),
+        None => devices
+            .into_iter()
+            .find(|device| device.name.starts_with(prefix)),
+    }
+    .ok_or_else(|| format!("no {prefix} advertising the setup service").into())
+}
+
+struct Device {
     address: String,
     name: String,
     rssi: Option<i16>,
@@ -187,15 +216,15 @@ struct Hub {
 
 async fn scan(options: &Options) -> Result<ExitCode, Failure> {
     let adapter = adapter().await?;
-    let hubs = find_hubs(&adapter, options.seconds()?).await?;
-    if hubs.is_empty() {
-        println!("no Hub advertising the setup service");
+    let devices = find_devices(&adapter, options.seconds()?).await?;
+    if devices.is_empty() {
+        println!("no Device advertising the setup service");
     }
-    for hub in hubs {
-        let rssi = hub
+    for device in devices {
+        let rssi = device
             .rssi
             .map_or_else(|| "?".to_owned(), |rssi| rssi.to_string());
-        println!("{}  {}  rssi={rssi}", hub.address, hub.name);
+        println!("{}  {}  rssi={rssi}", device.address, device.name);
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -251,8 +280,8 @@ impl Link {
         loop {
             let notification = tokio::time::timeout(REPLY_TIMEOUT, self.notifications.next())
                 .await
-                .map_err(|_| "no reply from the Hub")?
-                .ok_or("the Hub disconnected")?;
+                .map_err(|_| "no reply from the Device")?
+                .ok_or("the Device disconnected")?;
             if notification.uuid != Uuid::from_u128(NOTIFY_CHARACTERISTIC_UUID) {
                 continue;
             }
@@ -308,22 +337,34 @@ fn status(status: WifiStatus) -> &'static str {
     }
 }
 
-/// The reply body, or an error naming the `SetupError` the Hub sent instead.
+/// The reply body, or an error naming the `SetupError` the Device sent instead.
 fn body(message: SetupMessage, step: &str) -> Result<Body, Failure> {
     match message.body {
         Some(Body::Error(error)) => {
-            Err(format!("{step}: the Hub answered SetupError {}", error.code.0).into())
+            Err(format!("{step}: the Device answered SetupError {}", error.code.0).into())
         }
         Some(body) => Ok(body),
         None => Err(format!("{step}: empty reply").into()),
     }
 }
 
+/// What is being enrolled: a Hub, or a Node into a Lot.
+#[derive(Clone, Copy)]
+enum Kind<'a> {
+    Hub,
+    Node { lot: &'a str },
+}
+
 /// The `EnrolDeviceRequest` body (OpenAPI) for `POST /sites/{siteId}/devices`: the Device ID in
-/// lowercase hex, `kind` `hub`, and `enc` and `ciphertext` in base64url without padding.
-fn enrol_device_request(device_id: &[u8], enc: &[u8], ciphertext: &[u8]) -> String {
+/// lowercase hex, `kind` `hub` or `node` (a Node with its `lotId`), and `enc` and `ciphertext` in
+/// base64url without padding.
+fn enrol_device_request(device_id: &[u8], kind: Kind<'_>, enc: &[u8], ciphertext: &[u8]) -> String {
+    let kind = match kind {
+        Kind::Hub => "\"kind\":\"hub\"".to_owned(),
+        Kind::Node { lot } => format!("\"kind\":\"node\",\"lotId\":\"{lot}\""),
+    };
     format!(
-        "{{\"deviceId\":\"{}\",\"kind\":\"hub\",\"enc\":\"{}\",\"ciphertext\":\"{}\"}}",
+        "{{\"deviceId\":\"{}\",{kind},\"enc\":\"{}\",\"ciphertext\":\"{}\"}}",
         hex(device_id),
         base64url(enc),
         base64url(ciphertext)
@@ -341,14 +382,7 @@ async fn setup(options: &Options) -> Result<ExitCode, Failure> {
         .map_err(|_| "the enrolment key is not 32 bytes")?;
 
     let adapter = adapter().await?;
-    let hubs = find_hubs(&adapter, options.seconds()?).await?;
-    let hub = match options.get("address") {
-        Some(address) => hubs
-            .into_iter()
-            .find(|hub| hub.address.eq_ignore_ascii_case(address)),
-        None => hubs.into_iter().next(),
-    }
-    .ok_or("no Hub advertising the setup service")?;
+    let hub = pick_device(&adapter, options, "Coldframe Hub").await?;
     println!("hub {} ({})", hub.address, hub.name);
 
     let mut link = Link::open(hub.peripheral).await?;
@@ -403,13 +437,7 @@ async fn run_session(
         site,
         server,
     } = *target;
-    let mut client = AppClient::new(random_key()?);
-    let mut frame = vec![0u8; MAX_FRAME];
-    let length = client.hello(&mut frame)?;
-    link.send(&frame[..length]).await?;
-    let reply = link.receive().await?;
-    client.on_hello_reply(&reply, code)?;
-    println!("session open, mtu={}", link.peripheral.mtu());
+    let mut client = open_session(link, code).await?;
 
     let identity = match request(link, &mut client, identity_request()).await {
         Ok(message) => body(message, "identity")?,
@@ -460,7 +488,12 @@ async fn run_session(
     println!("POST /sites/{site}/devices");
     println!(
         "{}",
-        enrol_device_request(&enrolled.device_id, &enrolled.enc, &enrolled.ciphertext)
+        enrol_device_request(
+            &enrolled.device_id,
+            Kind::Hub,
+            &enrolled.enc,
+            &enrolled.ciphertext
+        )
     );
     if options.get("enrolled") != Some("yes") {
         println!("post it, then press Enter once the Server answered 201");
@@ -482,6 +515,100 @@ async fn run_session(
     })
 }
 
+/// Opens the session: `SessionHello`, then the keys from `code`.
+async fn open_session(link: &mut Link, code: &str) -> Result<AppClient, Failure> {
+    let mut client = AppClient::new(random_key()?);
+    let mut frame = vec![0u8; MAX_FRAME];
+    let length = client.hello(&mut frame)?;
+    link.send(&frame[..length]).await?;
+    let reply = link.receive().await?;
+    client.on_hello_reply(&reply, code)?;
+    println!("session open, mtu={}", link.peripheral.mtu());
+    Ok(client)
+}
+
+/// The `--lot` value as a canonical lowercase UUID: anything else is refused before any BLE traffic.
+fn lot_id(text: &str) -> Result<String, Failure> {
+    let lot = Uuid::parse_str(text).map_err(|_| format!("--lot is not a UUID: {text:?}"))?;
+    Ok(lot.hyphenated().to_string())
+}
+
+async fn node_setup(options: &Options) -> Result<ExitCode, Failure> {
+    let code = options.require("code")?;
+    let site = options.require("site")?;
+    let lot = match lot_id(options.require("lot")?) {
+        Ok(lot) => lot,
+        Err(error) => {
+            eprintln!("{error}\n{}", usage());
+            return Ok(ExitCode::from(2));
+        }
+    };
+    let lot = lot.as_str();
+    let server_key: [u8; X25519_KEY_LENGTH] = from_base64url(options.require("enrolment-key")?)?
+        .try_into()
+        .map_err(|_| "the enrolment key is not 32 bytes")?;
+
+    let adapter = adapter().await?;
+    let node = pick_device(&adapter, options, "Coldframe Node").await?;
+    println!("node {} ({})", node.address, node.name);
+
+    let mut link = Link::open(node.peripheral).await?;
+    let result = run_node_session(&mut link, code, site, lot, &server_key, options).await;
+    // Ending the connection ends the Node's setup mode once it has enrolled.
+    let _ = link.peripheral.disconnect().await;
+    result
+}
+
+async fn run_node_session(
+    link: &mut Link,
+    code: &str,
+    site: &str,
+    lot: &str,
+    server_key: &[u8; X25519_KEY_LENGTH],
+    options: &Options,
+) -> Result<ExitCode, Failure> {
+    let mut client = open_session(link, code).await?;
+    let identity = match request(link, &mut client, identity_request()).await {
+        Ok(message) => body(message, "identity")?,
+        Err(error) if error.downcast_ref::<AppError>() == Some(&AppError::WrongSetupCode) => {
+            eprintln!("wrong setup code");
+            return Ok(ExitCode::FAILURE);
+        }
+        Err(error) => return Err(error),
+    };
+    let Body::Identity(identity) = identity else {
+        return Err("identity: unexpected reply".into());
+    };
+    println!(
+        "identity device_id={} kind={} firmware={}",
+        hex(&identity.device_id),
+        identity.kind.0,
+        identity.firmware_version
+    );
+
+    post(link, &mut client, node_binding(site, lot)?).await?;
+    println!("node binding sent site={site} lot={lot}");
+
+    let enrolment = enrolment_request(server_key, options.get("fingerprint"))?;
+    let Body::EnrolmentResponse(enrolled) =
+        body(request(link, &mut client, enrolment).await?, "enrolment")?
+    else {
+        return Err("enrolment: unexpected reply".into());
+    };
+    println!("enrolment sealed device_id={}", hex(&enrolled.device_id));
+    println!("POST /sites/{site}/devices");
+    println!(
+        "{}",
+        enrol_device_request(
+            &enrolled.device_id,
+            Kind::Node { lot },
+            &enrolled.enc,
+            &enrolled.ciphertext
+        )
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -499,6 +626,7 @@ async fn main() -> ExitCode {
     let result = match command.as_str() {
         "scan" => scan(&options).await,
         "setup" => setup(&options).await,
+        "node-setup" => node_setup(&options).await,
         _ => {
             eprintln!("{}", usage());
             return ExitCode::from(2);
@@ -535,7 +663,7 @@ mod tests {
 
 #[cfg(test)]
 mod enrol_body_tests {
-    use super::{enrol_device_request, from_base64url};
+    use super::{Kind, enrol_device_request, from_base64url};
 
     fn vector(field: &str) -> Vec<u8> {
         let path = concat!(
@@ -565,7 +693,7 @@ mod enrol_body_tests {
     fn the_enrolment_body_matches_the_openapi_shape_and_the_vector() {
         let (device_id, enc, ciphertext) =
             (vector("deviceId"), vector("enc"), vector("ciphertext"));
-        let body = enrol_device_request(&device_id, &enc, &ciphertext);
+        let body = enrol_device_request(&device_id, Kind::Hub, &enc, &ciphertext);
         let json: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
         let object = json.as_object().expect("an object");
         assert_eq!(object.len(), 4);
@@ -580,5 +708,37 @@ mod enrol_body_tests {
         assert_eq!(json["kind"], "hub");
         assert_eq!(base64url_field(&json["enc"], 43), enc);
         assert_eq!(base64url_field(&json["ciphertext"], 64), ciphertext);
+    }
+
+    #[test]
+    fn a_node_body_carries_its_lot() {
+        let (device_id, enc, ciphertext) =
+            (vector("deviceId"), vector("enc"), vector("ciphertext"));
+        let lot = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a6c";
+        let body = enrol_device_request(&device_id, Kind::Node { lot }, &enc, &ciphertext);
+        let json: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        let object = json.as_object().expect("an object");
+        assert_eq!(object.len(), 5);
+        assert_eq!(json["deviceId"], "92064422c012f481");
+        assert_eq!(json["kind"], "node");
+        assert_eq!(json["lotId"], lot);
+        assert_eq!(base64url_field(&json["enc"], 43), enc);
+        assert_eq!(base64url_field(&json["ciphertext"], 64), ciphertext);
+    }
+
+    #[test]
+    fn a_lot_must_be_a_uuid_and_is_printed_canonical() {
+        use super::lot_id;
+        assert_eq!(
+            lot_id("0199A1B2-C3D4-7E5F-8A9B-0C1D2E3F4A6C").unwrap(),
+            "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a6c"
+        );
+        assert_eq!(
+            lot_id("0199a1b2c3d47e5f8a9b0c1d2e3f4a6c").unwrap(),
+            "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a6c"
+        );
+        for bad in ["", "tomatoes", "0199a1b2-c3d4-7e5f-8a9b", "\"},\"x\":\""] {
+            assert!(lot_id(bad).is_err(), "{bad:?}");
+        }
     }
 }

@@ -34,6 +34,21 @@ public sealed record DeviceEnrolled(
     [property: Id(3)] DateTimeOffset EnrolledAt);
 
 /// <summary>
+/// The Node was assigned to a Lot, after the Lot granted it the claim (<c>ILotGrain.Claim</c>, AD-18). The
+/// Device grain is the only source of which Lot the Node is on.
+/// </summary>
+/// <param name="SiteId">The Site of the Node and the Lot.</param>
+/// <param name="LotId">The Lot the Node is on from now on.</param>
+/// <param name="AssignedAt">When the Server assigned the Node.</param>
+[EventType("device.assigned")]
+[GenerateSerializer]
+[Alias("coldframe.device-assigned")]
+public sealed record DeviceAssigned(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] string LotId,
+    [property: Id(2)] DateTimeOffset AssignedAt);
+
+/// <summary>
 /// The Device sent an authentic, new heartbeat (FR-13): its last-seen time. Every accepted heartbeat is
 /// journaled, so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read real events.
 /// </summary>

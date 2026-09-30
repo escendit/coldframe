@@ -232,5 +232,24 @@
     "alias": "device.seen",
     "schemaVersion": 1,
     "payload": { "seenAt": "2026-09-29T08:01:15.500Z", "deviceTimestampMs": 1790668875100 }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 1,
+    "alias": "device.enrolled",
+    "schemaVersion": 1,
+    "payload": {
+      "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+      "kind": "Node",
+      "wrappedKey": { "kekId": "0123456789abcdef", "nonce": "AAECAwQFBgcICQoL", "sealed": "ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKT" },
+      "enrolledAt": "2026-09-30T08:00:01Z"
+    }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 2,
+    "alias": "device.assigned",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", "assignedAt": "2026-09-30T08:00:01Z" }
   }
 ]

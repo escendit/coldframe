@@ -3,8 +3,8 @@ using Coldframe.Contracts.Devices;
 namespace Coldframe.Server.Devices;
 
 /// <summary>
-/// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, and when it was
-/// last seen.
+/// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, a Node's Lot, and
+/// when it was last seen.
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.device-state")]
@@ -47,6 +47,13 @@ public sealed class DeviceState
     [Id(5)]
     public long LastHeartbeatTimestampMs { get; private set; }
 
+    /// <summary>
+    /// The Lot a Node is assigned to (AD-18), or <see langword="null"/>. The Device grain is the only source
+    /// of which Lot a Node is on.
+    /// </summary>
+    [Id(6)]
+    public string? LotId { get; private set; }
+
     public void Apply(DeviceEnrolled @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -54,6 +61,12 @@ public sealed class DeviceState
         Kind = @event.Kind;
         WrappedKey = @event.WrappedKey;
         EnrolledAt = @event.EnrolledAt;
+    }
+
+    public void Apply(DeviceAssigned @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        LotId = @event.LotId;
     }
 
     public void Apply(DeviceSeen @event)

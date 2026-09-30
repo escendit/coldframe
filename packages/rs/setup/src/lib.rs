@@ -5,7 +5,9 @@
 //! - [`framing`]: splitting frames into BLE payloads and reassembling them.
 //! - [`session`]: the Device side of one BLE session as a state machine without I/O.
 //! - [`service`]: [`service::run_setup`], which drives link, Wi-Fi, TRNG and flash until the
-//!   Device is provisioned.
+//!   Hub is provisioned.
+//! - [`node`]: [`node::run_node_setup`], the Node's time-bounded setup window (Story 4.2): a
+//!   Node session, enrolment only, no Wi-Fi and nothing stored.
 //! - [`app`]: the app side of a session, for tests and the desktop bench client.
 //!
 //! # Transport contract
@@ -26,6 +28,7 @@
 pub mod app;
 pub mod code;
 pub mod framing;
+pub mod node;
 pub mod service;
 pub mod session;
 pub mod store;
@@ -35,6 +38,7 @@ use coldframe_protocol::{
 };
 
 pub use code::SetupCode;
+pub use node::{NODE_SESSION_IDLE_TIMEOUT_MS, NodeSetupEnd, SETUP_WINDOW_MS, run_node_setup};
 pub use service::{Provisioned, SetupError, run_setup};
 
 /// The setup GATT service.

@@ -1,7 +1,12 @@
 //! [`SetupLink`] over trouble-host: the AD-25 setup GATT service on the ESP32-S3 BLE controller.
 //!
-//! [`ble_task`] owns the BLE host and the GATT server. It advertises only when the setup service
-//! asks ([`SetupLink::accept`]), serves one connection at a time, and bridges it to
+//! A copy of the Hub's adapter (`apps/rs/hub/src/board/ble.rs`, a shared board crate is a deferred
+//! item) with two differences: the name is `Coldframe Node XXXX`, and the host runs as the future
+//! [`run`] instead of a spawned task, so setup mode drops it (and with it the BLE controller) when
+//! the window closes. BLE runs in setup mode only.
+//!
+//! [`run`] owns the BLE host and the GATT server. It advertises only when the setup service
+//! asks ([`SetupLink::accept_within`]), serves one connection at a time, and bridges it to
 //! [`BoardSetupLink`] through embassy-sync channels:
 //!
 //! - writes to the write characteristic go to the link as [`Event::Write`];
@@ -9,7 +14,7 @@
 //! - [`SetupLink::disconnect`] asks the task to drop the connection.
 //!
 //! Advertising: flags plus the setup service UUID in the advertising data, the name
-//! `Coldframe Hub XXXX` (the first four Device ID hex digits, uppercase) in the scan response.
+//! `Coldframe Node XXXX` (the first four Device ID hex digits, uppercase) in the scan response.
 //! Payloads are never logged.
 
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -29,8 +34,8 @@ use trouble_host::prelude::*;
 /// The largest payload one write or notification carries: ATT MTU 251 minus 3.
 pub const MAX_PAYLOAD: usize = 248;
 
-/// Length of the advertised name, `Coldframe Hub XXXX`.
-pub const NAME_LENGTH: usize = 18;
+/// Length of the advertised name, `Coldframe Node XXXX`.
+pub const NAME_LENGTH: usize = 19;
 
 type Payload = heapless::Vec<u8, MAX_PAYLOAD>;
 
@@ -81,11 +86,11 @@ struct SetupService {
     notify: heapless::Vec<u8, MAX_PAYLOAD>,
 }
 
-/// The advertised name for a Device ID in hex: `Coldframe Hub` and its first four digits,
+/// The advertised name for a Device ID in hex: `Coldframe Node` and its first four digits,
 /// uppercase.
 pub fn advertised_name(device_id_hex: &[u8; 16]) -> [u8; NAME_LENGTH] {
-    let mut name = *b"Coldframe Hub XXXX";
-    for (slot, digit) in name[14..].iter_mut().zip(device_id_hex) {
+    let mut name = *b"Coldframe Node XXXX";
+    for (slot, digit) in name[15..].iter_mut().zip(device_id_hex) {
         *slot = digit.to_ascii_uppercase();
     }
     name
@@ -100,10 +105,9 @@ pub fn address(device_id: &[u8; 8]) -> [u8; 6] {
 }
 
 /// Runs the BLE host: advertises the setup service whenever the link asks, and serves one
-/// connection at a time.
-#[embassy_executor::task]
-pub async fn ble_task(
-    controller: ExternalController<BleConnector<'static>, 1>,
+/// connection at a time. Returns only if the host fails; dropping the future stops BLE.
+pub async fn run(
+    controller: ExternalController<BleConnector<'_>, 1>,
     name: [u8; NAME_LENGTH],
     address: [u8; 6],
 ) {
@@ -114,7 +118,7 @@ pub async fn ble_task(
         .build();
     let mut peripheral = stack.peripheral();
     let mut runner = stack.runner();
-    let name_str = core::str::from_utf8(&name).unwrap_or("Coldframe Hub");
+    let name_str = core::str::from_utf8(&name).unwrap_or("Coldframe Node");
 
     let server = match SetupServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: name_str,
@@ -180,6 +184,8 @@ pub async fn ble_task(
                 Ok(connection) => connection,
                 Err(error) => {
                     warn!("ble attribute server failed: {error:?}");
+                    // The link is still waiting in `accept_within`: advertise again for it.
+                    ADVERTISE.signal(());
                     continue;
                 }
             };
@@ -267,13 +273,13 @@ async fn notifications<P: PacketPool>(
     }
 }
 
-/// The link side of [`ble_task`].
+/// The link side of [`run`].
 pub struct BoardSetupLink {
     connected: bool,
 }
 
 impl BoardSetupLink {
-    /// The link. Spawn [`ble_task`] once, before the first [`SetupLink::accept`].
+    /// The link. Run [`run`] alongside it, from before the first accept.
     pub fn new() -> Self {
         Self { connected: false }
     }

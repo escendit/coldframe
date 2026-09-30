@@ -15,7 +15,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `PATCH /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `DELETE /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `GET /enrolment-key` | `Authenticated` | Story 3.3 (contract: Story 3.1) |
-| `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1) |
+| `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1); a Node's `lotId` since Story 4.2 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` (placeholder) | `Device` | Contract: Story 3.1; served: Epic 4 |
 
@@ -40,12 +40,17 @@ endpoint test requires that it is not mapped yet; the story that serves it remov
   caller's Role is missing or too low), `site-not-found` (404), `lot-not-found` (404, no such Lot on
   this Site), `validation` (400), `idempotency-key-missing` (400), `lot-claimed` (409, a Node is
   assigned to the Lot), `idempotency-key-reused` (422), `identity-provider-unavailable` (503),
-  `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409). The set
-  grows with the API, so `ProblemDetails.type` is an `x-extensible-enum`.
+  `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409),
+  `device-assigned` (409, the Node is in another Lot already). Enrolling a Node with a `lotId` answers
+  `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
+  when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an
+  `x-extensible-enum`.
 - **Creating POSTs** take an `Idempotency-Key` header, 1 to 200 printable ASCII characters, kept per User
   for 24 h after the request once the creation completes. A request still pending (Keycloak was down)
   keeps its key until a retry completes it. A retry returns the original result; the same key with a
-  different request answers 422.
+  different request answers 422. For `POST /sites/{siteId}/devices` the key covers the Device's
+  registration on the Site only: a Node's `lotId` is checked against the Device on every request, and a
+  refused claim persists nothing for the Device, so a retry with the same key may name another Lot.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

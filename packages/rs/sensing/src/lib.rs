@@ -3,6 +3,8 @@
 //! A Node wakes every 15 minutes, takes one Reading per Sensor and deep-sleeps again. Every wake
 //! is a reboot, so all state that must outlive it lives in flash.
 //!
+//! - [`button`]: [`classify_press`] times a setup-button press (Story 4.2), and [`wake_plan`]
+//!   decides what the wake does.
 //! - [`battery`]: the switched-divider scaling and the LiPo discharge curve, giving an
 //!   approximate [`BatteryLevel`].
 //! - [`env`]: [`env_sample_from`], the one conversion of the BME680's floats to integer units.
@@ -17,11 +19,13 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod battery;
+pub mod button;
 pub mod counter;
 pub mod env;
 pub mod wake;
 
 pub use battery::{BatteryLevel, Divider};
+pub use button::{Press, WakePlan, arm_button_wake, classify_press, sleep_after, wake_plan};
 pub use counter::{CounterError, ReservedCounter};
 pub use env::env_sample_from;
 pub use wake::{

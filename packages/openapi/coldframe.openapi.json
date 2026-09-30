@@ -197,7 +197,7 @@
       "post": {
         "operationId": "enrolDevice",
         "summary": "Enrol a Device on the Site",
-        "description": "The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. Idempotent per caller and Idempotency-Key for 24 h. Nothing is persisted on any error.",
+        "description": "The app relays the Device's sealed enrolment unread. The Server opens K_dev with its enrolment private key, using deviceId as the HPKE associated data, stores K_dev encrypted at rest and adds the Device to the Site's roster. A Node sent with lotId claims that Lot: a Lot holds one Node. Idempotent per caller and Idempotency-Key for 24 h; enrolling the same Device on the same Site (and Lot) again answers the same. The Idempotency-Key covers the Device's registration on the Site; lotId is checked against the Device on every request, and a refused claim persists nothing for the Device, so a retry with the same key may name another Lot. Leaving out lotId never unassigns a Node. Nothing is persisted for the Device on any error.",
         "x-coldframe-minimum-role": "Administrator",
         "parameters": [
           { "$ref": "#/components/parameters/SiteId" },
@@ -223,8 +223,8 @@
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/SiteNotFound" },
-          "409": { "$ref": "#/components/responses/DeviceOnAnotherSite" },
+          "404": { "$ref": "#/components/responses/DeviceEnrolmentNotFound" },
+          "409": { "$ref": "#/components/responses/DeviceEnrolmentConflict" },
           "422": { "$ref": "#/components/responses/IdempotencyKeyReused" }
         }
       }
@@ -580,6 +580,11 @@
             "type": "string",
             "description": "K_dev sealed with HPKE (48 bytes), base64url without padding.",
             "pattern": "^[A-Za-z0-9_-]{64}$"
+          },
+          "lotId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Lot of the Site a Node is put in. Only for a Node; a Hub with a lotId is a validation error. A Lot holds one Node."
           }
         }
       },
@@ -589,7 +594,8 @@
         "properties": {
           "id": { "$ref": "#/components/schemas/DeviceId" },
           "kind": { "$ref": "#/components/schemas/DeviceKind" },
-          "siteId": { "type": "string", "format": "uuid", "description": "The Site the Device is enrolled on." }
+          "siteId": { "type": "string", "format": "uuid", "description": "The Site the Device is enrolled on." },
+          "lotId": { "type": "string", "format": "uuid", "description": "The Lot a Node is on; absent for a Hub and an unassigned Node." }
         }
       },
       "ProblemDetails": {
@@ -611,7 +617,8 @@
               "urn:coldframe:problem:identity-provider-unavailable",
               "urn:coldframe:problem:lot-claimed",
               "urn:coldframe:problem:device-unauthorized",
-              "urn:coldframe:problem:device-on-another-site"
+              "urn:coldframe:problem:device-on-another-site",
+              "urn:coldframe:problem:device-assigned"
             ]
           },
           "title": { "type": "string" },
@@ -654,8 +661,12 @@
         "description": "urn:coldframe:problem:device-unauthorized: the Device authentication failed (unknown Device, bad signature, timestamp more than 300000 ms off, or a replayed nonce).",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
-      "DeviceOnAnotherSite": {
-        "description": "urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. Nothing was persisted.",
+      "DeviceEnrolmentNotFound": {
+        "description": "urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site); nothing was enrolled.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "DeviceEnrolmentConflict": {
+        "description": "urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. urn:coldframe:problem:lot-claimed: this Lot already has a Node. urn:coldframe:problem:device-assigned: the Node is in another Lot already; move it instead. Nothing was enrolled or assigned.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "IdentityProviderUnavailable": {

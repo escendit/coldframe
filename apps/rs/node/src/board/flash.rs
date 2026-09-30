@@ -1,8 +1,9 @@
 //! [`Flash`] over the Coldframe data partitions, through esp-storage.
 //!
 //! One [`FlashStorage`] lives in a `StaticCell`; [`BoardStorage::partition`] opens a partition
-//! of it by label. A partition borrows the storage, so `cf_ident` (dev mode), `cf_boot` and
-//! `cf_seq` are used one after the other. Copied from the Hub (apps/rs/hub) with the Node's labels.
+//! of it by label. A partition borrows the storage, so `cf_ident` (dev mode), `cf_boot`,
+//! `cf_setup` and `cf_seq` are used one after the other. Copied from the Hub (apps/rs/hub) with
+//! the Node's labels.
 //!
 //! Nothing here touches the ESP-IDF `nvs` partition.
 //!
@@ -10,7 +11,8 @@
 //! esp-storage's read-erase-rewrite of the whole sector. The counters (`coldframe-sensing`) rely
 //! on it: a power loss during a read-erase-rewrite would wipe every record of the active sector
 //! and roll the stored ceiling back. Only the dev-mode identity record (41 bytes, once, onto an
-//! erased partition) takes the read-erase-rewrite path.
+//! erased partition) and the setup-code record (17 bytes, once, onto the sector it has just erased)
+//! take the read-erase-rewrite path.
 
 use coldframe_hal::{Flash, FlashError};
 use embedded_storage::nor_flash::NorFlash;
@@ -29,6 +31,10 @@ pub const SEQ_PARTITION: &str = "cf_seq";
 
 /// Label of the boot counter partition in `partitions.csv`.
 pub const BOOT_PARTITION: &str = "cf_boot";
+
+/// Label of the setup partition in `partitions.csv`: only the `CFPC` setup-code record. A Node
+/// stores no Site, Lot or Wi-Fi settings.
+pub const SETUP_PARTITION: &str = "cf_setup";
 
 /// Data subtype of the Coldframe partitions in `partitions.csv`.
 /// `undefined` (0x06): espflash only parses the named ESP-IDF data subtypes, not custom ones.

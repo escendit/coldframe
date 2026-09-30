@@ -11,9 +11,13 @@
 //! | Probe power switch | GPIO4 | high-side switch, high = on; control pulled down externally |
 //! | Divider switch | GPIO5 | high-side switch, high = on; control pulled down externally |
 //! | Charger status (`CHRG`) | GPIO6 | active low, internal pull-up |
+//! | Setup button | GPIO7 | to ground, active low, internal pull-up kept in deep sleep; wakes the Node |
 //! | I²C SDA | GPIO8 | BME680 |
 //! | I²C SCL | GPIO9 | BME680 |
 //! | BME680 address | 0x77 | SDO to VCC |
+//!
+//! The setup button is a momentary switch from GPIO7 (a low-power pad, so it can wake the chip from
+//! deep sleep) to ground. The internal pull-up holds it high while released, also in deep sleep.
 //!
 //! Only ADC1 is used: ADC2 conflicts with the radio. The digital pads float in deep sleep, so the
 //! switch controls need external pull-downs to stay off.
@@ -61,6 +65,8 @@ pub struct Pins {
     pub divider_switch: AnyPin<'static>,
     /// Charger status input.
     pub charger: AnyPin<'static>,
+    /// Setup button input.
+    pub button: AnyPin<'static>,
     /// I²C data.
     pub sda: AnyPin<'static>,
     /// I²C clock.
@@ -77,6 +83,7 @@ macro_rules! take_pins {
             probe_switch: $peripherals.GPIO4.into(),
             divider_switch: $peripherals.GPIO5.into(),
             charger: $peripherals.GPIO6.into(),
+            button: $peripherals.GPIO7.into(),
             sda: $peripherals.GPIO8.into(),
             scl: $peripherals.GPIO9.into(),
         }

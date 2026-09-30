@@ -1,6 +1,6 @@
-# Integration tests for coldframe-sensing: the battery curve, the persisted counters (reservation,
-# resets, torn records, sector rollover, corruption) and the wake cycle (switch order, failures,
-# measured_at, sleep arithmetic), over the coldframe-hal mocks.
+# Integration tests for coldframe-sensing: the setup button and wake plan, the battery curve, the
+# persisted counters (reservation, resets, torn records, sector rollover, corruption) and the wake
+# cycle (switch order, failures, measured_at, sleep arithmetic), over the coldframe-hal mocks.
 [package]
 name = "coldframe-sensing-tests"
 description = "Integration tests for coldframe-sensing"

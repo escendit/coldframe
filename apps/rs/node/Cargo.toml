@@ -7,15 +7,19 @@ edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/escendit/coldframe"
 publish = false
-description = "Coldframe Node firmware: hardware-bound identity, wake, measure and deep sleep"
+description = "Coldframe Node firmware: hardware-bound identity, wake, measure, deep sleep and BLE setup mode"
 
 # Exact versions (AD-15), the esp stack of the Hub (apps/rs/hub); Cargo.lock pins the rest.
 [dependencies]
 bosch-bme680 = "=1.0.4"
 coldframe-crypto = { path = "../../../packages/rs/crypto" }
 coldframe-hal = { path = "../../../packages/rs/hal" }
+coldframe-protocol = { path = "../../../packages/rs/protocol" }
 coldframe-sensing = { path = "../../../packages/rs/sensing" }
+coldframe-setup = { path = "../../../packages/rs/setup" }
 embassy-executor = "=0.10.0"
+embassy-futures = "=0.1.2"
+embassy-sync = "=0.8.0"
 embassy-time = "=0.5.1"
 esp-alloc = { version = "=0.11.0", features = ["esp32s3"] }
 esp-backtrace = { version = "=0.20.0", features = ["panic-handler", "println", "esp32s3"] }
@@ -24,19 +28,23 @@ embedded-storage = "=0.3.2"
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3", "embedded-storage"] }
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable", "log-04"] }
 esp-println = { version = "=0.18.0", features = ["esp32s3", "log-04"] }
-# Wi-Fi only: the radio is started just to feed the TRNG when a new identity root is drawn.
-esp-radio = { version = "=1.0.0-beta.1", features = ["esp32s3", "unstable", "log-04", "wifi"] }
+# Wi-Fi starts only to feed the TRNG when a new identity root or setup code is drawn. BLE runs only
+# in setup mode (Story 4.2). ESP-NOW (with `coex`) is used only by the `dev-mode` coexistence probe
+# until Story 4.4; a release build runs no ESP-NOW code.
+esp-radio = { version = "=1.0.0-beta.1", features = ["esp32s3", "unstable", "log-04", "wifi", "ble", "coex", "esp-now"] }
 esp-rtos = { version = "=0.4.0", features = ["esp32s3", "esp-radio", "embassy", "log-04"] }
 esp-storage = { version = "=0.10.0", features = ["esp32s3"] }
+heapless = { version = "=0.9.3", default-features = false }
 log = "=0.4.34"
 nb = "=1.1.0"
 static_cell = "=2.1.1"
+trouble-host = { version = "=0.7.0", features = ["default-packet-pool-mtu-255", "derive"] }
 
 [features]
 default = []
 # Software identity root in the `cf_ident` flash partition instead of an eFuse burn. Debug builds
 # only: a release build with it enabled fails to compile (AD-12). Also the only build that logs
-# Reading values.
+# Reading values, and the only one with the ESP-NOW coexistence probe in setup mode.
 dev-mode = []
 
 [profile.dev]

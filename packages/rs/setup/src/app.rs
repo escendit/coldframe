@@ -266,3 +266,17 @@ pub fn wifi_config(ssid: &str, password: &str) -> Result<Body, AppError> {
         password: password.try_into().map_err(|_| AppError::InvalidRequest)?,
     }))
 }
+
+/// `SiteBinding` for a Node: the Site and the Lot, no Server.
+///
+/// # Errors
+///
+/// [`AppError::InvalidRequest`] when `site_id` or `lot_id` is longer than 36 bytes.
+pub fn node_binding(site_id: &str, lot_id: &str) -> Result<Body, AppError> {
+    let mut binding = SiteBinding {
+        site_id: site_id.try_into().map_err(|_| AppError::InvalidRequest)?,
+        ..SiteBinding::default()
+    };
+    binding.set_lot_id(lot_id.try_into().map_err(|_| AppError::InvalidRequest)?);
+    Ok(Body::SiteBinding(binding))
+}

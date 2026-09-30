@@ -202,6 +202,16 @@ impl AppPeer {
         });
     }
 
+    /// Like [`AppPeer::connect`], but runs `hook` before the app handles each payload the Device
+    /// sends: a test moves its clock there.
+    pub fn connect_with_hook(mut self, link: &mut MockSetupLink, mut hook: impl FnMut() + 'static) {
+        let hello = self.hello();
+        link.connect_with_peer(self.max_payload, hello, move |payload| {
+            hook();
+            self.on_payload(payload)
+        });
+    }
+
     fn on_payload(&mut self, payload: &[u8]) -> Vec<Vec<u8>> {
         let frame = match self.reassembler.push(payload) {
             Ok(Some(frame)) => frame.to_vec(),

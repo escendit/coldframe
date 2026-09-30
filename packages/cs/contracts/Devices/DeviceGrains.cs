@@ -9,9 +9,12 @@ public interface IDeviceGrain : IGrainWithStringKey
 {
     /// <summary>
     /// Enrols the Device on a Site. A Device enrolled on another Site is refused first. Then the Site grain
-    /// registers the Device (<c>ISiteGrain.RegisterDevice</c>), and only after it has, the Device journals
-    /// <see cref="DeviceEnrolled"/>. Enrolling again on the same Site journals nothing and answers the same.
-    /// Nothing is persisted on a refusal.
+    /// registers the Device (<c>ISiteGrain.RegisterDevice</c>). A Node given a Lot then claims it
+    /// (<c>ILotGrain.Claim</c>); a Node on another Lot already is refused. Only after all of that, the Device
+    /// journals <see cref="DeviceEnrolled"/> (when new) and <see cref="DeviceAssigned"/> (when it claimed the
+    /// Lot now) together. Enrolling again on the same Site and Lot journals nothing and answers the same. The
+    /// Device persists nothing on a refusal; after a refused claim only the Site's idempotent registration
+    /// stays.
     /// </summary>
     /// <param name="request">What to enrol, with the wrapped key only.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
@@ -89,6 +92,7 @@ public sealed record DeviceHeartbeatResult([property: Id(0)] DeviceHeartbeatOutc
 /// <param name="WrappedKey">The Device's <c>K_dev</c>, wrapped under the key-encryption key.</param>
 /// <param name="CallerId">The caller's User ID (the OIDC <c>sub</c>).</param>
 /// <param name="IdempotencyKey">The request's <c>Idempotency-Key</c>, already validated.</param>
+/// <param name="LotId">The canonical Lot ID a Node is assigned to, or <see langword="null"/>; never set for a Hub.</param>
 [GenerateSerializer]
 [Alias("coldframe.enrol-device")]
 public sealed record EnrolDevice(
@@ -96,7 +100,8 @@ public sealed record EnrolDevice(
     [property: Id(1)] DeviceKind Kind,
     [property: Id(2)] WrappedDeviceKey WrappedKey,
     [property: Id(3)] string CallerId,
-    [property: Id(4)] string IdempotencyKey);
+    [property: Id(4)] string IdempotencyKey,
+    [property: Id(5)] string? LotId = null);
 
 /// <summary>
 /// How an enrolment ended.
@@ -124,6 +129,21 @@ public enum DeviceEnrolmentOutcome
     /// The caller used the key within 24 h to enrol another Device on the Site. Nothing was persisted.
     /// </summary>
     IdempotencyKeyReused = 3,
+
+    /// <summary>
+    /// The Lot is not on the Site: uncreated, removed, or of another Site. The Device journaled nothing.
+    /// </summary>
+    LotNotFound = 4,
+
+    /// <summary>
+    /// Another Node holds the Lot. The Device journaled nothing.
+    /// </summary>
+    LotOccupied = 5,
+
+    /// <summary>
+    /// The Node is assigned to another Lot already; moving it is a separate operation. Nothing was persisted.
+    /// </summary>
+    AlreadyAssigned = 6,
 }
 
 /// <summary>
@@ -132,12 +152,14 @@ public enum DeviceEnrolmentOutcome
 /// <param name="Id">The Device ID.</param>
 /// <param name="Kind">Hub or Node.</param>
 /// <param name="SiteId">The Site the Device is enrolled on.</param>
+/// <param name="LotId">The Lot a Node is assigned to, or <see langword="null"/>.</param>
 [GenerateSerializer]
 [Alias("coldframe.device-summary")]
 public sealed record DeviceSummary(
     [property: Id(0)] string Id,
     [property: Id(1)] DeviceKind Kind,
-    [property: Id(2)] string SiteId);
+    [property: Id(2)] string SiteId,
+    [property: Id(3)] string? LotId = null);
 
 /// <summary>
 /// The result of <see cref="IDeviceGrain.Enrol"/>.

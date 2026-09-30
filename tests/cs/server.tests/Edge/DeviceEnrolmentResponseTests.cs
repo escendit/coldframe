@@ -12,6 +12,7 @@ namespace Coldframe.Server.Tests.Edge;
 public sealed class DeviceEnrolmentResponseTests
 {
     private const string SiteId = "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00";
+    private const string LotId = "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02";
 
     [Fact]
     public async Task EnrolledAnswers201WithTheDevice()
@@ -28,10 +29,25 @@ public sealed class DeviceEnrolmentResponseTests
         Assert.Equal(SiteId, body.RootElement.GetProperty("siteId").GetString());
     }
 
+    [Fact]
+    public async Task AnAssignedNodeAnswers201WithItsLot()
+    {
+        var result = new DeviceEnrolmentResult(DeviceEnrolmentOutcome.Enrolled, new DeviceSummary("92064422c012f481", DeviceKind.Node, SiteId, LotId));
+
+        var (context, body) = await ExecuteAsync(EdgeApi.ToHttpResult(result));
+
+        Assert.Equal(StatusCodes.Status201Created, context.Response.StatusCode);
+        Assert.Equal(["id", "kind", "lotId", "siteId"], body.RootElement.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(LotId, body.RootElement.GetProperty("lotId").GetString());
+    }
+
     [Theory]
     [InlineData(DeviceEnrolmentOutcome.SiteNotFound, StatusCodes.Status404NotFound, EdgeProblems.SiteNotFound)]
     [InlineData(DeviceEnrolmentOutcome.OnAnotherSite, StatusCodes.Status409Conflict, EdgeProblems.DeviceOnAnotherSite)]
     [InlineData(DeviceEnrolmentOutcome.IdempotencyKeyReused, StatusCodes.Status422UnprocessableEntity, EdgeProblems.IdempotencyKeyReused)]
+    [InlineData(DeviceEnrolmentOutcome.LotNotFound, StatusCodes.Status404NotFound, EdgeProblems.LotNotFound)]
+    [InlineData(DeviceEnrolmentOutcome.LotOccupied, StatusCodes.Status409Conflict, EdgeProblems.LotClaimed)]
+    [InlineData(DeviceEnrolmentOutcome.AlreadyAssigned, StatusCodes.Status409Conflict, "urn:coldframe:problem:device-assigned")]
     public async Task RefusalsAnswerProblemDetailsOfTheirType(DeviceEnrolmentOutcome outcome, int status, string type)
     {
         var (context, body) = await ExecuteAsync(EdgeApi.ToHttpResult(new DeviceEnrolmentResult(outcome)));
@@ -39,6 +55,14 @@ public sealed class DeviceEnrolmentResponseTests
         Assert.Equal(status, context.Response.StatusCode);
         Assert.StartsWith(EdgeProblems.ContentType, context.Response.ContentType, StringComparison.Ordinal);
         Assert.Equal(type, body.RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task AnOccupiedLotSaysSoInTheTitle()
+    {
+        var (_, body) = await ExecuteAsync(EdgeApi.ToHttpResult(new DeviceEnrolmentResult(DeviceEnrolmentOutcome.LotOccupied)));
+
+        Assert.Equal("This Lot already has a Node.", body.RootElement.GetProperty("title").GetString());
     }
 
     [Fact]

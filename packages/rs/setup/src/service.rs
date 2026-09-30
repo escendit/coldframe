@@ -276,7 +276,8 @@ where
     }
 }
 
-async fn send_frame<L: SetupLink>(link: &mut L, frame: &[u8]) -> Result<(), LinkError> {
+/// Sends one frame as fragments of at most the link's payload size.
+pub(crate) async fn send_frame<L: SetupLink>(link: &mut L, frame: &[u8]) -> Result<(), LinkError> {
     let max_payload = link.max_payload().clamp(2, MAX_PAYLOAD);
     let mut buffer = [0u8; MAX_PAYLOAD];
     for fragment in fragments(frame, max_payload) {
