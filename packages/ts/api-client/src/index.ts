@@ -17,6 +17,9 @@ export type LotList = components['schemas']['LotList'];
 export type LotStatus = components['schemas']['LotStatus'];
 export type CreateLotRequest = components['schemas']['CreateLotRequest'];
 export type RenameLotRequest = components['schemas']['RenameLotRequest'];
+export type DeviceKind = components['schemas']['DeviceKind'];
+export type DeviceListItem = components['schemas']['DeviceListItem'];
+export type DeviceList = components['schemas']['DeviceList'];
 export type ProblemDetails = components['schemas']['ProblemDetails'];
 
 export type ColdframeClient = Client<paths>;

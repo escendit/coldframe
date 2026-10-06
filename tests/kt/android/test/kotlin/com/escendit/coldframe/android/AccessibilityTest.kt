@@ -14,12 +14,15 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.devices.HubSummary
 import com.escendit.coldframe.core.signin.Notice
 import com.escendit.coldframe.core.signin.SignInState
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.GraphicsMode
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -54,6 +57,14 @@ class AccessibilityTest {
             onSignIn = {},
             onSignOut = {},
             onSelectTheme = {},
+            devices =
+                DevicesState.Ready(
+                    homeSite(),
+                    listOf(
+                        HubSummary("3f2a9c0d1e4b5a67", online = true, lastSeenAtEpochMs = 1_791_270_120_000L),
+                        HubSummary("7c19000000000001", online = false, lastSeenAtEpochMs = null),
+                    ),
+                ),
         )
 
     private fun assertControlsAreLabelledWithRole(screen: String) {
@@ -112,6 +123,18 @@ class AccessibilityTest {
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Appearance").performClick()
         compose.assertNothingOverflows("Appearance")
+    }
+
+    @Test
+    fun `UX-DR96 UX-DR98 UX-DR100 at font scale 2 Devices clips nothing and Add a Hub is a labelled 48 dp button`() {
+        show(SignInState.SignedIn(null), fontScale = 2f)
+        compose.onNodeWithText("Devices").performClick()
+
+        compose.assertNothingOverflows("Devices")
+        assertControlsAreLabelledWithRole("Devices")
+        assertTouchTargetsAreAtLeast48dp("Devices")
+        val addHub = compose.allNodes().single { it.isClickable && it.spokenLabel() == "ADD A HUB" }
+        assertEquals(Role.Button, addHub.role)
     }
 
     @Test

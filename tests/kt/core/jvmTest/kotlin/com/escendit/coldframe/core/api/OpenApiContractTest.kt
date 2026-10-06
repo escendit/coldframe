@@ -145,6 +145,29 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun uxDr65TheDevicesListIsAGetForMembersWithTheServersOnlineFlag() {
+        val list = operation("/sites/{siteId}/devices", "get")
+        assertEquals("listDevices", list["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Member", list["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId"), parameterNames(list))
+        val responses = list["responses"]!!.jsonObject
+        for (status in listOf("200", "401", "403", "404")) {
+            assertNotNull(responses[status], "listDevices $status")
+        }
+        val item = schema("DeviceListItem")
+        assertEquals(
+            setOf("id", "kind", "online"),
+            item["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        )
+        assertEquals(
+            setOf("id", "kind", "lotId", "lastSeenAt", "online"),
+            item["properties"]!!.jsonObject.keys,
+        )
+        val kinds = schema("DeviceKind")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(com.escendit.coldframe.core.devices.DevicesEngine.KIND_HUB in kinds)
+    }
+
+    @Test
     fun theLotStatusesAreTheContractValuesInTheServerOrder() {
         val statuses = schema("LotStatus")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertEquals(
@@ -168,6 +191,8 @@ class OpenApiContractTest {
         assertMirrors("EnrolmentKey", EnrolmentKeyDto.serializer().descriptor)
         assertMirrors("EnrolDeviceRequest", EnrolDeviceRequestDto.serializer().descriptor)
         assertMirrors("Device", DeviceDto.serializer().descriptor)
+        assertMirrors("DeviceListItem", DeviceListItemDto.serializer().descriptor)
+        assertMirrors("DeviceList", DeviceListDto.serializer().descriptor)
     }
 
     @Test

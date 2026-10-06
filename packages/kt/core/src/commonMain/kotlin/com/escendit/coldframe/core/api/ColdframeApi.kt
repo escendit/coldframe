@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.api
 
+import com.escendit.coldframe.core.devices.DevicesApi
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
@@ -46,6 +47,7 @@ public class ColdframeApi(
     private val certificateError: (Throwable) -> Boolean = ::isCertificateError,
 ) : SitesApi,
     LotsApi,
+    DevicesApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
@@ -122,6 +124,10 @@ public class ColdframeApi(
     /** `GET /enrolment-key` (`getEnrolmentKey`): the Server's X25519 enrolment key and fingerprint. */
     override suspend fun enrolmentKey(): ApiResult<EnrolmentKeyDto> =
         call({ http.get("$base/enrolment-key") { it() } }) { it.body<EnrolmentKeyDto>() }
+
+    /** `GET /sites/{siteId}/devices` (`listDevices`, Member): every enrolled Device, with the Server's `online`. */
+    override suspend fun listDevices(siteId: String): ApiResult<DeviceListDto> =
+        call({ http.get("$base/sites/${siteId.encoded()}/devices") { it() } }) { it.body<DeviceListDto>() }
 
     /** `POST /sites/{siteId}/devices` (`enrolDevice`, Admin+) with the attempt's [idempotencyKey]. */
     override suspend fun enrolDevice(

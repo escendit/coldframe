@@ -3,8 +3,9 @@
  * the web app's flow — discovery, JWKS, authorize (auto-approve form), token with a PKCE S256
  * check and refresh, end-session — and doubles as the Coldframe Server: `/.well-known/healthz`
  * and an in-memory Site and Lot API (`GET`/`POST /sites`, `PATCH /sites/{id}`, the
- * `/sites/{id}/lots` routes). Control endpoints switch failure modes, list every token it issued,
- * and reset or seed the Sites and Lots (a Lot can be seeded as holding a Node).
+ * `/sites/{id}/lots` routes) plus the Devices list (`GET /sites/{id}/devices`). Control endpoints
+ * switch failure modes, list every token it issued, and reset or seed the Sites, Lots (a Lot can
+ * be seeded as holding a Node) and Devices (the list can be seeded to fail).
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -48,6 +49,16 @@ export interface FakeLot {
   readonly name: string;
   readonly claimed?: boolean;
   readonly removed?: boolean;
+}
+
+/** A Device of the fake Server, as `GET /sites/{id}/devices` lists it; `online` is seeded, as the Server computes it. */
+export interface FakeDevice {
+  readonly id: string;
+  readonly siteId: string;
+  readonly kind: 'hub' | 'node';
+  readonly lotId?: string;
+  readonly lastSeenAt?: string;
+  readonly online: boolean;
 }
 
 /** Seeded by default, so every spec that signs in still reaches Garden. */
@@ -126,6 +137,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let lots: FakeLot[] = [];
   let lotPosts: FakeSitePost[] = [];
   const createdLots = new Map<string, FakeLot>();
+  let devices: FakeDevice[] = [];
+  /** Set to answer the Devices list with this status instead (a Server that is down). */
+  let devicesStatus: number | null = null;
 
   /** The fake Server accepts only access tokens this provider issued. */
   function bearerOk(request: IncomingMessage): boolean {
@@ -196,6 +210,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       const body = await readJson(request);
       sites = Array.isArray(body.sites) ? (body.sites as FakeSite[]) : [...defaultSites];
       lots = Array.isArray(body.lots) ? (body.lots as FakeLot[]) : [];
+      devices = Array.isArray(body.devices) ? (body.devices as FakeDevice[]) : [];
+      devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
       posts = [];
       lotPosts = [];
       created.clear();
@@ -240,6 +256,36 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       created.set(key, site);
       sites = [...sites, site];
       send(response, 201, site, { location: `/sites/${site.id}` });
+      return;
+    }
+
+    // Story 3.7: the Devices list (Member), by Device ID.
+    const devicesMatch = /^\/sites\/([^/]+)\/devices$/u.exec(path);
+    if (devicesMatch !== null && request.method === 'GET') {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(devicesMatch[1] ?? '');
+      if (!sites.some((candidate) => candidate.id === siteId)) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      if (devicesStatus !== null) {
+        problem(response, devicesStatus, 'unavailable');
+        return;
+      }
+      const listed = devices
+        .filter((device) => device.siteId === siteId)
+        .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map((device) => ({
+          id: device.id,
+          kind: device.kind,
+          ...(device.lotId === undefined ? {} : { lotId: device.lotId }),
+          ...(device.lastSeenAt === undefined ? {} : { lastSeenAt: device.lastSeenAt }),
+          online: device.online,
+        }));
+      send(response, 200, { devices: listed });
       return;
     }
 

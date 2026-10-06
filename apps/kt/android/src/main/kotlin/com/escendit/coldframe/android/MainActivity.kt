@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
@@ -31,6 +32,8 @@ class MainActivity : ComponentActivity() {
         val sitesActions = SitesActions.of(sites)
         val lots = app.signIn.lots
         val lotsActions = LotsActions.of(lots)
+        val devices = app.signIn.devices
+        val devicesActions = DevicesActions.of(devices)
         val hubSetup = app.signIn.hubSetup
         val hubSetupActions = HubSetupActions.of(hubSetup)
         setContent {
@@ -38,6 +41,7 @@ class MainActivity : ComponentActivity() {
             val theme by appearance.theme.collectAsStateWithLifecycle()
             val sitesState by sites.state.collectAsStateWithLifecycle()
             val lotsState by lots.state.collectAsStateWithLifecycle()
+            val devicesState by devices.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDark = theme.isDark(systemIsDark)
@@ -66,6 +70,8 @@ class MainActivity : ComponentActivity() {
                 lotsActions = lotsActions,
                 hubSetup = hubSetupState,
                 hubSetupActions = hubSetupActions,
+                devices = devicesState,
+                devicesActions = devicesActions,
             )
         }
     }

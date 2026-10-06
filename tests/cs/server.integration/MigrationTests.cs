@@ -32,6 +32,7 @@ public sealed class MigrationTests(AppHostFixture fixture)
         "identity_sites",
         "identity_memberships",
         "lots",
+        "devices",
     ];
 
     [Fact]

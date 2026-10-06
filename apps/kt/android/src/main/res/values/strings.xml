@@ -30,6 +30,16 @@
   <string name="devices_title">Devices</string>
   <string name="settings_title">Settings</string>
 
+  <!-- Story 3.7: Devices. -->
+  <string name="devices_hubs">Hubs</string>
+  <string name="devices_online">Online</string>
+  <string name="devices_offline">Offline</string>
+  <string name="devices_last_seen">Last seen %1$s</string>
+  <string name="devices_not_seen">Not seen yet</string>
+  <string name="devices_empty">No Devices yet.</string>
+  <string name="devices_add_hub">Add a Hub</string>
+  <string name="devices_unreachable">Can\'t reach your Server.</string>
+
   <string name="settings_site_settings">Site settings</string>
   <string name="settings_site_settings_helper">Name and Lots of %1$s</string>
   <string name="settings_appearance">Appearance</string>

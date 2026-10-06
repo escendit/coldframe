@@ -54,7 +54,10 @@
 
   /// The signed-in shell (UX-DR57, UX-DR109): native `TabView` with a `NavigationStack` per tab
   /// and Carbon icons; the selected tab uses the native selected state and `primary-text` tint.
-  /// The Garden tab shows the current Site's Garden with its Lots (Stories 1.8 and 1.9).
+  /// The Garden tab shows the current Site's Garden with its Lots (Stories 1.8 and 1.9); the
+  /// Devices tab lists the Hubs (Story 3.7) and reads them again every time it is entered.
+  /// `selection` is the selected tab: the root hoists it, so closing a flow that replaced the
+  /// shell (Add a Hub) returns to the tab it was opened from.
   public struct AppTabView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
@@ -64,15 +67,25 @@
     let lots: LotsPresentation
     let lotsActions: LotsActions
     let onAddHub: () -> Void
-    @State private var selection: AppTab = .garden
+    let devices: DevicesPresentation
+    let devicesActions: DevicesActions
+    let hoistedSelection: Binding<AppTab>?
+    @State private var ownSelection: AppTab = .garden
     @Environment(\.palette) private var palette
+
+    private var selection: Binding<AppTab> { hoistedSelection ?? $ownSelection }
 
     public init(
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
       onSignOut: @escaping () -> Void, garden: GardenPresentation? = nil,
       sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
-      lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {}
+      lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
+      devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
+      selection: Binding<AppTab>? = nil
     ) {
+      self.devices = devices
+      self.devicesActions = devicesActions
+      self.hoistedSelection = selection
       self.theme = theme
       self.onSelectTheme = onSelectTheme
       self.onSignOut = onSignOut
@@ -84,7 +97,7 @@
     }
 
     public var body: some View {
-      TabView(selection: $selection) {
+      TabView(selection: selection) {
         ForEach(AppTab.allCases, id: \.self) { tab in
           NavigationStack {
             content(for: tab)
@@ -101,6 +114,10 @@
         }
       }
       .tint(palette.primaryText)
+      // Every entry of the Devices tab reads the list again, also when a closed flow returns to it.
+      .onChange(of: selection.wrappedValue, initial: true) { _, tab in
+        if tab == .devices { devicesActions.load() }
+      }
     }
 
     @ViewBuilder
@@ -118,8 +135,10 @@
         } else {
           palette.background.ignoresSafeArea()
         }
-      default:
-        // Alerts and Devices carry their heading only until their stories.
+      case .devices:
+        DevicesView(presentation: devices, actions: devicesActions, onAddHub: onAddHub)
+      case .alerts:
+        // Alerts carries its heading only until its story.
         palette.background.ignoresSafeArea()
       }
     }
@@ -237,6 +256,10 @@
     let onSignIn: () -> Void
     let onSignOut: () -> Void
     let onSelectTheme: (ThemePreference) -> Void
+    let devices: DevicesPresentation
+    let devicesActions: DevicesActions
+    /// The selected tab outlives the tab shell, which Add a Hub replaces while its flow is open.
+    @State private var tab: AppTab = .garden
     @Environment(\.colorScheme) private var systemScheme
 
     public init(
@@ -245,8 +268,11 @@
       lotsActions: LotsActions = .none, hubSetup: HubSetupPresentation = .closed,
       hubSetupActions: HubSetupActions = .none, theme: ThemePreference,
       onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void,
-      onSelectTheme: @escaping (ThemePreference) -> Void
+      onSelectTheme: @escaping (ThemePreference) -> Void,
+      devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none
     ) {
+      self.devices = devices
+      self.devicesActions = devicesActions
       self.presentation = presentation
       self.sites = sites
       self.sitesActions = sitesActions
@@ -278,7 +304,8 @@
     }
 
     /// No Membership: Create Site replaces the tab shell; "New Site" puts it over the shell.
-    /// Add a Hub replaces the tab shell while its flow is open (one modal level, UX-DR76).
+    /// Add a Hub replaces the tab shell while its flow is open (one modal level, UX-DR76);
+    /// closing it returns to the tab it was opened from.
     @ViewBuilder
     private func signedIn(isDark: Bool) -> some View {
       switch sites.surface {
@@ -294,7 +321,8 @@
         AppTabView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
           sitesActions: sitesActions, lots: lots, lotsActions: lotsActions,
-          onAddHub: hubSetupActions.open
+          onAddHub: hubSetupActions.open, devices: devices, devicesActions: devicesActions,
+          selection: $tab
         )
         .sheet(
           isPresented: Binding(
@@ -317,16 +345,20 @@
     @Published public private(set) var sites = SitesPresentation.waiting
     @Published public private(set) var lots = LotsPresentation.waiting
     @Published public private(set) var hubSetup = HubSetupPresentation.closed
+    @Published public private(set) var devices = DevicesPresentation.waiting
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
     public let lotsService: LotsService?
     public let hubSetupService: HubSetupService?
+    public let devicesService: DevicesService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
-      lots: LotsService? = nil, hubSetup: HubSetupService? = nil
+      lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
+      devices: DevicesService? = nil
     ) {
+      self.devicesService = devices
       self.signIn = signIn
       self.appearance = appearance
       self.sitesService = sites
@@ -337,6 +369,12 @@
       sites?.observe { [weak self] in self?.sites = $0 }
       lots?.observe { [weak self] in self?.lots = $0 }
       hubSetup?.observe { [weak self] in self?.hubSetup = $0 }
+      devices?.observe { [weak self] in self?.devices = $0 }
+    }
+
+    /// The Devices actions for the views; nothing happens without a service.
+    public var devicesActions: DevicesActions {
+      devicesService.map(DevicesActions.init(service:)) ?? .none
     }
 
     /// The Add a Hub actions for the views; nothing happens without a service.

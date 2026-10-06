@@ -1,5 +1,7 @@
 using Coldframe.Server.Devices;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -52,6 +54,9 @@ public sealed class EnrolmentOptionsTests
             ["Enrolment:DeviceKeyEncryptionKey"] = kek,
         });
         builder.AddDevices();
+
+        // The devices projector runs on the journal, which this host does not have; only the options are under test.
+        builder.Services.RemoveAll<IHostedService>();
 
         return builder.Build();
     }
