@@ -1,6 +1,7 @@
 # Integration tests for coldframe-uplink: BSSID choice, backoff, the heartbeat schedule, server URLs,
 # RFC 3339 times, monotonic stamps, signing against packages/crypto-spec/vectors.json, the Story 3.5
-# uplink rows through `Uplink::step`, and the golden JSON fixtures of packages/openapi.
+# uplink rows through `Uplink::step`, the Story 4.4 Hub relay rows through `Uplink::relay_step`, and
+# the golden JSON fixtures of packages/openapi.
 [package]
 name = "coldframe-uplink-tests"
 description = "Integration tests for coldframe-uplink"
@@ -14,6 +15,7 @@ publish.workspace = true
 [dev-dependencies]
 coldframe-crypto = { path = "../../../packages/rs/crypto" }
 coldframe-hal = { path = "../../../packages/rs/hal", features = ["mock"] }
+coldframe-protocol = { path = "../../../packages/rs/protocol" }
 coldframe-uplink = { path = "../../../packages/rs/uplink" }
 serde_json = "=1.0.151"
 

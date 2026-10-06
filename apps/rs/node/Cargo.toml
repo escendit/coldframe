@@ -7,7 +7,7 @@ edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/escendit/coldframe"
 publish = false
-description = "Coldframe Node firmware: hardware-bound identity, wake, measure, deep sleep and BLE setup mode"
+description = "Coldframe Node firmware: hardware-bound identity, wake, measure, buffered ESP-NOW transport, deep sleep and BLE setup mode"
 
 # Exact versions (AD-15), the esp stack of the Hub (apps/rs/hub); Cargo.lock pins the rest.
 [dependencies]
@@ -17,20 +17,23 @@ coldframe-hal = { path = "../../../packages/rs/hal" }
 coldframe-protocol = { path = "../../../packages/rs/protocol" }
 coldframe-sensing = { path = "../../../packages/rs/sensing" }
 coldframe-setup = { path = "../../../packages/rs/setup" }
+coldframe-transport = { path = "../../../packages/rs/transport" }
 embassy-executor = "=0.10.0"
 embassy-futures = "=0.1.2"
 embassy-sync = "=0.8.0"
 embassy-time = "=0.5.1"
 esp-alloc = { version = "=0.11.0", features = ["esp32s3"] }
 esp-backtrace = { version = "=0.20.0", features = ["panic-handler", "println", "esp32s3"] }
-# `embedded-storage`: plain NOR writes (no read-erase-rewrite of the sector) for the counters.
+# `embedded-storage`: plain NOR writes (no read-erase-rewrite of the sector) for the counters, the
+# report buffer and the link state.
 embedded-storage = "=0.3.2"
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3", "embedded-storage"] }
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable", "log-04"] }
 esp-println = { version = "=0.18.0", features = ["esp32s3", "log-04"] }
-# Wi-Fi starts only to feed the TRNG when a new identity root or setup code is drawn. BLE runs only
-# in setup mode (Story 4.2). ESP-NOW (with `coex`) is used only by the `dev-mode` coexistence probe
-# until Story 4.4; a release build runs no ESP-NOW code.
+# The radio is ESP-NOW only: it carries the transport of every wake (Story 4.4) without ever
+# associating as a Wi-Fi station. The Wi-Fi controller it comes from also feeds the TRNG when a new
+# identity root or setup code is drawn. BLE (with `coex`) runs only in setup mode (Story 4.2), next
+# to which a `dev-mode` build runs an ESP-NOW coexistence probe.
 esp-radio = { version = "=1.0.0-beta.1", features = ["esp32s3", "unstable", "log-04", "wifi", "ble", "coex", "esp-now"] }
 esp-rtos = { version = "=0.4.0", features = ["esp32s3", "esp-radio", "embassy", "log-04"] }
 esp-storage = { version = "=0.10.0", features = ["esp32s3"] }

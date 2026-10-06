@@ -1,6 +1,7 @@
 //! [`Radio`] over esp-radio's Wi-Fi controller.
 
 use coldframe_hal::{Radio, RadioError};
+use esp_radio::esp_now::EspNow;
 use esp_radio::wifi::WifiController;
 
 /// The radio, on for as long as this value lives.
@@ -16,6 +17,13 @@ impl BoardRadio {
     /// Takes over a controller that `WifiController::new` has just started.
     pub fn new(controller: WifiController<'static>) -> Self {
         Self { controller }
+    }
+
+    /// ESP-NOW on this radio, for the Node relay (Story 4.4). It shares the station's channel
+    /// and keeps running when the controller moves on to the station adapter. Call once: a
+    /// second instance panics.
+    pub fn esp_now(&self) -> EspNow {
+        self.controller.esp_now()
     }
 
     /// The controller, for the Wi-Fi station adapter. The radio stays on while it lives.

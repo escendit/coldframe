@@ -8,7 +8,8 @@ The Protobuf contract between Devices, the app and the Server (AD-10, AD-25), a 
 | [`coldframe/setup/v1/setup.proto`](coldframe/setup/v1/setup.proto) | `coldframe.setup.v1` | The BLE setup protocol, one message set for Hub and Node: the plaintext key exchange (`SessionHello`, `SessionHelloReply`), `SealedSetupMessage`, and the sealed `SetupMessage` steps (identity, Wi-Fi scan list, Wi-Fi config and result, Site binding, enrolment request and response, errors) |
 | [`coldframe/device/v1/envelope.proto`](coldframe/device/v1/envelope.proto) | `coldframe.device.v1` | `SealedEnvelope` for uplink frames and downlinks; `NodeFrame`, the plaintext of an uplink (one wake report: `Reading`s with their `Quantity` and `reading_seq`, the time as synced `measured_at_ms` or `Unsynced` boot ID and uptime, `report_seq`, battery and `ChargeStatus`, the `spec_hash` and, on request, the `SpecificationSet`); and the sealed `Downlink` with `acked_readings` (`ReadingSeqRange`, both ends included), its empty `commands` and `specifications_unknown` (AD-9, AD-11, AD-16, AD-19) |
 
-The ESP-NOW messages arrive in Epic 4 (Story 4.4).
+The Node ⇄ Hub radio messages are not Protobuf: they are a kind byte around these envelopes, see
+[ESP-NOW transport](#esp-now-transport).
 
 ## Specifications
 
@@ -60,10 +61,19 @@ packages/proto/check-compat.sh --base <git-ref>
   time with Grpc.Tools into Google.Protobuf types (`Coldframe.Protocol.Setup.V1`,
   `Coldframe.Protocol.Device.V1`).
 - **Rust**: [`packages/rs/protocol`](../rs/protocol) (`coldframe-protocol`) generates
-  `coldframe.setup.v1` at build time with protox and micropb-gen 0.6.0 (no `protoc`): `no_std`
-  types with heapless containers of fixed capacity (SSID 32, password 64, Site and Lot ID 36, keys
-  and `enc` 32, enrolment ciphertext 48, fingerprint 64, 16 networks), each with a compile-time
-  `MAX_SIZE`. `WifiConfig` and `SetupMessage` (and its `Body`) implement no `Debug`.
+  `coldframe.setup.v1` and `coldframe.device.v1` at build time with protox and micropb-gen 0.6.0
+  (no `protoc`): `no_std` types with heapless containers of fixed capacity, each with a
+  compile-time `MAX_SIZE`.
+  - Setup: SSID 32, password 64, Site and Lot ID 36, keys and `enc` 32, enrolment ciphertext 48,
+    fingerprint 64, 16 networks. `WifiConfig` and `SetupMessage` (and its `Body`) implement no
+    `Debug`.
+  - Device: sized for a Node with four Sensors. Device ID 8, envelope ciphertext 240 (more than one
+    radio message carries), `spec_hash` 32, 4 Readings, 4 Specifications, 8 acknowledged ranges,
+    4 commands. A frame or downlink over these fails to decode.
+  - micropb writes a `oneof` after every other field. `encode_node_frame` writes a `NodeFrame` in
+    field-number order instead, the bytes the shared vector of
+    [`packages/crypto-spec`](../crypto-spec) pins; any decoder reads both.
+  - The `radio` module is the codec of the [ESP-NOW messages](#esp-now-transport).
 - **Kotlin**: [`packages/kt/core`](../kt/core) generates `coldframe.setup.v1` at build time with the
   Wire 7.1.0 Gradle plugin (`generateCommonMainProtos`, into `build/generated/source/wire`) for
   every target of the core (JVM, Android, iOS). The app side of the session is
@@ -71,6 +81,51 @@ packages/proto/check-compat.sh --base <git-ref>
   `com.escendit.coldframe.core.crypto` (X25519, HKDF-SHA256, ChaCha20-Poly1305), checked against
   [`vectors.json`](../crypto-spec/vectors.json) on every target and against the JDK on the JVM.
   `HubSetupEngine` runs the Hub message order below over Kable 0.45 (`KableSetupRadio`).
+
+## ESP-NOW transport
+
+A Node talks to a Hub over ESP-NOW (AD-9), because it reaches Lots beyond usable Wi-Fi. A message is
+one ESP-NOW v1 payload of at most 250 bytes: one kind byte, then the body. The Rust codec is
+`coldframe_protocol::radio`; the Node's side is [`coldframe-transport`](../rs/transport), the Hub's
+`coldframe_uplink::relay`.
+
+| Kind | Name | Direction | Body |
+| --- | --- | --- | --- |
+| `0x01` | Probe | Node → broadcast (`ff:ff:ff:ff:ff:ff`) | an 8-byte nonce |
+| `0x02` | ProbeReply | Hub → Node, unicast | the probe's nonce, then one byte `pending`: how many downlinks the Hub holds for this Node and sends next, `0x00` to `0x08` |
+| `0x03` | Uplink | Node → Hub, unicast | the bytes of one `SealedEnvelope` whose payload is a `NodeFrame` |
+| `0x04` | Downlink | Hub → Node, unicast | the bytes of one `SealedEnvelope` whose payload is a `Downlink` |
+
+A message of another kind, of the wrong length, with a `pending` over 8 or with an empty
+envelope is dropped. An envelope is at most 249 bytes. A frame that would not fit with its
+`SpecificationSet` goes without it, and the Server asks again.
+
+- **Addressing.** A Node has no stored Hub address. It broadcasts a Probe and talks to the Hub whose
+  ProbeReply echoes its nonce first: that Hub's station MAC address is the unicast address for the
+  wake. Any enrolled Hub may relay any Node. A Hub addresses a Node by the source MAC address of
+  its frames and keeps the Node's downlinks under that address, in RAM only. A Hub answers a Probe
+  only while it can relay: associated to its access point, with its clock set.
+- **Channel.** ESP-NOW and the Hub's Wi-Fi station share one radio, so the Hub is on its access
+  point's channel and follows it. A Node probes the channel a Hub last answered on. Without one,
+  or after 3 consecutive wakes without a fresh downlink, it probes that channel and then channels
+  1 to 13, 120 ms each, and uses the first where a Hub answers. A scan that finds no Hub is not
+  repeated before 4 wakes have passed.
+- **Trust.** Probes and their replies are not authenticated: a forged reply costs a Node one wasted
+  burst and can neither delete a Reading nor reset its miss count. Everything else is sealed end to
+  end. The Hub relays both envelopes unread: to the Server as standard padded base64 in
+  `POST /device/ingest` ([`packages/openapi`](../openapi)), and `results[i].downlink` back to the
+  sender of `frames[i]`. It builds no acknowledgement.
+- **Delivery.** A Node listens 300 ms after the last frame of a wake (AD-17). It deletes a buffered
+  Reading only when a Downlink opens under its `ack/v1` key, names its Device ID and protocol
+  version 1, and holds the `reading_seq` in `acked_readings`. What the radio reports for a send is
+  never delivery. Every transmission, a resend included, is a freshly sealed envelope under a new
+  counter.
+- **Late acknowledgement.** The Hub opens a TLS connection per request, which takes longer than
+  the window, so a Downlink usually arrives after the Node has gone back to sleep. The Hub sends it
+  once when it arrives and keeps it: up to 8 per Node, in arrival order, so every frame of a burst
+  keeps its own. At the Node's next Probe it answers with their number in `pending`, sends them
+  once more, oldest first, and drops them. The Node applies them before it sends anything, and
+  stops listening for them once it has applied `pending` Downlinks or 120 ms have passed.
 
 ## BLE transport
 

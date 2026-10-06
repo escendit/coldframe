@@ -6,9 +6,10 @@
 //! in setup mode side by side show that both stacks work in one image while a BLE session runs
 //! (`docs/bench/node-setup-checklist.md`, Part F).
 //!
-//! The real ESP-NOW transport is Story 4.4. This module is compiled only with `dev-mode`: a release
-//! build contains no ESP-NOW code. The radio-level send status is logged for the bench only; it
-//! never counts as delivery (N-1).
+//! The real ESP-NOW transport is `super::espnow` under `coldframe-transport` (Story 4.4), and it
+//! never runs on a wake that entered setup mode. This module is compiled only with `dev-mode`: a
+//! release build runs no ESP-NOW next to BLE. The radio-level send status is logged for the bench
+//! only; it never counts as delivery (N-1).
 
 use embassy_futures::join::join;
 use embassy_time::{Duration, Timer};

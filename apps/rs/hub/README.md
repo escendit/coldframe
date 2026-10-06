@@ -22,6 +22,12 @@ Story 3.5 connects it to the Server, see [Uplink](#uplink):
 7. From then on, and on every provisioned boot, it keeps the strongest access point joined, sets its
    clock by SNTP once per boot, and sends a signed heartbeat every 30–60 s.
 
+Story 4.4 makes it the relay between Nodes and the Server, see [Relay](#relay):
+
+8. ESP-NOW runs on the Wi-Fi station's radio and channel. The Hub answers the probes of Nodes,
+   forwards their sealed frames to `POST /device/ingest` unread, and passes the sealed downlinks
+   back. It stores no Reading and builds no acknowledgement.
+
 The logic is not in this crate. The identity lives in [`coldframe-crypto`](../../../packages/rs/crypto)
 (`identity` module), the setup service in [`coldframe-setup`](../../../packages/rs/setup) and the
 uplink in [`coldframe-uplink`](../../../packages/rs/uplink), all behind the traits of
@@ -33,11 +39,12 @@ chip, in `src/board/`, and wires them up in `src/main.rs`.
 
 | Path | What |
 | --- | --- |
-| `src/main.rs` | Boot sequence, the dev-mode guard, the identity log line, the setup code line, `run_setup`, the uplink loop and its log lines, the uptime task |
-| `src/board/radio.rs` | `Radio` over the esp-radio Wi-Fi controller |
+| `src/main.rs` | Boot sequence, the dev-mode guard, the identity log line, the setup code line, `run_setup`, the relay task, the uplink loop and its log lines, the uptime task |
+| `src/board/radio.rs` | `Radio` over the esp-radio Wi-Fi controller, and ESP-NOW from it |
+| `src/board/espnow.rs` | The relay's radio task over esp-radio's ESP-NOW, and the `Relay` it shares with the uplink (`RelayPort`): one short critical section per access |
 | `src/board/ble.rs` | `SetupLink` over trouble-host: the setup GATT service, advertising and one connection, bridged to the setup service through embassy-sync channels |
 | `src/board/wifi.rs` | `Wifi` over the esp-radio station: active all-channel scan, join pinned to a BSSID and channel, link state, leave |
-| `src/board/net.rs` | `Net`: the embassy-net stack (DHCP, DNS) and its task, SNTP over UDP, HTTPS through one mbedtls-rs session per request with reqwless writing the request and parsing the response |
+| `src/board/net.rs` | `Net`: the embassy-net stack (DHCP, DNS) and its task, SNTP over UDP, HTTPS through one mbedtls-rs session per request with reqwless writing the request and parsing the response. Its buffers hold an ingest request and answer of a full batch |
 | `src/board/rtc.rs` | `Rtc` over the ESP32-S3 RTC, installed as mbedTLS's wall clock (and embassy-time as its timer) |
 | `src/board/timer.rs` | `Timer` over embassy-time |
 | `src/board/roots.rs` | The public root certificates, inlined as a string literal |
@@ -171,11 +178,22 @@ Such a board can no longer hold a Hub identity: retire it, or use it only with `
 | `heartbeat rejected status=… next_ms=…` | The Server answered another status (401: not enrolled, or the authentication failed) |
 | `heartbeat failed kind=… next_ms=…` | `no-ip`, `dns`, `tls`, `http`, `timeout`, `bad-reply` (200 without a valid `serverTime`), `no-clock` or `no-entropy`; `next_ms=0` means the link is down and the Hub re-joins at once |
 | `net tls handshake failed: … verify_flags=0x…` | The TLS handshake failed; the flags are mbedTLS's certificate verification result (for example an unknown root, a name mismatch, or dates outside the certificate's validity) |
+| `relay listening` | The relay's radio task runs |
+| `relay probe from=<mac> pending=<n>` | A Node probed and was answered; `pending`: how many downlinks the Hub held for it and sent right after the reply, each for the last time |
+| `relay probe from=<mac> unanswered: not relaying` | A Node probed while the Hub was not associated or had no clock; it is left without a reply, so it sends nothing |
+| `relay uplink from=<mac> bytes=<n>` | A sealed frame was queued for the Server |
+| `relay queue full; uplink from=<mac> dropped` | More than 8 frames arrived before a request went out; the Node sends it again |
+| `relay downlink to=<mac> bytes=<n>` | A sealed downlink from the Server went out over the radio (and stays kept until that Node's next probe) |
+| `ingest ok frames=<n> downlinks=<m>` | One `POST /device/ingest` relayed `n` frames; `m` results carried a downlink. A status is not an acknowledgement, so none is logged per frame |
+| `ingest rejected status=… frames=<n>; batch dropped` | The Server answered another status (401, 503); nothing is retried, the Nodes send again |
+| `ingest failed kind=… frames=<n>; batch dropped` | `no-ip`, `dns`, `tls`, `http`, `timeout`, `bad-reply` (200 that is not one result per frame), `not-linked`, `no-clock` or `no-entropy`; the last three mean nothing was sent |
+| `relay queue was full; uplinks dropped=<n>` | How many frames the full queue cost since the last request |
 | `uptime s=… device_id=… heap_free=… heap_used=… heap_min_free=…` | Once a minute |
 
 The Device ID is the only identity value that is ever logged. No root, key or HMAC output is
 logged, and neither is the setup code (outside its one serial line), a Wi-Fi password, a Site ID,
-any setup message, a heartbeat nonce, signature or body.
+any setup message, a request nonce, signature or body, or a sealed envelope. A Node appears in the
+relay lines by its MAC address only.
 
 ## BLE setup
 
@@ -242,6 +260,50 @@ After setup, and on every provisioned boot, `coldframe_uplink::Uplink::run` keep
 
 The bench procedure is [`docs/bench/hub-uplink-checklist.md`](../../../docs/bench/hub-uplink-checklist.md).
 
+## Relay
+
+The Hub is the bridge between Nodes on ESP-NOW and the Server on HTTPS (AD-9). The radio messages
+are in [`packages/proto/README.md`](../../../packages/proto/README.md#esp-now-transport); the state
+and its rules are `coldframe_uplink::relay`, tested on the host.
+
+- **Radio.** ESP-NOW is taken from the running Wi-Fi controller, so it is on the station's channel
+  and follows the access point (peers are added with `channel: None`). A peer entry lives for one
+  send only, so the 20-peer limit never matters. `esp-radio` has the `esp-now` feature for it.
+- **Radio task.** `relay_task` is its own task. It answers a Probe from the relay state alone,
+  without waiting for the HTTPS request that may be in flight, and queues each Uplink. It answers
+  only while the Hub can relay (associated, clock set): otherwise a Node would spend a burst and
+  its frame counters on frames the Hub drops. A send gives up after 60 ms, well inside the 120 ms
+  a Node waits for a reply, so a send to a Node that has gone back to sleep cannot make the answer
+  to the next Probe late.
+- **Uplinks.** At most 8 wait for one request. With 8 queued the newest is dropped and counted; the
+  Node sends it again. The same bytes are never queued twice, and the queue is emptied before the
+  request, so no envelope is ever posted twice.
+- **Ingest.** Between heartbeats the uplink posts the queued envelopes as one signed
+  `POST /device/ingest` with `{"frames":[…]}`: each envelope unread, in standard padded base64, in
+  arrival order. It is signed like a heartbeat, for its own path, and shares the heartbeat's
+  strictly increasing timestamps. A request that fails (a transport error, any status but 200, a
+  reply without one result per frame) drops its batch: nothing is retried, and the Node resends,
+  freshly sealed. While the station is not associated or the clock is not set, uplinks are dropped
+  and nothing is posted. A request in flight when a heartbeat falls due finishes first.
+- **Downlinks.** `results[i].downlink` goes to the sender of `frames[i]`: its JSON string escapes
+  resolved (the Server writes `+` as `\u002B`), decoded from base64 and otherwise untouched. The Hub never treats a status as an acknowledgement and never builds one.
+- **Kept downlinks.** Up to 8 downlinks per Node, keyed by the source MAC address of its frames
+  and in arrival order, are kept in RAM only, out of one pool of 24. A Node with 8 kept loses its
+  oldest; with the pool full, the Node heard from longest ago loses all of its. A fresh TLS session
+  per request takes longer than a Node's 300 ms window, so the first send usually finds the Node
+  asleep. At that Node's next Probe the Hub says how many it holds (`pending`), sends them once
+  more, oldest first, and drops them. A reboot empties the pool, and the Nodes send again.
+- **After an outage.** A Node sends its backlog as one burst of up to 8 frames. Each frame gets
+  its own downlink, all are kept, and the Node collects them at its next wake: the backlog is
+  acknowledged one wake after its burst and nothing is sent twice. A kept-alive connection would
+  bring the acknowledgements inside the window; it is not built yet.
+- **Memory.** The relay state is about 8 KiB of static RAM, and the uplink's request and answer
+  buffers about 12 KiB more. That comes out of the main stack's region, which is now about 34 KiB;
+  the heap is unchanged.
+
+The bench and garden procedure is
+[`docs/bench/node-transport-checklist.md`](../../../docs/bench/node-transport-checklist.md).
+
 ## Why `cf_ident` and `cf_setup` have subtype `undefined`
 
 espflash 4.5.0 parses partition tables with esp-idf-part 0.6.0, which only accepts the named ESP-IDF
@@ -259,8 +321,12 @@ every build needs `cf_setup`.
 - A TLS handshake with a BLE connection open, and a join, SNTP and handshake inside the setup
   check's 40 s, are what the [uplink checklist](../../../docs/bench/hub-uplink-checklist.md) measures,
   together with the heap's lowest point.
+- ESP-NOW next to an associated station and an open TLS session, a probe answered during a
+  request, and the main stack's margin with the larger request buffers are what the
+  [transport checklist](../../../docs/bench/node-transport-checklist.md) exercises.
 - The [identity](../../../docs/bench/hub-identity-checklist.md),
-  [setup](../../../docs/bench/hub-setup-checklist.md) and
-  [uplink](../../../docs/bench/hub-uplink-checklist.md) bench checklists are the acceptance tests for
-  the on-device behaviour. CI tests the host crates and builds and lints the firmware; it runs no
+  [setup](../../../docs/bench/hub-setup-checklist.md),
+  [uplink](../../../docs/bench/hub-uplink-checklist.md) and
+  [transport](../../../docs/bench/node-transport-checklist.md) bench checklists are the acceptance
+  tests for the on-device behaviour. CI tests the host crates and builds and lints the firmware; it runs no
   hardware.

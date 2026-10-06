@@ -2,24 +2,29 @@
 //!
 //! One [`FlashStorage`] lives in a `StaticCell`; [`BoardStorage::partition`] opens a partition
 //! of it by label. A partition borrows the storage, so `cf_ident` (dev mode), `cf_boot`,
-//! `cf_setup` and `cf_seq` are used one after the other. Copied from the Hub (apps/rs/hub) with
-//! the Node's labels.
+//! `cf_setup`, `cf_seq` and the transport's `cf_frame`, `cf_link` and `cf_buf` are used one
+//! after the other. Copied from the Hub (apps/rs/hub) with the Node's labels.
 //!
 //! Nothing here touches the ESP-IDF `nvs` partition.
 //!
 //! Unlike the Hub's adapter, a word-aligned write is a plain NOR program of the erased bytes, not
-//! esp-storage's read-erase-rewrite of the whole sector. The counters (`coldframe-sensing`) rely
-//! on it: a power loss during a read-erase-rewrite would wipe every record of the active sector
-//! and roll the stored ceiling back. Only the dev-mode identity record (41 bytes, once, onto an
+//! esp-storage's read-erase-rewrite of the whole sector. The counters (`coldframe-sensing`) and
+//! the transport's report buffer and link state (`coldframe-transport`) rely on it: a power loss
+//! during a read-erase-rewrite would wipe every record of the sector, roll a stored ceiling back
+//! or lose buffered reports. The buffer also clears bits of a word it has written before
+//! (acknowledging a report), which a plain NOR program does and a rewrite would not need. Every
+//! write of theirs is word-aligned. Only the dev-mode identity record (41 bytes, once, onto an
 //! erased partition) and the setup-code record (17 bytes, once, onto the sector it has just erased)
 //! take the read-erase-rewrite path.
 
 use coldframe_hal::{Flash, FlashError};
+use coldframe_transport::{Partition, Partitions};
 use embedded_storage::nor_flash::NorFlash;
 use esp_bootloader_esp_idf::partitions::{
     self, FlashRegion, FlashStorage, PARTITION_TABLE_MAX_LEN, RawPartitionType,
 };
 use esp_hal::peripherals::FLASH;
+use log::error;
 use static_cell::StaticCell;
 
 /// Label of the dev-mode identity partition in `partitions.csv`.
@@ -35,6 +40,17 @@ pub const BOOT_PARTITION: &str = "cf_boot";
 /// Label of the setup partition in `partitions.csv`: only the `CFPC` setup-code record. A Node
 /// stores no Site, Lot or Wi-Fi settings.
 pub const SETUP_PARTITION: &str = "cf_setup";
+
+/// Label of the frame counter partition in `partitions.csv` (`CFFC` records): the counter every
+/// sealed frame is sent under.
+pub const FRAME_PARTITION: &str = "cf_frame";
+
+/// Label of the link-state partition in `partitions.csv` (`CFLK` records): the Hub's channel,
+/// the miss count, the last burst and the clock.
+pub const LINK_PARTITION: &str = "cf_link";
+
+/// Label of the report buffer partition in `partitions.csv`: wake reports not yet acknowledged.
+pub const BUFFER_PARTITION: &str = "cf_buf";
 
 /// Data subtype of the Coldframe partitions in `partitions.csv`.
 /// `undefined` (0x06): espflash only parses the named ESP-IDF data subtypes, not custom ones.
@@ -96,6 +112,27 @@ impl BoardStorage {
         Ok(BoardFlash {
             region: entry.as_flash_region(self.storage),
         })
+    }
+}
+
+/// The transport's partitions, one at a time. A partition that cannot be opened is logged here
+/// and reported to the transport as missing.
+impl Partitions for BoardStorage {
+    type Flash<'a> = BoardFlash<'a>;
+
+    fn open(&mut self, partition: Partition) -> Option<BoardFlash<'_>> {
+        let label = match partition {
+            Partition::Frame => FRAME_PARTITION,
+            Partition::Buffer => BUFFER_PARTITION,
+            Partition::Link => LINK_PARTITION,
+        };
+        match self.partition(label) {
+            Ok(flash) => Some(flash),
+            Err(error) => {
+                error!("transport partition={label} error={error}");
+                None
+            }
+        }
     }
 }
 

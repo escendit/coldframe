@@ -12,18 +12,46 @@
 //!    the clock to `serverTime`. Whatever the answer, the next one follows in 30–60 s
 //!    ([`HeartbeatSchedule`]); a network error with the link down re-joins at once instead.
 //!
-//! [`Uplink::run`] loops over the steps forever.
+//! [`Uplink::relay_step`] is the Hub's side of the Node transport (Story 4.4, AD-9). It takes
+//! every uplink the radio task queued in the [`Relay`] and sends them as one signed
+//! `POST /device/ingest`: each sealed envelope unread, in standard padded base64, in arrival
+//! order. The downlink of `results[i]` is kept for the sender of `frames[i]` and goes out over
+//! the radio unchanged: several frames of one Node get several downlinks. The Hub stores no Reading, parses no envelope and builds no
+//! acknowledgement, and it never posts the same bytes twice: the queue is emptied before the
+//! request, and a request that fails (a transport error, any status but 200, a reply that does
+//! not match) drops its batch. The Node sends again, freshly sealed. While the station is not
+//! associated or the clock is not set, queued uplinks are dropped, nothing is posted, and the
+//! relay is told not to answer probes ([`Relay::set_relaying`]).
+//!
+//! [`Uplink::run`] loops over the steps forever: after each step it relays whatever arrives
+//! until the next step is due ([`Uplink::relay_until`]), so an uplink never waits for a
+//! heartbeat. A request that is in flight when the next step falls due finishes first, so a
+//! heartbeat can be late by up to one ingest request.
+//!
+//! [`Relay`]: crate::relay::Relay
+//! [`Relay::set_relaying`]: crate::relay::Relay::set_relaying
 
 use coldframe_crypto::DeviceKeys;
-use coldframe_hal::{AccessPoint, JoinError, Net, NetError, Rtc, Timer, Trng, Wifi, WifiError};
+use coldframe_crypto::spec::HEARTBEAT_NONCE_LENGTH;
+use coldframe_hal::{
+    AccessPoint, HttpRequest, JoinError, Net, NetError, Rtc, Timer, Trng, Wifi, WifiError,
+};
+use coldframe_protocol::radio::ENVELOPE_MAX;
 
 use crate::backoff::Backoff;
 use crate::bssid::{SelectError, select_bssid};
 use crate::heartbeat::{HeartbeatOutcome, send_heartbeat};
+use crate::json::{IngestResponse, encode_ingest_request, unescape};
+use crate::relay::{Batch, RelayPort};
 use crate::schedule::HeartbeatSchedule;
+use crate::sign::sign_request;
 use crate::time::MonotonicStamp;
+use crate::timeout::with_timeout;
 use crate::url::ServerUrl;
-use crate::{IP_TIMEOUT_MS, SCAN_CAPACITY, SNTP_TIMEOUT_MS};
+use crate::{
+    FRAME_BASE64_MAX, INGEST_METHOD, INGEST_PATH, INGEST_REQUEST_MAX, INGEST_RESPONSE_MAX,
+    IP_TIMEOUT_MS, SCAN_CAPACITY, SNTP_TIMEOUT_MS, base64,
+};
 
 /// Why a join attempt failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +102,49 @@ impl ClockError {
     }
 }
 
+/// What became of one batch of uplinks. Carries no envelope, nonce or signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IngestOutcome {
+    /// HTTP 200 with one result per frame; `downlinks` of them carried a downlink, now kept for
+    /// their Nodes.
+    Relayed {
+        /// How many downlinks came back.
+        downlinks: u8,
+    },
+    /// Any status other than 200 (401, 503): the batch is dropped.
+    Rejected {
+        /// The HTTP status.
+        status: u16,
+    },
+    /// HTTP 200 whose body is not the ingest response, or has another number of results than
+    /// the request had frames: the batch is dropped and no downlink is passed on.
+    BadReply,
+    /// The request did not complete: the batch is dropped.
+    Failed(NetError),
+    /// Not sent: the station is not associated. The batch is dropped.
+    NotLinked,
+    /// Not sent: the clock is not set. The batch is dropped.
+    NoClock,
+    /// Not sent: the TRNG gave no nonce. The batch is dropped.
+    NoEntropy,
+}
+
+impl IngestOutcome {
+    /// A short, stable name for logs.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Relayed { .. } => "ok",
+            Self::Rejected { .. } => "rejected",
+            Self::BadReply => "bad-reply",
+            Self::Failed(error) => error.kind(),
+            Self::NotLinked => "not-linked",
+            Self::NoClock => "no-clock",
+            Self::NoEntropy => "no-entropy",
+        }
+    }
+}
+
 /// What one step did, for the caller to log. Carries no key, nonce, signature, password or body.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -111,6 +182,18 @@ pub enum Event {
         outcome: HeartbeatOutcome,
         /// The wait before the next step.
         next_ms: u32,
+    },
+    /// A batch of `frames` uplinks was relayed, or dropped.
+    Ingest {
+        /// How many frames the batch had.
+        frames: u8,
+        /// What became of it.
+        outcome: IngestOutcome,
+    },
+    /// Uplinks arrived while the queue was full and were dropped; the Nodes send them again.
+    UplinksLost {
+        /// How many.
+        dropped: u32,
     },
 }
 
@@ -244,14 +327,152 @@ impl<'a> Uplink<'a> {
         next_ms
     }
 
-    /// Runs [`Uplink::step`] forever, waiting on `timer` between steps.
-    pub async fn run<W, N, R, M, T>(
+    /// Relays the uplinks queued in the relay of `port`: one signed `POST /device/ingest`, the
+    /// downlinks kept for their Nodes. Returns whether there was a batch.
+    ///
+    /// The relay is never held across an `await`: the radio task answers probes and queues
+    /// uplinks while the request is in flight.
+    pub async fn relay_step<W, N, R, T, P>(
+        &mut self,
+        wifi: &W,
+        net: &mut N,
+        rtc: &R,
+        trng: &mut T,
+        port: &P,
+        on_event: &mut impl FnMut(&Event),
+    ) -> bool
+    where
+        W: Wifi,
+        N: Net,
+        R: Rtc,
+        T: Trng,
+        P: RelayPort,
+    {
+        // The Hub can relay while it is associated and has a clock: only then are probes answered.
+        let relaying = wifi.is_connected() && self.clock_set && rtc.unix_time_millis().is_some();
+        let (batch, dropped) = port.with(|relay| {
+            relay.set_relaying(relaying);
+            relay.take_batch()
+        });
+        if dropped > 0 {
+            on_event(&Event::UplinksLost { dropped });
+        }
+        if batch.is_empty() {
+            return false;
+        }
+        let outcome = self.ingest(wifi, net, rtc, trng, port, &batch).await;
+        on_event(&Event::Ingest {
+            // At most eight frames.
+            frames: batch.len() as u8,
+            outcome,
+        });
+        true
+    }
+
+    /// Posts one batch and keeps the downlinks that come back.
+    async fn ingest<W, N, R, T, P>(
+        &mut self,
+        wifi: &W,
+        net: &mut N,
+        rtc: &R,
+        trng: &mut T,
+        port: &P,
+        batch: &Batch,
+    ) -> IngestOutcome
+    where
+        W: Wifi,
+        N: Net,
+        R: Rtc,
+        T: Trng,
+        P: RelayPort,
+    {
+        if !wifi.is_connected() {
+            return IngestOutcome::NotLinked;
+        }
+        if !self.clock_set {
+            return IngestOutcome::NoClock;
+        }
+        let Some(now) = rtc.unix_time_millis() else {
+            return IngestOutcome::NoClock;
+        };
+        if let Err(error) = net.wait_ip(IP_TIMEOUT_MS).await {
+            return IngestOutcome::Failed(error);
+        }
+        let mut nonce = [0u8; HEARTBEAT_NONCE_LENGTH];
+        if trng.fill(&mut nonce).is_err() {
+            return IngestOutcome::NoEntropy;
+        }
+        let mut body = [0u8; INGEST_REQUEST_MAX];
+        let frames = batch.iter().map(|queued| queued.envelope.as_bytes());
+        let Ok(length) = encode_ingest_request(frames, &mut body) else {
+            return IngestOutcome::BadReply;
+        };
+        let headers = sign_request(
+            self.keys,
+            INGEST_METHOD,
+            INGEST_PATH,
+            &body[..length],
+            self.stamp.next(now),
+            &nonce,
+        );
+        nonce.fill(0);
+        let pairs = headers.pairs();
+        let request = HttpRequest {
+            host: self.server.host(),
+            port: self.server.port(),
+            path: INGEST_PATH,
+            headers: &pairs,
+            body: &body[..length],
+        };
+        let mut response = [0u8; INGEST_RESPONSE_MAX];
+        let answer = match net.post(&request, &mut response).await {
+            Ok(answer) => answer,
+            Err(error) => return IngestOutcome::Failed(error),
+        };
+        if answer.status != 200 {
+            return IngestOutcome::Rejected {
+                status: answer.status,
+            };
+        }
+        let Some(Ok(decoded)) = response.get(..answer.body_len).map(IngestResponse::decode) else {
+            return IngestOutcome::BadReply;
+        };
+        // results[i] belongs to frames[i]: a reply of another length cannot be matched.
+        if decoded.results.len() != batch.len() {
+            return IngestOutcome::BadReply;
+        }
+        let mut downlinks = 0u8;
+        for (queued, result) in batch.iter().zip(&decoded.results) {
+            let Some(text) = result.downlink else {
+                continue;
+            };
+            // The downlink is passed on as it came: its JSON escapes resolved (the Server writes
+            // `+` as `\u002B`), decoded from base64, never opened.
+            let mut encoded = [0u8; FRAME_BASE64_MAX];
+            let mut envelope = [0u8; ENVELOPE_MAX];
+            let Some(length) = unescape(text, &mut encoded)
+                .and_then(|length| base64::decode(&encoded[..length], &mut envelope))
+            else {
+                continue;
+            };
+            if port.with(|relay| relay.keep(&queued.source, &envelope[..length])) {
+                downlinks += 1;
+            }
+        }
+        IngestOutcome::Relayed { downlinks }
+    }
+
+    /// Runs [`Uplink::step`] forever. Between two steps it relays the uplinks of `port` as they
+    /// arrive ([`Uplink::relay_step`]), waiting on `timer` for the next step.
+    #[allow(clippy::too_many_arguments, reason = "the HAL of the Hub")]
+    pub async fn run<W, N, R, M, T, P>(
         &mut self,
         wifi: &mut W,
         net: &mut N,
         rtc: &mut R,
         timer: &mut M,
         trng: &mut T,
+        port: &P,
         mut on_event: impl FnMut(&Event),
     ) -> !
     where
@@ -260,11 +481,48 @@ impl<'a> Uplink<'a> {
         R: Rtc,
         M: Timer,
         T: Trng,
+        P: RelayPort,
     {
         loop {
             let wait = self.step(wifi, net, rtc, trng, &mut on_event).await;
-            if wait > 0 {
-                timer.sleep_ms(wait).await;
+            self.relay_until(wifi, net, rtc, timer, trng, port, wait, &mut on_event)
+                .await;
+        }
+    }
+
+    /// Relays for `wait_ms`: whatever is queued now, then each batch as it arrives
+    /// ([`RelayPort::uplink_queued`]), and returns when `wait_ms` have passed since the call. A
+    /// request in flight at that moment finishes first.
+    #[allow(clippy::too_many_arguments, reason = "the HAL of the Hub")]
+    pub async fn relay_until<W, N, R, M, T, P>(
+        &mut self,
+        wifi: &W,
+        net: &mut N,
+        rtc: &R,
+        timer: &mut M,
+        trng: &mut T,
+        port: &P,
+        wait_ms: u32,
+        on_event: &mut impl FnMut(&Event),
+    ) where
+        W: Wifi,
+        N: Net,
+        R: Rtc,
+        M: Timer,
+        T: Trng,
+        P: RelayPort,
+    {
+        let started = rtc.uptime_millis();
+        loop {
+            self.relay_step(wifi, net, rtc, trng, port, on_event).await;
+            let spent = rtc.uptime_millis().saturating_sub(started);
+            let left = u32::try_from(u64::from(wait_ms).saturating_sub(spent)).unwrap_or(0);
+            if left == 0
+                || with_timeout(timer, left, port.uplink_queued())
+                    .await
+                    .is_none()
+            {
+                return;
             }
         }
     }
