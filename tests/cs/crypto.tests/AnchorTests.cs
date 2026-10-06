@@ -4,10 +4,17 @@ namespace Coldframe.Crypto.Tests;
 
 /// <summary>
 /// The primitives reproduce the RFC vectors in <c>vectors.json</c> (copied verbatim from RFC 5869, RFC 7748,
-/// RFC 8439 and RFC 9180).
+/// RFC 8439, RFC 9180 and RFC 9562).
 /// </summary>
 public sealed class AnchorTests
 {
+    [Fact]
+    public void Rfc9562UuidV5()
+    {
+        var anchor = Vectors.Anchor("rfc9562AppendixA4");
+        Assert.Equal(anchor.Text("uuid"), SensorIds.UuidV5(Guid.Parse(anchor.Text("namespace")), anchor.Text("name")).ToString("D"));
+    }
+
     [Fact]
     public void Rfc5869HkdfSha256TestCase1()
     {

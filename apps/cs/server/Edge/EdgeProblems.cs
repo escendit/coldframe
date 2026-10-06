@@ -74,6 +74,11 @@ public static class EdgeProblems
     public const string IdentityProviderUnavailable = "urn:coldframe:problem:identity-provider-unavailable";
 
     /// <summary>
+    /// 503: the ingest envelope parsed, but no frame of it could be committed.
+    /// </summary>
+    public const string IngestUnavailable = "urn:coldframe:problem:ingest-unavailable";
+
+    /// <summary>
     /// Creates the Problem Details of a type.
     /// </summary>
     public static ProblemDetails Create(int status, string type, string title, string? detail = null) =>

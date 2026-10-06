@@ -492,3 +492,35 @@ source_spec: `spec-4-3-add-a-node-from-my-phone.md`
 severity: medium
 reason: ColdframeRoot, ColdframeRootView, ShellModel and the Lots and Devices presentations default the new parameters to closed, none or false. Deleting MainActivity's two nodeSetup lines, or canAddNode: snapshot.canAddNode in CoreLotsService, keeps every check green. CoreNodeSetupService maps 43 snapshot fields by hand and apps/swift/ios/App has no tests. Extends DW-54.
 status: open
+
+### DW-64: A Node whose clock runs more than 5 minutes ahead is answered rejected_time on every frame and never receives the server time that would correct it.
+origin: spec-deferred 87dfdf9eecc4
+location: apps/cs/server/Devices/DeviceGrain.cs (Ingest, rejected_time branch)
+source_spec: `spec-4-5-server-ingestion-and-acknowledgements.md`
+severity: medium
+reason: AD-9 gives a downlink only to stored and duplicate, and AD-11 makes the sealed downlink the Node's only time source. DeviceGrain.Ingest follows both, so a rejected_time frame carries no server_time_ms. The rule comes from the architecture, not from this story; it needs a decision there (for example a time-only downlink).
+status: open
+
+### DW-65: No test makes the journal append of DeviceRelayChanged fail, so the retry answer for that failure is unproven.
+origin: spec-deferred 5f96a42808ab
+location: apps/cs/server/Devices/DeviceGrain.cs (Ingest, relay change after the commit)
+source_spec: `spec-4-5-server-ingestion-and-acknowledgements.md`
+severity: low
+reason: IdentityCluster's FaultyIngestionStore can fail the replay load and the commit, but the fixture has no hook that fails a journal append. JournaledGrain with custom storage may also retry a failed write instead of throwing, in which case the catch in DeviceGrain.Ingest is never reached; a failing-journal fixture would settle both.
+status: open
+
+### DW-66: A Node enrolled after a restore's recovery point and enrolled again afterwards starts its downlink counter at 0 under the same ack/v1 key.
+origin: spec-deferred 454ee2a3ef0e
+location: apps/cs/migrations/ReadingsMaintenance.cs (AdvanceReplayAsync)
+source_spec: `spec-4-5-server-ingestion-and-acknowledgements.md`
+severity: medium
+reason: advance-replay moves the device_replay rows it finds and inserts rows for Devices with a device.enrolled event in the restored journal. A Device whose enrolment was lost with the restore has neither, so after re-enrolment (same K_dev, same Device ID) DeviceIngestionStore reserves counters from 0 again, repeating nonces the Server used before the restore.
+status: open
+
+### DW-67: The integration test host runs close to PostgreSQL's 100-connection limit.
+origin: spec-deferred bf435ce74d75
+location: aspire/Coldframe.AppHost/AppHost.cs
+source_spec: `spec-4-5-server-ingestion-and-acknowledgements.md`
+severity: low
+reason: Before the ingestion suites were put in a serial xUnit collection, full runs failed twice with "too many clients"; the sampled peak is now 87 to 88 of 100. CommitOrderTests alone opens 34 connections. Raising max_connections on the AppHost's PostgreSQL would remove the risk.
+status: open

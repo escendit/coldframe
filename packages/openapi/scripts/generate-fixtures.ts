@@ -9,7 +9,14 @@
  *   response schema whose serverTime has, and has not, a fraction of a second.
  * - heartbeat-response-extra-field.json: the first response example plus a property the schema does
  *   not define, which the Hub must ignore (additive changes within a major, AD-10).
- * - schemas.json: both schemas' properties and required keys.
+ * - ingest-request-empty.json, ingest-request-frames.json: the `examples` of the deviceIngest request
+ *   schema without and with frames.
+ * - ingest-response-empty.json, ingest-response-mixed.json, ingest-response-every-status.json: the
+ *   `examples` of its 200 response schema with no result, with the fewest results that include one
+ *   with and one without a downlink, and with one result per status of IngestFrameStatus.
+ * - ingest-response-extra-field.json: the mixed example plus a property the schemas do not define,
+ *   on the response and on every result, which the Hub must ignore.
+ * - schemas.json: every schema's properties and required keys, and the statuses of IngestFrameStatus.
  *
  * With --check it writes nothing and exits 1 when a committed fixture is stale.
  */
@@ -108,6 +115,72 @@ function heartbeatSchemas(contract: JsonObject): { request: Schema; response: Sc
   };
 }
 
+interface IngestSchemas {
+  request: Schema;
+  response: Schema;
+  result: Schema;
+  statuses: string[];
+  maxFrames: number;
+}
+
+function stringsOf(value: Json | undefined, where: string): string[] {
+  return array(value, where).map((item) => {
+    if (typeof item !== 'string') {
+      throw new Error(`${where} holds a non-string`);
+    }
+    return item;
+  });
+}
+
+function ingestSchemas(contract: JsonObject): IngestSchemas {
+  const paths = object(contract.paths, 'paths');
+  const operation = object(object(paths['/device/ingest'], 'paths./device/ingest').post, 'deviceIngest');
+  if (operation.operationId !== 'deviceIngest') {
+    throw new Error('POST /device/ingest is not deviceIngest');
+  }
+  const requestBody = object(operation.requestBody, 'deviceIngest.requestBody');
+  const requestJson = object(object(requestBody.content, 'requestBody.content')['application/json'], 'request JSON');
+  const request = resolveRef(contract, requestJson.schema, 'IngestRequest');
+  const ok = object(object(operation.responses, 'deviceIngest.responses')['200'], 'deviceIngest 200');
+  const responseJson = object(object(ok.content, '200.content')['application/json'], 'response JSON');
+  const response = resolveRef(contract, responseJson.schema, 'IngestResponse');
+  const frames = object(object(request.properties, 'IngestRequest.properties').frames, 'IngestRequest.frames');
+  const results = object(object(response.properties, 'IngestResponse.properties').results, 'IngestResponse.results');
+  const result = resolveRef(contract, results.items, 'IngestFrameResult');
+  const status = resolveRef(contract, object(result.properties, 'IngestFrameResult.properties').status, 'IngestFrameStatus');
+  if (typeof frames.maxItems !== 'number') {
+    throw new Error('IngestRequest.frames has no maxItems');
+  }
+  return {
+    request: schemaOf(request, 'IngestRequest'),
+    response: schemaOf(response, 'IngestResponse'),
+    result: schemaOf(result, 'IngestFrameResult'),
+    statuses: stringsOf(status.enum, 'IngestFrameStatus.enum'),
+    maxFrames: frames.maxItems,
+  };
+}
+
+/** The results of an IngestResponse example, each checked against IngestFrameResult. */
+function resultsOf(example: JsonObject, ingest: IngestSchemas): JsonObject[] {
+  return array(example.results, 'results').map((item, index) => {
+    const result = object(item, `results[${String(index)}]`);
+    const status = result.status;
+    if (typeof status !== 'string' || !ingest.statuses.includes(status)) {
+      throw new Error(`results[${String(index)}] has the unknown status ${JSON.stringify(status ?? null)}`);
+    }
+    for (const key of Object.keys(result)) {
+      if (!ingest.result.properties.includes(key)) {
+        throw new Error(`results[${String(index)}] has ${key}, which is not a property`);
+      }
+    }
+    // Only stored and duplicate carry a downlink (AD-9).
+    if ('downlink' in result !== (status === 'stored' || status === 'duplicate')) {
+      throw new Error(`results[${String(index)}]: ${status} ${'downlink' in result ? 'must not carry' : 'lacks'} a downlink`);
+    }
+    return result;
+  });
+}
+
 function pick<T>(items: T[], score: (item: T) => number, best: 'min' | 'max', what: string): T {
   if (items.length === 0) {
     throw new Error(`no example for ${what}`);
@@ -154,9 +227,34 @@ export function renderFixtures(contract: JsonObject): Map<string, string> {
   put('heartbeat-response-fraction.json', pick(withFraction, () => 0, 'min', 'a response with a fraction'));
   put('heartbeat-response-no-fraction.json', pick(withoutFraction, () => 0, 'min', 'a response without a fraction'));
   put('heartbeat-response-extra-field.json', { ...first, [extraKey]: { nested: [1, 'two', true, null] } });
+
+  const ingest = ingestSchemas(contract);
+  const framesOf = (example: JsonObject): Json[] => array(example.frames, 'frames');
+  put('ingest-request-empty.json', pick(ingest.request.examples.filter((e) => framesOf(e).length === 0), () => 0, 'min', 'a request without frames'));
+  put('ingest-request-frames.json', pick(ingest.request.examples, (e) => framesOf(e).length, 'max', 'a request with frames'));
+  const responses = ingest.response.examples.map((example) => ({ example, results: resultsOf(example, ingest) }));
+  const mixed = responses.filter(({ results }) => results.some((r) => 'downlink' in r) && results.some((r) => !('downlink' in r)));
+  const everyStatus = responses.filter(({ results }) => ingest.statuses.every((status) => results.some((r) => r.status === status)));
+  const mixedExample = pick(mixed, ({ results }) => results.length, 'min', 'a response with and without a downlink').example;
+  put('ingest-response-empty.json', pick(responses.filter(({ results }) => results.length === 0), () => 0, 'min', 'a response without results').example);
+  put('ingest-response-mixed.json', mixedExample);
+  put('ingest-response-every-status.json', pick(everyStatus, ({ results }) => results.length, 'min', 'a response with every status').example);
+  for (const schema of [ingest.response, ingest.result]) {
+    if (schema.properties.includes(extraKey)) {
+      throw new Error(`${extraKey} became a real property; pick another name`);
+    }
+  }
+  put('ingest-response-extra-field.json', {
+    ...mixedExample,
+    results: resultsOf(mixedExample, ingest).map((result) => ({ ...result, [extraKey]: 1 })),
+    [extraKey]: { nested: [1, 'two', true, null] },
+  });
   put('schemas.json', {
     HeartbeatRequest: { properties: request.properties, required: request.required },
     HeartbeatResponse: { properties: response.properties, required: response.required },
+    IngestRequest: { properties: ingest.request.properties, required: ingest.request.required, maxFrames: ingest.maxFrames },
+    IngestResponse: { properties: ingest.response.properties, required: ingest.response.required },
+    IngestFrameResult: { properties: ingest.result.properties, required: ingest.result.required, statuses: ingest.statuses },
   });
   return files;
 }

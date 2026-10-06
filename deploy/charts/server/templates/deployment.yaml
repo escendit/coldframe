@@ -12,8 +12,10 @@ metadata:
     {{- include "server.labels" . | nindent 4 }}
     app.kubernetes.io/component: server
 spec:
-  # One silo, stopped before the next one starts (AD-22). Not a value on purpose.
-  replicas: 1
+  # One silo, stopped before the next one starts (AD-22). The count is not a value on purpose;
+  # "stopped" keeps the Server down while a restore advances the replay windows
+  # (docs/operations/restore.md, step 5).
+  replicas: {{ ternary 0 1 (eq (toString .Values.stopped) "true") }}
   strategy:
     type: Recreate
   selector:

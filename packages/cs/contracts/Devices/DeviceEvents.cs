@@ -62,3 +62,62 @@ public sealed record DeviceSeen(
     [property: Id(0)] DateTimeOffset SeenAt,
     [property: Id(1)] long DeviceTimestampMs,
     [property: Id(2)] long? UptimeMs);
+
+/// <summary>
+/// Where a Pause of a Device comes from (AD-8). A Device is paused if and only if it has at least one source.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-pause-source")]
+public enum DevicePauseSource
+{
+    /// <summary>
+    /// The Device itself was paused.
+    /// </summary>
+    Device = 0,
+
+    /// <summary>
+    /// The Device's Site is paused; the Site grain propagates it to its roster.
+    /// </summary>
+    Site = 1,
+}
+
+/// <summary>
+/// A Node's frame was accepted through another Hub than the one recorded (AD-18): the Node's last relay Hub.
+/// Any enrolled Hub may relay any Node; the relay Hub only serves display and Silence suppression (AD-7).
+/// Journaled only when the Hub changes, never per frame.
+/// </summary>
+/// <param name="HubId">The Device ID of the Hub that relayed the frame.</param>
+/// <param name="ChangedAt">When the Server accepted the frame.</param>
+[EventType("device.relay-changed")]
+[GenerateSerializer]
+[Alias("coldframe.device-relay-changed")]
+public sealed record DeviceRelayChanged(
+    [property: Id(0)] string HubId,
+    [property: Id(1)] DateTimeOffset ChangedAt);
+
+/// <summary>
+/// The Device got a Pause source, or the end date of one changed (AD-8). While it has any source, its
+/// Readings are acknowledged and discarded.
+/// </summary>
+/// <param name="Source">Where the Pause comes from.</param>
+/// <param name="EndsAt">When this source's Pause ends, if it has an end.</param>
+/// <param name="PausedAt">When the Pause was set.</param>
+[EventType("device.paused")]
+[GenerateSerializer]
+[Alias("coldframe.device-paused")]
+public sealed record DevicePaused(
+    [property: Id(0)] DevicePauseSource Source,
+    [property: Id(1)] DateTimeOffset? EndsAt,
+    [property: Id(2)] DateTimeOffset PausedAt);
+
+/// <summary>
+/// One Pause source of the Device cleared (AD-8). The Device resumes only when its last source clears.
+/// </summary>
+/// <param name="Source">The source that cleared.</param>
+/// <param name="ResumedAt">When it cleared.</param>
+[EventType("device.resumed")]
+[GenerateSerializer]
+[Alias("coldframe.device-resumed")]
+public sealed record DeviceResumed(
+    [property: Id(0)] DevicePauseSource Source,
+    [property: Id(1)] DateTimeOffset ResumedAt);

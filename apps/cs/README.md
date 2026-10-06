@@ -5,7 +5,7 @@
 | Folder | What | Arrives in |
 | --- | --- | --- |
 | `server/` | The Server: Orleans silo and Edge API in one ASP.NET Core host, with the event journal and projectors | Epic 1 |
-| `migrations/` | The migration job: applies the one forward-only migration set, then exits | Story 1.2 |
+| `migrations/` | The migration job: applies the one forward-only migration set and keeps the Readings partitions ahead, then exits; also the restore step `advance-replay` | Story 1.2, Story 4.5 |
 
 Tests live in [`tests/cs`](../../tests/cs): `server.tests` needs no containers, `server.integration`
 starts the AppHost.
@@ -22,8 +22,8 @@ starts the AppHost.
 ## The migration job
 
 `migrations/` is a console app. It reads the connection string `coldframe`, runs every pending
-migration through one FluentMigrator runner and one version table (`versions`), and exits 0, or 1 when
-a migration fails. The runner applies the Orleans cluster schema from
+migration through one FluentMigrator runner and one version table (`versions`), then ensures the
+monthly partitions of the ingestion tables, and exits 0, or 1 when either fails. The runner applies the Orleans cluster schema from
 `Escendit.Orleans.Migrations.Cluster.PostgreSQL` together with Coldframe's own migrations. The AppHost
 starts the Server only after the job has completed; in a deployment it becomes the Kubernetes Job.
 
@@ -33,6 +33,24 @@ Run it on its own against any database:
 ConnectionStrings__coldframe="Host=localhost;Port=5432;Database=coldframe;Username=postgres;Password=…" \
   dotnet run --project apps/cs/migrations
 ```
+
+### Commands
+
+| Arguments | What it does |
+| --- | --- |
+| none | Applies the pending migrations, then does what `partitions` does. The AppHost and the Helm hook Job run it this way. |
+| `partitions [--months-ahead N]` | For `readings` and `device_reports`: creates the partition of the current month (UTC) and of the `N` months after it (default 3, at least 2), and of every other month that has rows waiting in the default partition (a Reading older than the first partition, a month a run missed), unless it exists. The waiting rows of a month move into its new partition in the transaction that creates it, so a run leaves the default partitions empty. Safe to run at any time and as often as you like; the chart's daily CronJob does. |
+| `advance-replay [--uplink-margin N] [--downlink-margin N]` | The restore step ([`docs/operations/restore.md`](../../docs/operations/restore.md), step 5), **with the apps stopped**: in one transaction, every Device's uplink high-water mark moves up by the uplink margin (default 64) with its window marked fully seen, and every downlink counter by the downlink margin (default 1 048 576). A margin is 1 to 4 294 967 296; a larger one is refused as a usage error. An enrolled Device without replay state gets one. Each run adds the margins again, so run it once per restore. |
+
+Anything else (an unknown command or option, a missing or out-of-range value) prints the usage and
+exits 2 before the database is touched. A command that fails exits 1 and leaves no partial change.
+
+```sh
+ConnectionStrings__coldframe="…" dotnet run --project apps/cs/migrations -- partitions --months-ahead 6
+```
+
+Partitions are named `<table>_y<yyyy>m<MM>` (`readings_y2026m10`). A migration never creates one:
+the migrations create the tables and their `_default` partitions, the commands follow the calendar.
 
 ### Add a migration
 
@@ -106,6 +124,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online}]}`; `online` is computed when the Server answers |
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
+| `POST /device/ingest` | `Device` | A Hub relays sealed Node frames: `Device(hubId).AuthenticateRelay(…)`, then `Device(nodeId).Ingest(…)` per frame; 200 `{results: [{status, downlink?}]}` |
 
 - **Authentication.** JWT bearer against `Identity:Authority` (the realm URL), audience
   `Identity:Audience` (`coldframe-server`); `Identity:RequireHttpsMetadata` defaults to `true` and only
@@ -242,6 +261,65 @@ day), so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read
 Tests drive the Device path through the Device simulator only
 (`SimulatedDevice.HeartbeatRequest`), never through hand-built headers.
 
+### Ingesting Node frames, step by step
+
+Ingestion (AD-8, AD-9, AD-11, AD-17, AD-19) is served by `POST /device/ingest` in
+`server/Edge/EdgeApi.cs`. The handler only parses the envelope and calls grains; everything else
+happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer of `readings`,
+`device_reports`, `reading_keys` and `device_replay` (through `DeviceIngestionStore`).
+
+1. The handler parses the four Device headers (401 `device-unauthorized`), reads at most 16 KiB and
+   parses the envelope: a JSON object whose `frames` holds at most 32 strings of at most 1 024
+   characters (400 `validation` otherwise).
+2. `DeviceGrain.AuthenticateRelay` on the signer's grain: the heartbeat's HMAC check, bound to the
+   path, within 5 min of `Clock`, each nonce once while the grain is active, and the signer must be
+   an enrolled **Hub**. It journals nothing. A refusal is 401, and no frame is looked at. Any
+   enrolled Hub may relay any Node.
+3. Each frame, in request order: standard base64 → `SealedEnvelope` → the Node's grain by its
+   Device ID. A frame that is not base64, not a `SealedEnvelope`, or has no 8-byte Device ID is
+   `rejected_auth` without a grain call. A grain call that throws or times out is `retry` for that
+   frame only, logged with the Device ID.
+4. `DeviceGrain.Ingest`, in this order:
+   1. Not an enrolled Node → `unknown_device`. Another `protocol_version` → `rejected_auth`.
+   2. Open the seal with the `seal/v1` key (unwrapped `K_dev`, zeroed afterwards) → `rejected_auth`.
+   3. The replay window, loaded from `device_replay` on first use → `rejected_replay`.
+   4. Decode the `NodeFrame` (`NodeFrameReader`). An authentic plaintext that is no valid frame is
+      `rejected_auth`; a synced `measured_at` more than 5 min ahead is `rejected_time`. Both
+      consume the counter (the window is stored, without rows and without a downlink).
+   5. The Pause gate: a paused Device (`device.paused` without a matching `device.resumed` for
+      every source) is acknowledged and nothing is stored.
+   6. One transaction: `device_replay` (window and `downlink_counter + 1`), then `reading_keys`
+      with `ON CONFLICT DO NOTHING`, and a `readings` or `device_reports` row only for a key that
+      was new. The device report's key is the nil UUID with `report_seq`. The transaction fails
+      (`retry`) when the stored high-water mark is above the one being written: the window was
+      moved underneath the grain, which then reads it again.
+   7. The relay Hub, after the commit: `device.relay-changed` is journaled only when it differs
+      from the last one; a frame that is not committed records none.
+   8. Only after that, the `Downlink` (`acked_counter`, `server_time_ms`, the frame's
+      `reading_seq` ranges, no commands) is sealed with the `ack/v1` key under the reserved counter.
+      `stored` when at least one key was new (or the Device is paused), `duplicate` otherwise.
+5. The handler answers 200 with one `{status, downlink?}` per frame, or 503 `ingest-unavailable`
+   when there were frames and every one was `retry`.
+
+A failed transaction answers `retry` and leaves no trace: the grain drops its in-memory window and
+reads it again for the next frame, so memory never runs ahead of the database. The downlink counter
+is never kept in memory, so no counter is reused after a restart. No event is journaled per frame.
+One `retry` does leave rows behind: when the frame committed but the changed relay Hub could not be
+journaled, the frame is not acknowledged, and the Node's resend is a `duplicate`.
+
+Time: a synced Reading keeps the Node's `measured_at`. An unsynced one (`time_unsynced`, with its
+`boot_id` and `uptime_ms` kept) is rebased: taken by the boot that sealed the frame, it is
+`receive time − (frame uptime − Reading uptime)`, a negative difference counting as 0; taken by an
+earlier boot, it is the receive time.
+
+A Sensor ID is `UUIDv5(namespace, "{deviceIdHex}:{slot}:{quantity}")` from
+[`packages/crypto-spec`](../../packages/crypto-spec) (`Coldframe.Crypto.SensorIds`). `spec_hash` is
+carried and ignored until Story 4.6; `calibration_id` is `NULL` until Epic 5. Pause has no API yet:
+`device.paused` and `device.resumed` exist as events and state only (Epic 8).
+
+Tests drive ingestion through the Device simulator only (`SimulatedDevice.Wake`, `SealFrame`,
+`IngestBody`, `IngestRequest`, `ReadIngestResponse`, `OpenDownlink`).
+
 ### The Devices list
 
 `GET /sites/{siteId}/devices` (Story 3.7) reads the `devices` table, which `DevicesProjector`
@@ -252,6 +330,7 @@ Tests drive the Device path through the Device simulator only
 | `device.enrolled` | Creates the row: `site_id`, `kind` (`hub` or `node`), `enrolled_at` |
 | `device.assigned` | Sets `lot_id` |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
+| `device.relay-changed`, `device.paused`, `device.resumed` | Nothing (Stories 4.7, 4.8 and Epic 8 read them) |
 
 `site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
 never journaled. `device.seen` carries no Site, so the projector keys on the stream ID. The projector

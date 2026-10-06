@@ -70,6 +70,116 @@ public sealed class VectorTests
     }
 
     [Fact]
+    public void ReplayWindowStateSurvivesAnExportAfterEveryStep()
+    {
+        // The same sequence, but the window is stored and created again before every step (AD-17).
+        var window = new ReplayWindow();
+        Assert.Null(window.Highest);
+        Assert.Equal(0UL, window.Seen);
+
+        foreach (var step in Vectors.Root.GetProperty("replay").GetProperty("steps").EnumerateArray())
+        {
+            var restored = window.Highest is { } highest ? Crypto.ReplayWindow.FromState(highest, window.Seen) : new ReplayWindow();
+            var counter = step.Number("counter");
+            Assert.Equal(window.WouldAccept(counter), restored.WouldAccept(counter));
+            Assert.True(step.GetProperty("accepted").GetBoolean() == restored.WouldAccept(counter), $"counter {counter}");
+
+            if (restored.WouldAccept(counter))
+            {
+                restored.Accept(counter);
+                Assert.Equal(1UL, restored.Seen & 1);
+            }
+
+            window = restored;
+        }
+
+        Assert.Equal(201UL, window.Highest);
+    }
+
+    [Fact]
+    public void ACloneOfAReplayWindowChangesOnItsOwn()
+    {
+        var window = new ReplayWindow();
+        window.Accept(10);
+        var clone = window.Clone();
+        clone.Accept(11);
+
+        Assert.Equal(10UL, window.Highest);
+        Assert.True(window.WouldAccept(11));
+        Assert.False(clone.WouldAccept(11));
+        Assert.True(new ReplayWindow().Clone().WouldAccept(0));
+    }
+
+    [Fact]
+    public void AdvancingAReplayWindowRefusesEverythingUpToTheMargin()
+    {
+        var replay = Vectors.Root.GetProperty("replay");
+        var window = new ReplayWindow();
+        foreach (var step in replay.GetProperty("steps").EnumerateArray().Where(step => step.GetProperty("accepted").GetBoolean()))
+        {
+            window.Accept(step.Number("counter"));
+        }
+
+        // 137 and 150 were seen below 201; 180 was still open before the restore.
+        Assert.True(window.WouldAccept(180));
+        var margin = (ulong)CryptoSpec.ReplayWindow;
+        window.Advance(margin);
+
+        Assert.Equal(201 + margin, window.Highest);
+        Assert.Equal(ulong.MaxValue, window.Seen);
+        for (var counter = 0UL; counter <= 201 + margin; counter++)
+        {
+            Assert.False(window.WouldAccept(counter), $"counter {counter}");
+        }
+
+        Assert.True(window.WouldAccept(201 + margin + 1));
+        window.Accept(201 + margin + 1);
+        Assert.False(window.WouldAccept(201 + margin));
+
+        // A window that accepted nothing refuses its first `margin` counters, and the mark never wraps.
+        var empty = new ReplayWindow();
+        empty.Advance(margin);
+        Assert.Equal(margin - 1, empty.Highest);
+        Assert.False(empty.WouldAccept(0));
+        Assert.False(empty.WouldAccept(margin - 1));
+        Assert.True(empty.WouldAccept(margin));
+
+        var last = Crypto.ReplayWindow.FromState(ulong.MaxValue - 3, 1);
+        last.Advance(margin);
+        Assert.Equal(ulong.MaxValue, last.Highest);
+        Assert.Throws<ArgumentOutOfRangeException>(() => last.Advance(0));
+    }
+
+    [Fact]
+    public void SensorIds()
+    {
+        Assert.NotEmpty(Vectors.List("sensorId"));
+        foreach (var vector in Vectors.List("sensorId"))
+        {
+            var deviceId = DeviceKeys.FromRootKey(vector.Bytes("rootKey")).DeviceId;
+            var slot = vector.GetProperty("slot").GetUInt32();
+            Assert.Equal(vector.Text("deviceId"), deviceId.ToString());
+            Assert.Equal(vector.Text("namespace"), Crypto.SensorIds.Namespace.ToString("D"));
+            Assert.Equal(vector.Text("uuidName"), Crypto.SensorIds.Name(deviceId, slot, vector.Text("quantity")));
+            Assert.Equal(vector.Text("sensorId"), Crypto.SensorIds.Derive(deviceId, slot, vector.Text("quantity")).ToString("D"));
+        }
+
+        // The namespace is itself the UUIDv5 of its name in the RFC's URL namespace.
+        Assert.Equal(
+            Crypto.SensorIds.Namespace,
+            Crypto.SensorIds.UuidV5(Guid.Parse("6ba7b811-9dad-11d1-80b4-00c04fd430c8"), "https://github.com/escendit/coldframe/sensor"));
+        Assert.Equal(Guid.Empty, Crypto.SensorIds.DeviceReport);
+        string[] tokens =
+        [
+            CryptoSpec.SensorQuantitySoilMoisture,
+            CryptoSpec.SensorQuantityAirTemperature,
+            CryptoSpec.SensorQuantityRelativeHumidity,
+            CryptoSpec.SensorQuantityGasResistance,
+        ];
+        Assert.Equal(["soil_moisture", "air_temperature", "relative_humidity", "gas_resistance"], tokens);
+    }
+
+    [Fact]
     public void Enrolment()
     {
         Assert.NotEmpty(Vectors.List("enrolment"));

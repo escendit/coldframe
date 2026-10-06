@@ -1718,6 +1718,7 @@
         "dependencies": {
           "Coldframe.Contracts": "[1.0.0, )",
           "Coldframe.Crypto": "[1.0.0, )",
+          "Coldframe.Protocol": "[1.0.0, )",
           "Escendit.AspNetCore.Builder.Core": "[0.1.0-rc.0, )",
           "Escendit.Extensions.Hosting.Orleans": "[0.1.0-rc.4, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.12, )",

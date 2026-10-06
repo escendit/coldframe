@@ -69,6 +69,79 @@
       "nonce": "920644220000000000000007",
       "aad": "0192064422c012f4810000000000000007",
       "ciphertext": "baefae5ae18fd803cdca0614ec99bffb890bab07c5d2bb988f9888"
+    },
+    {
+      "name": "node frame with four readings",
+      "rootKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "purpose": "seal",
+      "key": "8f7dcfdce0f5837c42782f58c688b8a4d0e9953113837860577b02c32355da8b",
+      "deviceId": "92064422c012f481",
+      "counter": "42",
+      "plaintext": "0801180320d9d7372880d8c1a28c34386842071064180120a21d4209080110651802208727420a08021066180320f4eb07420a08031067180420a6f10548575001",
+      "nonce": "92064422000000000000002a",
+      "aad": "0192064422c012f481000000000000002a",
+      "ciphertext": "950a6a9ead0843aec8033304508ab9b96371a89739abaff10ad2f2991f346fd59000ef987edae17c0082ce76af13e6c05f5a218aff7f2f3afd4a11c7da3222e97b0bcfa1870a1ce04f2c94fadf965cdd7b",
+      "message": {
+        "type": "NodeFrame",
+        "protocolVersion": 1,
+        "specHash": "",
+        "bootId": "3",
+        "uptimeMs": "912345",
+        "measuredAtMs": "1790000000000",
+        "reportSeq": "104",
+        "readings": [
+          {
+            "slot": 0,
+            "readingSeq": "100",
+            "quantity": "soil_moisture",
+            "value": "1873"
+          },
+          {
+            "slot": 1,
+            "readingSeq": "101",
+            "quantity": "air_temperature",
+            "value": "-2500"
+          },
+          {
+            "slot": 2,
+            "readingSeq": "102",
+            "quantity": "relative_humidity",
+            "value": "64250"
+          },
+          {
+            "slot": 3,
+            "readingSeq": "103",
+            "quantity": "gas_resistance",
+            "value": "48211"
+          }
+        ],
+        "batteryPercent": 87,
+        "charging": "charging"
+      }
+    },
+    {
+      "name": "downlink acknowledging the readings of the node frame",
+      "rootKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "purpose": "ack",
+      "key": "113107ca91b3c656ddc3e40758dd4aa13c864b6daf59669e650d6f4300ffda27",
+      "deviceId": "92064422c012f481",
+      "counter": "8",
+      "plaintext": "0801102a18c1dac1a28c342a0408641068",
+      "nonce": "920644220000000000000008",
+      "aad": "0192064422c012f4810000000000000008",
+      "ciphertext": "dacc0b6c0a64047ad700ab0c0b1aeb44fceda08ee3de0bfd82b906e5d956a517ed",
+      "message": {
+        "type": "Downlink",
+        "protocolVersion": 1,
+        "ackedCounter": "42",
+        "serverTimeMs": "1790000000321",
+        "ackedReadings": [
+          {
+            "first": "100",
+            "last": "104"
+          }
+        ]
+      }
     }
   ],
   "replay": {
@@ -250,6 +323,28 @@
       }
     }
   ],
+  "sensorId": [
+    {
+      "name": "soil moisture in slot 0",
+      "rootKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "deviceId": "92064422c012f481",
+      "slot": 0,
+      "quantity": "soil_moisture",
+      "namespace": "5f496f62-2f32-5456-8b2a-ebe01228c999",
+      "uuidName": "92064422c012f481:0:soil_moisture",
+      "sensorId": "257259c0-bd88-5907-9265-2c1a27ad56c2"
+    },
+    {
+      "name": "gas resistance in slot 3 of another device",
+      "rootKey": "ffeeddccbbaa998877665544332211000f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "deviceId": "b485999a177ebbf3",
+      "slot": 3,
+      "quantity": "gas_resistance",
+      "namespace": "5f496f62-2f32-5456-8b2a-ebe01228c999",
+      "uuidName": "b485999a177ebbf3:3:gas_resistance",
+      "sensorId": "3da5fce9-f3ce-5dc3-b2b3-7172ed5ed781"
+    }
+  ],
   "anchors": {
     "rfc5869TestCase1": {
       "source": "RFC 5869 Appendix A.1 (HKDF-SHA256, Test Case 1)",
@@ -296,6 +391,12 @@
       "pt": "4265617574792069732074727574682c20747275746820626561757479",
       "aad": "436f756e742d30",
       "ct": "1c5250d8034ec2b784ba2cfd69dbdb8af406cfe3ff938e131f0def8c8b60b4db21993c62ce81883d2dd1b51a28"
+    },
+    "rfc9562AppendixA4": {
+      "source": "RFC 9562 Appendix A.4 (UUIDv5, SHA-1, DNS namespace)",
+      "namespace": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "name": "www.example.com",
+      "uuid": "2ed6657d-e927-568b-95e1-2665a8aea6a2"
     }
   }
 }

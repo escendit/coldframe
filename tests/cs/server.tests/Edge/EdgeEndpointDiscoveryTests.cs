@@ -69,10 +69,20 @@ public sealed class EdgeEndpointDiscoveryTests
     }
 
     [Fact]
+    public void TheIngestIsMappedWithTheDeviceRuleNowThatTheContractServesIt()
+    {
+        var ingest = Assert.Single(EdgeEndpointCatalog.Describe(), operation => operation.Key == "POST /device/ingest");
+
+        Assert.Equal(EdgeAccessRule.DeviceName, ingest.Rule.ToString());
+        Assert.Contains("POST /device/ingest Device", ReadContractOperations(planned: false));
+        Assert.DoesNotContain("POST /device/ingest Device", ReadContractOperations(planned: true));
+    }
+
+    [Fact]
     public void NoPlannedOperationIsMappedYet()
     {
+        // The contract may hold no planned operation at all; one that it holds must not be mapped.
         var planned = ReadContractOperations(planned: true);
-        Assert.NotEmpty(planned);
 
         var mapped = EdgeEndpointCatalog.Describe().Select(operation => operation.Key).ToHashSet(StringComparer.Ordinal);
         var early = planned.Select(operation => string.Join(' ', operation.Split(' ').Take(2))).Where(mapped.Contains).ToList();

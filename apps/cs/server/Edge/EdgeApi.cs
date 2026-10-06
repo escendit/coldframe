@@ -6,9 +6,11 @@ using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
+using Coldframe.Protocol.Device.V1;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Lots;
+using Google.Protobuf;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using HttpJsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
@@ -126,6 +128,33 @@ public sealed record HeartbeatResponse(string ServerTime);
 internal sealed record HeartbeatRead(IResult? Problem, DeviceId? DeviceId = null, DeviceHeartbeat? Request = null);
 
 /// <summary>
+/// The body of <c>POST /device/ingest</c>'s 200: one result per frame, in request order (AD-9).
+/// </summary>
+/// <param name="Results">The frames' results.</param>
+public sealed record IngestResponse(IReadOnlyList<IngestFrameResponse> Results);
+
+/// <summary>
+/// How one frame of an ingest envelope ended.
+/// </summary>
+/// <param name="Status">The contract's <c>IngestFrameStatus</c>, such as <c>stored</c>.</param>
+/// <param name="Downlink">The sealed acknowledgement in base64, only for <c>stored</c> and <c>duplicate</c>.</param>
+public sealed record IngestFrameResponse(string Status, string? Downlink = null);
+
+/// <summary>
+/// An ingest request after the Edge API's checks: either the problem to answer, or the Hub that signed it,
+/// what to hand its grain, and the frames.
+/// </summary>
+/// <param name="Problem">The response for a request that failed a check, or <see langword="null"/>.</param>
+/// <param name="HubId">The Hub the request claims to be from.</param>
+/// <param name="Request">The request for <see cref="IDeviceGrain.AuthenticateRelay"/>.</param>
+/// <param name="Frames">The frames of the envelope, still base64.</param>
+internal sealed record IngestRead(
+    IResult? Problem,
+    DeviceId? HubId = null,
+    DeviceRelayAuthentication? Request = null,
+    IReadOnlyList<string>? Frames = null);
+
+/// <summary>
 /// The Edge API endpoints, contract-first from <c>packages/openapi/coldframe.openapi.json</c> (AD-10).
 /// </summary>
 /// <remarks>
@@ -134,7 +163,7 @@ internal sealed record HeartbeatRead(IResult? Problem, DeviceId? DeviceId = null
 /// <see cref="EdgeAccessRuleExtensions.RequireDevice{TBuilder}"/>). Handlers change state only through grains and
 /// read only the read models.
 /// </remarks>
-public static class EdgeApi
+public static partial class EdgeApi
 {
     /// <summary>
     /// The header that makes a creating request idempotent.
@@ -152,6 +181,11 @@ public static class EdgeApi
     public const string HeartbeatPath = "/device/heartbeat";
 
     /// <summary>
+    /// The ingest operation's path, which the Hub signs.
+    /// </summary>
+    public const string IngestPath = "/device/ingest";
+
+    /// <summary>
     /// How <c>serverTime</c> is written: ISO-8601 UTC with milliseconds and <c>Z</c> (AD-11).
     /// </summary>
     public const string ServerTimeFormat = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
@@ -165,6 +199,10 @@ public static class EdgeApi
 
         endpoints.MapPost(HeartbeatPath, DeviceHeartbeatAsync)
             .WithName("deviceHeartbeat")
+            .RequireDevice();
+
+        endpoints.MapPost(IngestPath, DeviceIngestAsync)
+            .WithName("deviceIngest")
             .RequireDevice();
 
         endpoints.MapGet("/enrolment-key", GetEnrolmentKey)
@@ -542,6 +580,183 @@ public static class EdgeApi
             DeviceHeartbeatOutcome.Unauthorized => DeviceUnauthorized(),
             _ => throw new InvalidOperationException($"Unexpected heartbeat result {result.Outcome}."),
         };
+    }
+
+    // Parses the envelope and calls grains, nothing else (AD-9): the Hub's grain authenticates the request,
+    // each Node's grain opens, stores and acknowledges its own frames.
+    private static async Task<IResult> DeviceIngestAsync(
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] ILoggerFactory loggers)
+    {
+        var read = await ReadIngestAsync(httpContext).ConfigureAwait(false);
+
+        if (read is not { Problem: null, HubId: { } hubId, Request: { } request, Frames: { } frames })
+        {
+            return read.Problem!;
+        }
+
+        var authentication = await grains
+            .GetGrain<IDeviceGrain>(hubId.ToString())
+            .AuthenticateRelay(request, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        if (!authentication.Authenticated)
+        {
+            return DeviceUnauthorized();
+        }
+
+        var results = await IngestFramesAsync(grains, frames, hubId.ToString(), loggers.CreateLogger(IngestLogCategory))
+            .ConfigureAwait(false);
+
+        return ToHttpResult(results);
+    }
+
+    /// <summary>
+    /// Hands each frame of an authenticated envelope to its Node's grain, in request order and one after
+    /// the other, so the frames of one Node are never reordered. A frame whose grain cannot answer is
+    /// <c>retry</c> for that frame only.
+    /// </summary>
+    internal static async Task<IReadOnlyList<DeviceIngestResult>> IngestFramesAsync(
+        IGrainFactory grains,
+        IReadOnlyList<string> frames,
+        string hubId,
+        ILogger logger)
+    {
+        var results = new List<DeviceIngestResult>(frames.Count);
+        foreach (var frame in frames)
+        {
+            results.Add(await IngestFrameAsync(grains, frame, hubId, logger).ConfigureAwait(false));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Checks an ingest request before any grain sees it: the Device headers (401 <c>device-unauthorized</c>
+    /// when one is missing or malformed), then the raw body, read up to
+    /// <see cref="EdgeValidation.MaxIngestBodyLength"/> bytes (400 <c>validation</c> when larger, not JSON, or
+    /// not an envelope of at most <see cref="EdgeValidation.MaxIngestFrames"/> frames). Nothing is verified
+    /// here: the Hub's Device grain checks the signature.
+    /// </summary>
+    internal static async Task<IngestRead> ReadIngestAsync(HttpContext httpContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        if (EdgeValidation.ParseDeviceHeaders(httpContext.Request.Headers) is not { } authentication)
+        {
+            return new IngestRead(DeviceUnauthorized());
+        }
+
+        var body = await ReadCappedBodyAsync(httpContext.Request, EdgeValidation.MaxIngestBodyLength, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        if (body is null || EdgeValidation.ParseIngestBody(body) is not { } frames)
+        {
+            return new IngestRead(EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The ingest envelope is not valid.",
+                $"Send a JSON body of at most {EdgeValidation.MaxIngestBodyLength} bytes with frames, an array of at most {EdgeValidation.MaxIngestFrames} base64 strings of at most {EdgeValidation.MaxIngestFrameLength} characters."));
+        }
+
+        return new IngestRead(
+            null,
+            authentication.DeviceId,
+            new DeviceRelayAuthentication(
+                httpContext.Request.Method.ToUpperInvariant(),
+                httpContext.Request.Path.Value ?? IngestPath,
+                body,
+                authentication.TimestampMs,
+                authentication.Nonce,
+                authentication.Signature),
+            frames);
+    }
+
+    /// <summary>
+    /// Decodes one frame of the envelope into the request its Node's grain takes, or <see langword="null"/>
+    /// when it is not base64, not a <c>SealedEnvelope</c>, or names no Device ID: <c>rejected_auth</c>.
+    /// </summary>
+    internal static (string DeviceId, DeviceIngest Request)? DecodeFrame(string frame, string hubId)
+    {
+        if (EdgeValidation.DecodeBase64(frame) is not { } bytes)
+        {
+            return null;
+        }
+
+        SealedEnvelope envelope;
+        try
+        {
+            envelope = SealedEnvelope.Parser.ParseFrom(bytes);
+        }
+        catch (InvalidProtocolBufferException)
+        {
+            return null;
+        }
+
+        if (envelope.DeviceId.Length != CryptoSpec.DeviceIdLength)
+        {
+            return null;
+        }
+
+        return (
+            DeviceId.FromBytes(envelope.DeviceId.Span).ToString(),
+            new DeviceIngest(envelope.ProtocolVersion, envelope.Counter, envelope.Ciphertext.ToByteArray(), hubId));
+    }
+
+    private static async Task<DeviceIngestResult> IngestFrameAsync(IGrainFactory grains, string frame, string hubId, ILogger logger)
+    {
+        if (DecodeFrame(frame, hubId) is not var (deviceId, request))
+        {
+            return new DeviceIngestResult(DeviceIngestStatus.RejectedAuth);
+        }
+
+        try
+        {
+            // Not cancelled by the caller: a Hub that hangs up does not abandon a commit halfway.
+            return await grains.GetGrain<IDeviceGrain>(deviceId).Ingest(request, CancellationToken.None).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // A grain that cannot answer (timeout, a failed activation) stored nothing it acknowledged: the Node resends.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogIngestGrainFailed(logger, deviceId, exception);
+            return new DeviceIngestResult(DeviceIngestStatus.Retry);
+        }
+    }
+
+    private const string IngestLogCategory = "Coldframe.Server.Edge.Ingest";
+
+    // Never the frame or its payload: only the Device and the failure.
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "The grain of Device {DeviceId} did not answer a frame; the frame is answered with retry.")]
+    private static partial void LogIngestGrainFailed(ILogger logger, string deviceId, Exception exception);
+
+    /// <summary>
+    /// Maps the frames' results to the HTTP response (AD-9): 200 with one result per frame in request order,
+    /// a downlink only on <c>stored</c> and <c>duplicate</c>; 503 <c>ingest-unavailable</c> only when there
+    /// were frames and every one ended in <c>retry</c>.
+    /// </summary>
+    internal static IResult ToHttpResult(IReadOnlyList<DeviceIngestResult> results)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+
+        if (results.Count > 0 && results.All(result => result.Status == DeviceIngestStatus.Retry))
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status503ServiceUnavailable,
+                EdgeProblems.IngestUnavailable,
+                "No frame could be stored.",
+                "Nothing was acknowledged. Send the frames again.");
+        }
+
+        return TypedResults.Ok(new IngestResponse(
+        [
+            .. results.Select(result => new IngestFrameResponse(
+                EdgeValidation.IngestStatusName(result.Status),
+                result is { Status: DeviceIngestStatus.Stored or DeviceIngestStatus.Duplicate, Downlink: { } downlink }
+                    ? Convert.ToBase64String(downlink)
+                    : null)),
+        ]));
     }
 
     private static IResult DeviceUnauthorized() =>

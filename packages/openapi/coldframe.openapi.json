@@ -3,7 +3,7 @@
   "info": {
     "title": "Coldframe Edge API",
     "version": "0.1.0",
-    "description": "The Server's REST API. Every request except the Device endpoints carries a Keycloak access token with audience coldframe-server and is authorized per Site from the identity projection, never from token claims; Devices authenticate as Devices (security scheme deviceHmac). Each operation declares its access rule in x-coldframe-minimum-role: a SiteRole on the Site named by siteId, Authenticated for any signed-in User, or Device. An operation with x-coldframe-planned is in the contract ahead of the Server; the value names the story that serves it. Every error is RFC 9457 Problem Details with a stable type."
+    "description": "The Server's REST API. Every request except the Device endpoints carries a Keycloak access token with audience coldframe-server and is authorized per Site from the identity projection, never from token claims; Devices authenticate as Devices (security scheme deviceHmac). Each operation declares its access rule in x-coldframe-minimum-role: a SiteRole on the Site named by siteId, Authenticated for any signed-in User, or Device. An operation with x-coldframe-planned is in the contract ahead of the Server, and may still change until the story named by the value serves it and removes the mark. Every error is RFC 9457 Problem Details with a stable type."
   },
   "security": [{ "bearer": [] }],
   "paths": {
@@ -44,10 +44,9 @@
     "/device/ingest": {
       "post": {
         "operationId": "deviceIngest",
-        "summary": "A Hub relays sealed Node frames (placeholder)",
-        "description": "Placeholder until Epic 4 defines the envelope and the per-frame statuses (AD-9). Authenticated as a Device (security scheme deviceHmac).",
+        "summary": "A Hub relays sealed Node frames",
+        "description": "Authenticated as a Device (security scheme deviceHmac): the signer must be an enrolled Hub, and any enrolled Hub may relay any Node (AD-18). The body is at most 16384 bytes and carries at most 32 frames. The Hub relays frames and downlinks as opaque bytes and holds no Readings (AD-9). The Server answers 200 whenever the envelope parses, with one result per frame in request order; frames of one Node are processed in that order. A frame is acknowledged only after its Readings are durably stored: only stored and duplicate carry a sealed downlink, which the Hub passes to the Node unchanged. The Hub never treats a status as an acknowledgement and never synthesizes one. A Node deletes a buffered Reading only when an authentic downlink acknowledges its reading_seq: no status, retry and rejected_replay included, lets it drop one. Every resend is sealed again under a new counter; the same sealed bytes sent twice are rejected_replay.",
         "x-coldframe-minimum-role": "Device",
-        "x-coldframe-planned": "4.x",
         "security": [{ "deviceHmac": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/DeviceIdHeader" },
@@ -57,15 +56,19 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application/octet-stream": {
-              "schema": { "type": "string", "contentEncoding": "binary", "description": "Opaque until Epic 4." }
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IngestRequest" }
             }
           }
         },
         "responses": {
-          "202": { "description": "The frames are accepted for processing." },
+          "200": {
+            "description": "The envelope parsed. Each frame has its own status; a frame that failed does not affect the others.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IngestResponse" } } }
+          },
           "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/DeviceUnauthorized" }
+          "401": { "$ref": "#/components/responses/DeviceUnauthorized" },
+          "503": { "$ref": "#/components/responses/IngestUnavailable" }
         }
       }
     },
@@ -569,6 +572,69 @@
         },
         "examples": [{ "serverTime": "2026-09-29T12:34:56.789Z" }, { "serverTime": "2026-09-29T12:34:56Z" }]
       },
+      "SealedFrame": {
+        "type": "string",
+        "contentEncoding": "base64",
+        "maxLength": 1024,
+        "description": "A serialized coldframe.device.v1.SealedEnvelope (packages/proto) in standard base64 with padding (RFC 4648 section 4). Opaque to the Hub in both directions."
+      },
+      "IngestRequest": {
+        "type": "object",
+        "required": ["frames"],
+        "properties": {
+          "frames": {
+            "type": "array",
+            "maxItems": 32,
+            "items": { "$ref": "#/components/schemas/SealedFrame" },
+            "description": "The sealed Node frames, in the order the Hub received them."
+          }
+        },
+        "examples": [{ "frames": [] }, { "frames": ["CAESCJIGRCLAEvSBGCoiUZUKap6tCEOuyAMzBFCKubljcaiXOauv8QrS8pkfNG/VkADvmH7a4XwAgs52rxPmwF9aIYr/fy86/UoRx9oyIul7C8+hhwoc4E8slPrfllzdew=="] }]
+      },
+      "IngestFrameStatus": {
+        "type": "string",
+        "enum": ["stored", "duplicate", "rejected_auth", "rejected_replay", "rejected_time", "unknown_device", "retry"],
+        "description": "stored: at least one Reading or the device report of the frame was new and is committed. duplicate: everything in the frame was stored before; it is acknowledged again. rejected_auth: the frame is not a SealedEnvelope of a supported protocol_version, does not open with the Node's seal/v1 key, or its plaintext is not a valid Node frame. rejected_replay: the frame's counter is below the Node's 64-entry replay window or was seen, as when the same sealed bytes arrive twice or after a database restore; the Node keeps its Readings and resends them freshly sealed under a higher counter. rejected_time: a synced measured_at is more than 5 min after the Server clock. unknown_device: the Device ID is not an enrolled Node. retry: the Server could not finish the frame and does not acknowledge it; the Node keeps its Readings and resends them, freshly sealed under a new counter (the same sealed bytes may be rejected_replay)."
+      },
+      "IngestFrameResult": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "$ref": "#/components/schemas/IngestFrameStatus" },
+          "downlink": {
+            "$ref": "#/components/schemas/SealedFrame",
+            "description": "The sealed acknowledgement for the Node, sealed with its ack/v1 key; present exactly when status is stored or duplicate."
+          }
+        },
+        "examples": [{ "status": "stored", "downlink": "CAESCJIGRCLAEvSBGAgiIdrMC2wKZAR61wCrDAsa60T87aCO494L/YK5BuXZVqUX7Q==" }, { "status": "rejected_auth" }]
+      },
+      "IngestResponse": {
+        "type": "object",
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "maxItems": 32,
+            "items": { "$ref": "#/components/schemas/IngestFrameResult" },
+            "description": "One result per frame of the request, in request order."
+          }
+        },
+        "examples": [
+          { "results": [] },
+          { "results": [{ "status": "stored", "downlink": "CAESCJIGRCLAEvSBGAgiIdrMC2wKZAR61wCrDAsa60T87aCO494L/YK5BuXZVqUX7Q==" }, { "status": "rejected_auth" }] },
+          {
+            "results": [
+              { "status": "stored", "downlink": "CAESCJIGRCLAEvSBGAgiIdrMC2wKZAR61wCrDAsa60T87aCO494L/YK5BuXZVqUX7Q==" },
+              { "status": "duplicate", "downlink": "CAESCJIGRCLAEvSBGAgiIdrMC2wKZAR61wCrDAsa60T87aCO494L/YK5BuXZVqUX7Q==" },
+              { "status": "rejected_auth" },
+              { "status": "rejected_replay" },
+              { "status": "rejected_time" },
+              { "status": "unknown_device" },
+              { "status": "retry" }
+            ]
+          }
+        ]
+      },
       "EnrolmentKey": {
         "type": "object",
         "required": ["publicKey", "fingerprint"],
@@ -672,7 +738,8 @@
               "urn:coldframe:problem:lot-claimed",
               "urn:coldframe:problem:device-unauthorized",
               "urn:coldframe:problem:device-on-another-site",
-              "urn:coldframe:problem:device-assigned"
+              "urn:coldframe:problem:device-assigned",
+              "urn:coldframe:problem:ingest-unavailable"
             ]
           },
           "title": { "type": "string" },
@@ -712,7 +779,11 @@
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "DeviceUnauthorized": {
-        "description": "urn:coldframe:problem:device-unauthorized: the Device authentication failed (unknown Device, bad signature, timestamp more than 300000 ms off, or a replayed nonce).",
+        "description": "urn:coldframe:problem:device-unauthorized: the Device authentication failed (unknown Device, bad signature, timestamp more than 300000 ms off, or a replayed nonce; for deviceIngest also a signer that is not a Hub).",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "IngestUnavailable": {
+        "description": "urn:coldframe:problem:ingest-unavailable: the envelope parsed, but the Server could not commit any of its frames (every frame would be retry). Nothing was acknowledged; the Nodes keep their Readings and resend.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "DeviceEnrolmentNotFound": {

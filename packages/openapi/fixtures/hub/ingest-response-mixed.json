@@ -1,0 +1,11 @@
+{
+  "results": [
+    {
+      "status": "stored",
+      "downlink": "CAESCJIGRCLAEvSBGAgiIdrMC2wKZAR61wCrDAsa60T87aCO494L/YK5BuXZVqUX7Q=="
+    },
+    {
+      "status": "rejected_auth"
+    }
+  ]
+}

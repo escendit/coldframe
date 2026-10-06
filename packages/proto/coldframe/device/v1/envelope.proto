@@ -5,6 +5,9 @@
 // seal/v1 key, downlinks with the ack/v1 key; nonce = device_id[0..4] || counter_u64_be and
 // AAD = u8 protocol_major || device_id || counter_u64_be.
 //
+// The plaintext of an uplink SealedEnvelope is a NodeFrame: one wake report of a Node (AD-9, AD-11).
+// The plaintext of a downlink SealedEnvelope is a Downlink.
+//
 // Within a major version changes are additive only. A field number is never reused; reserve a
 // removed field's number and name.
 syntax = "proto3";
@@ -35,7 +38,97 @@ message Downlink {
   int64 server_time_ms = 3;
   // Device commands (AD-16). V1 defines none, so the list is always empty.
   repeated Command commands = 4;
+  // The reading_seq values the Server has durably stored, as ascending, non-overlapping ranges. They
+  // cover every reading_seq of the acknowledged frame, its report_seq included. The Node deletes a
+  // buffered Reading only when a range of an authentic Downlink holds its reading_seq (AD-9).
+  repeated ReadingSeqRange acked_readings = 5;
+}
+
+// A run of consecutive reading_seq values, both ends included.
+message ReadingSeqRange {
+  // The first acknowledged reading_seq.
+  uint64 first = 1;
+  // The last acknowledged reading_seq; never below first.
+  uint64 last = 2;
 }
 
 // A future Device command, issued only by the Device grain (AD-8, AD-16). Reserved: no fields in V1.
 message Command {}
+
+// What a Node measures with one Sensor. Together with the slot it names the Sensor (AD-19):
+// sensorId = UUIDv5(namespace, "{deviceIdHex}:{slot}:{quantity}") with the tokens of packages/crypto-spec.
+enum Quantity {
+  // Not set; a frame with such a Reading is refused.
+  QUANTITY_UNSPECIFIED = 0;
+  // Soil moisture: the mean raw ADC count of the capacitive probe, uncalibrated. Token soil_moisture.
+  QUANTITY_SOIL_MOISTURE = 1;
+  // Air temperature in milli-degrees Celsius. Token air_temperature.
+  QUANTITY_AIR_TEMPERATURE = 2;
+  // Relative humidity in milli-percent. Token relative_humidity.
+  QUANTITY_RELATIVE_HUMIDITY = 3;
+  // Raw gas resistance in ohms. Token gas_resistance.
+  QUANTITY_GAS_RESISTANCE = 4;
+}
+
+// The charger's state at the wake.
+enum ChargeStatus {
+  // The status pin could not be read.
+  CHARGE_STATUS_UNSPECIFIED = 0;
+  // The charger is charging the cell.
+  CHARGE_STATUS_CHARGING = 1;
+  // The charger is not charging: no sun, or the cell is full.
+  CHARGE_STATUS_NOT_CHARGING = 2;
+}
+
+// One Sensor value of a wake.
+message Reading {
+  // The Sensor slot: its index in the Node's Specification set (AD-19).
+  uint32 slot = 1;
+  // The per-Device reading_seq, never repeated; a resend carries the same value (AD-17).
+  uint64 reading_seq = 2;
+  // What the Sensor measures.
+  Quantity quantity = 3;
+  // The firmware's raw integer for the quantity, in the unit the Quantity value names.
+  sint64 value = 4;
+}
+
+// One wake report of a Node: the plaintext of an uplink SealedEnvelope. Every Reading of the frame
+// shares the time in `measured`. A resend is the same NodeFrame content sealed again with a new
+// counter; boot_id and uptime_ms are then those of the resend.
+message NodeFrame {
+  // When the Readings were taken on a Node whose clock was never set (AD-11).
+  message Unsynced {
+    // The boot counter of the power-on that took the Readings.
+    uint64 boot_id = 1;
+    // The uptime at the measurement, in milliseconds since that power-on.
+    uint64 uptime_ms = 2;
+  }
+
+  // The wire major; 1 today.
+  uint32 protocol_version = 1;
+  // The hash of the Node's Specification set (AD-19). Carried; the Server uses it from Story 4.6.
+  bytes spec_hash = 2;
+  // The boot counter of the power-on that sealed this frame.
+  uint64 boot_id = 3;
+  // The uptime when this frame was sealed, in milliseconds since that power-on.
+  uint64 uptime_ms = 4;
+  // When the Readings were taken. A frame without it is refused.
+  oneof measured {
+    // The Node's clock was set: Unix milliseconds UTC. More than 5 min after the Server clock is
+    // refused (rejected_time).
+    int64 measured_at_ms = 5;
+    // The Node's clock was not set: the Server rebases the time. With the boot_id of this frame the
+    // time is the receive time minus (frame uptime_ms - Unsynced.uptime_ms); with another boot_id
+    // it is the receive time. The Reading is stored as time_unsynced with these values.
+    Unsynced unsynced = 6;
+  }
+  // Drawn from the reading_seq counter; identifies the device report (battery, charging) of this wake
+  // and is acknowledged like a reading_seq.
+  uint64 report_seq = 7;
+  // The Readings in slot order; a failed Sensor has none.
+  repeated Reading readings = 8;
+  // The battery charge in percent (0 to 100, approximate); absent when it could not be read.
+  optional uint32 battery_percent = 9;
+  // The charger status.
+  ChargeStatus charging = 10;
+}

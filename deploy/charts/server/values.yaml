@@ -11,6 +11,11 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
+# true keeps the Server at 0 replicas: only for a database restore under Fleet, until every Device's
+# replay window has been advanced (docs/operations/restore.md, step 5). The migration Job and the
+# partition CronJob are installed all the same.
+stopped: false
+
 # The migration Job runs as a pre-install and pre-upgrade hook: the Server changes only after it
 # has succeeded (AD-22).
 migrations:
@@ -19,6 +24,16 @@ migrations:
     # Empty: the chart's appVersion, the same version as the Server.
     tag: ""
     pullPolicy: IfNotPresent
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  resources: {}
+
+# The partition CronJob runs the migrations image with the "partitions" command once a day (UTC),
+# with the same database Secret as the migration Job: the monthly partitions of the Readings and
+# device-report tables exist for the current month and monthsAhead more (at least 2, AD-22).
+partitions:
+  schedule: "17 3 * * *"
+  monthsAhead: 3
   backoffLimit: 1
   activeDeadlineSeconds: 600
   resources: {}
