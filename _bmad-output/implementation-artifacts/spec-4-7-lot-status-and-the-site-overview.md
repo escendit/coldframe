@@ -5,7 +5,7 @@ created: '2026-10-06'
 baseline_revision: '035f4dbc12a896f835ee792292c938d8c306df53'
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-coldframe-2026-09-27/DESIGN.md'
@@ -170,6 +170,42 @@ deferred:
   - `[false]` `[reject]` (intent) Orchestrator constraints — reported as met.
   - `[low]` `[reject]` (intent) The migration deletes `lots` and its checkpoint — same claim as the blind finding on the rebuild window.
 
+### 2026-10-06 — Review pass (follow-up)
+- verdicts: 32 findings — high 0, medium 0, low 15, false 17, maybe-false 0
+- findings:
+  - `[low]` `[reject]` (blind) carried: a Pause with an end is never evaluated against time — same claim as the first pass; Epic 8 owns Pause commands and expiry.
+  - `[false]` `[reject]` (blind) carried: `status_since` mixes clocks — same claim as the first pass; the code at `LotsProjector.StoreStatusSql` is unchanged.
+  - `[false]` `[reject]` (blind) carried: `lastReadingAt` compares a Node clock with the Server's — same claim as the first pass; ingestion rebases unsynced Readings.
+  - `[low]` `[reject]` (blind) carried: the migration empties the live read model — same one-time rebuild window as the first pass.
+  - `[low]` `[reject]` (blind) No test compares a full rebuild with incremental projection, and a rebuild does not reset the support tables — status stays correct (inputs are final state) and only `statusSince` of a replayed Lot could read earlier; a reset hook is new surface and the migration test covers the one rebuild that exists.
+  - `[low]` `[reject]` (blind) `EvaluateAsync` rewrites unchanged rows and builds its filter by concatenation — the filter strings are two literals in this file, and the extra writes are one row per event; a `IS DISTINCT FROM` guard adds a branch for no shown harm.
+  - `[low]` `[reject]` (blind) carried: the web last-good store is per process and keyed by user — same claim as the first pass.
+  - `[low]` `[reject]` (blind) carried in substance: device caches are plaintext and not per user — cleared on sign-out and on a 401 (first pass); the core README states the limit.
+  - `[low]` `[reject]` (blind) Web tile durations do not tick while the header does — values are minutes or hours and the next focus reloads them; a tick would be a render timer, not a data timer, but it is no defect anyone meets in use.
+  - `[false]` `[reject]` (blind) carried: an unknown future status renders as a silent Node — the intent matrix says it renders as `unknown`.
+  - `[low]` `[reject]` (blind) Clients tolerate a missing `statusSince` — deliberate for a Server one release behind; the contract still requires it and the Server always sends it.
+  - `[low]` `[reject]` (blind) Retry without backoff, probe path hard-coded, any HTTP answer counts as reachable — one immediate retry is what the intent specifies; the probe path is the app's own version file; a proxy 5xx then shows the normal error page, as before this story.
+  - `[low]` `[reject]` (blind) Web tile values `—` and `+` are literals while Android uses a resource — glyphs, not words; nothing to translate.
+  - `[false]` `[reject]` (edge) carried: device-supplied event times in `status_since` — same claim as the first pass's clock rows.
+  - `[false]` `[reject]` (edge) carried: an empty Specification set reads `ok` — `NodeFrameReader` rejects an empty set.
+  - `[low]` `[reject]` (edge) A Sensor re-declared under another Device leaves the old Device's Lot unevaluated — needs a Sensor ID reused across Devices; Sensor IDs are made per Device at declaration.
+  - `[low]` `[reject]` (edge) carried: a past Pause end never expires — Epic 8.
+  - `[false]` `[reject]` (edge) An unknown pause source is written as a Device pause — `DevicePauseSource` has no other value than Device and Site.
+  - `[false]` `[reject]` (edge) carried: `measured_at` against `claimed_at` — same claim as the first pass.
+  - `[false]` `[reject]` (edge) The migration leaves support tables non-empty — it creates `lot_status_devices` and `lot_status_sensors` itself, so they are empty when the projector replays.
+  - `[low]` `[reject]` (edge) A moisture of 3e9 overflows the rounding on the core — the Server never sends `moisturePercent` before Epic 5; carried from the first pass.
+  - `[low]` `[reject]` (edge) A low Threshold outside 0..100 is shown unclamped — the Server never sends it before Epic 6.
+  - `[low]` `[reject]` (edge) `LotsEngine.missed` drops kept Lots on any non-transport failure — `transport` already covers no answer, 5xx and unexpected answers; what is left is a 4xx about the caller, which the KDoc defines as refused.
+  - `[false]` `[reject]` (edge) The focus handler clears the unreachable marker when `invalidateAll` fails — a failed load shows the page's own error state, which replaces the overview; the marker has no meaning there.
+  - `[false]` `[reject]` (edge) A 401 on a Lots read leaves Sites `Ready` — `SitesEngine` handles its own 401 with the same `forget()`, and the sign-in engine ends the session.
+  - `[false]` `[reject]` (edge) claim: a Node that has declared no Sensor is `unknown` — the rule gets `LotSilence.Node` for `hasNode && !hasDeclared`; the claim holds.
+  - `[false]` `[reject]` (edge) claim: `status_since` is reproducible on rebuild — see the rebuild row above; the migration rebuilds from empty support tables.
+  - `[false]` `[reject]` (intent) Silence passed as `Node` for a Node that declared nothing, not "none" — recorded as a deviation in the first pass; it keeps the rule at five inputs and today's behaviour.
+  - `[false]` `[reject]` (intent) `unknownCause: hub` has no producer — the intent says silence has none.
+  - `[false]` `[reject]` (intent) Web stale data lives in the BFF — Design Notes decide this.
+  - `[false]` `[reject]` (intent) Clients are never run against a real Server — same claim as the first pass.
+  - `[false]` `[reject]` (intent) `needsWater` and `ok`-with-moisture are reachable only from fixtures — the intent gives them no producer before Epics 5 and 6.
+
 ## Design Notes
 
 **Tile content** (label is sentence case in catalogues, uppercase by style; `‹t›` = locale clock time):
@@ -211,43 +247,20 @@ deferred:
 
 Status: done
 
-**Summary.** A Lot's status is now computed once on the Server by one pure rule and returned with `statusSince`, `lastReadingAt`, `unknownCause`, `pausedBy` and `pausedUntil` on the existing Lots endpoints. A Node that declares an uncalibrated soil Sensor turns its Lot to `needsCalibration`. Web, Android and iOS draw all six tile variants, the headline and counts, the stale header and stale tiles, and refresh on focus, foreground or pull. The SwiftUI views and the iOS App target were not compiled locally; the macOS CI jobs are their first compile.
+**Summary.** Follow-up review pass on a spec that was already `done`. A Lot's status is computed once on the Server by one pure rule and returned with `statusSince`, `lastReadingAt`, `unknownCause`, `pausedBy` and `pausedUntil` on the existing Lots endpoints; web, Android and iOS draw all six tile variants, the headline and counts, the stale header and stale tiles, and refresh on focus, foreground or pull. This pass changed no code.
 
-**Files changed.**
-- `packages/openapi/coldframe.openapi.json`, `README.md`, `packages/ts/api-client/src/schema.ts` -- the `Lot` fields; regenerated schema.
-- `apps/cs/server/Lots/LotStatusRule.cs`, `LotsProjector.cs`, `LotsReadModel.cs`, `Edge/EdgeApi.cs` -- the rule, the projection over Lot, Device and Sensor events, `lastReadingAt` at query time, the response mapping.
-- `apps/cs/migrations/Migrations/M20261006170000AddLotStatusToLots.cs` -- new columns and two support tables; empties `lots` and its checkpoint so the projector rebuilds from position 0.
-- `packages/kt/core/.../lots/` (`Lots.kt`, `LotsEngine.kt`, `LotsOverview.kt`, `LotsCache.kt`, `LotsSnapshot.kt`), `sites/` (`SitesEngine.kt`, `SitesCache.kt`, `SiteMenu.kt`), `api/ApiDtos.kt` -- DTO fields, stale mode with one retry and kept Lots and Sites, tile, headline and counts models.
-- `apps/kt/android/.../ui/sites/` (`LotTile.kt`, `GardenScreen.kt`, `OverviewCopy.kt`), `ui/components/Hatch.kt`, `ColdframeRoot.kt`, `MainActivity.kt`, `strings.xml` -- Android overview.
-- `apps/swift/ios/Sources/ColdframeIOS/` (`LotsPresentation.swift`, `SitesPresentation.swift`, `UI/Hatch.swift`, `UI/SiteSettingsViews.swift`, `UI/SitesViews.swift`, `L10n.swift`, `Localizable.xcstrings`), `App/CoreLotsService.swift`, `App/ColdframeApp.swift` -- iOS overview.
-- `apps/ts/web/src/lib/` (`lot-tiles.ts`, `garden.ts`, `overview-reach.svelte.ts`, `server/last-good.ts`, `server/lots.ts`, `server/shell.ts`, components `LotTiles`, `Hatch`, `StaleHeader`, `SiteSummaryHeader`, `Icon`), `routes/(app)/+layout.svelte`, `garden/` -- web overview and both stale paths.
-- Tests under `tests/cs`, `tests/kt`, `tests/swift`, `tests/ts` with Roborazzi and Playwright baselines; READMEs of the Server, web and core; `deferred-work.md` (DW-28 and DW-32 resolved, DW-24 annotated, DW-70 new).
+**Files changed.** None in this pass; the story's files are listed in the first pass's result (Server rule, projector, read model, migration `M20261006170000`, OpenAPI and generated TS schema, Kotlin core and Android, iOS views and App target, web overview and stale paths, tests). This pass added only the follow-up entry to the Review Triage Log and this section.
 
-**Review.** 44 findings from four layers: 15 patched rows (12 fixes), 1 deferred, 28 rejected. Patched entries by verdict: high 0, medium 4, low 8. Every rejected finding and its reason is in the Review Triage Log.
+**Review.** Four layers ran against the diff since the baseline; 32 findings. Patches applied 0, deferred 0 (the first pass's deferral stays), rejected 32 — 17 `false`, 15 `low` — each with its reason in the Review Triage Log. Several repeat first-pass rows and were carried.
 
-**Follow-up review: recommended.** Four medium entries were patched. The unverified risk is the web's new in-page stale path (focus while the web app is out of reach) and the session-end change in the core, both written after the review layers ran.
+**Follow-up review: not recommended.** No patch was applied in this pass.
 
-**Verification (final tree).**
-- `dotnet restore --locked-mode && dotnet build --no-restore -warnaserror && dotnet format --verify-no-changes --no-restore` -- clean.
-- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build` -- 736 passed, 0 failed.
-- `packages/proto/check-compat.sh --self-test` and `--base <merge-base>` -- pass, no breaking change.
-- `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (web unit 418, Playwright 51), design-token and openapi checks -- pass.
-- `ANDROID_HOME=~/Android/Sdk ./gradlew check :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64` -- BUILD SUCCESSFUL, Roborazzi verify included.
-- Swift container: build, 184 tests, format lint -- pass.
-- Every row of the I/O matrix has a passing test.
-- Not run: the macOS `swift` and `ios` jobs (SwiftUI views, `App/`, `RenderTests`).
-
-**Deviations.**
-- Tests were written together with the code in the core and iOS parts, not before it.
-- "Calibration" is capitalised in labels ("Needs Calibration") because the glossary guards require it; times and dates follow the existing locale formatters ("7:02 AM", "Nov 1", "low 30%").
-- An `ok` Lot without a percentage shows no big value; that is what a live `ok` Lot looks like before Epic 5.
-- Mobile keeps the Sites list as well as the Lots, so a cold start without the Server has a current Site.
-- The projector passes "silent Node" to the rule for a Node that has declared nothing, which keeps the rule at five inputs.
+**Verification.** No code changed, so the first pass's verification of the final tree stands and was not re-run here (Server tests 736 passed, `pnpm -r` typecheck, lint and tests, `./gradlew check`, Swift container build and tests). The macOS `swift` and `ios` CI jobs remain the first compile of the SwiftUI views and the iOS App target.
 
 **Residual risks.**
-- No stale threshold exists in the planning documents. Stale mode is transport-only, and nothing refreshes an open screen on a timer, so a screen left open shows the last fetched state until a focus, foreground or pull. Stale mode also ends only on one of those. A human should decide whether a refresh interval or an age limit is wanted before Story 6.6 brings live hints.
-- iOS: no pixel baselines, and the views and App target are unproven until macOS CI runs. No device, emulator or screen reader run on any platform.
-- After the migration the Lot list is empty for the moments the projector takes to rebuild.
+- No stale threshold exists in the planning documents; stale mode is transport-only and a screen left open stays as last fetched until a focus, foreground or pull. A human should decide whether a refresh interval or age limit is wanted before Story 6.6.
+- iOS views and App target are unproven until macOS CI runs; no device, emulator or screen reader run on any platform.
+- After the migration the Lot list is empty while the projector rebuilds.
 - A Pause with an end stays `paused` after that date until Epic 8 journals the resume.
-- First-run step tiles still show above live Lot tiles. Mobile Site settings shows kept Lots without a stale marker on a cold start.
-- The web's stale data lives in the BFF process: it is lost on restart, and a full reload away from home shows the browser's error page.
+- A rebuild does not reset the support tables, so a replayed Lot's `statusSince` could read earlier than its real change; the status itself is correct.
+- The web's stale data lives in the BFF process and is lost on restart.
