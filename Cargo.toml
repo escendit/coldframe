@@ -8,6 +8,7 @@ members = [
   "packages/rs/protocol",
   "packages/rs/sensing",
   "packages/rs/setup",
+  "packages/rs/transport",
   "packages/rs/uplink",
   "tests/rs/crypto",
   "tests/rs/hal",
@@ -15,6 +16,7 @@ members = [
   "tests/rs/sensing",
   "tests/rs/setup",
   "tests/rs/setup-client",
+  "tests/rs/transport",
   "tests/rs/uplink",
 ]
 exclude = ["apps/rs"]

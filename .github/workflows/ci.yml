@@ -180,7 +180,7 @@ jobs:
       - name: Build the firmware crates without mocks
         run: >-
           cargo build -p coldframe-hal -p coldframe-crypto -p coldframe-protocol -p coldframe-setup
-          -p coldframe-uplink -p coldframe-sensing --locked
+          -p coldframe-uplink -p coldframe-sensing -p coldframe-transport --locked
 
       - name: Lint
         run: |

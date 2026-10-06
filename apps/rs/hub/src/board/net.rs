@@ -11,8 +11,8 @@
 use core::ffi::CStr;
 
 use coldframe_hal::{HttpRequest, HttpResponse, Net, NetError};
-use coldframe_uplink::SNTP_SERVER;
 use coldframe_uplink::url::SERVER_URL_MAX_LENGTH;
+use coldframe_uplink::{INGEST_RESPONSE_MAX, SNTP_SERVER};
 use embassy_net::dns::DnsQueryType;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
@@ -44,8 +44,18 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// Seconds from 1900 (NTP) to 1970 (Unix).
 const NTP_UNIX_OFFSET: u64 = 2_208_988_800;
 
-/// The response headers plus a heartbeat answer.
-const RESPONSE_BUFFER: usize = 1_536;
+/// Room for the response headers.
+const RESPONSE_HEADERS: usize = 1_024;
+
+/// The response headers plus the largest body the uplink reads: an ingest answer with one
+/// downlink per frame of a full batch (Story 4.4). A heartbeat answer is far smaller.
+const RESPONSE_BUFFER: usize = RESPONSE_HEADERS + INGEST_RESPONSE_MAX;
+
+/// The TCP send buffer: a whole ingest request of a full batch (2.7 kB of body) with its headers.
+const TCP_TX_BUFFER: usize = 4_096;
+
+/// The TCP receive buffer.
+const TCP_RX_BUFFER: usize = 4_096;
 
 /// Creates the embassy-net stack over the Wi-Fi station interface, with DHCP. `seed` comes from the
 /// TRNG. The returned runner must be spawned with [`net_task`].
@@ -127,8 +137,8 @@ impl BoardNet {
         }
         let address = self.resolve(request.host).await?;
 
-        let mut rx = [0u8; 4096];
-        let mut tx = [0u8; 2048];
+        let mut rx = [0u8; TCP_RX_BUFFER];
+        let mut tx = [0u8; TCP_TX_BUFFER];
         let mut socket = TcpSocket::new(self.stack, &mut rx, &mut tx);
         socket.set_timeout(Some(SOCKET_TIMEOUT));
         socket

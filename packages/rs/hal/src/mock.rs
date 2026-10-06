@@ -11,6 +11,8 @@
 //! - [`MockWifi`] returns a scripted scan, join outcomes per SSID and password or per attempt,
 //!   and a link state a test (or a [`MockNet`]) can drop.
 //! - [`MockNet`] plays scripted DHCP, SNTP and HTTPS results and records every request.
+//! - [`MockDatagramRadio`] records every datagram with its channel and lets a peer callback (a
+//!   scripted Hub) answer it; what it reports for a send is independent of what arrives.
 //! - [`MockTimer`] returns at once and records every wait.
 //! - [`MockButton`] replays a scripted sequence of pin reads, then holds the last one.
 //! - [`MockRawAdc`] and [`MockEnvSensor`] return a settable result and count their calls.
@@ -28,6 +30,7 @@ use sha2::Sha256;
 
 use crate::adc::{Adc, AdcError};
 use crate::ble::{LinkError, SetupLink};
+use crate::datagram::{DATAGRAM_MAX, Datagram, DatagramError, DatagramRadio, MacAddress};
 use crate::efuse::{Efuse, EfuseError, KEY_LENGTH, KeyBlock, KeyPurpose};
 use crate::flash::{Flash, FlashError};
 use crate::gpio::{GpioError, InputPin, OutputPin};
@@ -1213,6 +1216,151 @@ impl Net for MockNet {
             status,
             body_len: body.len(),
         })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Datagram radio
+
+/// One datagram a [`MockDatagramRadio`] sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentDatagram {
+    /// The channel the radio was on.
+    pub channel: u8,
+    /// The destination.
+    pub to: MacAddress,
+    /// The payload.
+    pub payload: Vec<u8>,
+}
+
+/// Answers each datagram the radio sends with the datagrams that come back: source and payload.
+pub type DatagramPeer = Box<dyn FnMut(&SentDatagram) -> Vec<(MacAddress, Vec<u8>)>>;
+
+/// A scriptable datagram radio.
+///
+/// - Every [`DatagramRadio::send`] is recorded with the channel it went out on, and the peer
+///   callback, if set, answers it: its datagrams are queued for [`DatagramRadio::receive`].
+/// - What a send *reports* is set apart with [`MockDatagramRadio::report_sends_as`], so a test can
+///   have the radio say "failed" for a datagram that arrived, and "ok" for one that was lost.
+/// - [`DatagramRadio::receive`] takes the next queued datagram; with none queued it records the
+///   timeout asked for and returns `None`, as if the time had passed.
+/// - Channel 0 until the first [`DatagramRadio::set_channel`].
+pub struct MockDatagramRadio {
+    channel: u8,
+    channels: Vec<u8>,
+    sent: Vec<SentDatagram>,
+    incoming: VecDeque<(MacAddress, Vec<u8>)>,
+    peer: Option<DatagramPeer>,
+    send_report: Result<(), DatagramError>,
+    channel_failure: Option<DatagramError>,
+    timeouts: Vec<u32>,
+}
+
+impl Default for MockDatagramRadio {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MockDatagramRadio {
+    /// A radio with no peer: nothing answers.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            channel: 0,
+            channels: Vec::new(),
+            sent: Vec::new(),
+            incoming: VecDeque::new(),
+            peer: None,
+            send_report: Ok(()),
+            channel_failure: None,
+            timeouts: Vec::new(),
+        }
+    }
+
+    /// Answers every later send with `peer`.
+    pub fn set_peer(
+        &mut self,
+        peer: impl FnMut(&SentDatagram) -> Vec<(MacAddress, Vec<u8>)> + 'static,
+    ) {
+        self.peer = Some(Box::new(peer));
+    }
+
+    /// Queues a datagram from `source`, as if it had just been heard.
+    pub fn push_incoming(&mut self, source: MacAddress, payload: &[u8]) {
+        self.incoming.push_back((source, payload.to_vec()));
+    }
+
+    /// Makes every later send report `result`, whatever becomes of the datagram.
+    pub fn report_sends_as(&mut self, result: Result<(), DatagramError>) {
+        self.send_report = result;
+    }
+
+    /// Makes every later [`DatagramRadio::set_channel`] fail with `error`, or succeed again with
+    /// `None`.
+    pub fn fail_channel(&mut self, error: Option<DatagramError>) {
+        self.channel_failure = error;
+    }
+
+    /// Every datagram sent, in order.
+    #[must_use]
+    pub fn sent(&self) -> &[SentDatagram] {
+        &self.sent
+    }
+
+    /// The channel the radio is on.
+    #[must_use]
+    pub fn channel(&self) -> u8 {
+        self.channel
+    }
+
+    /// Every channel set, in order.
+    #[must_use]
+    pub fn channels(&self) -> &[u8] {
+        &self.channels
+    }
+
+    /// The timeouts of the receives that heard nothing, in milliseconds.
+    #[must_use]
+    pub fn timeouts(&self) -> &[u32] {
+        &self.timeouts
+    }
+}
+
+impl DatagramRadio for MockDatagramRadio {
+    fn set_channel(&mut self, channel: u8) -> Result<(), DatagramError> {
+        if let Some(error) = self.channel_failure {
+            return Err(error);
+        }
+        self.channel = channel;
+        self.channels.push(channel);
+        Ok(())
+    }
+
+    async fn send(&mut self, to: &MacAddress, payload: &[u8]) -> Result<(), DatagramError> {
+        if payload.len() > DATAGRAM_MAX {
+            return Err(DatagramError::TooLong);
+        }
+        let sent = SentDatagram {
+            channel: self.channel,
+            to: *to,
+            payload: payload.to_vec(),
+        };
+        if let Some(peer) = self.peer.as_mut() {
+            self.incoming.extend(peer(&sent));
+        }
+        self.sent.push(sent);
+        self.send_report
+    }
+
+    async fn receive(&mut self, buffer: &mut [u8], timeout_ms: u32) -> Option<Datagram> {
+        let Some((source, payload)) = self.incoming.pop_front() else {
+            self.timeouts.push(timeout_ms);
+            return None;
+        };
+        let len = payload.len().min(buffer.len());
+        buffer[..len].copy_from_slice(&payload[..len]);
+        Some(Datagram { source, len })
     }
 }
 

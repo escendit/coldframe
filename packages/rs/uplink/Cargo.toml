@@ -1,6 +1,6 @@
 [package]
 name = "coldframe-uplink"
-description = "Coldframe Hub uplink: BSSID choice, reconnect backoff, SNTP bootstrap and signed heartbeats (AD-11, AD-12, H-1)"
+description = "Coldframe Hub uplink: BSSID choice, reconnect backoff, SNTP bootstrap, signed heartbeats and the opaque relay of sealed Node frames (AD-9, AD-11, AD-12, H-1)"
 version.workspace = true
 edition.workspace = true
 # The Hub firmware links this crate with the `esp` toolchain (Rust 1.95), so it stays buildable there.
@@ -14,7 +14,9 @@ publish.workspace = true
 [dependencies]
 coldframe-crypto = { path = "../crypto" }
 coldframe-hal = { path = "../hal" }
-heapless = { version = "=0.9.3", default-features = false }
+coldframe-protocol = { path = "../protocol" }
+# `serde`: the ingest response decodes into a fixed-capacity list.
+heapless = { version = "=0.9.3", default-features = false, features = ["serde"] }
 serde = { version = "=1.0.229", default-features = false, features = ["derive"] }
 serde-json-core = { version = "=0.6.0", default-features = false }
 

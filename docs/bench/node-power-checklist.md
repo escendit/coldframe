@@ -41,7 +41,8 @@ on solar and at least 14 days without sun.
 ## B. Wake behaviour (required, with USB reconnected or a UART tap)
 
 - [ ] After about 15 minutes the Node logs `wake cause=timer` with the **same** `boot id` and a seq
-      range that continues the last one (`<a+4>..<a+8>`).
+      range that follows the last wake's `report_seq` (`<a+5>..<a+9>`: every wake report takes one
+      value after its Readings, logged as `report_seq=<a+4>`).
 - [ ] Press reset. The next wake logs `wake cause=cold_boot` and `boot id=<n+1>`, and the seq range
       still continues upwards (never restarts, gaps allowed).
 - [ ] Unplug the BME680's SDA. The next wake logs `bme680 failed` (or `bme680 not found`) and

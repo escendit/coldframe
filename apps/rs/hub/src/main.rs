@@ -1,7 +1,8 @@
 //! Coldframe Hub firmware (ESP32-S3).
 //!
 //! Story 3.2 brought up the chip and the hardware-bound identity (AD-12); Story 3.4 added the BLE
-//! setup service (AD-25); Story 3.5 joins Wi-Fi and heartbeats to the Server (AD-11, AD-12, H-1).
+//! setup service (AD-25); Story 3.5 joins Wi-Fi and heartbeats to the Server (AD-11, AD-12, H-1);
+//! Story 4.4 relays the sealed frames of Nodes over ESP-NOW (AD-9).
 //!
 //! Boot sequence:
 //! 1. esp-hal, the heap (144 KiB + 64 KiB reclaimed, as the radio spike measured) and esp-rtos.
@@ -18,12 +19,16 @@
 //! 6. Unprovisioned: advertise the setup service and run BLE setup sessions until one has joined,
 //!    passed the Server check (DHCP, SNTP, one signed heartbeat) and stored the record, then log
 //!    `setup provisioned` and the heap. Provisioned: no advertising.
-//! 7. Both paths run the uplink forever: re-join with backoff whenever the link drops, SNTP once
-//!    per boot before any TLS, a signed heartbeat every 30–60 s. A separate task logs uptime.
+//! 7. Both paths start the relay's radio task ([`relay_task`]): ESP-NOW on the station's radio
+//!    and channel. It answers Node probes at once, queues their sealed uplinks and sends sealed
+//!    downlinks back, without ever reading an envelope.
+//! 8. Both paths run the uplink forever: re-join with backoff whenever the link drops, SNTP once
+//!    per boot before any TLS, a signed heartbeat every 30–60 s, and between heartbeats one
+//!    signed `POST /device/ingest` per batch of queued uplinks. A separate task logs uptime.
 //!
 //! A failure before the uplink logs its kind and halts. Nothing retries a burn, and a corrupt
-//! setup code is never replaced. Keys, the password, nonces, signatures and bodies are never
-//! logged.
+//! setup code is never replaced. Keys, the password, nonces, signatures, bodies and sealed
+//! envelopes are never logged.
 
 #![no_std]
 #![no_main]
@@ -45,7 +50,7 @@ use coldframe_hal::Trng as _;
 use coldframe_setup::run_setup;
 use coldframe_setup::service::boot;
 use coldframe_setup::store::ProvisioningState;
-use coldframe_uplink::{Event, HeartbeatOutcome, Uplink};
+use coldframe_uplink::{Event, HeartbeatOutcome, IngestOutcome, Uplink};
 use core::fmt::Display;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
@@ -59,6 +64,7 @@ use log::{LevelFilter, error, info, warn};
 use trouble_host::prelude::ExternalController;
 
 use board::ble::{BoardSetupLink, advertised_name, ble_task};
+use board::espnow::{RELAY, relay_task};
 use board::flash::{BoardStorage, SETUP_PARTITION};
 use board::net::{BoardNet, net_task};
 use board::radio::BoardRadio;
@@ -130,6 +136,21 @@ fn log_event(event: &Event) {
             }
             other => warn!("heartbeat failed kind={} next_ms={next_ms}", other.kind()),
         },
+        Event::Ingest { frames, outcome } => match outcome {
+            IngestOutcome::Relayed { downlinks } => {
+                info!("ingest ok frames={frames} downlinks={downlinks}");
+            }
+            IngestOutcome::Rejected { status } => {
+                warn!("ingest rejected status={status} frames={frames}; batch dropped");
+            }
+            other => warn!(
+                "ingest failed kind={} frames={frames}; batch dropped",
+                other.kind()
+            ),
+        },
+        Event::UplinksLost { dropped } => {
+            warn!("relay queue was full; uplinks dropped={dropped}");
+        }
     }
 }
 
@@ -244,6 +265,8 @@ async fn main(spawner: Spawner) -> ! {
         esp_println::println!("setup code={}", boot.code.as_str());
     }
 
+    // ESP-NOW for the Node relay, taken from the running controller before it moves on.
+    let esp_now = radio.esp_now();
     let mut wifi = BoardWifi::new(radio.into_controller());
     let (record, check_stamp) = if boot.advertises() {
         let name = advertised_name(&device_id_hex);
@@ -294,6 +317,10 @@ async fn main(spawner: Spawner) -> ! {
         Ok(task) => spawner.spawn(task),
         Err(error) => halt_setup("uptime", &error).await,
     }
+    match relay_task(esp_now, &RELAY) {
+        Ok(task) => spawner.spawn(task),
+        Err(error) => halt_setup("relay", &error).await,
+    }
 
     let uplink = Uplink::new(
         record.ssid(),
@@ -312,7 +339,7 @@ async fn main(spawner: Spawner) -> ! {
     );
     uplink
         .run(
-            &mut wifi, &mut net, &mut rtc, &mut timer, &mut trng, log_event,
+            &mut wifi, &mut net, &mut rtc, &mut timer, &mut trng, &RELAY, log_event,
         )
         .await
 }

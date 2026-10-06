@@ -1,0 +1,27 @@
+# Integration tests for coldframe-transport: the Story 4.4 Node rows (acknowledgements in and after
+# the window, forged and replayed downlinks, resends, counters across reboots, channel following,
+# backlog, the clock rule, Specification requests), the report buffer (overflow, reclaim, power
+# loss at every write) and the link state, over the coldframe-hal mocks and a scripted Hub.
+[package]
+name = "coldframe-transport-tests"
+description = "Integration tests for coldframe-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+coldframe-crypto = { path = "../../../packages/rs/crypto" }
+coldframe-hal = { path = "../../../packages/rs/hal", features = ["mock"] }
+coldframe-protocol = { path = "../../../packages/rs/protocol" }
+coldframe-sensing = { path = "../../../packages/rs/sensing" }
+coldframe-transport = { path = "../../../packages/rs/transport" }
+coldframe-uplink = { path = "../../../packages/rs/uplink" }
+heapless = "=0.9.3"
+serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+
+[lints]
+workspace = true

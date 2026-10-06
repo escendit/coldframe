@@ -58,8 +58,7 @@ and the date for each run.
 - [ ] Press the setup button of board 1 for about 1 s. The log shows `wake cause=button`,
       `wake plan=report-now`, then `wake done readings=…`, and no `ble` or `setup` line. The last
       line before the sleep is `sleep ms=900000 button_armed=true`: a press restarts the schedule
-      with a full period. (`wake done … sleep_ms=` is the rest of the period the measurement
-      computed, not the sleep taken; read `sleep ms=`.) A `cfsetup scan` during and right after it
+      with a full period (`wake done … sleep_ms=900000` says the same). A `cfsetup scan` during and right after it
       lists no `Coldframe Node`.
 - [ ] Tap the button as briefly as you can. The firmware times the press first thing after the
       bootloader, before any flash or identity work, so a tap that is over by then is a bounce: the
@@ -134,7 +133,10 @@ and the date for each run.
 
 ## F. BLE and ESP-NOW coexistence (dev-mode)
 
-Both boards in setup mode at once, while board 1 completes a BLE session.
+Both boards in setup mode at once, while board 1 completes a BLE session. The probe of this part is
+the only ESP-NOW that runs next to BLE: the Node's transport (Story 4.4) never runs on a wake that
+entered setup mode, and has its own checklist,
+[`node-transport-checklist.md`](node-transport-checklist.md).
 
 - [ ] Board 1 can repeat Part E with Lot A: the same Node on the same Lot answers 201 with
       `lotId: <Lot A>` again (move and unassign are Story 4.9).
@@ -144,6 +146,9 @@ Both boards in setup mode at once, while board 1 completes a BLE session.
 - [ ] While both keep probing, complete Part E on board 1 (`node-setup` with Lot A): the
       session succeeds, and board 1 kept logging `coex espnow rx from=…` before and during it.
 - [ ] Board 1 logs `setup end=enrolled`; board 2 goes on probing until its window closes.
+- [ ] After its window each board measures and logs `transport buffered=ok hub=off … sent=0`: the
+      report of a setup wake is buffered and the radio stays off. No `coex espnow` line follows
+      `setup end=`.
 - [ ] Record the result in the Result table, then replace **pending** in the coexistence open item
       of `_bmad-output/specs/spec-coldframe/device-hardware.md` with the outcome and the date.
 

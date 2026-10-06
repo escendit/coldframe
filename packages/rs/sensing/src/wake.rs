@@ -14,6 +14,10 @@
 //!    the battery and charging status are still reported.
 //! 7. Sleep for the rest of the [`WAKE_PERIOD_MS`] period, at least [`MIN_SLEEP_MS`].
 //!
+//! After [`run_wake`] the firmware calls [`issue_report_seq`], which draws one more value of the
+//! same counter for the wake report itself (its battery and charging status), also when the wake
+//! issued no Reading. The transport acknowledges it like a `reading_seq` (Story 4.4).
+//!
 //! A switch is turned off on every path out of its measurement, errors included. A failed Sensor
 //! costs only its own Readings; an invalid gas value costs only the gas Reading.
 
@@ -127,6 +131,9 @@ pub struct WakeReport {
     pub battery: Option<BatteryLevel>,
     /// The charger status.
     pub charging: ChargeStatus,
+    /// The `report_seq` of this wake report, drawn from the `reading_seq` counter after the
+    /// Readings; `None` until [`issue_report_seq`] has issued it, or when the counter failed.
+    pub report_seq: Option<u64>,
 }
 
 impl WakeReport {
@@ -386,8 +393,38 @@ where
             readings,
             battery,
             charging,
+            report_seq: None,
         },
         faults,
         sleep_ms: sleep_ms(elapsed),
+    }
+}
+
+/// Issues the `report_seq` of a wake report: one more value of the `reading_seq` counter, so it
+/// is above every `reading_seq` of the wake. Every wake report gets one, also a report without
+/// Readings. The raised ceiling is in flash before the value is used.
+///
+/// A second call on the same outcome keeps the value already issued.
+///
+/// # Errors
+///
+/// See [`CounterError`]. The fault is also recorded in `outcome.faults.counter` (unless a fault
+/// is already there), and the report keeps `report_seq: None`: it cannot be sent.
+pub fn issue_report_seq<F: Flash>(
+    outcome: &mut WakeOutcome,
+    seq: &mut ReservedCounter<F>,
+) -> Result<u64, CounterError> {
+    if let Some(issued) = outcome.report.report_seq {
+        return Ok(issued);
+    }
+    match seq.reserve(1) {
+        Ok(range) => {
+            outcome.report.report_seq = Some(range.start);
+            Ok(range.start)
+        }
+        Err(error) => {
+            outcome.faults.counter.get_or_insert(error);
+            Err(error)
+        }
     }
 }

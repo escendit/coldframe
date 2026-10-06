@@ -292,6 +292,7 @@ dependencies = [
  "coldframe-protocol",
  "coldframe-sensing",
  "coldframe-setup",
+ "coldframe-transport",
  "embassy-executor",
  "embassy-futures",
  "embassy-sync 0.8.0",
@@ -344,11 +345,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "coldframe-transport"
+version = "0.0.0"
+dependencies = [
+ "coldframe-crypto",
+ "coldframe-hal",
+ "coldframe-protocol",
+ "coldframe-sensing",
+ "heapless 0.9.3",
+ "sha2",
+]
+
+[[package]]
 name = "coldframe-uplink"
 version = "0.0.0"
 dependencies = [
  "coldframe-crypto",
  "coldframe-hal",
+ "coldframe-protocol",
  "heapless 0.9.3",
  "serde",
  "serde-json-core",
@@ -1614,6 +1628,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
 dependencies = [
  "hash32",
+ "serde_core",
  "stable_deref_trait",
 ]
 

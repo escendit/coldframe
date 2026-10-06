@@ -11,7 +11,8 @@
 //! - [`counter`]: [`ReservedCounter`], a strictly increasing `u64` reserved in flash before any
 //!   value is handed out (AD-17). It backs both `reading_seq` and the boot counter.
 //! - [`wake`]: [`run_wake`], one measurement with the probe and divider switched on only while
-//!   read, one shared `measured_at` (AD-11), and the sleep time to the next wake; [`boot_id`].
+//!   read, one shared `measured_at` (AD-11), and the sleep time to the next wake; [`boot_id`];
+//!   [`issue_report_seq`], the `report_seq` every wake report carries.
 //!
 //! The crate is `no_std` without `alloc`, and it never logs: the firmware logs the
 //! [`WakeOutcome`], and only a `dev-mode` build logs Reading values.
@@ -30,7 +31,7 @@ pub use counter::{CounterError, ReservedCounter};
 pub use env::env_sample_from;
 pub use wake::{
     ChargeStatus, Faults, MeasuredAt, Reading, ReadingValue, Sensors, WakeCause, WakeOutcome,
-    WakeReport, boot_id, run_wake, sleep_ms,
+    WakeReport, boot_id, issue_report_seq, run_wake, sleep_ms,
 };
 
 /// Name of this crate.

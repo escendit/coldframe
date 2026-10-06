@@ -81,9 +81,9 @@ with frames, a response without results, with a stored and a rejected frame, wit
 with extra properties on the response and on every result. `schemas.json` holds each schema's
 properties and required keys, the frame limit and the statuses. The generator refuses an ingest
 example whose `downlink` is on another status than `stored` or `duplicate`. The ingest fixtures are
-for Story 4.4's Hub relay; no Rust struct reads them yet.
+read by the Hub relay of Story 4.4 (`encode_ingest_request` and `IngestResponse`).
 `tests/rs/uplink` decodes every response fixture and encodes the request fixtures' values back to
-the same JSON.
+the same JSON. The Hub puts at most 8 frames into one request, a quarter of the contract's 32.
 
 ```sh
 pnpm --filter @coldframe/openapi run generate   # after changing the heartbeat or ingest schemas or examples

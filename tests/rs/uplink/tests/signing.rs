@@ -7,7 +7,9 @@ use coldframe_crypto::spec::{
     HEARTBEAT_TIMESTAMP_HEADER,
 };
 use coldframe_uplink::json::HeartbeatRequest;
-use coldframe_uplink::{HEARTBEAT_METHOD, HEARTBEAT_PATH, sign_heartbeat};
+use coldframe_uplink::{
+    HEARTBEAT_METHOD, HEARTBEAT_PATH, INGEST_METHOD, INGEST_PATH, sign_heartbeat, sign_request,
+};
 use common::{array, bytes, heartbeat_vector, text, vector_keys};
 
 #[test]
@@ -100,4 +102,55 @@ fn any_change_changes_the_signature() {
     ] {
         assert_ne!(signature, reference);
     }
+}
+
+#[test]
+fn a_request_is_signed_for_its_own_path() {
+    let vector = heartbeat_vector();
+    let keys = vector_keys();
+    let body = bytes(&vector, "body");
+    let timestamp: u64 = text(&vector, "timestampMs").parse().unwrap();
+    let nonce = array(&vector, "nonce");
+    // The heartbeat wrapper is the generic signer with the heartbeat's method and path.
+    let heartbeat = sign_heartbeat(&keys, &body, timestamp, &nonce);
+    let generic = sign_request(
+        &keys,
+        HEARTBEAT_METHOD,
+        HEARTBEAT_PATH,
+        &body,
+        timestamp,
+        &nonce,
+    );
+    assert_eq!(generic.signature(), heartbeat.signature());
+    assert_eq!(generic.signature(), text(&vector, "signature"));
+
+    // The same body signed for /device/ingest has another signature, which verifies for that
+    // path and for no other.
+    assert_eq!((INGEST_METHOD, INGEST_PATH), ("POST", "/device/ingest"));
+    let ingest = sign_request(&keys, INGEST_METHOD, INGEST_PATH, &body, timestamp, &nonce);
+    assert_ne!(ingest.signature(), heartbeat.signature());
+    assert_eq!(ingest.device(), heartbeat.device());
+    assert_eq!(ingest.timestamp(), heartbeat.timestamp());
+    assert_eq!(ingest.nonce(), heartbeat.nonce());
+    let signature: Vec<u8> = (0..64)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&ingest.signature()[i..i + 2], 16).unwrap())
+        .collect();
+    let request = |path| coldframe_crypto::heartbeat::Request {
+        method: "POST",
+        path,
+        body: &body,
+        timestamp_ms: timestamp,
+        nonce: &nonce,
+    };
+    assert!(
+        request("/device/ingest")
+            .verify(&keys.hub_auth_key, &signature)
+            .is_ok()
+    );
+    assert!(
+        request("/device/heartbeat")
+            .verify(&keys.hub_auth_key, &signature)
+            .is_err()
+    );
 }
