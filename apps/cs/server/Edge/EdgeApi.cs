@@ -95,6 +95,22 @@ public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? 
 public sealed record DeviceResponse(string Id, string Kind, string SiteId, string? LotId = null);
 
 /// <summary>
+/// A Device in the body of <c>GET /sites/{siteId}/devices</c>.
+/// </summary>
+/// <param name="Id">The Device ID.</param>
+/// <param name="Kind"><c>hub</c> or <c>node</c>.</param>
+/// <param name="Online">Whether the Device is online, computed when the Server answers; never stored.</param>
+/// <param name="LotId">The Lot a Node is on; omitted otherwise.</param>
+/// <param name="LastSeenAt">When the last heartbeat was accepted, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>; omitted before the first.</param>
+public sealed record DeviceListItemResponse(string Id, string Kind, bool Online, string? LotId = null, string? LastSeenAt = null);
+
+/// <summary>
+/// The body of <c>GET /sites/{siteId}/devices</c>: every enrolled Device of the Site.
+/// </summary>
+/// <param name="Devices">The Devices, ordered by Device ID.</param>
+public sealed record DeviceListResponse(IReadOnlyList<DeviceListItemResponse> Devices);
+
+/// <summary>
 /// The body of <c>POST /device/heartbeat</c>'s 200.
 /// </summary>
 /// <param name="ServerTime">The Server clock, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>.</param>
@@ -170,6 +186,10 @@ public static class EdgeApi
         endpoints.MapPatch("/sites/{siteId}", RenameSiteAsync)
             .WithName("renameSite")
             .RequireSiteRole(SiteRole.Owner);
+
+        endpoints.MapGet("/sites/{siteId}/devices", ListDevicesAsync)
+            .WithName("listDevices")
+            .RequireSiteRole(SiteRole.Member);
 
         endpoints.MapPost("/sites/{siteId}/devices", EnrolDeviceAsync)
             .WithName("enrolDevice")
@@ -558,6 +578,37 @@ public static class EdgeApi
 
     private static Microsoft.AspNetCore.Http.HttpResults.Ok<EnrolmentKeyResponse> GetEnrolmentKey([FromServices] EnrolmentKeyring keyring) =>
         TypedResults.Ok(new EnrolmentKeyResponse(Base64Url.EncodeToString(keyring.PublicKey.Span), keyring.Fingerprint));
+
+    private static async Task<IResult> ListDevicesAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] DevicesReadModel devices,
+        [FromServices] TimeProvider timeProvider)
+    {
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var views = await devices.ListDevicesAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
+        var now = timeProvider.GetUtcNow();
+
+        return TypedResults.Ok(new DeviceListResponse([.. views.Select(view => ToDeviceListItem(view, now))]));
+    }
+
+    /// <summary>
+    /// Maps a Device of the read model to the list item: <c>online</c> from the Server clock
+    /// (<see cref="DeviceLiveness.IsOnline"/>), <c>lotId</c> and <c>lastSeenAt</c> only when present.
+    /// </summary>
+    /// <param name="view">The Device as the devices projection holds it.</param>
+    /// <param name="now">The Server clock.</param>
+    internal static DeviceListItemResponse ToDeviceListItem(DeviceView view, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        return new DeviceListItemResponse(
+            view.DeviceId,
+            view.Kind,
+            DeviceLiveness.IsOnline(view.LastSeenAt, now),
+            view.LotId,
+            view.LastSeenAt?.UtcDateTime.ToString(ServerTimeFormat, CultureInfo.InvariantCulture));
+    }
 
     private static async Task<IResult> EnrolDeviceAsync(
         string siteId,

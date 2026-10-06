@@ -1,6 +1,8 @@
 package com.escendit.coldframe.core.sites
 
 import com.escendit.coldframe.core.api.ColdframeApi
+import com.escendit.coldframe.core.devices.DevicesApi
+import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.setup.EnrolmentApi
@@ -12,7 +14,7 @@ import com.russhwolf.settings.Settings
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
 
-/** Builds the Sites and Lots engines over the Server API, with tokens from the sign-in engine. */
+/** Builds the Sites, Lots and Devices engines over the Server API, with tokens from the sign-in engine. */
 public object SitesWiring {
     public fun engine(
         config: CoreConfig,
@@ -42,6 +44,13 @@ public object SitesWiring {
         sites: SitesEngine,
         scope: CoroutineScope,
     ): LotsEngine = LotsEngine(api = api, sites = sites, scope = scope)
+
+    /** The Devices engine, following the current Site of [sites]. */
+    public fun devices(
+        api: DevicesApi,
+        sites: SitesEngine,
+        scope: CoroutineScope,
+    ): DevicesEngine = DevicesEngine(api = api, sites = sites, scope = scope)
 
     /** Add a Hub over [radio], enrolling on the Sites of [sites]; the Hub reports to the Server of [config]. */
     public fun hubSetup(

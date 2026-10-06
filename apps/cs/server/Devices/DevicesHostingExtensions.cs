@@ -1,16 +1,18 @@
+using Coldframe.Server.Journal;
 using Microsoft.Extensions.Options;
 
 namespace Coldframe.Server.Devices;
 
 /// <summary>
-/// Registers Device enrolment: the enrolment key and the Device key vault (configuration section
-/// <see cref="EnrolmentOptions.SectionName"/>), checked at start. The Device grain is found with the other grains.
+/// Registers the Devices: the enrolment key and the Device key vault (configuration section
+/// <see cref="EnrolmentOptions.SectionName"/>), checked at start, and the devices projector with its read
+/// model. The Device grain is found with the other grains.
 /// </summary>
 public static class DevicesHostingExtensions
 {
     /// <summary>
     /// Adds <see cref="EnrolmentKeyring"/> and <see cref="DeviceKeyVault"/>, with <see cref="EnrolmentOptions"/>
-    /// validated at start.
+    /// validated at start, and the devices projector with <see cref="DevicesReadModel"/>.
     /// </summary>
     public static OptionsBuilder<EnrolmentOptions> AddDevices(this IServiceCollection services)
     {
@@ -18,6 +20,8 @@ public static class DevicesHostingExtensions
 
         services.AddSingleton<EnrolmentKeyring>();
         services.AddSingleton<DeviceKeyVault>();
+        services.AddSingleton<DevicesReadModel>();
+        services.AddProjector<DevicesProjector>();
 
         return services
             .AddOptions<EnrolmentOptions>()

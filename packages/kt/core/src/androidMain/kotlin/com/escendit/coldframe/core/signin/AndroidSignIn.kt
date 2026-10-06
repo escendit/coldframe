@@ -2,6 +2,7 @@ package com.escendit.coldframe.core.signin
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.setup.AndroidRadioState
 import com.escendit.coldframe.core.setup.HubSetupEngine
@@ -53,6 +54,9 @@ public class AndroidSignIn private constructor(
 
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
     public val lots: LotsEngine = SitesWiring.lots(api, sites, scope)
+
+    /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
+    public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)
 
     /** Add a Hub over Kable; Bluetooth is only touched once the flow opens. */
     public val hubSetup: HubSetupEngine =

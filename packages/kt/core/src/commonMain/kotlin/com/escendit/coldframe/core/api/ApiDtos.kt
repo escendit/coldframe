@@ -81,6 +81,25 @@ public data class DeviceDto(
     val siteId: String,
 )
 
+/**
+ * `DeviceListItem`: a Device of the Site's Devices list. [online] is computed by the Server when
+ * it answers; [lastSeenAt] is ISO-8601 UTC and absent until the first heartbeat.
+ */
+@Serializable
+public data class DeviceListItemDto(
+    val id: String,
+    val kind: String,
+    val online: Boolean,
+    val lotId: String? = null,
+    val lastSeenAt: String? = null,
+)
+
+/** `DeviceList`: every enrolled Device of the Site, Hubs and Nodes, by Device ID. */
+@Serializable
+public data class DeviceListDto(
+    val devices: List<DeviceListItemDto>,
+)
+
 /** `ProblemDetails` (RFC 9457). */
 @Serializable
 public data class ProblemDto(

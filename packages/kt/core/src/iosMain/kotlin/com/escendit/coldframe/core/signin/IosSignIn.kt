@@ -1,6 +1,7 @@
 package com.escendit.coldframe.core.signin
 
 import com.escendit.coldframe.core.Watch
+import com.escendit.coldframe.core.devices.IosDevices
 import com.escendit.coldframe.core.lots.IosLots
 import com.escendit.coldframe.core.setup.IosHubSetup
 import com.escendit.coldframe.core.setup.IosRadioState
@@ -49,6 +50,9 @@ public class IosSignIn private constructor(
 
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
     public val lots: IosLots = IosLots(SitesWiring.lots(api, sitesEngine, scope), scope)
+
+    /** The Devices of the current Site; Swift loads it on every entry of the Devices tab. */
+    public val devices: IosDevices = IosDevices(SitesWiring.devices(api, sitesEngine, scope), scope)
 
     /** Add a Hub over Kable; the Bluetooth prompt appears only when the flow opens. */
     public val hubSetup: IosHubSetup =

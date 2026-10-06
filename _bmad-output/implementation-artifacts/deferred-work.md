@@ -201,7 +201,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: medium
 reason: The Add a Hub flow is a later epic. When it lands, pass flowAvailable = true on mobile so the next step starts the flow for Administrators and Owners; the tile states and the Member notice are already real. Done steps (checkmark) also need Hub/Node data.
 status: open
-progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data.
+progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data. Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds the Hub data a done checkmark needs (`GET /sites/{siteId}/devices`, the core's `DevicesEngine`), but the Add a Hub tile does not read it yet: it stays "next" after a Hub is enrolled.
 
 ### DW-27: The Kotlin API client and DTOs are hand-written instead of generated from coldframe.openapi.json (AD-10 deviation).
 origin: spec-deferred ec8f62ba78ca
@@ -218,6 +218,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: low
 reason: Story 1.8 forbids a polling loop and has no Lot data to refresh yet; the Sites list reloads on sign-in (mobile) and on every navigation (web). Add refresh with the Lot grid.
 status: open
+progress: Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds Devices without pull-to-refresh, refetch on focus, polling or SignalR (UX-DR112): the list is read on a page load (web) and on every entry of the Devices tab (mobile). A Devices screen left open is not read again, so a Hub whose heartbeat stops keeps reading "Online" with its old last-seen time until the user leaves and re-enters the tab or reloads the page; returning to the app from the background does not reload it either. The same refresh primitives close this for Devices (apps/ts/web/src/routes/(app)/devices/+page.server.ts, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/shell/AppShell.kt, apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift).
 
 ### DW-29: On iOS, "New Site" in the Site switcher may never open Create Site, because the Create Site sheet is requested while the switcher sheet is still closing.
 origin: spec-deferred review-1-8-ios-sheet
@@ -403,4 +404,20 @@ location: apps/rs/node/src/board/flash.rs (BoardFlash::write)
 source_spec: `spec-4-1-node-firmware-foundation-wake-measure-sleep.md`
 severity: low
 reason: Host counter tests run over MockFlash only; apps/rs/node/src/board/flash.rs is only cross-compiled in CI. Reverting BoardFlash::write to esp-storage's read-erase-rewrite would pass every automated check. Mitigated by the bench power-cut step in docs/bench/node-power-checklist.md Part B and the DW-51 note; a host test needs the board adapter extracted into a crate that can run over a fake NOR backend (DW-51).
+status: open
+
+### DW-53: On iOS, reloading the list on every entry of the Devices tab and returning to Devices after Add a Hub closes have no behavioural test.
+origin: spec-deferred e07df2630c2f
+location: apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (AppTabView .onChange, ColdframeRootView tab state)
+source_spec: `spec-3-7-see-my-hub-in-devices.md`
+severity: medium
+reason: The only iOS tests that reach AppTabView are RenderTests, whose helper asserts that ImageRenderer returns an image; the Devices one passes selection: .constant(.devices) and no actions. Removing the .onChange(of: selection) modifier in UI/Screens.swift, or passing selection: nil from the root view, fails no test. Android has both tests in DevicesScreenTest. Closing the gap needs the "entered Devices, so load" decision in a type that compiles on Linux, or a SwiftUI interaction harness.
+status: open
+
+### DW-54: The app-target wiring of the Devices engine (MainActivity, ColdframeApp, CoreDevicesService) can be dropped or mis-mapped without any test failing.
+origin: spec-deferred 4240a8dab832
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/MainActivity.kt; apps/swift/ios/App/{ColdframeApp,CoreDevicesService}.swift
+source_spec: `spec-3-7-see-my-hub-in-devices.md`
+severity: medium
+reason: ColdframeRoot, the iOS root view and ShellModel default the Devices parameters to Idle/.waiting/.none, so deleting the two argument lines in MainActivity.setContent keeps ./gradlew check green with a blank Devices tab. MainActivityTest only asserts the cold start shows SIGN IN. CoreDevicesService maps hubStatuses and hubLastSeen, both [String], by position, and apps/swift/ios/App has no tests. The Lots and Add a Hub wiring has the same shape.
 status: open

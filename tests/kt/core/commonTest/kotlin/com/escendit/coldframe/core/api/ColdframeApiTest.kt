@@ -230,6 +230,51 @@ class ColdframeApiTest {
         }
 
     @Test
+    fun uxDr65ListDevicesReadsEveryDeviceWithTheServersOnlineFlag() =
+        runTest {
+            answer = {
+                respond(
+                    """{"devices":[""" +
+                        """{"id":"1b00aa11bb22cc33","kind":"hub",""" +
+                        """"lastSeenAt":"2026-10-06T07:02:00.000Z","online":true},""" +
+                        """{"id":"3f2a9c0d1e4b5a67","kind":"hub","online":false},""" +
+                        """{"id":"7c19000000000001","kind":"node","lotId":"l1","online":false,"later":1}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listDevices("a")
+
+            assertEquals(
+                ApiResult.Ok(
+                    DeviceListDto(
+                        listOf(
+                            DeviceListItemDto("1b00aa11bb22cc33", "hub", true, lastSeenAt = "2026-10-06T07:02:00.000Z"),
+                            DeviceListItemDto("3f2a9c0d1e4b5a67", "hub", false),
+                            DeviceListItemDto("7c19000000000001", "node", false, lotId = "l1"),
+                        ),
+                    ),
+                ),
+                result,
+            )
+            val request = requests.single()
+            assertEquals(HttpMethod.Get, request.method)
+            assertEquals("https://server.example/sites/a/devices", request.url.toString())
+            assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+        }
+
+    @Test
+    fun uxDr84ListDevicesWithoutARoleIsForbiddenAndAnUnknownSiteIsNotFound() =
+        runTest {
+            answer = { respond(problem("forbidden"), HttpStatusCode.Forbidden, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.Forbidden), api().listDevices("a"))
+
+            answer = { respond(problem("site-not-found"), HttpStatusCode.NotFound, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.NotFound), api().listDevices("a"))
+        }
+
+    @Test
     fun uxDr74CreateLotSendsTheIdempotencyKeyAndTheName() =
         runTest {
             answer = { respond("""{"id":"l1","name":"Tomatoes","status":"noNode"}""", HttpStatusCode.Created, json) }

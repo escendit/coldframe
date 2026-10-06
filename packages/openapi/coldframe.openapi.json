@@ -194,6 +194,26 @@
       }
     },
     "/sites/{siteId}/devices": {
+      "get": {
+        "operationId": "listDevices",
+        "summary": "List the Site's Devices",
+        "description": "Every Device enrolled on the Site, Hubs and Nodes, ordered by Device ID, from the devices projection of the Device streams. lastSeenAt is the time of the last accepted heartbeat. online is computed by the Server when it answers: for a Hub, true only while lastSeenAt is at most 120 s old (two missed 60 s heartbeats); the same window is applied to a Node until Nodes get their own rule, so a Node's online is not meaningful yet. It is never stored; clients show it as received and never compute or keep it.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The Site's Devices.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeviceList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      },
       "post": {
         "operationId": "enrolDevice",
         "summary": "Enrol a Device on the Site",
@@ -596,6 +616,40 @@
           "kind": { "$ref": "#/components/schemas/DeviceKind" },
           "siteId": { "type": "string", "format": "uuid", "description": "The Site the Device is enrolled on." },
           "lotId": { "type": "string", "format": "uuid", "description": "The Lot a Node is on; absent for a Hub and an unassigned Node." }
+        }
+      },
+      "DeviceListItem": {
+        "type": "object",
+        "description": "A Device in the Site's Devices list.",
+        "required": ["id", "kind", "online"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/DeviceId" },
+          "kind": { "$ref": "#/components/schemas/DeviceKind" },
+          "lotId": { "type": "string", "format": "uuid", "description": "The Lot a Node is on; absent for a Hub and an unassigned Node." },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the Server accepted the Device's last heartbeat, ISO-8601 UTC with Z; absent until the first one."
+          },
+          "online": {
+            "type": "boolean",
+            "description": "Computed by the Server at read time. For a Hub: lastSeenAt is present and at most 120 s old. Not meaningful for a Node yet. Clients never compute it."
+          }
+        },
+        "examples": [
+          { "id": "3f2a9c0d1e4b5a67", "kind": "hub", "lastSeenAt": "2026-10-06T07:02:00.000Z", "online": true },
+          { "id": "3f2a9c0d1e4b5a67", "kind": "hub", "online": false }
+        ]
+      },
+      "DeviceList": {
+        "type": "object",
+        "required": ["devices"],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "description": "Every enrolled Device of the Site, ordered by Device ID.",
+            "items": { "$ref": "#/components/schemas/DeviceListItem" }
+          }
         }
       },
       "ProblemDetails": {
