@@ -34,6 +34,12 @@ public interface SitesApi {
  * The Sites state of the signed-in user: which Sites they hold, the current one, and Create Site
  * (UX-DR61, UX-DR23). Loads when the session becomes [SignInState.SignedIn] and goes back
  * to [SitesState.Idle] when it ends. Shells only render [state] and call the actions.
+ *
+ * The last good Sites are kept on this device (UX-DR80). On sign-in they show at once with
+ * [SitesState.Ready.fromCache] while the read runs, and they stay when the read and its one
+ * retry fail for a transport reason, so the overview can show its last good Lots in stale mode.
+ * A certificate failure or any other answer shows its notice instead. When the session ends
+ * (sign-out, or a 401) the kept Sites are cleared and every listener of [onSessionEnded] is run.
  */
 public class SitesEngine(
     private val api: SitesApi,
@@ -52,37 +58,103 @@ public class SitesEngine(
     /** Bumped when the session ends, so answers to an earlier session are dropped. */
     private var session = 0
 
+    /** The session a read of the Sites is running for, so a second one does not start. */
+    private var loadingSession = NOT_LOADING
+
+    private val cache = SitesCache(choices.settings)
+    private val sessionEnded = mutableListOf<() -> Unit>()
+
     init {
         scope.launch {
+            // A sign-out clears what this device kept; a start that is still restoring does not.
+            launch { signIn.collect { if (it is SignInState.SignedOut) forget() } }
             signIn.map { it is SignInState.SignedIn }.distinctUntilChanged().collect { signedIn ->
                 session++
-                if (signedIn) load() else mutableState.value = SitesState.Idle
+                loadingSession = NOT_LOADING
+                if (signedIn) {
+                    cachedState()?.let { mutableState.value = it }
+                    load()
+                } else {
+                    mutableState.value = SitesState.Idle
+                }
             }
         }
     }
 
-    /** Reads the Sites; also Try again after [SitesState.Failed]. */
+    /**
+     * Reads the Sites; also Try again after [SitesState.Failed]. Sites shown from this device
+     * stay while it runs. A transport failure is tried once more.
+     */
     public fun load() {
-        if (mutableState.value == SitesState.Loading) return
+        if (loadingSession == session) return
         val started = session
-        mutableState.value = SitesState.Loading
+        loadingSession = started
+        if ((mutableState.value as? SitesState.Ready)?.fromCache != true) mutableState.value = SitesState.Loading
         scope.launch {
-            val result = api.listSites()
+            var result = api.listSites()
             if (started != session) return@launch
-            mutableState.value =
-                when (result) {
-                    is ApiResult.Ok -> {
-                        stateFor(
-                            result.value.sites.map { it.toSummary() },
-                            preferred = choices.currentSiteId,
-                        )
-                    }
-
-                    is ApiResult.Failed -> {
-                        failedState(result.failure)
-                    }
+            if (result is ApiResult.Failed && result.failure.transport) {
+                result = api.listSites()
+                if (started != session) return@launch
+            }
+            loadingSession = NOT_LOADING
+            when (result) {
+                is ApiResult.Ok -> {
+                    cache.store(result.value.sites)
+                    val shown = mutableState.value as? SitesState.Ready
+                    val next = stateFor(result.value.sites.map { it.toSummary() }, preferred = choices.currentSiteId)
+                    // Create Site opened over the kept Sites stays open.
+                    mutableState.value =
+                        if (next is SitesState.Ready && shown != null) next.copy(creating = shown.creating) else next
                 }
+
+                is ApiResult.Failed -> {
+                    missed(result.failure)
+                }
+            }
         }
+    }
+
+    private fun missed(failure: ApiFailure) {
+        if (failure == ApiFailure.Unauthorized) {
+            forget()
+            mutableState.value = SitesState.Idle
+            return
+        }
+        val shown = mutableState.value as? SitesState.Ready
+        mutableState.value =
+            when {
+                !failure.transport -> SitesState.Failed(noticeOf(failure))
+                shown?.fromCache == true -> shown
+                else -> cachedState() ?: SitesState.Failed(noticeOf(failure))
+            }
+    }
+
+    /** The last good Sites of this device as the shown state, or `null` without any. */
+    private fun cachedState(): SitesState.Ready? {
+        val sites = cache.read() ?: return null
+        val state = stateFor(sites.map { it.toSummary() }, preferred = choices.currentSiteId) as? SitesState.Ready
+        return state?.copy(fromCache = true)
+    }
+
+    /**
+     * Runs [action] whenever the session ends (sign-out, or a 401), after the kept Sites are
+     * cleared. The Lots engine clears its last good Lots with it, so nothing one user saw is
+     * shown to the next on the same device.
+     */
+    internal fun onSessionEnded(action: () -> Unit) {
+        sessionEnded += action
+    }
+
+    /**
+     * The session is over: nothing kept on this device outlives it. The session is bumped in the
+     * same step as the clear, so an answer of the ended session that lands afterwards stores nothing.
+     */
+    internal fun forget() {
+        session++
+        loadingSession = NOT_LOADING
+        cache.clear()
+        sessionEnded.forEach { it() }
     }
 
     /** The Site switcher's pick: the whole app shows [siteId]; the choice persists per device. */
@@ -174,6 +246,7 @@ public class SitesEngine(
             val sites =
                 when (listed) {
                     is ApiResult.Ok -> {
+                        cache.store(listed.value.sites)
                         listed.value.sites.map { it.toSummary() }
                     }
 
@@ -206,6 +279,7 @@ public class SitesEngine(
         // The Server's order after the write; the projection is updated before 201 (read-your-writes).
         val listed = api.listSites()
         if (started != session) return
+        if (listed is ApiResult.Ok) cache.store(listed.value.sites)
         val sites =
             when (listed) {
                 is ApiResult.Ok -> listed.value.sites.map { it.toSummary() }
@@ -219,6 +293,7 @@ public class SitesEngine(
         sent: CreateSiteForm,
     ) {
         if (failure == ApiFailure.Unauthorized) {
+            forget()
             mutableState.value = SitesState.Idle
             return
         }
@@ -251,9 +326,6 @@ public class SitesEngine(
         return SitesState.Ready(sites, current, creating = null)
     }
 
-    private fun failedState(failure: ApiFailure): SitesState =
-        if (failure == ApiFailure.Unauthorized) SitesState.Idle else SitesState.Failed(noticeOf(failure))
-
     private fun newForm(cancellable: Boolean): CreateSiteForm =
         CreateSiteForm(
             name = "",
@@ -283,6 +355,8 @@ public class SitesEngine(
     private val availableZones: Set<String> by lazy { zones().toSet() }
 
     public companion object {
+        private const val NOT_LOADING = -1
+
         private fun noticeOf(failure: ApiFailure): SitesNotice =
             when (failure) {
                 ApiFailure.Unreachable -> SitesNotice.Unreachable

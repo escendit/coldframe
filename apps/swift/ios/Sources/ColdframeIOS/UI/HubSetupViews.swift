@@ -632,36 +632,6 @@
     }
   }
 
-  /// 135° hatch lines on the hatch ground (DESIGN.md Shapes).
-  struct Hatch: View {
-    let palette: ColdframePalette
-
-    var body: some View {
-      Canvas { context, size in
-        context.fill(
-          Path(CGRect(origin: .zero, size: size)),
-          with: .color(palette.color(ColorTokens.statusHatchGround)))
-        var x = -size.height
-        while x < size.width {
-          var line = Path()
-          line.move(to: CGPoint(x: x, y: size.height))
-          line.addLine(to: CGPoint(x: x + size.height, y: 0))
-          context.stroke(
-            line, with: .color(palette.color(ColorTokens.statusHatchLine)), lineWidth: 1.5)
-          x += 8
-        }
-      }
-      .accessibilityHidden(true)
-    }
-  }
-
-  extension View {
-    /// Text on a hatched row sits on a solid plate.
-    fileprivate func plate(_ on: Bool, _ palette: ColdframePalette) -> some View {
-      background(on ? palette.color(ColorTokens.statusHatchGround) : Color.clear)
-    }
-  }
-
   /// Step 4: the Site and the checked fingerprint of the Server's enrolment key.
   struct SiteStepView: View {
     let presentation: HubSetupPresentation

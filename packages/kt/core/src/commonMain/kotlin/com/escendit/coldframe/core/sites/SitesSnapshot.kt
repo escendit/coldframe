@@ -35,6 +35,8 @@ public data class SitesSnapshot(
     val memberNotice: Boolean,
     val menuItems: List<String>,
     val menuEnabled: Boolean,
+    /** The Sites are the last good list kept on this device; the Server has not answered yet. */
+    val fromCache: Boolean,
 )
 
 /** The catalogue key suffix of an enum value: `KeyReused` → `keyReused`. */
@@ -86,5 +88,6 @@ public fun snapshotOf(state: SitesState): SitesSnapshot {
         memberNotice = steps?.memberNotice == true,
         menuItems = menu.map { it.action.key() },
         menuEnabled = menu.all { it.enabled },
+        fromCache = ready?.fromCache == true,
     )
 }

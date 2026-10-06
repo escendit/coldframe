@@ -119,9 +119,10 @@ test.describe('Site settings and Lots', () => {
     await expect(page.getByRole('textbox', { name: 'Name of Tomatoes' })).toBeVisible();
     expect((await serverSites()).lots.find((lot) => lot.name === 'Tomatoes')?.removed).toBeUndefined();
 
-    // A Lot holding a Node is not no-Node: Garden shows only its name (UX-DR18).
+    // A Lot holding a Node that has not reported is unknown, never fine (UX-DR18).
     await page.goto('/garden');
-    await expect(page.getByRole('list', { name: 'Lots' }).getByRole('img')).toHaveAccessibleName('Tomatoes');
+    await expect(page.getByRole('list', { name: 'Lots' }).getByRole('img')).toHaveAccessibleName(/^Tomatoes, unknown, Node silent for \d+ (?:minutes?|hours?), no Readings yet$/u);
+    await expect(page.getByRole('heading', { name: "1 Lot can't be read" })).toBeVisible();
   });
 
   test('UX-DR84 a Member sees the Site and Lots read-only with one notice; the Site menu opens Site settings', async ({ page }) => {

@@ -39,12 +39,16 @@ public object SitesWiring {
             signIn = signIn.state,
         )
 
-    /** The Lots engine, following the current Site of [sites]. */
+    /**
+     * The Lots engine, following the current Site of [sites]. It keeps the last good Lots of
+     * each Site in [settings] (keys `lots.lastGood.‹siteId›`) and decides stale mode.
+     */
     public fun lots(
         api: LotsApi,
         sites: SitesEngine,
+        settings: Settings,
         scope: CoroutineScope,
-    ): LotsEngine = LotsEngine(api = api, sites = sites, scope = scope)
+    ): LotsEngine = LotsEngine(api = api, sites = sites, settings = settings, scope = scope)
 
     /** The Devices engine, following the current Site of [sites]. */
     public fun devices(

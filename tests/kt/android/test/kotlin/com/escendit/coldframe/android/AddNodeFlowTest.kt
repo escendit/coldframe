@@ -240,7 +240,7 @@ class AddNodeFlowTest {
 
         assertEquals(listOf("open lot-t"), calls)
         // A Lot that has a Node is not an entry point.
-        compose.onNodeWithContentDescription("Beans").assertHasNoClickAction()
+        compose.onNodeWithContentDescription("Beans, OK").assertHasNoClickAction()
     }
 
     @Test

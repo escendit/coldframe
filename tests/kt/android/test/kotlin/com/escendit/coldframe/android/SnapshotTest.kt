@@ -1,24 +1,37 @@
 package com.escendit.coldframe.android
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.escendit.coldframe.android.ui.sites.LotTiles
 import com.escendit.coldframe.android.ui.sites.SitesActions
+import com.escendit.coldframe.android.ui.sites.rememberOverviewCopy
+import com.escendit.coldframe.android.ui.theme.Coldframe
+import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
 import com.escendit.coldframe.core.lots.CreateLotForm
 import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.LotSummary
+import com.escendit.coldframe.core.lots.LotsOverview
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.SiteNameForm
+import com.escendit.coldframe.core.lots.StaleReason
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
@@ -26,6 +39,7 @@ import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.sites.TimeZoneProposal
+import com.escendit.coldframe.designtokens.Spacing
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.After
 import org.junit.Before
@@ -35,12 +49,16 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.time.Instant
+import java.time.ZoneOffset
 import java.util.TimeZone
+import kotlin.test.assertTrue
 
 /**
  * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings, Devices, every Add a
  * Hub step and outcome and every Add a Node step with its outcomes, light and dark, at
- * the largest font scale (2×). Baselines live in tests/kt/android/snapshots; `check` compares against them and
+ * the largest font scale (2×). The Site overview (Story 4.7) and its Lot tiles of every status,
+ * stale and skeleton are taken at the default font scale (two columns) and at 2× (one column).
+ * Baselines live in tests/kt/android/snapshots; `check` compares against them and
  * `./gradlew :android:recordRoborazziDebug` rewrites them.
  */
 @RunWith(AndroidJUnit4::class)
@@ -357,4 +375,215 @@ class SnapshotTest {
     @Test
     fun `UX-DR55 UX-DR94 the Node stopped listening, dark, font scale 2`() =
         nodeDark("add-node-stopped-listening", NodeStates.stoppedListening)
+
+    // Story 4.7: the Site overview with Lots of every status.
+
+    /** The Garden as the shell shows it, at [fontScale], with the clock of the Lot fixtures. */
+    private fun overview(
+        name: String,
+        lots: LotsState,
+        theme: ThemePreference,
+        fontScale: Float,
+        scrollTo: String? = null,
+    ) {
+        compose.setContent {
+            AtFontScale(fontScale) {
+                ColdframeRoot(
+                    state = SignInState.SignedIn("Simon"),
+                    sites = readySites(),
+                    theme = theme,
+                    onSignIn = {},
+                    onSignOut = {},
+                    onSelectTheme = {},
+                    lots = lots,
+                    now = { LotFixtures.now },
+                )
+            }
+        }
+        scrollTo?.let { compose.onNodeWithText(it).performScrollTo() }
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    private val staleLots = LotFixtures.ready(staleReason = StaleReason.Unreachable)
+
+    @Test
+    fun `UX-DR21 UX-DR129 UX-DR107 the overview with every status, light`() =
+        overview("garden-overview-light", LotFixtures.ready(), ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    fun `UX-DR21 UX-DR129 UX-DR107 the overview with every status, dark`() =
+        overview("garden-overview-dark", LotFixtures.ready(), ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    fun `UX-DR21 UX-DR129 the overview with every status, light, font scale 2`() =
+        overview("garden-overview-large-light", LotFixtures.ready(), ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    fun `UX-DR21 UX-DR129 the overview with every status, dark, font scale 2`() =
+        overview("garden-overview-large-dark", LotFixtures.ready(), ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    fun `UX-DR24 UX-DR79 the stale header over stale tiles, light`() =
+        overview("garden-stale-light", staleLots, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    fun `UX-DR24 UX-DR79 the stale header over stale tiles, dark`() =
+        overview("garden-stale-dark", staleLots, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    fun `UX-DR24 UX-DR79 the stale header, light, font scale 2`() =
+        overview("garden-stale-large-light", staleLots, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    fun `UX-DR24 UX-DR79 the stale header, dark, font scale 2`() =
+        overview("garden-stale-large-dark", staleLots, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    fun `UX-DR80 UX-DR19 Loading with skeleton tiles, light`() =
+        overview(
+            "garden-loading-light",
+            LotsState.Loading(homeSite()),
+            ThemePreference.Light,
+            fontScale = 1f,
+            scrollTo = "Lots",
+        )
+
+    @Test
+    fun `UX-DR80 UX-DR19 Loading with skeleton tiles, dark`() =
+        overview(
+            "garden-loading-dark",
+            LotsState.Loading(homeSite()),
+            ThemePreference.Dark,
+            fontScale = 1f,
+            scrollTo = "Lots",
+        )
+
+    @Test
+    fun `UX-DR80 UX-DR19 Loading with skeleton tiles in one column, light, font scale 2`() =
+        overview(
+            "garden-loading-large-light",
+            LotsState.Loading(homeSite()),
+            ThemePreference.Light,
+            fontScale = 2f,
+            scrollTo = "Lots",
+        )
+
+    /**
+     * The Lot grid alone, whole: every tile of [lots] at once, on a window tall enough to hold
+     * them (the Garden scrolls, so the shell's window shows only the first rows).
+     */
+    private fun grid(
+        name: String,
+        lots: List<LotSummary>,
+        theme: ThemePreference,
+        fontScale: Float,
+        stale: Boolean = false,
+    ) {
+        val ready = LotFixtures.ready(lots, staleReason = if (stale) StaleReason.Unreachable else null)
+        val overview = LotsOverview.of(ready, LotFixtures.now.toEpochMilli())
+        compose.setContent {
+            AtFontScale(fontScale) {
+                ColdframeTheme(isDark = theme == ThemePreference.Dark) {
+                    Box(
+                        Modifier
+                            .testTag("grid")
+                            .background(Coldframe.colors.background)
+                            .padding(Spacing.GUTTER_MOBILE.dp),
+                    ) {
+                        LotTiles(overview.tiles, rememberOverviewCopy(LotFixtures.now, ZoneOffset.UTC))
+                    }
+                }
+            }
+        }
+        val grid = compose.onNodeWithTag("grid")
+        val window = compose.activity.window.decorView.height
+        assertTrue(grid.fetchSemanticsNode().size.height < window, "$name fits its window of $window px")
+        grid.captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    private val largeA = listOf(LotFixtures.needsWater, LotFixtures.needsCalibration, LotFixtures.unknownNode)
+    private val largeB =
+        listOf(LotFixtures.unknownHub, LotFixtures.unknownNoReading, LotFixtures.ok, LotFixtures.okBare)
+    private val largeC = listOf(LotFixtures.paused, LotFixtures.pausedBySite, LotFixtures.noNode)
+    private val staleA = LotFixtures.everyVariant.take(5)
+    private val staleB = LotFixtures.everyVariant.drop(5)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR17 UX-DR99 every tile variant in two columns, light`() =
+        grid("lot-tiles-light", LotFixtures.everyVariant, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR17 UX-DR99 every tile variant in two columns, dark`() =
+        grid("lot-tiles-dark", LotFixtures.everyVariant, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR19 UX-DR99 every stale tile in two columns, light`() =
+        grid("lot-tiles-stale-light", LotFixtures.everyVariant, ThemePreference.Light, fontScale = 1f, stale = true)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR19 UX-DR99 every stale tile in two columns, dark`() =
+        grid("lot-tiles-stale-dark", LotFixtures.everyVariant, ThemePreference.Dark, fontScale = 1f, stale = true)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR97 needs water, needs Calibration and unknown in one column, light, font scale 2`() =
+        grid("lot-tiles-large-a-light", largeA, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR97 needs water, needs Calibration and unknown in one column, dark, font scale 2`() =
+        grid("lot-tiles-large-a-dark", largeA, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR97 Hub silent, no Readings and OK in one column, light, font scale 2`() =
+        grid("lot-tiles-large-b-light", largeB, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR97 Hub silent, no Readings and OK in one column, dark, font scale 2`() =
+        grid("lot-tiles-large-b-dark", largeB, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR97 paused and no Node in one column, light, font scale 2`() =
+        grid("lot-tiles-large-c-light", largeC, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR18 UX-DR97 paused and no Node in one column, dark, font scale 2`() =
+        grid("lot-tiles-large-c-dark", largeC, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR19 UX-DR97 the first stale tiles in one column, light, font scale 2`() =
+        grid("lot-tiles-stale-large-a-light", staleA, ThemePreference.Light, fontScale = 2f, stale = true)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR19 UX-DR97 the first stale tiles in one column, dark, font scale 2`() =
+        grid("lot-tiles-stale-large-a-dark", staleA, ThemePreference.Dark, fontScale = 2f, stale = true)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR19 UX-DR97 the other stale tiles in one column, light, font scale 2`() =
+        grid("lot-tiles-stale-large-b-light", staleB, ThemePreference.Light, fontScale = 2f, stale = true)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR19 UX-DR97 the other stale tiles in one column, dark, font scale 2`() =
+        grid("lot-tiles-stale-large-b-dark", staleB, ThemePreference.Dark, fontScale = 2f, stale = true)
+
+    private companion object {
+        /** A window that holds four one-column tiles, or ten in two columns. */
+        const val TALL = "w411dp-h1700dp-mdpi"
+
+        /** Five one-column tiles. */
+        const val TALLER = "w411dp-h2100dp-mdpi"
+    }
 }

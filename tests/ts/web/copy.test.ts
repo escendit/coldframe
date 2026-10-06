@@ -28,21 +28,44 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
+/**
+ * "OK" is the name of the `ok` Lot status and appears nowhere else: only in keys with an `ok`
+ * segment (the tile label, its stale and spoken forms, and the count of OK Lots).
+ */
+function namesOkStatus(key: string): boolean {
+  return /\.ok(?:\.|$)/u.test(key);
+}
+
 describe('voice and glossary', () => {
   test('UX-DR130 no exclamation marks, emoji, "successfully", "OK", "fine" or "all good"', () => {
     for (const [key, value] of strings()) {
       expect(value, key).not.toMatch(/!/u);
       expect(value, key).not.toMatch(/\p{Extended_Pictographic}/u);
       expect(value, key).not.toMatch(/successfully/iu);
-      expect(value, key).not.toMatch(/\bOK\b|\bokay\b/iu);
+      expect(value, key).not.toMatch(/\bokay\b/iu);
+      if (!namesOkStatus(key)) {
+        expect(value, key).not.toMatch(/\bOK\b/iu);
+      }
       expect(value, key).not.toMatch(/\bfine\b/iu);
       expect(value, key).not.toMatch(/all good/iu);
     }
   });
 
+  test('UX-DR130 "OK" names the ok status only: its tile label, its stale and spoken forms, and its count', () => {
+    const allowed = strings()
+      .filter(([, value]) => /\bOK\b/iu.test(value))
+      .map(([key]) => key);
+    expect(allowed).toEqual(['garden.count.ok', 'lotTile.label.ok', 'lotTile.was.ok', 'lotTile.spoken.ok', 'lotTile.spokenWas.ok']);
+    for (const [key, value] of strings().filter(([name]) => namesOkStatus(name))) {
+      expect(value, key).toMatch(/\bOK$/u);
+    }
+  });
+
   test('UX-DR130 UX-DR124 uppercase comes from style, never from the string', () => {
     for (const [key, value] of strings()) {
-      expect(value, key).not.toMatch(/\b\p{Lu}{2,}\b/u);
+      // "OK" is a word written in capitals, not a styled label; it is allowed only where the test above allows it.
+      const checked = namesOkStatus(key) ? value.replace(/\bOK\b/gu, '') : value;
+      expect(checked, key).not.toMatch(/\b\p{Lu}{2,}\b/u);
     }
   });
 

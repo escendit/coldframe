@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FakeDevice, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
+import type { FailingReads, FakeDevice, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -31,10 +31,24 @@ export async function resetSites(
   expect(response.ok).toBe(true);
 }
 
-/** The fake Server's Sites and Lots, and every `POST /sites` and `POST …/lots` since the last reset. */
-export async function serverSites(): Promise<{ sites: FakeSite[]; posts: FakeSitePost[]; lots: FakeLot[]; lotPosts: FakeSitePost[] }> {
+/** The fake Server's Sites and Lots, every `POST /sites` and `POST …/lots`, and how often the Lots were read, since the last reset. */
+export async function serverSites(): Promise<{ sites: FakeSite[]; posts: FakeSitePost[]; lots: FakeLot[]; lotPosts: FakeSitePost[]; lotReads: number }> {
   const response = await fetch(`${idpOrigin}/control/sites`);
-  return (await response.json()) as { sites: FakeSite[]; posts: FakeSitePost[]; lots: FakeLot[]; lotPosts: FakeSitePost[] };
+  return (await response.json()) as { sites: FakeSite[]; posts: FakeSitePost[]; lots: FakeLot[]; lotPosts: FakeSitePost[]; lotReads: number };
+}
+
+/**
+ * Makes the fake Server drop the connection on its Sites and Lots reads (`all`), on the Lots only
+ * (`lots`), or answer again (`none`): a Server that stops being reachable after it answered.
+ * `resetSites` turns it off.
+ */
+export async function failReads(failing: FailingReads): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/reads`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ failing }),
+  });
+  expect(response.ok).toBe(true);
 }
 
 /** Every token string the fake IdP has issued so far. */

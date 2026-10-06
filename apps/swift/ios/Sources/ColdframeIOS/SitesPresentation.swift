@@ -226,8 +226,10 @@ public struct FirstRunTilePresentation: Equatable, Sendable {
   public var showsCheckmark: Bool { state == .done }
 }
 
-/// The empty Garden of the current Site (UX-DR62, UX-DR82): the Site summary header, "No
-/// Readings yet", the four step tiles, the Member notice, the switcher and the Site menu.
+/// The Garden of the current Site (UX-DR62, UX-DR82): the Site name with the switcher and the
+/// Site menu, the four step tiles and the Member notice. The header under the Site name and the
+/// Lot tiles come from the Lots (`header(lots:)`); `headline` and `subline` are what shows
+/// while there are none.
 public struct GardenPresentation: Equatable, Sendable {
   public let siteName: String
   public let role: SiteRoleKind
@@ -266,6 +268,55 @@ public struct GardenPresentation: Equatable, Sendable {
   /// Owners (UX-DR66); the other steps' flows arrive in Epic 4 and later.
   public func startsFlow(_ tile: FirstRunTilePresentation) -> Bool {
     tilesActionable && tile.step == .addHub && tile.state == .next
+  }
+}
+
+/// What stands at the top of the Site overview.
+public enum GardenHeaderPresentation: Equatable, Sendable {
+  /// The Site summary: the headline sentence and the counts.
+  case summary(SiteSummaryPresentation)
+  /// Stale mode: the stale header replaces the summary (UX-DR24).
+  case stale(StaleHeaderPresentation)
+  /// The Lots are read for the first time: "Loading ‹Site›" over skeleton tiles (UX-DR80).
+  case loading(siteName: String)
+}
+
+/// The Site menu as it is drawn: in stale mode every item is disabled with "Needs your Server"
+/// (UX-DR22, UX-DR79).
+public struct SiteMenuPresentation: Equatable, Sendable {
+  public let items: [SiteMenuItem]
+  public let enabled: Bool
+
+  public init(items: [SiteMenuItem], enabled: Bool) {
+    self.items = items
+    self.enabled = enabled
+  }
+
+  /// The line under every item while the menu is disabled.
+  public var disabledReason: L10n? { enabled ? nil : .siteMenuNeedsServer }
+}
+
+extension GardenPresentation {
+  /// The header for the Lots as the core has them: the stale header in stale mode, "Loading
+  /// ‹Site›" on a cold start without kept Lots, else the summary. Until the Lots are known the
+  /// summary is "No Readings yet": an unread Site never reads as fine.
+  public func header(lots: LotsPresentation) -> GardenHeaderPresentation {
+    if lots.loadingSiteName != nil { return .loading(siteName: siteName) }
+    guard let overview = lots.overview else { return .summary(.noReadings) }
+    if overview.stale, let fetchedAt = overview.fetchedAt {
+      return .stale(
+        StaleHeaderPresentation(siteName: siteName, fetchedAt: fetchedAt, age: overview.staleAge))
+    }
+    return .summary(overview.summary)
+  }
+
+  /// The Site menu: the one the core built for the Lots' Site while they are shown (disabled in
+  /// stale mode), else the Sites one.
+  public func menu(lots: LotsPresentation) -> SiteMenuPresentation {
+    if let overview = lots.overview {
+      return SiteMenuPresentation(items: overview.menuItems, enabled: overview.menuEnabled)
+    }
+    return SiteMenuPresentation(items: menuItems, enabled: menuEnabled)
   }
 }
 

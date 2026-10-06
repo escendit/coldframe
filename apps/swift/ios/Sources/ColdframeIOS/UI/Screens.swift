@@ -386,6 +386,13 @@
       appearance.observe { [weak self] in self?.theme = $0 }
       sites?.observe { [weak self] in self?.sites = $0 }
       lots?.observe { [weak self] in self?.lots = $0 }
+      // Entering and leaving stale mode are said once, politely (UX-DR106); the minute tick
+      // and an unchanged refresh send no event.
+      lots?.observeEvents { event in
+        if let text = event.text(.catalogue()) {
+          AccessibilityNotification.Announcement(AttributedString(text)).post()
+        }
+      }
       hubSetup?.observe { [weak self] in self?.hubSetup = $0 }
       devices?.observe { [weak self] in self?.devices = $0 }
       nodeSetup?.observe { [weak self] in self?.nodeSetup = $0 }

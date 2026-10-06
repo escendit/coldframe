@@ -9,6 +9,11 @@ export interface SitesData {
   readonly currentSite: Site | null;
   /** Set when the Server could not list the Sites. */
   readonly sitesNotice: 'unreachable' | 'certificate' | 'unavailable' | null;
+  /**
+   * Stale mode of the Site overview: the Server could not be reached, and these are the Sites it
+   * last listed, at this time (ISO-8601). Null while live, and always on every other page.
+   */
+  readonly sitesStale: string | null;
 }
 
 /**

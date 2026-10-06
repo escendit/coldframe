@@ -8,6 +8,8 @@
   @MainActor
   public struct LotsActions {
     public var load: () -> Void
+    public var refresh: () -> Void
+    public var tick: () -> Void
     public var setSiteName: (String) -> Void
     public var renameSite: () -> Void
     public var setNewLotName: (String) -> Void
@@ -22,6 +24,8 @@
 
     public init(service: LotsService) {
       load = { service.load() }
+      refresh = { service.refresh() }
+      tick = { service.tick() }
       setSiteName = { service.setSiteName($0) }
       renameSite = { service.renameSite() }
       setNewLotName = { service.setNewLotName($0) }
@@ -37,6 +41,8 @@
 
     private init() {
       load = {}
+      refresh = {}
+      tick = {}
       setSiteName = { _ in }
       renameSite = {}
       setNewLotName = { _ in }
@@ -71,7 +77,7 @@
       ScrollView {
         Group {
           switch presentation.surface {
-          case .waiting:
+          case .waiting, .loading:
             EmptyView()
           case .failed(let notice):
             InlineNotice(
@@ -214,93 +220,196 @@
     }
   }
 
-  /// The Lot grid on Garden (UX-DR18, UX-DR20): the Server's order, two columns, one at
-  /// accessibility text sizes. A load failure shows its notice in place of the grid. For
-  /// Administrators and Owners a *no Node* tile starts Add a Node with its Lot.
+  /// The Lot grid on the Site overview (UX-DR18 to UX-DR20, UX-DR97, UX-DR107): the Server's
+  /// order, two columns, one from Accessibility 1. A load failure shows its notice in place of
+  /// the grid; a first load shows skeleton tiles. A *no Node* tile starts Add a Node with its
+  /// Lot where the core says so; no other tile is tappable.
   struct LotGrid: View {
     let lots: LotsPresentation
+    let context: CopyContext
     let onTryAgain: () -> Void
     let onAddNode: (String) -> Void
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var columns: Int {
+      LotTilePresentation.columns(accessibilitySize: dynamicTypeSize.isAccessibilitySize)
+    }
 
     var body: some View {
       if let failure = lots.failure {
         InlineNotice(
           message: failure.loadMessage, announcement: failure.announcement,
           action: failure.action.map { ($0.label, onTryAgain) })
+      } else if lots.loadingSiteName != nil {
+        grid {
+          ForEach(0..<LotTilePresentation.skeletonCount, id: \.self) { _ in
+            LotSkeletonTile()
+          }
+        }
+        // Nothing to read or focus: the header says "Loading ‹Site›".
+        .accessibilityHidden(true)
       } else if !lots.tiles.isEmpty {
-        let columns = LotTilePresentation.columns(
-          accessibilitySize: dynamicTypeSize.isAccessibilitySize)
         VStack(alignment: .leading, spacing: Spacing.step3) {
           L10n.gardenLots.text.role(Typography.section).foregroundStyle(palette.textPrimary)
             .accessibilityAddTraits(.isHeader)
-          LazyVGrid(
-            columns: Array(
-              repeating: GridItem(.flexible(), spacing: Spacing.tileGap, alignment: .top),
-              count: columns),
-            spacing: Spacing.tileGap
-          ) {
+          grid {
             ForEach(lots.tiles) { tile in
+              let tileView = LotTile(
+                tile: tile, context: context,
+                valueFollowsLabel: LotTilePresentation.valueFollowsLabel(columns: columns))
               if tile.isTappable {
                 Button {
                   onAddNode(tile.id)
                 } label: {
                   // The tile is transparent: the whole of it takes the tap.
-                  LotTile(tile: tile).contentShape(Rectangle())
+                  tileView.contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(.isButton)
               } else {
-                LotTile(tile: tile)
+                tileView
               }
             }
           }
         }
       }
     }
+
+    private func grid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+      LazyVGrid(
+        columns: Array(
+          repeating: GridItem(.flexible(), spacing: Spacing.tileGap, alignment: .top),
+          count: columns),
+        spacing: Spacing.tileGap,
+        content: content)
+    }
   }
 
-  /// One Lot tile. *No Node*: transparent, 1 pt dotted `status-no-node-border`, ink
-  /// `status-no-node-ink`, the name over `add` + "no Node", a large "+" over "add a Node". Other
-  /// statuses show the name only in 1.9. One accessibility element with the same spoken label
-  /// whether or not `LotGrid` makes it a button.
+  /// A skeleton tile (UX-DR19): a 1 pt `border-subtle` outline with no icon, label or value.
+  struct LotSkeletonTile: View {
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+      Rectangle().strokeBorder(palette.borderSubtle, lineWidth: 1)
+        .frame(maxWidth: .infinity, minHeight: LotTile.minimumHeight)
+    }
+  }
+
+  /// One Lot tile (UX-DR17 to UX-DR19): the name over the icon and the status label, then the
+  /// big value over the foot line, on the fill and inside the border of its variant. Everything
+  /// it shows comes from `LotTilePresentation`. One accessibility element with the complete
+  /// spoken label, whether or not `LotGrid` makes it a button.
   struct LotTile: View {
+    static let minimumHeight: Double = 160
+
+    let tile: LotTilePresentation
+    let context: CopyContext
+    /// One column: the value sits directly under the status label.
+    let valueFollowsLabel: Bool
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+      let variant = tile.variant
+      let ink = palette.color(variant.ink)
+      let labelInk = palette.color(variant.labelInk)
+      VStack(alignment: .leading, spacing: Spacing.step3) {
+        Text(verbatim: tile.name).role(Typography.tileName).foregroundStyle(ink)
+          .fixedSize(horizontal: false, vertical: true)
+          .plate(variant.isHatched, palette)
+        HStack(spacing: Spacing.step2) {
+          CarbonIconShape(tile.icon).fill(labelInk).frame(width: 16, height: 16)
+          tile.statusLabel.text.role(Typography.statusLabel).foregroundStyle(labelInk)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .plate(variant.isHatched, palette)
+        if !valueFollowsLabel {
+          Spacer(minLength: 0)
+        }
+        if let value = tile.valueText(context) {
+          Text(verbatim: value).role(Typography.tileValue).foregroundStyle(ink)
+            .fixedSize(horizontal: false, vertical: true)
+            .plate(variant.isHatched, palette)
+        }
+        if let foot = tile.footText(context) {
+          Text(verbatim: foot).role(Typography.metaMono)
+            .foregroundStyle(palette.color(variant.footInk))
+            .fixedSize(horizontal: false, vertical: true)
+            .plate(variant.isHatched, palette)
+        }
+      }
+      .padding(Spacing.tilePadding)
+      .frame(maxWidth: .infinity, minHeight: Self.minimumHeight, alignment: .topLeading)
+      .background { LotTileFill(tile: tile) }
+      .overlay { LotTileOutline(border: variant.border) }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(Text(verbatim: tile.spokenText(context)))
+    }
+  }
+
+  /// A tile's fill: the flat fill of its variant with the soil level, its 2 pt edge and the
+  /// 12 pt low Threshold tick; the hatch; or nothing.
+  struct LotTileFill: View {
     let tile: LotTilePresentation
     @Environment(\.palette) private var palette
 
     var body: some View {
-      let ink = tile.isNoNode ? palette.color(ColorTokens.statusNoNodeInk) : palette.textPrimary
-      VStack(alignment: .leading, spacing: Spacing.step3) {
-        Text(verbatim: tile.name).role(Typography.tileName).foregroundStyle(ink)
-          .fixedSize(horizontal: false, vertical: true)
-        if let label = tile.statusLabel {
-          HStack(spacing: Spacing.step2) {
-            if let icon = tile.icon {
-              CarbonIconShape(icon).fill(ink).frame(width: 16, height: 16)
+      let variant = tile.variant
+      ZStack {
+        if variant.isHatched {
+          Hatch(palette: palette)
+        } else if let background = variant.background {
+          palette.color(background)
+        }
+        if variant.showsLevel {
+          GeometryReader { geometry in
+            let width = Double(geometry.size.width)
+            let height = Double(geometry.size.height)
+            ZStack(alignment: .topLeading) {
+              if let level = tile.level, let fill = variant.level, let edge = variant.levelEdge {
+                let top = height * (1 - Double(level) / 100)
+                Rectangle().fill(palette.color(fill))
+                  .frame(width: width, height: max(0, height - top))
+                  .offset(y: top)
+                Rectangle().fill(palette.color(edge))
+                  .frame(width: width, height: 2)
+                  .offset(y: top)
+              }
+              if let low = tile.lowMarker, let marker = variant.lowMarker {
+                Rectangle().fill(palette.color(marker))
+                  .frame(width: 12, height: 2)
+                  .offset(x: max(0, width - 12), y: height * (1 - Double(low) / 100))
+              }
             }
-            label.text.role(Typography.statusLabel).foregroundStyle(ink)
           }
-        }
-        Spacer(minLength: 0)
-        if let value = tile.value {
-          value.text.role(Typography.tileValue).foregroundStyle(ink)
-        }
-        if let foot = tile.foot {
-          foot.text.role(Typography.metaMono).foregroundStyle(ink)
-            .fixedSize(horizontal: false, vertical: true)
+          .clipped()
         }
       }
-      .padding(Spacing.tilePadding)
-      .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
-      .overlay {
+      .accessibilityHidden(true)
+    }
+  }
+
+  /// A tile's outline: none, solid, dashed or dotted, in the width and colour of its variant.
+  struct LotTileOutline: View {
+    let border: LotTileBorder
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+      if let color = border.color, border.style != .none {
         Rectangle().strokeBorder(
-          tile.isNoNode ? palette.color(ColorTokens.statusNoNodeBorder) : palette.borderStrong,
-          style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: tile.isDotted ? [1, 3] : []))
+          palette.color(color),
+          style: StrokeStyle(
+            lineWidth: border.width, lineCap: border.style == .dotted ? .round : .butt,
+            dash: dash))
       }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(
-        Text(verbatim: tile.accessibilityFormat.map { $0.string(tile.name) } ?? tile.name))
+    }
+
+    private var dash: [CGFloat] {
+      switch border.style {
+      case .dashed: [4, 4]
+      case .dotted: [1, 3]
+      case .none, .solid: []
+      }
     }
   }
 #endif

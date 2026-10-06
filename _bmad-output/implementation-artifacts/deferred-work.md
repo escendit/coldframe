@@ -184,6 +184,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: medium
 reason: UX-DR22 in full needs the Pause sheet (UX-DR46/70) and stale mode, which arrive in later epics; rendering a Pause item that does nothing would break controls-you-cannot-use-are-hidden. Turn on pauseAvailable with the Pause story and stale with stale mode, and render the Needs your Server state on all three clients.
 status: open
+progress: Story 4.7 (`spec-4-7-lot-status-and-the-site-overview.md`) closes the stale part: in stale mode the Site menu items are disabled with "Needs your Server" on all three clients (core `LotsState.siteMenu()`, web `site-menu.ts` fed from the layout). Pause/Resume stays hidden until the Pause story (Epic 8).
 
 ### DW-25: Site settings in the Site menu opens the Settings index, not a Site settings surface.
 origin: spec-deferred cd4566c213ff
@@ -217,7 +218,8 @@ location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/site
 source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: low
 reason: Story 1.8 forbids a polling loop and has no Lot data to refresh yet; the Sites list reloads on sign-in (mobile) and on every navigation (web). Add refresh with the Lot grid.
-status: open
+status: resolved
+resolution: Story 4.7 (`spec-4-7-lot-status-and-the-site-overview.md`): the Garden has pull-to-refresh and a reload when the app returns to the foreground on Android and iOS (`LotsEngine.refresh()`), and the web refetches on focus. The Devices part of the progress note below moved to DW-70.
 progress: Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds Devices without pull-to-refresh, refetch on focus, polling or SignalR (UX-DR112): the list is read on a page load (web) and on every entry of the Devices tab (mobile). A Devices screen left open is not read again, so a Hub whose heartbeat stops keeps reading "Online" with its old last-seen time until the user leaves and re-enters the tab or reloads the page; returning to the app from the background does not reload it either. The same refresh primitives close this for Devices (apps/ts/web/src/routes/(app)/devices/+page.server.ts, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/shell/AppShell.kt, apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift).
 
 ### DW-29: On iOS, "New Site" in the Site switcher may never open Create Site, because the Create Site sheet is requested while the switcher sheet is still closing.
@@ -249,7 +251,8 @@ location: apps/ts/web/src/lib/components/LotTiles.svelte, apps/kt/android/src/ma
 source_spec: `spec-1-9-manage-my-site-and-lots.md`
 severity: low
 reason: The other statuses need Readings, Calibration and Pause (Epic 5). In 1.9 the projection sets unknown for a claimed Lot (reachable only through a fixture claim), noNode otherwise.
-status: open
+status: resolved
+resolution: Story 4.7 (`spec-4-7-lot-status-and-the-site-overview.md`): all six variants, the stale variant and (mobile) the skeleton are drawn on web, Android and iOS from the Server's fields. `needsCalibration`, `ok`, `unknown` (Node that declared nothing) and `noNode` are live; `needsWater`, `unknown` by Hub and `paused` render from fixtures until Epics 6, 7 and 8.
 
 ### DW-33: Site settings has no Site Reminder cadence control (UX-DR50, UX-DR74 part).
 origin: spec-deferred story-1-9-3
@@ -523,4 +526,26 @@ location: aspire/Coldframe.AppHost/AppHost.cs
 source_spec: `spec-4-5-server-ingestion-and-acknowledgements.md`
 severity: low
 reason: Before the ingestion suites were put in a serial xUnit collection, full runs failed twice with "too many clients"; the sampled peak is now 87 to 88 of 100. CommitOrderTests alone opens 34 connections. Raising max_connections on the AppHost's PostgreSQL would remove the risk.
+status: open
+
+### DW-68: A Node that hears a probe reply on a channel next to the Hub's may store the wrong channel and keep choosing it at every re-scan.
+origin: spec-deferred 67da475712cb
+location: packages/rs/transport/src/transport.rs (find_hub)
+source_spec: `spec-4-4-esp-now-transport-from-node-to-hub.md`
+reason: find_hub stores the channel it probed on, not the Hub's own channel, and scans ascending. Whether an ESP32-S3 answers a probe heard one channel off is not known; a bench run at close range with a sniffer, or carrying the Hub's channel in ProbeReply, would settle it.
+status: open
+
+### DW-69: Hub main-task stack headroom fell to about 34 KiB with the relay state and ingest buffers and is not measured on hardware.
+origin: spec-deferred cd82032990b2
+location: apps/rs/hub/src/main.rs, packages/rs/uplink/src/uplink.rs (ingest)
+source_spec: `spec-4-4-esp-now-transport-from-node-to-hub.md`
+reason: The ingest request and response buffers and the batch copy live in the main task; only Part I of the transport checklist watches for a reset during ingest. A stack high-water log on a real board would settle it.
+status: open
+
+### DW-70: Devices has no pull-to-refresh, refetch on focus or stale mode; a Hub whose heartbeat stops keeps reading "Online" until the user re-enters the tab or reloads the page.
+origin: spec-deferred story-4-7-1
+location: apps/ts/web/src/routes/(app)/devices/+page.server.ts, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/shell/AppShell.kt, apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift
+source_spec: `spec-4-7-lot-status-and-the-site-overview.md`
+severity: low
+reason: Carried over from DW-28. Story 4.7 builds the refresh primitives and stale mode for the Site overview only and forbids stale mode on Devices and Site settings (UX-DR79 names Devices, Lot detail and Alerts too). Reuse the overview's primitives when those surfaces get theirs (Story 4.8 for Devices and Lot detail).
 status: open

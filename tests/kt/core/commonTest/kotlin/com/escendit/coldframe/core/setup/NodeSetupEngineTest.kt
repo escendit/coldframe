@@ -380,7 +380,7 @@ class NodeSetupEngineTest {
                     newKey = { "site-key" },
                     zones = { emptyList() },
                 )
-            val lots = LotsEngine(lotsApi, sitesEngine, backgroundScope)
+            val lots = LotsEngine(lotsApi, sitesEngine, MapSettings(), backgroundScope)
             val devices = DevicesEngine(devicesApi, sitesEngine, backgroundScope)
             signIn.value = SignInState.SignedIn("Simon")
             runCurrent()

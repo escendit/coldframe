@@ -297,9 +297,10 @@ the OpenAPI contract; after changing `packages/openapi/coldframe.openapi.json`, 
 `pnpm --filter @coldframe/api-client generate` and commit `src/schema.ts`. Its tests fail when the
 committed schema is stale. The end-to-end fake in `tests/ts/web.e2e/fixtures` also stands in for the
 Server's Sites and Lots endpoints. `specs/garden.spec.ts` compares screenshots of Create Site and
-the empty Garden, and `specs/site-settings.spec.ts` those of Site settings and Garden with Lots, with
+the empty Garden, `specs/site-settings.spec.ts` those of Site settings and Garden with Lots, and
+`specs/lot-status.spec.ts` those of every Lot tile variant, live and stale, at 1 to 4 columns, with
 the baselines next to them (Linux, Chromium); after a deliberate visual change, rebuild and rerun
-them with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test garden site-settings --update-snapshots` and
+them with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test garden site-settings lot-status --update-snapshots` and
 commit the new PNGs.
 
 The last command fails when a generated design-token output is stale and prints the recomputed
@@ -344,7 +345,9 @@ On Linux the iOS targets of the core compile but do not link:
 ```
 
 The Android app's snapshot tests (Roborazzi) compare Create Site, Garden (with Lots) and Site settings, in light and
-dark at font scale 2, with the PNGs in `tests/kt/android/snapshots`; `check` fails on a difference.
+dark at font scale 2, and the Site overview with its Lot tiles of every status, stale and skeleton at the default
+font scale (two columns) and at font scale 2 (one column), with the PNGs in `tests/kt/android/snapshots`; `check`
+fails on a difference.
 After a deliberate visual change, record new baselines with `./gradlew :android:recordRoborazziDebug`
 and commit them. The core's `OpenApiContractTest` fails when an operation, header or property the
 hand-written Kotlin API client uses is missing from the OpenAPI contract.

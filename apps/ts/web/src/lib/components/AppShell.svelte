@@ -11,16 +11,18 @@
     /** The user's Sites in the Server's order, and the one this browser shows. */
     sites?: readonly Site[];
     currentSite?: Site | null;
+    /** Stale mode: the Site menu stays visible but disabled (UX-DR79). */
+    stale?: boolean;
     children: Snippet;
   }
 
-  let { user, currentPath, sites = [], currentSite = null, children }: Props = $props();
+  let { user, currentPath, sites = [], currentSite = null, stale = false, children }: Props = $props();
 
   let menuOpen = $state(false);
 </script>
 
 <div class="cf-app-shell">
-  <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} {sites} {currentSite} {currentPath} />
+  <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} {sites} {currentSite} {currentPath} {stale} />
   <div class="cf-app-shell__body">
     <SideNav {currentPath} open={menuOpen} onnavigate={() => (menuOpen = false)} />
     <main id="cf-main" class="cf-app-shell__main">

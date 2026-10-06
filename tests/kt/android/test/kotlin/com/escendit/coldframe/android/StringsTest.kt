@@ -103,6 +103,12 @@ class StringsTest {
         assertFalse(android.values.any { it.contains("browser", ignoreCase = true) })
     }
 
+    /**
+     * "OK" is the name of the `ok` Lot status and appears nowhere else: only in keys with an `ok`
+     * segment (the tile label, its stale and spoken forms, and the count of OK Lots).
+     */
+    private fun namesOkStatus(key: String): Boolean = key.split('_').contains("ok")
+
     @Test
     fun `UX-DR130 no exclamation marks, emoji, successfully, OK, fine or all good`() {
         for ((key, value) in android) {
@@ -115,12 +121,32 @@ class StringsTest {
             )
             assertFalse(
                 Regex(
-                    "successfully|\\bOK\\b|\\bokay\\b|\\bfine\\b|all good",
+                    "successfully|\\bokay\\b|\\bfine\\b|all good",
                     RegexOption.IGNORE_CASE,
                 ).containsMatchIn(value),
                 key,
             )
+            if (!namesOkStatus(key)) {
+                assertFalse(Regex("\\bOK\\b", RegexOption.IGNORE_CASE).containsMatchIn(value), key)
+            }
         }
+    }
+
+    @Test
+    fun `UX-DR130 OK names the ok status only, its tile label, its stale and spoken forms, and its count`() {
+        val allowed = android.filterValues { Regex("\\bOK\\b", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+        assertEquals(
+            listOf(
+                "garden_count_ok",
+                "lot_tile_label_ok",
+                "lot_tile_spoken_ok",
+                "lot_tile_spoken_was_ok",
+                "lot_tile_was_ok",
+            ),
+            allowed.keys.sorted(),
+        )
+        // Always the last word, in capitals: "OK", "Was OK", "2 OK".
+        for ((key, value) in allowed) assertTrue(Regex("\\bOK$").containsMatchIn(value), key)
     }
 
     @Test
@@ -128,7 +154,9 @@ class StringsTest {
         // Acronyms are words, not style: the Hub's LED (UX-DR94) and its Device ID.
         val acronyms = setOf("LED", "ID")
         for ((key, value) in android) {
-            val shouting = Regex("\\b\\p{Lu}{2,}\\b").findAll(value).map { it.value }.filterNot { it in acronyms }
+            // "OK" is a word written in capitals; it is allowed only where the test above allows it.
+            val words = if (namesOkStatus(key)) acronyms + "OK" else acronyms
+            val shouting = Regex("\\b\\p{Lu}{2,}\\b").findAll(value).map { it.value }.filterNot { it in words }
             assertFalse(shouting.any(), key)
         }
     }
@@ -154,6 +182,97 @@ class StringsTest {
         assertEquals("5 Lots need water", resources.getQuantityString(R.plurals.count_lots_need_water, 5, 5))
         assertEquals("Alerts, 1 open", resources.getQuantityString(R.plurals.count_open_alerts, 1, 1))
         assertEquals("Alerts, 5 open", resources.getQuantityString(R.plurals.count_open_alerts, 5, 5))
+        assertEquals("1 Lot can't be read", resources.getQuantityString(R.plurals.garden_headline_cant_read, 1, 1))
+        assertEquals("5 Lots can't be read", resources.getQuantityString(R.plurals.garden_headline_cant_read, 5, 5))
+        assertEquals("1 needs Calibration", resources.getQuantityString(R.plurals.garden_count_needs_calibration, 1, 1))
+        assertEquals("5 need Calibration", resources.getQuantityString(R.plurals.garden_count_needs_calibration, 5, 5))
+        assertEquals("1 hour", resources.getQuantityString(R.plurals.duration_spoken_hours, 1, 1))
+        assertEquals("5 hours", resources.getQuantityString(R.plurals.duration_spoken_hours, 5, 5))
+    }
+
+    @Test
+    fun `UX-DR124 the Site overview says what the web catalogue says`() {
+        fun webText(key: String): String {
+            val value = web.get(key)
+            return if (value is JSONObject) "${value.getString("one")}|${value.getString("other")}" else value as String
+        }
+
+        fun mobile(key: String): String =
+            android[key] ?: "${android.getValue("$key.one")}|${android.getValue("$key.other")}"
+        val pairs =
+            mapOf(
+                "garden_headline_lot_needs_water" to "garden.headline.lotNeedsWater",
+                "garden_headline_cant_read" to "garden.headline.cantRead",
+                "garden_headline_paused_until" to "garden.headline.pausedUntil",
+                "garden_headline_paused" to "garden.headline.paused",
+                "garden_headline_nothing" to "garden.headline.nothing",
+                "garden_count_needs_calibration" to "garden.count.needsCalibration",
+                "garden_count_unknown" to "garden.count.unknown",
+                "garden_count_ok" to "garden.count.ok",
+                "garden_count_paused" to "garden.count.paused",
+                "garden_count_no_node" to "garden.count.noNode",
+                "soil_approx" to "soil.approx",
+                "lot_tile_label_needs_water" to "lotTile.label.needsWater",
+                "lot_tile_label_ok" to "lotTile.label.ok",
+                "lot_tile_label_unknown_node" to "lotTile.label.unknownNode",
+                "lot_tile_label_unknown_hub" to "lotTile.label.unknownHub",
+                "lot_tile_label_needs_calibration" to "lotTile.label.needsCalibration",
+                "lot_tile_label_paused" to "lotTile.label.paused",
+                "lot_tile_label_paused_by_site" to "lotTile.label.pausedBySite",
+                "lot_tile_was_needs_water" to "lotTile.was.needsWater",
+                "lot_tile_was_ok" to "lotTile.was.ok",
+                "lot_tile_was_unknown_node" to "lotTile.was.unknownNode",
+                "lot_tile_was_unknown_hub" to "lotTile.was.unknownHub",
+                "lot_tile_was_needs_calibration" to "lotTile.was.needsCalibration",
+                "lot_tile_was_paused" to "lotTile.was.paused",
+                "lot_tile_was_paused_by_site" to "lotTile.was.pausedBySite",
+                "lot_tile_was_no_node" to "lotTile.was.noNode",
+                "lot_tile_value_raw" to "lotTile.value.raw",
+                "lot_tile_foot_low" to "lotTile.foot.low",
+                "lot_tile_foot_was" to "lotTile.foot.was",
+                "lot_tile_foot_last_reading" to "lotTile.foot.lastReading",
+                "lot_tile_foot_no_readings" to "lotTile.foot.noReadings",
+                "lot_tile_foot_uncalibrated" to "lotTile.foot.uncalibrated",
+                "lot_tile_foot_until" to "lotTile.foot.until",
+                "lot_tile_foot_paused" to "lotTile.foot.paused",
+                "lot_tile_as_of" to "lotTile.asOf",
+                "lot_tile_spoken_needs_water" to "lotTile.spoken.needsWater",
+                "lot_tile_spoken_ok" to "lotTile.spoken.ok",
+                "lot_tile_spoken_unknown" to "lotTile.spoken.unknown",
+                "lot_tile_spoken_needs_calibration" to "lotTile.spoken.needsCalibration",
+                "lot_tile_spoken_uncalibrated" to "lotTile.spoken.uncalibrated",
+                "lot_tile_spoken_percent" to "lotTile.spoken.percent",
+                "lot_tile_spoken_low" to "lotTile.spoken.low",
+                "lot_tile_spoken_reading" to "lotTile.spoken.reading",
+                "lot_tile_spoken_node_silent" to "lotTile.spoken.nodeSilent",
+                "lot_tile_spoken_hub_silent" to "lotTile.spoken.hubSilent",
+                "lot_tile_spoken_last_percent" to "lotTile.spoken.lastPercent",
+                "lot_tile_spoken_last_reading" to "lotTile.spoken.lastReading",
+                "lot_tile_spoken_no_readings" to "lotTile.spoken.noReadings",
+                "lot_tile_spoken_paused" to "lotTile.spoken.paused",
+                "lot_tile_spoken_paused_until" to "lotTile.spoken.pausedUntil",
+                "lot_tile_spoken_paused_site" to "lotTile.spoken.pausedSite",
+                "lot_tile_spoken_not_live" to "lotTile.spoken.notLive",
+                "lot_tile_spoken_was_needs_water" to "lotTile.spokenWas.needsWater",
+                "lot_tile_spoken_was_ok" to "lotTile.spokenWas.ok",
+                "lot_tile_spoken_was_unknown" to "lotTile.spokenWas.unknown",
+                "lot_tile_spoken_was_needs_calibration" to "lotTile.spokenWas.needsCalibration",
+                "lot_tile_spoken_was_paused" to "lotTile.spokenWas.paused",
+                "lot_tile_spoken_was_no_node" to "lotTile.spokenWas.noNode",
+                "stale_title" to "stale.title",
+                "stale_age" to "stale.age",
+                "stale_detail" to "stale.detail",
+                "stale_entered" to "stale.entered",
+                "stale_left" to "stale.left",
+                "duration_spoken_minutes" to "duration.spoken.minutes",
+                "duration_spoken_hours" to "duration.spoken.hours",
+                "duration_spoken_days" to "duration.spoken.days",
+            )
+        // The web names its placeholders ({count}); the phone numbers them (%1$d). Only the words are compared.
+        val placeholder = Regex("\\{\\w+}")
+        for ((key, webKey) in pairs) {
+            assertEquals(placeholder.replace(webText(webKey), "%#"), mobile(key), key)
+        }
     }
 
     @Test

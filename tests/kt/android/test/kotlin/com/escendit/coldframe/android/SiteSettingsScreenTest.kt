@@ -371,10 +371,10 @@ class SiteSettingsScreenTest {
     }
 
     @Test
-    fun `UX-DR18 a Lot with another status shows only its name`() {
+    fun `UX-DR18 a Lot with a Node that has not reported is an unknown tile, never only a name`() {
         show(ready(lots = listOf(LotSummary("lot-h", "Herbs", LotStatus.Unknown))))
 
-        compose.onNodeWithContentDescription("Herbs").assertExists()
+        compose.onNodeWithContentDescription("Herbs, unknown, no Readings yet").assertExists()
         compose.onAllNodesWithContentDescription("Herbs, no Node, add a Node").assertCountEquals(0)
     }
 

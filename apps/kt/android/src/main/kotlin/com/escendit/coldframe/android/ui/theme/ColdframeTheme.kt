@@ -47,6 +47,21 @@ data class ColdframeColors(
     val statusHatchGround: Color,
     val statusHatchLine: Color,
     val statusUnknownBorder: Color,
+    val statusWaterFill: Color,
+    val statusWaterInk: Color,
+    val statusWaterLevel: Color,
+    val statusOkFill: Color,
+    val statusOkLevel: Color,
+    val statusOkBorder: Color,
+    val statusLevelEdge: Color,
+    val statusLowMarker: Color,
+    val statusCalibrationBorder: Color,
+    val statusCalibrationInk: Color,
+    val statusPausedFill: Color,
+    val statusPausedBorder: Color,
+    val statusPausedInk: Color,
+    val staleBorder: Color,
+    val staleInk: Color,
 ) {
     companion object {
         /** Resolves every token for [isDark]; nothing else in the app names a colour. */
@@ -82,6 +97,21 @@ data class ColdframeColors(
                 statusHatchGround = ColorTokens.statusHatchGround.color(),
                 statusHatchLine = ColorTokens.statusHatchLine.color(),
                 statusUnknownBorder = ColorTokens.statusUnknownBorder.color(),
+                statusWaterFill = ColorTokens.statusWaterFill.color(),
+                statusWaterInk = ColorTokens.statusWaterInk.color(),
+                statusWaterLevel = ColorTokens.statusWaterLevel.color(),
+                statusOkFill = ColorTokens.statusOkFill.color(),
+                statusOkLevel = ColorTokens.statusOkLevel.color(),
+                statusOkBorder = ColorTokens.statusOkBorder.color(),
+                statusLevelEdge = ColorTokens.statusLevelEdge.color(),
+                statusLowMarker = ColorTokens.statusLowMarker.color(),
+                statusCalibrationBorder = ColorTokens.statusCalibrationBorder.color(),
+                statusCalibrationInk = ColorTokens.statusCalibrationInk.color(),
+                statusPausedFill = ColorTokens.statusPausedFill.color(),
+                statusPausedBorder = ColorTokens.statusPausedBorder.color(),
+                statusPausedInk = ColorTokens.statusPausedInk.color(),
+                staleBorder = ColorTokens.staleBorder.color(),
+                staleInk = ColorTokens.staleInk.color(),
             )
         }
     }

@@ -184,6 +184,40 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun theLotDtoCarriesEveryPropertyOfTheContractAndRequiresNoMoreThanIt() {
+        val lot = schema("Lot")
+        val descriptor = LotDto.serializer().descriptor
+        assertEquals(
+            lot["properties"]!!.jsonObject.keys,
+            (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
+        )
+        assertEquals(
+            setOf("id", "name", "status", "statusSince"),
+            lot["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        )
+        for (name in listOf("statusSince", "lastReadingAt", "pausedUntil")) {
+            assertEquals(
+                "date-time",
+                lot["properties"]!!
+                    .jsonObject[name]!!
+                    .jsonObject["format"]!!
+                    .jsonPrimitive.content,
+                name,
+            )
+        }
+        assertEquals(
+            com.escendit.coldframe.core.lots.LotUnknownCause.entries
+                .map { it.key },
+            schema("LotUnknownCause")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            com.escendit.coldframe.core.lots.LotPauseSource.entries
+                .map { it.key },
+            schema("LotPauseSource")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
+
+    @Test
     fun theDtosMirrorTheSchemas() {
         assertMirrors("RenameSiteRequest", RenameRequestDto.serializer().descriptor)
         assertMirrors("RenameLotRequest", RenameRequestDto.serializer().descriptor)

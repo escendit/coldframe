@@ -24,6 +24,18 @@ export function formatDuration(milliseconds: number, options: { withMinutes?: bo
   return t('duration.days', { count: Math.floor(ms / dayMs) });
 }
 
+/** A duration in words for screen readers: "12 minutes", "6 hours", "2 days". */
+export function formatDurationSpoken(milliseconds: number): string {
+  const ms = Math.max(0, milliseconds);
+  if (ms < hourMs) {
+    return t('duration.spoken.minutes', { count: Math.floor(ms / minuteMs) });
+  }
+  if (ms < dayMs) {
+    return t('duration.spoken.hours', { count: Math.floor(ms / hourMs) });
+  }
+  return t('duration.spoken.days', { count: Math.floor(ms / dayMs) });
+}
+
 function calendarDay(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 }
@@ -62,4 +74,9 @@ export function formatNumber(value: number, locale: string, maximumFractionDigit
 /** A percentage (0–100) with the locale's spacing, e.g. "20%" in en, "20 %" in de. */
 export function formatPercent(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 }).format(value / 100);
+}
+
+/** A calendar day without its year: "1 Nov", or "1 November" with the month in full. */
+export function formatDay(date: Date, locale: string, timeZone: string, month: 'short' | 'long' = 'short'): string {
+  return new Intl.DateTimeFormat(locale, { timeZone, day: 'numeric', month }).format(date);
 }
