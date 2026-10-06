@@ -13,7 +13,8 @@ namespace Coldframe.Server.IntegrationTests.Devices;
 
 /// <summary>
 /// <c>POST /device/ingest</c> on the AppHost (Story 4.5; FR-4, AD-9, AD-12, AD-17): a simulated Hub relays
-/// the sealed frames of simulated Nodes, every Device enrolled through the Edge API. The rows that need a
+/// the sealed frames of simulated Nodes, every Device enrolled through the Edge API, and a Node declares its
+/// Sensors by following the downlinks (Story 4.6; AD-19). The rows that need a
 /// fake clock, a Pause, a failing database or a restart are in <see cref="IngestGrainTests"/>.
 /// </summary>
 [Collection(IngestSuites.Name)]
@@ -341,6 +342,60 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
 
         // Relaying journals nothing on the Hub's own stream.
         Assert.DoesNotContain("device.seen", await edge.AliasesAsync($"device/{stage.Hub.DeviceId}", cancellationToken));
+    }
+
+    [Fact]
+    public async Task ANodeThatReportsForTheFirstTimeIsAskedForItsSpecificationsOnceAndDeclaresItsSensors()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var stage = await StageAsync(cancellationToken);
+        var node = await EnrolAsync(stage, ProtocolKind.Node, cancellationToken);
+        var stream = $"device/{node.DeviceId}";
+        var sensors = SimulatedDevice.DefaultReadings.Select(reading => $"sensor/{node.SensorId(reading.Slot, reading.Quantity)}").ToList();
+
+        // The first frame carries only the hash, which the Server does not know: the downlink asks for the set.
+        var first = node.Wake(Now());
+        Assert.Null(first.Specifications);
+        var asked = Assert.Single(await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(node.SealFrame(first)), cancellationToken));
+        Assert.Equal("stored", asked.Status);
+        Assert.True(node.OpenDownlink(asked.Downlink!).SpecificationsUnknown);
+        Assert.Equal(["device.enrolled", "device.relay-changed"], await edge.AliasesAsync(stream, cancellationToken));
+        foreach (var sensor in sensors)
+        {
+            Assert.Empty(await edge.AliasesAsync(sensor, cancellationToken));
+        }
+
+        // The second frame carries the set: every Sensor is declared, and the hash is known from now on.
+        var second = node.Wake(Now());
+        Assert.Equal(SimulatedDevice.DefaultSpecifications(), second.Specifications);
+        var declared = Assert.Single(await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(node.SealFrame(second)), cancellationToken));
+        Assert.Equal("stored", declared.Status);
+        Assert.False(node.OpenDownlink(declared.Downlink!).SpecificationsUnknown);
+        foreach (var sensor in sensors)
+        {
+            Assert.Equal(["sensor.declared"], await edge.AliasesAsync(sensor, cancellationToken));
+        }
+
+        string[] journaled = ["device.enrolled", "device.relay-changed", "device.specifications-declared"];
+        Assert.Equal(journaled, await edge.AliasesAsync(stream, cancellationToken));
+        var accepted = Assert.IsType<DeviceSpecificationsDeclared>((await edge.ReadStreamAsync(stream, cancellationToken))[^1].Data);
+        Assert.Equal(node.SpecHash.ToByteArray(), accepted.SpecHash);
+        Assert.Equal(sensors, accepted.Sensors.Select(sensor => $"sensor/{sensor.SensorId}"));
+
+        // The third frame is not asked, sends no set, and journals nothing.
+        var third = node.Wake(Now());
+        Assert.Null(third.Specifications);
+        var known = Assert.Single(await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(node.SealFrame(third)), cancellationToken));
+        Assert.Equal("stored", known.Status);
+        Assert.False(node.OpenDownlink(known.Downlink!).SpecificationsUnknown);
+        Assert.Null(node.Wake(Now()).Specifications);
+        Assert.Equal(journaled, await edge.AliasesAsync(stream, cancellationToken));
+        foreach (var sensor in sensors)
+        {
+            Assert.Equal(["sensor.declared"], await edge.AliasesAsync(sensor, cancellationToken));
+        }
+
+        Assert.Equal((12L, 3L), await CountsAsync(node, cancellationToken));
     }
 
     [Fact]

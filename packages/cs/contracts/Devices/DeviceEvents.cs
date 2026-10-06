@@ -121,3 +121,33 @@ public sealed record DevicePaused(
 public sealed record DeviceResumed(
     [property: Id(0)] DevicePauseSource Source,
     [property: Id(1)] DateTimeOffset ResumedAt);
+
+/// <summary>
+/// One Sensor of a Node's accepted Specification set (AD-19).
+/// </summary>
+/// <param name="Slot">The Sensor's slot: its index in the set.</param>
+/// <param name="Quantity">What the Sensor measures: its Sensor ID token, such as <c>soil_moisture</c>.</param>
+/// <param name="SensorId">The Sensor ID derived from the Device ID, the slot and the quantity.</param>
+[GenerateSerializer]
+[Alias("coldframe.declared-sensor")]
+public sealed record DeclaredSensor(
+    [property: Id(0)] int Slot,
+    [property: Id(1)] string Quantity,
+    [property: Id(2)] Guid SensorId);
+
+/// <summary>
+/// The Server accepted a Specification set of the Node (AD-19), after every Sensor of the set was declared
+/// to its Sensor grain. <paramref name="SpecHash"/> is the Node's known hash from now on, and
+/// <paramref name="Sensors"/> replaces the Node's Sensor list: a Reading of another slot or quantity has no
+/// declared Sensor.
+/// </summary>
+/// <param name="SpecHash">The <c>spec_hash</c> of the frame that carried the set, 1 to 32 bytes.</param>
+/// <param name="Sensors">The Sensors of the set, in slot order.</param>
+/// <param name="DeclaredAt">When the Server accepted the set.</param>
+[EventType("device.specifications-declared")]
+[GenerateSerializer]
+[Alias("coldframe.device-specifications-declared")]
+public sealed record DeviceSpecificationsDeclared(
+    [property: Id(0)] byte[] SpecHash,
+    [property: Id(1)] IReadOnlyList<DeclaredSensor> Sensors,
+    [property: Id(2)] DateTimeOffset DeclaredAt);

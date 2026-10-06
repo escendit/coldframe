@@ -279,5 +279,74 @@
     "alias": "device.resumed",
     "schemaVersion": 1,
     "payload": { "source": "Site", "resumedAt": "2026-09-30T10:00:00Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 7,
+    "alias": "device.specifications-declared",
+    "schemaVersion": 1,
+    "payload": {
+      "specHash": "3q2+78r+ur4AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhc=",
+      "sensors": [
+        { "slot": 0, "quantity": "soil_moisture", "sensorId": "dac4e7fe-93b1-56fc-a363-51235a586394" },
+        { "slot": 1, "quantity": "air_temperature", "sensorId": "e62a2dbe-b439-5906-a842-35abfb36458a" }
+      ],
+      "declaredAt": "2026-09-30T08:30:03Z"
+    }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 1,
+    "alias": "sensor.declared",
+    "schemaVersion": 1,
+    "payload": {
+      "deviceId": "5a4b3c2d1e0f7c20",
+      "slot": 0,
+      "specification": { "quantity": "soil_moisture", "unit": "RawCount", "rangeMin": 0, "rangeMax": 4095, "calibration": true, "defaultLow": 30, "defaultHigh": 80 },
+      "declaredAt": "2026-09-30T08:30:03Z"
+    }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 2,
+    "alias": "sensor.thresholds-changed",
+    "schemaVersion": 1,
+    "payload": { "low": { "kind": "Override", "value": 40 }, "high": { "kind": "Cleared" }, "changedAt": "2026-10-01T07:00:00Z" }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 3,
+    "alias": "sensor.specification-changed",
+    "schemaVersion": 1,
+    "payload": {
+      "specification": { "quantity": "soil_moisture", "unit": "RawCount", "rangeMin": 0, "rangeMax": 8191, "calibration": true, "defaultLow": 25, "defaultHigh": 75 },
+      "changedAt": "2026-10-02T06:15:00Z"
+    }
+  },
+  {
+    "streamId": "sensor/e62a2dbe-b439-5906-a842-35abfb36458a",
+    "version": 1,
+    "alias": "sensor.declared",
+    "schemaVersion": 1,
+    "payload": {
+      "deviceId": "5a4b3c2d1e0f7c20",
+      "slot": 1,
+      "specification": { "quantity": "air_temperature", "unit": "MilliDegreeCelsius", "rangeMin": -40000, "rangeMax": 85000, "calibration": false },
+      "declaredAt": "2026-09-30T08:30:03Z"
+    }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 8,
+    "alias": "device.specifications-declared",
+    "schemaVersion": 1,
+    "payload": {
+      "specHash": "oQECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "sensors": [
+        { "slot": 0, "quantity": "soil_moisture", "sensorId": "dac4e7fe-93b1-56fc-a363-51235a586394" },
+        { "slot": 1, "quantity": "air_temperature", "sensorId": "e62a2dbe-b439-5906-a842-35abfb36458a" }
+      ],
+      "declaredAt": "2026-10-02T06:15:00Z"
+    }
   }
 ]

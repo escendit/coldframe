@@ -4,7 +4,8 @@ namespace Coldframe.Server.Devices;
 
 /// <summary>
 /// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, a Node's Lot, when
-/// it was last seen, its Pause sources (AD-8) and a Node's last relay Hub (AD-18). The replay window and the
+/// it was last seen, its Pause sources (AD-8), a Node's last relay Hub (AD-18), and the hash and Sensors of
+/// the last Specification set the Server accepted from a Node (AD-19). The replay window and the
 /// downlink counter are not journaled: they live in <c>device_replay</c> and commit with the Readings (AD-9).
 /// </summary>
 [GenerateSerializer]
@@ -13,6 +14,9 @@ public sealed class DeviceState
 {
     [Id(7)]
     private readonly Dictionary<DevicePauseSource, DateTimeOffset?> _pausedBy = [];
+
+    [Id(10)]
+    private List<DeclaredSensor> _sensors = [];
 
     /// <summary>
     /// The Site the Device is enrolled on, or <see langword="null"/> before enrolment.
@@ -74,6 +78,24 @@ public sealed class DeviceState
     [Id(8)]
     public string? LastRelayHubId { get; private set; }
 
+    /// <summary>
+    /// The Node's known hash (AD-19): the <c>spec_hash</c> of the last Specification set the Server accepted
+    /// from it, or <see langword="null"/> before the first.
+    /// </summary>
+    [Id(9)]
+    public byte[]? SpecHash { get; private set; }
+
+    /// <summary>
+    /// The Sensors of that set, in slot order. A Reading of another slot or quantity has no declared Sensor.
+    /// </summary>
+    public IReadOnlyList<DeclaredSensor> Sensors => _sensors;
+
+    /// <summary>
+    /// Whether <paramref name="specHash"/> is the Node's known hash. An empty hash is never known.
+    /// </summary>
+    public bool Knows(ReadOnlySpan<byte> specHash) =>
+        !specHash.IsEmpty && SpecHash is { } known && specHash.SequenceEqual(known);
+
     public void Apply(DeviceEnrolled @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -112,5 +134,12 @@ public sealed class DeviceState
     {
         ArgumentNullException.ThrowIfNull(@event);
         _pausedBy.Remove(@event.Source);
+    }
+
+    public void Apply(DeviceSpecificationsDeclared @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        SpecHash = @event.SpecHash;
+        _sensors = [.. @event.Sensors];
     }
 }

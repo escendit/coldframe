@@ -42,6 +42,11 @@ message Downlink {
   // cover every reading_seq of the acknowledged frame, its report_seq included. The Node deletes a
   // buffered Reading only when a range of an authentic Downlink holds its reading_seq (AD-9).
   repeated ReadingSeqRange acked_readings = 5;
+  // The Server does not know the spec_hash of the acknowledged frame (AD-19): it is not the hash of the
+  // last Specification set the Server accepted from this Device, or the frame carried none. The Node then
+  // attaches its SpecificationSet to its next frame, once per request; a Downlink that still says so asks
+  // again.
+  bool specifications_unknown = 6;
 }
 
 // A run of consecutive reading_seq values, both ends included.
@@ -68,6 +73,45 @@ enum Quantity {
   QUANTITY_RELATIVE_HUMIDITY = 3;
   // Raw gas resistance in ohms. Token gas_resistance.
   QUANTITY_GAS_RESISTANCE = 4;
+}
+
+// The unit of a Sensor's raw Reading value.
+enum Unit {
+  // Not set; a Specification set with such a Specification is ignored.
+  UNIT_UNSPECIFIED = 0;
+  // A raw count, such as the mean ADC count of the soil probe.
+  UNIT_RAW_COUNT = 1;
+  // Milli-degrees Celsius.
+  UNIT_MILLI_DEGREE_CELSIUS = 2;
+  // Milli-percent.
+  UNIT_MILLI_PERCENT = 3;
+  // Ohms.
+  UNIT_OHM = 4;
+}
+
+// What a Node declares about one Sensor (AD-19, FR-3).
+message Specification {
+  // What the Sensor measures. Together with the slot it names the Sensor.
+  Quantity quantity = 1;
+  // The unit of Reading.value.
+  Unit unit = 2;
+  // The lowest value the Sensor reports, in `unit`; below range_max.
+  sint64 range_min = 3;
+  // The highest value the Sensor reports, in `unit`.
+  sint64 range_max = 4;
+  // Whether two-point Calibration applies to the Sensor.
+  bool calibration = 5;
+  // The default low Threshold, absent when the Sensor has none: in percent (0 to 100) when `calibration`
+  // is set, otherwise in `unit` and within the range. Below default_high when both are set.
+  optional sint64 default_low = 6;
+  // The default high Threshold, absent when the Sensor has none; in the unit of default_low.
+  optional sint64 default_high = 7;
+}
+
+// Every Specification of a Node. The index of a Specification is its Sensor's slot; a set holds 1 to 32.
+message SpecificationSet {
+  // The Specifications in slot order.
+  repeated Specification specifications = 1;
 }
 
 // The charger's state at the wake.
@@ -106,7 +150,9 @@ message NodeFrame {
 
   // The wire major; 1 today.
   uint32 protocol_version = 1;
-  // The hash of the Node's Specification set (AD-19). Carried; the Server uses it from Story 4.6.
+  // The hash of the Node's Specification set (AD-19): SHA-256 of the serialized SpecificationSet, 1 to 32
+  // bytes. It is opaque to the Server, which only compares it with the hash of the last set it accepted
+  // from this Device; when they differ, or the frame has none, the Downlink says specifications_unknown.
   bytes spec_hash = 2;
   // The boot counter of the power-on that sealed this frame.
   uint64 boot_id = 3;
@@ -131,4 +177,8 @@ message NodeFrame {
   optional uint32 battery_percent = 9;
   // The charger status.
   ChargeStatus charging = 10;
+  // The Node's Specification set, attached only after a Downlink said specifications_unknown, once per
+  // request (AD-19). spec_hash is its hash. A set that breaks the contract is ignored: the Readings of the
+  // frame are stored and acknowledged all the same, and the Downlink keeps asking.
+  SpecificationSet specifications = 11;
 }

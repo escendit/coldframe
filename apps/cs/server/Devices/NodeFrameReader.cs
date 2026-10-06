@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Sensors;
 using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
 using Google.Protobuf;
@@ -31,11 +32,29 @@ public enum NodeFrameVerdict
 /// <param name="Verdict">Whether the frame can be stored.</param>
 /// <param name="Rows">The rows of a valid frame.</param>
 /// <param name="Acknowledged">The <c>reading_seq</c> ranges of a valid frame, its report's included.</param>
-public sealed record NodeFrameRead(NodeFrameVerdict Verdict, FrameRows? Rows = null, IReadOnlyList<ReadingSeqRange>? Acknowledged = null);
+/// <param name="SpecHash">The <c>spec_hash</c> of a valid frame; empty when the frame has none.</param>
+/// <param name="Specifications">
+/// The Specification set attached to a valid frame, or <see langword="null"/> when none is attached.
+/// </param>
+public sealed record NodeFrameRead(
+    NodeFrameVerdict Verdict,
+    FrameRows? Rows = null,
+    IReadOnlyList<ReadingSeqRange>? Acknowledged = null,
+    byte[]? SpecHash = null,
+    AttachedSpecifications? Specifications = null);
 
 /// <summary>
-/// Decodes the plaintext of an uplink frame into the rows the Device grain stores (AD-9, AD-11, AD-19). It
-/// carries <c>spec_hash</c> and ignores it until Story 4.6.
+/// The Specification set a frame carries (AD-19).
+/// </summary>
+/// <param name="Valid">
+/// The Specifications in slot order, or <see langword="null"/> when the set or the frame's <c>spec_hash</c>
+/// breaks the contract. An invalid set is ignored; it never changes the frame's verdict.
+/// </param>
+public sealed record AttachedSpecifications(IReadOnlyList<SensorSpecification>? Valid);
+
+/// <summary>
+/// Decodes the plaintext of an uplink frame into the rows the Device grain stores, its <c>spec_hash</c> and,
+/// when one is attached, its Specification set (AD-9, AD-11, AD-19).
 /// </summary>
 public static class NodeFrameReader
 {
@@ -53,6 +72,16 @@ public static class NodeFrameReader
     /// The highest Sensor slot.
     /// </summary>
     public const uint MaxSlot = 255;
+
+    /// <summary>
+    /// The most Specifications one set may hold.
+    /// </summary>
+    public const int MaxSpecifications = 32;
+
+    /// <summary>
+    /// The longest <c>spec_hash</c>, in bytes: a SHA-256.
+    /// </summary>
+    public const int MaxSpecHashLength = 32;
 
     /// <summary>
     /// Decodes and checks a frame of <paramref name="deviceId"/> received at <paramref name="receivedAt"/>.
@@ -135,7 +164,57 @@ public static class NodeFrameReader
         return new NodeFrameRead(
             NodeFrameVerdict.Valid,
             new FrameRows(measuredAt, receivedAt, unsynced is not null, unsynced?.BootId, unsynced?.UptimeMs, readings, report),
-            Ranges(frame.Readings.Select(reading => reading.ReadingSeq).Append(frame.ReportSeq)));
+            Ranges(frame.Readings.Select(reading => reading.ReadingSeq).Append(frame.ReportSeq)),
+            frame.SpecHash.ToByteArray(),
+            frame.Specifications is { } set ? new AttachedSpecifications(Specifications(frame.SpecHash.Length, set)) : null);
+    }
+
+    /// <summary>
+    /// The Specifications of a set in slot order, or <see langword="null"/> when the set breaks the contract:
+    /// a hash of 0 or more than 32 bytes, 0 or more than 32 Specifications, an unknown quantity or unit, a
+    /// range that is empty or reversed, default Thresholds that are not low &lt; high, or a default outside
+    /// 0 to 100 percent (a calibrating Sensor) or outside the range (any other).
+    /// </summary>
+    public static IReadOnlyList<SensorSpecification>? Specifications(int specHashLength, SpecificationSet set)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+
+        if (specHashLength is < 1 or > MaxSpecHashLength || set.Specifications.Count is < 1 or > MaxSpecifications)
+        {
+            return null;
+        }
+
+        var specifications = new List<SensorSpecification>(set.Specifications.Count);
+        foreach (var specification in set.Specifications)
+        {
+            if (QuantityToken(specification.Quantity) is not { } quantity
+                || UnitOf(specification.Unit) is not { } unit
+                || specification.RangeMin >= specification.RangeMax)
+            {
+                return null;
+            }
+
+            long? low = specification.HasDefaultLow ? specification.DefaultLow : null;
+            long? high = specification.HasDefaultHigh ? specification.DefaultHigh : null;
+
+            // A calibrating Sensor's Thresholds are in percent of its calibrated span; any other's in its unit.
+            var (lowest, highest) = specification.Calibration ? (0L, 100L) : (specification.RangeMin, specification.RangeMax);
+            if (low < lowest || low > highest || high < lowest || high > highest || low >= high)
+            {
+                return null;
+            }
+
+            specifications.Add(new SensorSpecification(
+                quantity,
+                unit,
+                specification.RangeMin,
+                specification.RangeMax,
+                specification.Calibration,
+                low,
+                high));
+        }
+
+        return specifications;
     }
 
     /// <summary>
@@ -170,6 +249,18 @@ public static class NodeFrameReader
         Quantity.AirTemperature => CryptoSpec.SensorQuantityAirTemperature,
         Quantity.RelativeHumidity => CryptoSpec.SensorQuantityRelativeHumidity,
         Quantity.GasResistance => CryptoSpec.SensorQuantityGasResistance,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The unit of a Specification, or <see langword="null"/> for one the contract does not name.
+    /// </summary>
+    public static SensorUnit? UnitOf(Unit unit) => unit switch
+    {
+        Unit.RawCount => SensorUnit.RawCount,
+        Unit.MilliDegreeCelsius => SensorUnit.MilliDegreeCelsius,
+        Unit.MilliPercent => SensorUnit.MilliPercent,
+        Unit.Ohm => SensorUnit.Ohm,
         _ => null,
     };
 
