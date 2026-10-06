@@ -157,7 +157,7 @@ NS=coldframe
 
    | What | Margin | Effect on a Node |
    | --- | --- | --- |
-   | Uplink high-water mark of every Device, with its 64-entry window marked fully seen | `--uplink-margin`, default `64` (the size of the window) | The Server answers `rejected_replay` to every frame whose counter is at or below the restored mark + 64. A Node lost at most the frames it sent after the recovery point; it gets no acknowledgement for the next ones, keeps its Readings, and resends them under higher counters until one passes the mark. Its buffer holds 24 h of Readings, far more than this gap, so no Reading is lost. |
+   | Uplink high-water mark of every Device, with its 64-entry window marked fully seen | `--uplink-margin`, default `64` (the size of the window) | The Server answers `rejected_replay` to every frame whose counter is at or below the restored mark + 64. A Node lost at most the frames it sent after the recovery point; it gets no acknowledgement for the next ones, keeps its Readings, and resends them under higher counters until one passes the mark. That takes at most 64 frames: about 16 h for a Node that sends one frame per 15-minute wake. Its buffer holds 24 h of Readings, so no Reading is lost. |
    | Downlink counter of every Device | `--downlink-margin`, default `1048576` | Every acknowledgement after the restore is sealed under a counter the Server never used before. A Node receives at most a few acknowledgements per wake, so about a million is far above what one Node can have received between the last backup and the restore. The Node accepts a counter that jumps ahead. |
 
    An enrolled Device that had never sent a frame gets the same state, so its first 64 counters

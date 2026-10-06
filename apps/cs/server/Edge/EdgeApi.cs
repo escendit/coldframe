@@ -746,7 +746,7 @@ public static partial class EdgeApi
                 StatusCodes.Status503ServiceUnavailable,
                 EdgeProblems.IngestUnavailable,
                 "No frame could be stored.",
-                "Nothing was stored or acknowledged. Send the frames again.");
+                "Nothing was acknowledged. Send the frames again.");
         }
 
         return TypedResults.Ok(new IngestResponse(

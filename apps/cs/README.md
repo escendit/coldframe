@@ -304,6 +304,8 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
 A failed transaction answers `retry` and leaves no trace: the grain drops its in-memory window and
 reads it again for the next frame, so memory never runs ahead of the database. The downlink counter
 is never kept in memory, so no counter is reused after a restart. No event is journaled per frame.
+One `retry` does leave rows behind: when the frame committed but the changed relay Hub could not be
+journaled, the frame is not acknowledged, and the Node's resend is a `duplicate`.
 
 Time: a synced Reading keeps the Node's `measured_at`. An unsynced one (`time_unsynced`, with its
 `boot_id` and `uptime_ms` kept) is rebased: taken by the boot that sealed the frame, it is

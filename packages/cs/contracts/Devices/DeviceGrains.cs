@@ -145,7 +145,8 @@ public enum DeviceIngestStatus
     UnknownDevice = 5,
 
     /// <summary>
-    /// The frame could not be committed. Nothing changed; the Node resends.
+    /// The frame could not be finished and is not acknowledged; the Node resends. Its rows may already be
+    /// committed (when only the relay Hub could not be journaled), in which case the resend is a duplicate.
     /// </summary>
     Retry = 6,
 }
