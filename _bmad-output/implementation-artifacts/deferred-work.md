@@ -550,14 +550,6 @@ severity: low
 reason: Carried over from DW-28. Story 4.7 builds the refresh primitives and stale mode for the Site overview only and forbids stale mode on Devices and Site settings (UX-DR79 names Devices, Lot detail and Alerts too). Reuse the overview's primitives when those surfaces get theirs (Story 4.8 for Devices and Lot detail).
 status: open
 
-### DW-71: The iOS App target's mapping from the core's Lots snapshot to LotsPresentation, and its foreground refresh, are compiled in CI but never executed by a test.
-origin: spec-deferred e40f6a950563
-location: apps/swift/ios/App/CoreLotsService.swift:26-85, apps/swift/ios/App/ColdframeApp.swift:42, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/MainActivity.kt:79-84
-source_spec: `spec-4-7-lot-status-and-the-site-overview.md`
-severity: medium
-reason: CoreLotsService.presentation(of:) maps about 28 parallel snapshot fields by hand. The CI ios job runs xcodebuild build only; the swift job tests the package, where Support.swift hand-builds a LotsPresentation, and OverviewPresentationTests assert on the source text of CoreLotsService.swift and ColdframeApp.swift. Swapping two same-typed arguments (for example lotValues and lotFoots) compiles and passes. The App target has no test bundle and needs the Kotlin framework; close this when one exists, or move the mapping into the tested package behind a protocol. The same holds for the Android activity: MainActivity's foreground refresh is checked by a regex on its source, because there is no seam to inject a fake core.
-status: open
-
 ### DW-72: Lot detail has no Threshold band, below-low bars, admin strip (Thresholds, Calibrate, Pause/Resume) or Sensor-cell tap target; the hero's percentage and low Threshold are fixture-only.
 origin: spec-deferred story-4-8-1
 location: apps/ts/web/src/routes/(app)/garden/[lotId]/, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/LotDetailScreen.kt, apps/swift/ios/Sources/ColdframeIOS/UI/LotDetailViews.swift
