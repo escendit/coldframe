@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Sensors;
 using Coldframe.Crypto;
 using Coldframe.DeviceSimulator;
 using Coldframe.Protocol.Device.V1;
@@ -193,6 +194,184 @@ public sealed class NodeFrameReaderTests
         Assert.Equal(vector.Text("deviceId"), soil.Text("deviceId"));
         Assert.Equal(Guid.Parse(soil.Text("sensorId")), read.Rows!.Readings[0].SensorId);
         Assert.Equal(-2500, read.Rows.Readings[1].RawValue);
+    }
+
+    [Fact]
+    public void AWakeCarriesItsSpecHashAndNoSetUnlessOneIsAttached()
+    {
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+
+        var read = NodeFrameReader.Read(Stamp(node, node.Wake(Now)).ToByteArray(), node.DeviceId, Now);
+
+        Assert.Equal(NodeFrameVerdict.Valid, read.Verdict);
+        Assert.Equal(node.SpecHash.ToByteArray(), read.SpecHash);
+        Assert.Equal(32, read.SpecHash!.Length);
+        Assert.Null(read.Specifications);
+
+        // A frame of a Node that sends no hash reads as an empty one.
+        var bare = Stamp(node, node.Wake(Now));
+        bare.SpecHash = ByteString.Empty;
+        var bareRead = NodeFrameReader.Read(bare.ToByteArray(), node.DeviceId, Now);
+        Assert.Equal(NodeFrameVerdict.Valid, bareRead.Verdict);
+        Assert.Empty(bareRead.SpecHash!);
+        Assert.Null(bareRead.Specifications);
+    }
+
+    [Fact]
+    public void AnAttachedDefaultSetReadsAsItsFourSpecificationsInSlotOrder()
+    {
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+
+        var read = NodeFrameReader.Read(Stamp(node, node.Wake(Now, attachSpecifications: true)).ToByteArray(), node.DeviceId, Now);
+
+        Assert.Equal(NodeFrameVerdict.Valid, read.Verdict);
+        Assert.Equal(4, read.Rows!.Readings.Count);
+        Assert.Equal(
+            [
+                new SensorSpecification(CryptoSpec.SensorQuantitySoilMoisture, SensorUnit.RawCount, 0, 4095, true, 30, 80),
+                new SensorSpecification(CryptoSpec.SensorQuantityAirTemperature, SensorUnit.MilliDegreeCelsius, -40_000, 85_000, false),
+                new SensorSpecification(CryptoSpec.SensorQuantityRelativeHumidity, SensorUnit.MilliPercent, 0, 100_000, false),
+                new SensorSpecification(CryptoSpec.SensorQuantityGasResistance, SensorUnit.Ohm, 0, 100_000_000, false),
+            ],
+            read.Specifications!.Valid);
+
+        // The default set is the Sensors of the default Readings.
+        Assert.Equal(
+            SimulatedDevice.DefaultReadings.Select(reading => ((int)reading.Slot, SimulatedDevice.QuantityToken(reading.Quantity))),
+            read.Specifications.Valid!.Select((specification, slot) => (slot, specification.Quantity)));
+    }
+
+    [Fact]
+    public void ASetExactlyAtTheLimitsIsValid()
+    {
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        var most = new SpecificationSet();
+        most.Specifications.Add(Enumerable.Range(0, NodeFrameReader.MaxSpecifications).Select(_ => new Specification
+        {
+            Quantity = Quantity.AirTemperature,
+            Unit = Unit.MilliDegreeCelsius,
+            RangeMin = -1,
+            RangeMax = 0,
+            DefaultLow = -1,
+            DefaultHigh = 0,
+        }));
+        most.Specifications[0] = new Specification
+        {
+            Quantity = Quantity.SoilMoisture,
+            Unit = Unit.RawCount,
+            RangeMin = long.MinValue,
+            RangeMax = long.MaxValue,
+            Calibration = true,
+            DefaultLow = 0,
+            DefaultHigh = 100,
+        };
+
+        // Only one side has a default; a one-byte hash.
+        most.Specifications[1] = new Specification { Quantity = Quantity.GasResistance, Unit = Unit.Ohm, RangeMin = 0, RangeMax = 10, DefaultHigh = 0 };
+        most.Specifications[2] = new Specification { Quantity = Quantity.GasResistance, Unit = Unit.Ohm, RangeMin = 0, RangeMax = 10, DefaultLow = 10 };
+        node.Specifications = most;
+        var frame = Stamp(node, node.Wake(Now, attachSpecifications: true));
+        frame.SpecHash = ByteString.CopyFrom(0x01);
+
+        var read = NodeFrameReader.Read(frame.ToByteArray(), node.DeviceId, Now);
+
+        Assert.Equal(32, NodeFrameReader.MaxSpecifications);
+        Assert.Equal(32, NodeFrameReader.MaxSpecHashLength);
+        var valid = Assert.IsAssignableFrom<IReadOnlyList<SensorSpecification>>(read.Specifications!.Valid);
+        Assert.Equal(32, valid.Count);
+        Assert.Equal((0L, 100L), (valid[0].DefaultLow, valid[0].DefaultHigh));
+        Assert.Equal(((long?)null, 0L), (valid[1].DefaultLow, valid[1].DefaultHigh));
+        Assert.Equal((10L, (long?)null), (valid[2].DefaultLow, valid[2].DefaultHigh));
+    }
+
+    [Fact]
+    public void ASetThatBreaksTheContractIsInvalidAndTheFrameStaysValid()
+    {
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        var good = Stamp(node, node.Wake(Now, attachSpecifications: true));
+        Assert.NotNull(NodeFrameReader.Read(good.ToByteArray(), node.DeviceId, Now).Specifications!.Valid);
+
+        var broken = new List<NodeFrame>();
+        void Break(Action<NodeFrame> change)
+        {
+            var frame = good.Clone();
+            change(frame);
+            broken.Add(frame);
+        }
+
+        // The hash a set comes with: 1 to 32 bytes.
+        Break(frame => frame.SpecHash = ByteString.Empty);
+        Break(frame => frame.SpecHash = ByteString.CopyFrom(new byte[33]));
+
+        // 1 to 32 Specifications.
+        Break(frame => frame.Specifications.Specifications.Clear());
+        Break(frame => frame.Specifications.Specifications.Add(Enumerable.Repeat(frame.Specifications.Specifications[1], 29)));
+
+        // A quantity and a unit the contract names.
+        Break(frame => frame.Specifications.Specifications[1].Quantity = Quantity.Unspecified);
+        Break(frame => frame.Specifications.Specifications[1].Quantity = (Quantity)99);
+        Break(frame => frame.Specifications.Specifications[1].Unit = Unit.Unspecified);
+        Break(frame => frame.Specifications.Specifications[1].Unit = (Unit)99);
+
+        // range_min < range_max.
+        Break(frame => frame.Specifications.Specifications[2].RangeMin = frame.Specifications.Specifications[2].RangeMax);
+        Break(frame => frame.Specifications.Specifications[2].RangeMax = -1);
+
+        // default low < default high.
+        Break(frame => frame.Specifications.Specifications[0].DefaultLow = 80);
+        Break(frame => frame.Specifications.Specifications[0].DefaultHigh = 29);
+
+        // A calibrating Sensor's defaults are percent, whatever its range.
+        Break(frame => frame.Specifications.Specifications[0].DefaultLow = -1);
+        Break(frame => frame.Specifications.Specifications[0].DefaultHigh = 101);
+
+        // Any other Sensor's defaults lie within its range.
+        Break(frame => frame.Specifications.Specifications[1].DefaultLow = -40_001);
+        Break(frame => frame.Specifications.Specifications[1].DefaultHigh = 85_001);
+        Break(frame => frame.Specifications.Specifications[2].DefaultHigh = -1);
+        Break(frame => frame.Specifications.Specifications[2].DefaultLow = 100_001);
+
+        Assert.All(broken, frame =>
+        {
+            var read = NodeFrameReader.Read(frame.ToByteArray(), node.DeviceId, Now);
+
+            // The set is ignored; the Readings and the acknowledgement are those of the same frame without it.
+            Assert.Equal(NodeFrameVerdict.Valid, read.Verdict);
+            Assert.NotNull(read.Specifications);
+            Assert.Null(read.Specifications.Valid);
+            Assert.Equal(4, read.Rows!.Readings.Count);
+            var range = Assert.Single(read.Acknowledged!);
+            Assert.Equal((good.Readings[0].ReadingSeq, good.ReportSeq), (range.First, range.Last));
+            Assert.Equal(frame.SpecHash.ToByteArray(), read.SpecHash);
+        });
+        Assert.Equal(18, broken.Count);
+    }
+
+    [Fact]
+    public void AnOverlongHashWithoutASetLeavesTheFrameValid()
+    {
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        var frame = Stamp(node, node.Wake(Now));
+        frame.SpecHash = ByteString.CopyFrom(new byte[33]);
+
+        var read = NodeFrameReader.Read(frame.ToByteArray(), node.DeviceId, Now);
+
+        Assert.Equal(NodeFrameVerdict.Valid, read.Verdict);
+        Assert.Equal(33, read.SpecHash!.Length);
+        Assert.Null(read.Specifications);
+    }
+
+    [Fact]
+    public void AFrameThatIsNotStoredReadsNoSpecifications()
+    {
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        var ahead = Stamp(node, node.Wake(Now.AddMinutes(6), attachSpecifications: true));
+
+        var read = NodeFrameReader.Read(ahead.ToByteArray(), node.DeviceId, Now);
+
+        Assert.Equal(NodeFrameVerdict.FutureTime, read.Verdict);
+        Assert.Null(read.SpecHash);
+        Assert.Null(read.Specifications);
     }
 
     // The frame as the Node seals it: with the sealing boot and uptime.

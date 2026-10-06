@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
@@ -18,6 +19,8 @@ namespace Coldframe.Server.Devices;
 /// (<see cref="Heartbeat"/>, <see cref="AuthenticateRelay"/>) and to open a Node's frame and seal its
 /// acknowledgement (<see cref="Ingest"/>), zeroing the keys again each time. It is the only writer of the
 /// Readings, device-report, Reading-key and replay tables (AD-9), through <see cref="DeviceIngestionStore"/>.
+/// It keeps a Node's known <c>spec_hash</c> and Sensor list (AD-19), and declares each Sensor of an accepted
+/// Specification set to its <see cref="ISensorGrain"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,6 +28,13 @@ namespace Coldframe.Server.Devices;
 /// the Readings in one transaction; the downlink counter is reserved in that transaction and never kept in
 /// memory, so it is never reused after a restart or a restore. A failed transaction drops the in-memory
 /// window, which is read again for the next frame. No event is journaled per frame.
+/// </para>
+/// <para>
+/// Specifications (AD-19): a frame whose <c>spec_hash</c> is not the known one is answered with
+/// <c>specifications_unknown</c>. When it carries a valid set, every Sensor is declared first (idempotent),
+/// and only then <see cref="DeviceSpecificationsDeclared"/> makes the hash known; a failure in between
+/// answers retry and leaves the hash unknown, so the Node is asked again. A paused or unassigned Node
+/// declares too: only Readings pass the Pause gate.
 /// </para>
 /// <para>
 /// Hub requests (AD-12): Orleans keeps one activation per Device, so the nonces seen while it is active are
@@ -224,6 +234,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrEmpty(request.RelayHubId);
 
+        // 1. Only an enrolled Node, and only the supported protocol version.
         if (State.SiteId is null || State.Kind != DeviceKind.Node || State.WrappedKey is not { } wrapped)
         {
             return new DeviceIngestResult(DeviceIngestStatus.UnknownDevice);
@@ -243,7 +254,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         try
         {
-            // 1. Open the seal with the seal/v1 key.
+            // 2. Open the seal with the seal/v1 key.
             byte[] plaintext;
             try
             {
@@ -256,7 +267,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 return new DeviceIngestResult(DeviceIngestStatus.RejectedAuth);
             }
 
-            // 2. The replay window. The in-memory window moves only once the frame's transaction commits.
+            // 3. The replay window. The in-memory window moves only once the frame's transaction commits.
             ReplayWindow window;
             try
             {
@@ -281,7 +292,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             window.Accept(request.Counter);
             var replay = new StoredReplay(window.Highest!.Value, window.Seen);
 
-            // 3. and 4. Decode the Node frame and check its time. An authentic frame the Server cannot store
+            // 4. Decode the Node frame and check its time. An authentic frame the Server cannot store
             // still consumes its counter, without rows and without a downlink.
             var receivedAt = Clock.GetUtcNow();
             var frame = NodeFrameReader.Read(plaintext, deviceId, receivedAt);
@@ -308,7 +319,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 return new DeviceIngestResult(DeviceIngestStatus.Retry);
             }
 
-            // The Hub that relayed the frame, journaled only when it changes and only once the frame is
+            // 7. The Hub that relayed the frame, journaled only when it changes and only once the frame is
             // committed (AD-18, DW-45). When that fails the answer is retry: the Node resends, and the resend
             // is a duplicate that records the relay.
             if (!string.Equals(State.LastRelayHubId, request.RelayHubId, StringComparison.Ordinal))
@@ -327,12 +338,40 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 }
             }
 
-            // 7. Only after the commit: the acknowledgement, sealed with the ack/v1 key under the fresh counter.
+            // 8. The Specification set (AD-19), after the commit and whether or not the Device is paused. A known
+            // hash needs nothing, with or without a set attached.
+            var specificationsKnown = State.Knows(frame.SpecHash);
+            if (!specificationsKnown && frame.Specifications is { } attached)
+            {
+                if (attached.Valid is not { } specifications)
+                {
+                    // A firmware fault in metadata must not block Readings: the set is ignored and asked for again.
+                    LogInvalidSpecifications(Logger, DeviceId);
+                }
+                else
+                {
+                    try
+                    {
+                        await DeclareAsync(deviceId, frame.SpecHash!, specifications);
+                        specificationsKnown = true;
+                    }
+#pragma warning disable CA1031 // The set could not be declared: no acknowledgement, the Node resends and is asked again.
+                    catch (Exception exception)
+#pragma warning restore CA1031
+                    {
+                        LogDeclarationFailed(Logger, DeviceId, exception);
+                        return new DeviceIngestResult(DeviceIngestStatus.Retry);
+                    }
+                }
+            }
+
+            // 9. Only after the commit: the acknowledgement, sealed with the ack/v1 key under the fresh counter.
             var downlink = new Downlink
             {
                 ProtocolVersion = CryptoSpec.ProtocolMajor,
                 AckedCounter = request.Counter,
                 ServerTimeMs = Clock.GetUtcNow().ToUnixTimeMilliseconds(),
+                SpecificationsUnknown = !specificationsKnown,
             };
             downlink.AckedReadings.Add(frame.Acknowledged);
 
@@ -380,6 +419,30 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         }
     }
 
+    // Every Sensor grain first, then the Device's own event with the hash and the Sensor list (AD-19). A
+    // declaration is idempotent, so a set that was declared in part is simply declared again.
+    private async Task DeclareAsync(Coldframe.Crypto.DeviceId deviceId, byte[] specHash, IReadOnlyList<SensorSpecification> specifications)
+    {
+        var sensors = new List<DeclaredSensor>(specifications.Count);
+        var declarations = new List<Task>(specifications.Count);
+
+        for (var slot = 0; slot < specifications.Count; slot++)
+        {
+            var specification = specifications[slot];
+            var sensorId = SensorIds.Derive(deviceId, (uint)slot, specification.Quantity);
+            sensors.Add(new DeclaredSensor(slot, specification.Quantity, sensorId));
+            declarations.Add(GrainFactory
+                .GetGrain<ISensorGrain>(sensorId.ToString("D"))
+                // Not cancelled by the caller: the frame is committed, and its declaration is not abandoned halfway.
+                .Declare(new DeclareSensor(DeviceId, slot, specification), CancellationToken.None));
+        }
+
+        await Task.WhenAll(declarations);
+
+        RaiseEvent(new DeviceSpecificationsDeclared(specHash, sensors, Clock.GetUtcNow()));
+        await ConfirmEvents();
+    }
+
     private static void Zero(byte[]? key)
     {
         if (key is not null)
@@ -391,6 +454,13 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     // Never the frame, its payload or a key: only the Device and the failure.
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "A frame of Device {DeviceId} could not be committed; it is answered with retry.")]
     private static partial void LogIngestFailed(ILogger logger, string deviceId, Exception exception);
+
+    // Never the set or anything in it: only the Device.
+    [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Device {DeviceId} sent a Specification set that breaks the contract; it is ignored and asked for again.")]
+    private static partial void LogInvalidSpecifications(ILogger logger, string deviceId);
+
+    [LoggerMessage(EventId = 3, Level = LogLevel.Warning, Message = "The Specification set of Device {DeviceId} could not be declared; the frame is answered with retry.")]
+    private static partial void LogDeclarationFailed(ILogger logger, string deviceId, Exception exception);
 
     // Unwraps K_dev, derives the hub-auth/v1 key, verifies, and zeroes both keys on every path.
     private bool Verify(WrappedDeviceKey wrapped, string method, string path, byte[] body, long timestampMs, byte[] nonce, byte[] signature)

@@ -1,11 +1,13 @@
 using System.Text.Json;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Journal;
 using Coldframe.Server.Lots;
+using Coldframe.Server.Sensors;
 using Coldframe.Server.Tests.Samples;
 
 namespace Coldframe.Server.Tests.Journal;
@@ -27,6 +29,7 @@ public sealed class FixtureJournalReplayTests
         ["device"] = () => new DeviceState(),
         ["lot"] = () => new LotState(),
         ["sample"] = () => new SampleState(),
+        ["sensor"] = () => new SensorState(),
         ["site"] = () => new SiteState(),
         ["user"] = () => new UserState(),
     };
@@ -95,6 +98,32 @@ public sealed class FixtureJournalReplayTests
         Assert.Null(node.PausedBy[DevicePauseSource.Device]);
         Assert.False(device.IsPaused);
         Assert.Null(device.LastRelayHubId);
+
+        // Two Specification sets were accepted, the second with a changed soil Specification: the known hash
+        // is the second one's, and the Sensor list is the same two Sensors.
+        Assert.Equal(32, node.SpecHash?.Length);
+        Assert.Equal((byte)0xA1, node.SpecHash![0]);
+        Assert.Equal(
+            [
+                new DeclaredSensor(0, "soil_moisture", Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394")),
+                new DeclaredSensor(1, "air_temperature", Guid.Parse("e62a2dbe-b439-5906-a842-35abfb36458a")),
+            ],
+            node.Sensors);
+        Assert.Null(device.SpecHash);
+        Assert.Empty(device.Sensors);
+
+        // Declared, its Thresholds set, then redeclared: the override and the cleared side survive.
+        var soil = Assert.IsType<SensorState>(states["sensor/dac4e7fe-93b1-56fc-a363-51235a586394"]);
+        Assert.Equal(("5a4b3c2d1e0f7c20", 0), (soil.DeviceId, soil.Slot));
+        Assert.Equal(new SensorSpecification("soil_moisture", SensorUnit.RawCount, 0, 8191, true, 25, 75), soil.Specification);
+        Assert.Equal((new ThresholdSetting(ThresholdKind.Override, 40), new ThresholdSetting(ThresholdKind.Cleared)), (soil.Low, soil.High));
+        Assert.Equal((40L, (long?)null), (soil.EffectiveLow, soil.EffectiveHigh));
+
+        // Only watched: no defaults, so both sides follow a default that is absent.
+        var air = Assert.IsType<SensorState>(states["sensor/e62a2dbe-b439-5906-a842-35abfb36458a"]);
+        Assert.Equal(new SensorSpecification("air_temperature", SensorUnit.MilliDegreeCelsius, -40_000, 85_000, false), air.Specification);
+        Assert.Equal((ThresholdSetting.Default, ThresholdSetting.Default), (air.Low, air.High));
+        Assert.Equal(((long?)null, (long?)null), (air.EffectiveLow, air.EffectiveHigh));
 
         // Created, renamed, claimed and released by a Node, then removed: the tombstone keeps name and Site.
         var removed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01"]);

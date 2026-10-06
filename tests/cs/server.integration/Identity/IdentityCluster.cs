@@ -1,5 +1,6 @@
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
@@ -17,7 +18,7 @@ using Orleans.TestingHost;
 namespace Coldframe.Server.IntegrationTests.Identity;
 
 /// <summary>
-/// A one-silo <see cref="TestCluster"/> with the User, Site, Lot and Device grains, Device enrolment keys, the identity and lots projectors, a
+/// A one-silo <see cref="TestCluster"/> with the User, Site, Lot, Device and Sensor grains, Device enrolment keys, the identity and lots projectors, a
 /// <see cref="FakePhaseTwoOrganizations"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
 /// </summary>
@@ -56,6 +57,13 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public ILotGrain Lot(string lotId) => Cluster.GrainFactory.GetGrain<ILotGrain>(lotId);
 
     public IDeviceGrain Device(string deviceId) => Cluster.GrainFactory.GetGrain<IDeviceGrain>(deviceId);
+
+    public ISensorGrain Sensor(Guid sensorId) => Cluster.GrainFactory.GetGrain<ISensorGrain>(sensorId.ToString("D"));
+
+    /// <summary>
+    /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor.
+    /// </summary>
+    public SensorFaults SensorFaults => SiloServices.GetRequiredService<SensorFaults>();
 
     public DeviceKeyVault Vault => SiloServices.GetRequiredService<DeviceKeyVault>();
 
@@ -181,6 +189,8 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
                 options.PrivateKeyPem = EnrolmentKeyring.ToPrivateKeyPem(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
                 options.DeviceKeyEncryptionKey = deviceKek;
             });
+            siloBuilder.Services.AddSingleton<SensorFaults>();
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<SensorFaults>());
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
             siloBuilder.Services.AddSingleton<IPhaseTwoOrganizations>(provider => provider.GetRequiredService<FakePhaseTwoOrganizations>());
@@ -239,5 +249,38 @@ public sealed class FaultyIngestionStore(NpgsqlDataSource dataSource) : DeviceIn
 
         Interlocked.Exchange(ref _failures, 0);
         await base.CommitTransactionAsync(transaction, cancellationToken);
+    }
+}
+
+/// <summary>
+/// Passes every grain call on, except that a test can make <see cref="ISensorGrain.Declare"/> throw for chosen
+/// Sensors, the way a Sensor grain that cannot write its journal does. Nothing reaches the grain then.
+/// </summary>
+public sealed class SensorFaults : IIncomingGrainCallFilter
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Makes every declaration of <paramref name="sensorId"/> fail until <see cref="Restore"/>.
+    /// </summary>
+    public void FailDeclarations(Guid sensorId) => _failing[sensorId.ToString("D")] = true;
+
+    /// <summary>
+    /// Lets the declarations of <paramref name="sensorId"/> through again.
+    /// </summary>
+    public void Restore(Guid sensorId) => _failing.TryRemove(sensorId.ToString("D"), out _);
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is ISensorGrain
+            && string.Equals(context.MethodName, nameof(ISensorGrain.Declare), StringComparison.Ordinal)
+            && _failing.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            throw new InvalidOperationException("The test failed this declaration.");
+        }
+
+        return context.Invoke();
     }
 }

@@ -138,6 +138,13 @@ public sealed class SimulatorTests
             ChargeStatus.Charging,
             readings);
 
+        // Every wake carries the hash of the Node's Specification set (AD-19); the vector's frame has none.
+        Assert.Equal(node.SpecHash, frame.SpecHash);
+        Assert.Equal(32, frame.SpecHash.Length);
+        Assert.Null(frame.Specifications);
+        Assert.Equal(string.Empty, message.Text("specHash"));
+        frame.SpecHash = Google.Protobuf.ByteString.Empty;
+
         Assert.Equal(message.Number("reportSeq"), frame.ReportSeq);
         Assert.Equal(message.Number("reportSeq") + 1, node.NextReadingSeq);
         Assert.Equal([100, 101, 102, 103, 104], SimulatedDevice.ReadingSeqs(frame));

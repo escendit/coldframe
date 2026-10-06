@@ -71,7 +71,7 @@ development_status:
   4-2-node-pairing-setup-mode-enrolment-and-lot-assignment: awaiting-operator
   4-3-add-a-node-from-my-phone: awaiting-operator
   4-4-esp-now-transport-from-node-to-hub: backlog
-  4-5-server-ingestion-and-acknowledgements: backlog
+  4-5-server-ingestion-and-acknowledgements: done
   4-6-sensor-specifications-and-sensor-grains: backlog
   4-7-lot-status-and-the-site-overview: backlog
   4-8-lot-detail-with-history-and-device-status: backlog

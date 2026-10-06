@@ -54,6 +54,7 @@ public sealed class SimulatedDevice
 {
     private readonly ReplayWindow _downlinks = new();
     private ulong _nextUplink;
+    private SpecificationSet _specifications = DefaultSpecifications();
 
     /// <summary>
     /// The path of the ingest operation.
@@ -70,6 +71,52 @@ public sealed class SimulatedDevice
         new(2, Quantity.RelativeHumidity, 64_250),
         new(3, Quantity.GasResistance, 48_211),
     ];
+
+    /// <summary>
+    /// What a Node declares unless a test says otherwise (AD-19): the Specifications of the four Sensors of
+    /// <see cref="DefaultReadings"/>, in slot order. Soil moisture is calibrated and has default Thresholds
+    /// of 30 and 80 percent; the others are only watched.
+    /// </summary>
+    public static SpecificationSet DefaultSpecifications() => new()
+    {
+        Specifications =
+        {
+            new Specification
+            {
+                Quantity = Quantity.SoilMoisture,
+                Unit = Unit.RawCount,
+                RangeMin = 0,
+                RangeMax = 4095,
+                Calibration = true,
+                DefaultLow = 30,
+                DefaultHigh = 80,
+            },
+            new Specification { Quantity = Quantity.AirTemperature, Unit = Unit.MilliDegreeCelsius, RangeMin = -40_000, RangeMax = 85_000 },
+            new Specification { Quantity = Quantity.RelativeHumidity, Unit = Unit.MilliPercent, RangeMin = 0, RangeMax = 100_000 },
+            new Specification { Quantity = Quantity.GasResistance, Unit = Unit.Ohm, RangeMin = 0, RangeMax = 100_000_000 },
+        },
+    };
+
+    /// <summary>
+    /// The Node's Specification set; the index of a Specification is its Sensor's slot. A test changes the
+    /// firmware's Sensors by setting another one, which changes <see cref="SpecHash"/> with it.
+    /// </summary>
+    public SpecificationSet Specifications
+    {
+        get => _specifications;
+        set => _specifications = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    /// <summary>
+    /// The <c>spec_hash</c> every wake carries: SHA-256 of the serialized <see cref="Specifications"/>.
+    /// </summary>
+    public ByteString SpecHash => ByteString.CopyFrom(SHA256.HashData(Specifications.ToByteArray()));
+
+    /// <summary>
+    /// Whether the last downlink this Node opened said <c>specifications_unknown</c> and no wake has
+    /// answered it yet: the next wake attaches <see cref="Specifications"/>, once.
+    /// </summary>
+    public bool SpecificationsRequested { get; private set; }
 
     /// <summary>
     /// The next <c>reading_seq</c> a wake draws; every Reading and every device report takes one.
@@ -221,9 +268,21 @@ public sealed class SimulatedDevice
         return request;
     }
 
-    private NodeFrame NewFrame(uint? batteryPercent, ChargeStatus charging, IReadOnlyList<SimulatedReading>? readings)
+    private NodeFrame NewFrame(uint? batteryPercent, ChargeStatus charging, IReadOnlyList<SimulatedReading>? readings, bool? attachSpecifications)
     {
-        var frame = new NodeFrame { ProtocolVersion = CryptoSpec.ProtocolMajor, Charging = charging };
+        var frame = new NodeFrame { ProtocolVersion = CryptoSpec.ProtocolMajor, Charging = charging, SpecHash = SpecHash };
+
+        // The set goes out once per request (AD-19); a test attaches or withholds it explicitly.
+        if (attachSpecifications ?? SpecificationsRequested)
+        {
+            frame.Specifications = Specifications.Clone();
+        }
+
+        if (attachSpecifications is null)
+        {
+            SpecificationsRequested = false;
+        }
+
         foreach (var reading in readings ?? DefaultReadings)
         {
             frame.Readings.Add(new Reading
@@ -261,29 +320,36 @@ public sealed class SimulatedDevice
     /// <summary>
     /// One wake of a Node whose clock is set: the Readings and the device report, each with a fresh
     /// <c>reading_seq</c>. Nothing is sealed yet; <see cref="SealFrame(NodeFrame)"/> seals it, again for a resend.
+    /// The frame carries <see cref="SpecHash"/>, and <see cref="Specifications"/> when the last opened downlink
+    /// asked for them (<see cref="SpecificationsRequested"/>), which answers the request.
+    /// <paramref name="attachSpecifications"/> overrides that: <see langword="true"/> attaches the set unasked,
+    /// <see langword="false"/> withholds it; either leaves a pending request pending.
     /// </summary>
     public NodeFrame Wake(
         DateTimeOffset measuredAt,
         uint? batteryPercent = 87,
         ChargeStatus charging = ChargeStatus.Charging,
-        IReadOnlyList<SimulatedReading>? readings = null)
+        IReadOnlyList<SimulatedReading>? readings = null,
+        bool? attachSpecifications = null)
     {
-        var frame = NewFrame(batteryPercent, charging, readings);
+        var frame = NewFrame(batteryPercent, charging, readings, attachSpecifications);
         frame.MeasuredAtMs = measuredAt.ToUnixTimeMilliseconds();
         return frame;
     }
 
     /// <summary>
     /// One wake of a Node whose clock was never set, taken at <paramref name="uptimeMs"/> of the current boot
-    /// (<see cref="BootId"/>): the Readings are <c>time_unsynced</c>.
+    /// (<see cref="BootId"/>): the Readings are <c>time_unsynced</c>. The Specification set is attached as
+    /// <see cref="Wake"/> attaches it.
     /// </summary>
     public NodeFrame WakeUnsynced(
         ulong uptimeMs,
         uint? batteryPercent = 87,
         ChargeStatus charging = ChargeStatus.Charging,
-        IReadOnlyList<SimulatedReading>? readings = null)
+        IReadOnlyList<SimulatedReading>? readings = null,
+        bool? attachSpecifications = null)
     {
-        var frame = NewFrame(batteryPercent, charging, readings);
+        var frame = NewFrame(batteryPercent, charging, readings, attachSpecifications);
         frame.Unsynced = new NodeFrame.Types.Unsynced { BootId = BootId, UptimeMs = uptimeMs };
         return frame;
     }
@@ -422,13 +488,16 @@ public sealed class SimulatedDevice
     }
 
     /// <summary>
-    /// Verifies and opens a downlink addressed to this Device, refusing a replay.
+    /// Verifies and opens a downlink addressed to this Device, refusing a replay. A downlink that says
+    /// <c>specifications_unknown</c> is a request for the Specification set, which the next wake answers
+    /// (<see cref="SpecificationsRequested"/>); one that does not withdraws a request still pending.
     /// </summary>
     public Downlink OpenDownlink(SealedEnvelope envelope)
     {
         var plaintext = Envelopes.Open(Keys.AckKey, DeviceId, envelope, _downlinks);
         var downlink = Downlink.Parser.ParseFrom(plaintext);
         Envelopes.CheckVersion(downlink.ProtocolVersion);
+        SpecificationsRequested = downlink.SpecificationsUnknown;
         return downlink;
     }
 }

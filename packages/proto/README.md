@@ -6,10 +6,25 @@ The Protobuf contract between Devices, the app and the Server (AD-10, AD-25), a 
 | File | Package | What |
 | --- | --- | --- |
 | [`coldframe/setup/v1/setup.proto`](coldframe/setup/v1/setup.proto) | `coldframe.setup.v1` | The BLE setup protocol, one message set for Hub and Node: the plaintext key exchange (`SessionHello`, `SessionHelloReply`), `SealedSetupMessage`, and the sealed `SetupMessage` steps (identity, Wi-Fi scan list, Wi-Fi config and result, Site binding, enrolment request and response, errors) |
-| [`coldframe/device/v1/envelope.proto`](coldframe/device/v1/envelope.proto) | `coldframe.device.v1` | `SealedEnvelope` for uplink frames and downlinks; `NodeFrame`, the plaintext of an uplink (one wake report: `Reading`s with their `Quantity` and `reading_seq`, the time as synced `measured_at_ms` or `Unsynced` boot ID and uptime, `report_seq`, battery and `ChargeStatus`); and the sealed `Downlink` with `acked_readings` (`ReadingSeqRange`, both ends included) and its empty `commands` (AD-9, AD-11, AD-16) |
+| [`coldframe/device/v1/envelope.proto`](coldframe/device/v1/envelope.proto) | `coldframe.device.v1` | `SealedEnvelope` for uplink frames and downlinks; `NodeFrame`, the plaintext of an uplink (one wake report: `Reading`s with their `Quantity` and `reading_seq`, the time as synced `measured_at_ms` or `Unsynced` boot ID and uptime, `report_seq`, battery and `ChargeStatus`, the `spec_hash` and, on request, the `SpecificationSet`); and the sealed `Downlink` with `acked_readings` (`ReadingSeqRange`, both ends included), its empty `commands` and `specifications_unknown` (AD-9, AD-11, AD-16, AD-19) |
 
-The ESP-NOW messages and the Specification set arrive in Epic 4 (Stories 4.4 and 4.6). `NodeFrame.spec_hash`
-is carried from Story 4.5 and used from Story 4.6.
+The ESP-NOW messages arrive in Epic 4 (Story 4.4).
+
+## Specifications
+
+A Node declares its Sensors with a `SpecificationSet` (AD-19): one `Specification` per Sensor, 1 to 32 of
+them, the index being the Sensor's slot. A `Specification` holds the `Quantity`, the `Unit` of the raw
+value, the range (`range_min` < `range_max`), whether two-point Calibration applies (`calibration`), and
+optional default Thresholds (`default_low` < `default_high`): in percent, 0 to 100, for a calibrating
+Sensor, otherwise in `unit` and within the range.
+
+- Every `NodeFrame` carries `spec_hash`: SHA-256 of the Node's serialized set (1 to 32 bytes). The Server
+  never recomputes it; it only compares it with the hash of the last set it accepted from that Device.
+- When they differ, or the frame has no hash, the `Downlink` says `specifications_unknown`. The Node then
+  attaches the set (`NodeFrame.specifications`) to its next frame, once per request. A lost frame is asked
+  for again by the next `Downlink`.
+- A set that breaks the rules above is ignored: the frame's Readings are stored and acknowledged all the
+  same, and the `Downlink` keeps asking.
 
 ## Versioning
 

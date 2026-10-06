@@ -295,17 +295,21 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
       moved underneath the grain, which then reads it again.
    7. The relay Hub, after the commit: `device.relay-changed` is journaled only when it differs
       from the last one; a frame that is not committed records none.
-   8. Only after that, the `Downlink` (`acked_counter`, `server_time_ms`, the frame's
-      `reading_seq` ranges, no commands) is sealed with the `ack/v1` key under the reserved counter.
-      `stored` when at least one key was new (or the Device is paused), `duplicate` otherwise.
+   8. The Specification set, when the frame's `spec_hash` is not the known one and a set is
+      attached (see [Sensor Specifications](#sensor-specifications)).
+   9. Only after that, the `Downlink` (`acked_counter`, `server_time_ms`, the frame's
+      `reading_seq` ranges, no commands, `specifications_unknown`) is sealed with the `ack/v1` key
+      under the reserved counter. `stored` when at least one key was new (or the Device is paused),
+      `duplicate` otherwise.
 5. The handler answers 200 with one `{status, downlink?}` per frame, or 503 `ingest-unavailable`
    when there were frames and every one was `retry`.
 
 A failed transaction answers `retry` and leaves no trace: the grain drops its in-memory window and
 reads it again for the next frame, so memory never runs ahead of the database. The downlink counter
 is never kept in memory, so no counter is reused after a restart. No event is journaled per frame.
-One `retry` does leave rows behind: when the frame committed but the changed relay Hub could not be
-journaled, the frame is not acknowledged, and the Node's resend is a `duplicate`.
+Two kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub could
+not be journaled, or its Specification set could not be declared, the frame is not acknowledged, and
+the Node's resend is a `duplicate`.
 
 Time: a synced Reading keeps the Node's `measured_at`. An unsynced one (`time_unsynced`, with its
 `boot_id` and `uptime_ms` kept) is rebased: taken by the boot that sealed the frame, it is
@@ -313,12 +317,70 @@ Time: a synced Reading keeps the Node's `measured_at`. An unsynced one (`time_un
 earlier boot, it is the receive time.
 
 A Sensor ID is `UUIDv5(namespace, "{deviceIdHex}:{slot}:{quantity}")` from
-[`packages/crypto-spec`](../../packages/crypto-spec) (`Coldframe.Crypto.SensorIds`). `spec_hash` is
-carried and ignored until Story 4.6; `calibration_id` is `NULL` until Epic 5. Pause has no API yet:
-`device.paused` and `device.resumed` exist as events and state only (Epic 8).
+[`packages/crypto-spec`](../../packages/crypto-spec) (`Coldframe.Crypto.SensorIds`); `slot` is the
+Sensor's index in the Node's Specification set. `calibration_id` is `NULL` until Epic 5. Pause has no
+API yet: `device.paused` and `device.resumed` exist as events and state only (Epic 8).
 
 Tests drive ingestion through the Device simulator only (`SimulatedDevice.Wake`, `SealFrame`,
 `IngestBody`, `IngestRequest`, `ReadIngestResponse`, `OpenDownlink`).
+
+### Sensor Specifications
+
+A Node declares its Sensors on its first report (AD-19, FR-3). The wire side is in
+[`packages/proto`](../../packages/proto/README.md#specifications); the Server side is the Device grain
+and the Sensor grain (`server/Sensors/SensorGrain.cs`, `sensor/{sensorId}`).
+
+1. Every frame carries `spec_hash`. The Device grain keeps one **known hash** per Device: the hash
+   of the last set it accepted. It never recomputes a hash, it only compares. An empty hash is never
+   known.
+2. A frame whose hash is not the known one is stored and acknowledged as always, and its `Downlink`
+   says `specifications_unknown`. The Node then attaches its `SpecificationSet` to its next frame,
+   once per request; a lost frame is asked for again by the next `Downlink`.
+3. A frame with an unknown hash and a valid set, after its commit and relay change: the Device grain
+   calls `ISensorGrain.Declare` on every Sensor of the set (the Sensor ID of slot *i* and its
+   quantity), and only then journals `device.specifications-declared` `{specHash, sensors: [{slot,
+   quantity, sensorId}], declaredAt}`. From then on the hash is known and the `Downlink` stops
+   asking. When a step fails, the frame answers `retry` and the hash stays unknown; a declaration is
+   idempotent, so the Node's next set repeats it harmlessly. A declaration that failed partway can
+   leave `sensor.declared` or `sensor.specification-changed` on Sensor streams for a set the Device
+   never accepted: the Device's Sensor list, not the existence of a Sensor stream, says which
+   Sensors a Node has.
+4. A set that breaks the contract (a hash of 0 or more than 32 bytes, 0 or more than 32
+   Specifications, an unknown quantity or unit, `range_min >= range_max`, default low >= default
+   high, a default outside 0–100 for a calibrating Sensor or outside the range for any other) is
+   ignored: the Readings are stored and acknowledged, nothing is declared, the `Downlink` keeps
+   asking, and one warning names the Device (EventId 2, category
+   `Coldframe.Server.Devices.DeviceGrain`). `NodeFrameReader` decides this; it never changes the
+   frame's status.
+5. A known hash needs nothing, with or without a set attached: no event on any stream.
+
+A paused or unassigned Node declares too; only Readings pass the Pause gate.
+
+| Event on `sensor/{id}` | Journaled when |
+| --- | --- |
+| `sensor.declared` `{deviceId, slot, specification, declaredAt}` | The first declaration. Both Thresholds follow the Specification's defaults |
+| `sensor.specification-changed` `{specification, changedAt}` | A declaration with another Specification for the same slot and quantity. The same Specification journals nothing |
+| `sensor.thresholds-changed` `{low, high, changedAt}` | Never yet: Thresholds have no API until Story 5.3. Tests seed it |
+
+A `specification` is `{quantity, unit, rangeMin, rangeMax, calibration, defaultLow?, defaultHigh?}`;
+the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
+
+- **Thresholds.** Each side is `Default`, `Override` (with a value) or `Cleared`. A side in `Default`
+  reads the Specification's default, which may be absent. A declaration replaces the Specification
+  only: an override keeps its value and a cleared side stays cleared. `ISensorGrain.Describe` returns
+  the Specification and each side's kind and effective value, or `null` for a Sensor that was never
+  declared. Nothing validates Thresholds yet, and no endpoint or read model shows a Sensor.
+- **A new quantity at a slot is a new Sensor**, because the Sensor ID changes. The old Sensor's stream
+  is left as it is, and the Device's Sensor list holds only the Sensors of the last accepted set.
+- **Undeclared slots.** A Reading whose slot and quantity are not in the Device's Sensor list (sent
+  before the declaration, for a slot beyond the set, or with another quantity) is stored and
+  acknowledged under its derived Sensor ID and creates no Sensor stream. A later declaration produces
+  that same ID, so nothing is migrated. Nothing is evaluated yet: no Reading reaches a Sensor grain
+  before Epic 6, which will evaluate only the Sensors of that list.
+
+The simulator plays the Node: `SimulatedDevice.Specifications` (four Sensors matching
+`DefaultReadings`, settable), `SpecHash`, and `Wake`, which attaches the set once after `OpenDownlink`
+saw `specifications_unknown` (`attachSpecifications` attaches or withholds it explicitly).
 
 ### The Devices list
 
@@ -331,6 +393,7 @@ Tests drive ingestion through the Device simulator only (`SimulatedDevice.Wake`,
 | `device.assigned` | Sets `lot_id` |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
 | `device.relay-changed`, `device.paused`, `device.resumed` | Nothing (Stories 4.7, 4.8 and Epic 8 read them) |
+| `device.specifications-declared` | Nothing: no read model shows Sensors yet |
 
 `site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
 never journaled. `device.seen` carries no Site, so the projector keys on the stream ID. The projector
