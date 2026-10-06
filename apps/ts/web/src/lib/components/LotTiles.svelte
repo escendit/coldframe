@@ -1,43 +1,78 @@
 <script lang="ts">
-  import { t } from '$lib/i18n';
+  import { locale, t } from '$lib/i18n';
+  import { lotTile, type LotTile, type TileVariant } from '$lib/lot-tiles';
   import type { Lot } from '$lib/lots';
+  import Hatch from './Hatch.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
     /** In the Server's order (status, then creation); never re-sorted here (UX-DR20). */
     lots: readonly Lot[];
+    /** The clock durations and "today" are told against. */
+    now: Date;
+    timeZone: string;
+    /** Stale mode: when the Lots were last read; every tile is then drawn stale (UX-DR19). */
+    staleSince?: Date | null;
   }
 
-  let { lots }: Props = $props();
+  let { lots, now, timeZone, staleSince = null }: Props = $props();
+
+  const tiles = $derived(lots.map((lot) => lotTile(lot, { now, locale, timeZone, staleSince })));
+
+  const variantClass: Readonly<Record<TileVariant, string>> = {
+    needsWater: 'needs-water',
+    ok: 'ok',
+    unknown: 'unknown',
+    needsCalibration: 'needs-calibration',
+    paused: 'paused',
+    noNode: 'no-node',
+    stale: 'stale',
+  };
 </script>
 
+{#snippet content(tile: LotTile)}
+  <div class="cf-lot-tile__top">
+    <span class="cf-lot-tile__name">{tile.name}</span>
+    <span class="cf-lot-tile__status"><Icon name={tile.icon} /><span class="cf-lot-tile__label">{tile.label}</span></span>
+  </div>
+  <div class="cf-lot-tile__bottom">
+    {#if tile.value !== null}
+      <span class="cf-lot-tile__value">{tile.value}</span>
+    {/if}
+    {#if tile.foot !== null}
+      <span class="cf-lot-tile__foot">{tile.foot}</span>
+    {/if}
+  </div>
+{/snippet}
+
 <!--
-  Lot tiles (UX-DR18, UX-DR20). Only the no-Node variant exists in Story 1.9; any other status
-  shows the Lot name alone until its variant arrives. Tiles are not tappable yet: Lot detail and
-  Add a Node come later. Each tile is one accessibility element.
+  Lot tiles (UX-DR17 to UX-DR20): the six status variants and the stale one, each told apart by
+  shape and icon before colour. The models come from `lotTile`; the status is the Server's. Tiles
+  are not tappable yet: Lot detail comes later. Each tile is one accessibility element.
 -->
 <div class="cf-lot-grid-frame">
   <ul class="cf-lot-grid" aria-label={t('garden.lots')}>
-    {#each lots as lot (lot.id)}
-      <li class="cf-lot-grid__cell" data-lot={lot.id} data-status={lot.status}>
-        {#if lot.status === 'noNode'}
-          <div class="cf-lot-tile cf-lot-tile--no-node" role="img" aria-label={t('lotTile.noNodeLabel', { lotName: lot.name })}>
-            <div class="cf-lot-tile__top">
-              <span class="cf-lot-tile__name">{lot.name}</span>
-              <span class="cf-lot-tile__status"><Icon name="add" />{t('lotTile.noNode')}</span>
+    {#each tiles as tile (tile.id)}
+      <li class="cf-lot-grid__cell" data-lot={tile.id} data-status={tile.status} data-variant={tile.variant}>
+        <div class="cf-lot-tile cf-lot-tile--{variantClass[tile.variant]}" role="img" aria-label={tile.spoken}>
+          {#if tile.level !== null}
+            <span class="cf-lot-tile__level" style:--cf-lot-level="{tile.level}%"></span>
+          {/if}
+          {#if tile.low !== null}
+            <span class="cf-lot-tile__low" style:--cf-lot-low="{tile.low}%"></span>
+          {/if}
+          {#if tile.hatched}
+            <Hatch plate>
+              <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+              {@render content(tile)}
+            </Hatch>
+          {:else}
+            <div class="cf-lot-tile__body">
+              <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+              {@render content(tile)}
             </div>
-            <div class="cf-lot-tile__bottom">
-              <span class="cf-lot-tile__value">+</span>
-              <span class="cf-lot-tile__foot">{t('lotTile.addNode')}</span>
-            </div>
-          </div>
-        {:else}
-          <div class="cf-lot-tile cf-lot-tile--other" role="img" aria-label={lot.name}>
-            <div class="cf-lot-tile__top">
-              <span class="cf-lot-tile__name">{lot.name}</span>
-            </div>
-          </div>
-        {/if}
+          {/if}
+        </div>
       </li>
     {/each}
   </ul>
@@ -82,14 +117,57 @@
 
   /* At least 1 : 0.82, growing in height with its content; never clipped. */
   .cf-lot-tile {
+    position: relative;
+    isolation: isolate;
     display: grid;
-    align-content: space-between;
-    gap: var(--cf-spacing-5);
     box-sizing: border-box;
     aspect-ratio: 1 / 0.82;
-    padding: var(--cf-spacing-tile-padding-web);
     border-radius: var(--cf-radius-none);
     overflow-wrap: anywhere;
+  }
+
+  /* The text of a tile: the name and status at the top, the value and foot line at the bottom. In one column the value follows the status label directly and the tile grows downward. */
+  .cf-lot-tile__body,
+  .cf-lot-tile :global(.cf-hatch) {
+    display: grid;
+    align-content: start;
+    gap: var(--cf-spacing-5);
+    padding: var(--cf-spacing-tile-padding-web);
+  }
+
+  @container (min-width: 400px) {
+    .cf-lot-tile__body,
+    .cf-lot-tile :global(.cf-hatch) {
+      align-content: space-between;
+    }
+  }
+
+  .cf-lot-tile--needs-water {
+    background: var(--cf-color-status-water-fill);
+    border: 0;
+    color: var(--cf-color-status-water-ink);
+  }
+
+  .cf-lot-tile--ok {
+    background: var(--cf-color-status-ok-fill);
+    border: 1px solid var(--cf-color-status-ok-border);
+    color: var(--cf-color-text-primary);
+  }
+
+  .cf-lot-tile--unknown {
+    border: 1px dashed var(--cf-color-status-unknown-border);
+    color: var(--cf-color-text-primary);
+  }
+
+  .cf-lot-tile--needs-calibration {
+    border: 2px dashed var(--cf-color-status-calibration-border);
+    color: var(--cf-color-text-primary);
+  }
+
+  .cf-lot-tile--paused {
+    background: var(--cf-color-status-paused-fill);
+    border: 2px solid var(--cf-color-status-paused-border);
+    color: var(--cf-color-status-paused-ink);
   }
 
   .cf-lot-tile--no-node {
@@ -98,10 +176,41 @@
     color: var(--cf-color-status-no-node-ink);
   }
 
-  .cf-lot-tile--other {
+  /* Stale: every fill, hatch and colour is gone; only the outline and when the data is from. */
+  .cf-lot-tile--stale {
     background: transparent;
-    border: 1px solid var(--cf-color-border-subtle);
-    color: var(--cf-color-text-primary);
+    border: 1px solid var(--cf-color-stale-border);
+    color: var(--cf-color-text-secondary);
+  }
+
+  /* The soil level rises from the bottom edge to the Reading's percentage, under a 2 px edge. */
+  .cf-lot-tile__level {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    z-index: -1;
+    block-size: var(--cf-lot-level);
+    box-sizing: border-box;
+    border-block-start: 2px solid var(--cf-color-status-level-edge);
+    background: var(--cf-color-status-ok-level);
+  }
+
+  .cf-lot-tile--needs-water .cf-lot-tile__level {
+    border-block-start-color: var(--cf-color-status-water-ink);
+    background: var(--cf-color-status-water-level);
+  }
+
+  /* A 12 px tick on the right edge at the height of the low Threshold. */
+  .cf-lot-tile__low {
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block-end: var(--cf-lot-low);
+    inline-size: 12px;
+    border-block-start: 2px solid var(--cf-color-status-low-marker);
+  }
+
+  .cf-lot-tile--needs-water .cf-lot-tile__low {
+    border-block-start-color: var(--cf-color-status-water-ink);
   }
 
   .cf-lot-tile__top,
@@ -128,6 +237,10 @@
     text-transform: uppercase;
   }
 
+  .cf-lot-tile--needs-calibration .cf-lot-tile__status {
+    color: var(--cf-color-status-calibration-ink);
+  }
+
   .cf-lot-tile__value {
     font-family: var(--cf-type-tile-value-web-font-family);
     font-size: var(--cf-type-tile-value-web-font-size);
@@ -139,5 +252,15 @@
     font-family: var(--cf-type-meta-mono-font-family);
     font-size: var(--cf-type-meta-mono-font-size);
     line-height: var(--cf-type-meta-mono-line-height);
+  }
+
+  .cf-lot-tile--ok .cf-lot-tile__foot,
+  .cf-lot-tile--unknown .cf-lot-tile__foot,
+  .cf-lot-tile--needs-calibration .cf-lot-tile__foot {
+    color: var(--cf-color-text-secondary);
+  }
+
+  .cf-lot-tile--stale .cf-lot-tile__foot {
+    color: var(--cf-color-stale-ink);
   }
 </style>

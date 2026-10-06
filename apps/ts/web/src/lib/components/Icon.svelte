@@ -3,13 +3,18 @@
   import checkmark from '@coldframe/design-tokens/icons/checkmark.svg?raw';
   import checkmarkOutline from '@coldframe/design-tokens/icons/checkmark--outline.svg?raw';
   import chevronDown from '@coldframe/design-tokens/icons/chevron--down.svg?raw';
+  import cloudOffline from '@coldframe/design-tokens/icons/cloud--offline.svg?raw';
   import errorFilled from '@coldframe/design-tokens/icons/error--filled.svg?raw';
   import help from '@coldframe/design-tokens/icons/help.svg?raw';
   import grid from '@coldframe/design-tokens/icons/grid.svg?raw';
   import notification from '@coldframe/design-tokens/icons/notification.svg?raw';
   import overflowMenuVertical from '@coldframe/design-tokens/icons/overflow-menu--vertical.svg?raw';
+  import pauseOutline from '@coldframe/design-tokens/icons/pause--outline.svg?raw';
+  import rainDrop from '@coldframe/design-tokens/icons/rain-drop.svg?raw';
   import box from '@coldframe/design-tokens/icons/box.svg?raw';
   import settings from '@coldframe/design-tokens/icons/settings.svg?raw';
+  import time from '@coldframe/design-tokens/icons/time.svg?raw';
+  import tools from '@coldframe/design-tokens/icons/tools.svg?raw';
   import view from '@coldframe/design-tokens/icons/view.svg?raw';
 
   const sources = {
@@ -17,13 +22,18 @@
     checkmark,
     'checkmark--outline': checkmarkOutline,
     'chevron--down': chevronDown,
+    'cloud--offline': cloudOffline,
     'error--filled': errorFilled,
     grid,
     help,
     notification,
     'overflow-menu--vertical': overflowMenuVertical,
+    'pause--outline': pauseOutline,
+    'rain-drop': rainDrop,
     box,
     settings,
+    time,
+    tools,
     view,
   } as const;
 

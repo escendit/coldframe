@@ -150,11 +150,13 @@ describe('Shell load', () => {
   });
 
   test('a 503 or 500 listing the Sites shows the unavailable notice with Try again', async () => {
-    for (const answer of [problem(503, 'identity-provider-unavailable'), json(500, {})]) {
-      const fake = server(() => answer);
+    // A new Response per call: on the overview a failed read is retried once before the notice shows.
+    for (const answer of [() => problem(503, 'identity-provider-unavailable'), () => json(500, {})]) {
+      const fake = server(answer);
       const data = await loadShell(locals, new URL('http://x/garden'), new FakeCookies(), { serverUrl, fetch: fake.fetch });
       expect(data.sitesNotice).toBe('unavailable');
       expect(data.sites).toEqual([]);
+      expect(data.sitesStale).toBeNull();
     }
   });
 

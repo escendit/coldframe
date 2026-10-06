@@ -25,6 +25,7 @@ import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.sites.SiteMenuAction
+import com.escendit.coldframe.core.sites.SiteMenuItem
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
@@ -33,13 +34,16 @@ import com.escendit.coldframe.core.sites.SiteMenu as SiteMenuModel
 /**
  * Site menu (UX-DR22): the `overflow-menu--vertical` trigger at the right of the Site summary
  * header opens a Material dropdown with the core's items for the Role. For now that is only
- * "Site settings", which opens Site settings (UX-DR74); Pause arrives with its sheet.
+ * "Site settings", which opens Site settings (UX-DR74); Pause arrives with its sheet. [items] are
+ * the core's: in stale mode it hands them over disabled, and a disabled item says "Needs your
+ * Server" (UX-DR79).
  */
 @Composable
 fun SiteMenu(
     site: SiteSummary,
     onOpenSiteSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    items: List<SiteMenuItem> = SiteMenuModel.items(site.role),
 ) {
     val colors = Coldframe.colors
     var open by rememberSaveable { mutableStateOf(false) }
@@ -63,7 +67,7 @@ fun SiteMenu(
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
         ) {
-            SiteMenuModel.items(site.role).forEach { item ->
+            items.forEach { item ->
                 DropdownMenuItem(
                     text = {
                         Column {

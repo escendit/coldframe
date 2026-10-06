@@ -73,7 +73,7 @@ describe('@coldframe/api-client', () => {
 
   test('the Lot operations use the contract paths and methods; removeLot answers 204 without a body', async () => {
     const site = '00000000-0000-4000-8000-00000000000a';
-    const lot: Lot = { id: '0192a000-0000-7000-8000-000000000011', name: 'Tomatoes', status: 'noNode' };
+    const lot: Lot = { id: '0192a000-0000-7000-8000-000000000011', name: 'Tomatoes', status: 'noNode', statusSince: '2026-10-06T07:02:00.000Z' };
     const answers = [json(200, { lots: [lot] }), json(201, lot), json(200, { ...lot, name: 'Beans' }), new Response(null, { status: 204 }), json(200, { id: site, name: 'Home garden', role: 'Owner' })];
     const { fetch, seen } = recording(() => answers.shift() ?? json(500, {}));
     const client = createColdframeClient({ baseUrl: 'https://server.example', accessToken: 't', fetch });

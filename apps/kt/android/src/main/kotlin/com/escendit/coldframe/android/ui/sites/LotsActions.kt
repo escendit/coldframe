@@ -12,6 +12,8 @@ import com.escendit.coldframe.core.sites.NameError
  */
 class LotsActions(
     val load: () -> Unit = {},
+    /** Pull-to-refresh, and the app coming back to the foreground. */
+    val refresh: () -> Unit = {},
     val setSiteName: (String) -> Unit = {},
     val renameSite: () -> Unit = {},
     val setNewLotName: (String) -> Unit = {},
@@ -30,6 +32,7 @@ class LotsActions(
         fun of(engine: LotsEngine): LotsActions =
             LotsActions(
                 load = engine::load,
+                refresh = engine::refresh,
                 setSiteName = engine::setSiteName,
                 renameSite = engine::renameSite,
                 setNewLotName = engine::setNewLotName,

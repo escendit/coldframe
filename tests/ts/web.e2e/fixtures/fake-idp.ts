@@ -5,7 +5,9 @@
  * and an in-memory Site and Lot API (`GET`/`POST /sites`, `PATCH /sites/{id}`, the
  * `/sites/{id}/lots` routes) plus the Devices list (`GET /sites/{id}/devices`). Control endpoints
  * switch failure modes, list every token it issued, and reset or seed the Sites, Lots (a Lot can
- * be seeded as holding a Node) and Devices (the list can be seeded to fail).
+ * be seeded as holding a Node, or with a whole status as the Server would compute it) and Devices
+ * (the list can be seeded to fail). `POST /control/reads` makes the Sites and Lots reads fail
+ * after they succeeded: the connection is dropped, as from a Server that cannot be reached.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -42,14 +44,34 @@ export interface FakeSitePost {
   readonly body: Record<string, unknown>;
 }
 
-/** A Lot of the fake Server. `claimed` stands in for a Node assigned to it (Epic 4). */
+/** The six statuses in the Server's order. */
+export const lotStatusOrder = ['needsWater', 'needsCalibration', 'unknown', 'ok', 'paused', 'noNode'] as const;
+
+/**
+ * A Lot of the fake Server. `claimed` stands in for a Node assigned to it (Epic 4): without a
+ * seeded `status` such a Lot is `unknown` by its Node, and any other Lot has no Node. The status
+ * fields are returned as seeded; the fake computes nothing, as the real Server is the one that does.
+ */
 export interface FakeLot {
   readonly id: string;
   readonly siteId: string;
   readonly name: string;
   readonly claimed?: boolean;
   readonly removed?: boolean;
+  readonly status?: string;
+  readonly statusSince?: string;
+  readonly lastReadingAt?: string;
+  readonly unknownCause?: 'node' | 'hub';
+  readonly pausedBy?: readonly ('device' | 'site')[];
+  readonly pausedUntil?: string;
+  readonly moisturePercent?: number;
+  readonly lowThresholdPercent?: number;
 }
+
+/** Which reads of the fake Server fail: none, the Sites and the Lots, or the Lots only. */
+export type FailingReads = 'none' | 'all' | 'lots';
+
+export const failingReads: readonly FailingReads[] = ['none', 'all', 'lots'];
 
 /** A Device of the fake Server, as `GET /sites/{id}/devices` lists it; `online` is seeded, as the Server computes it. */
 export interface FakeDevice {
@@ -140,6 +162,12 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let devices: FakeDevice[] = [];
   /** Set to answer the Devices list with this status instead (a Server that is down). */
   let devicesStatus: number | null = null;
+  /** Reads that drop the connection instead of answering. */
+  let failing: FailingReads = 'none';
+  /** How many times the Lots of any Site were asked for since the last reset. */
+  let lotReads = 0;
+  /** The `statusSince` of a Lot seeded without one. */
+  const startedAt = new Date().toISOString();
 
   /** The fake Server accepts only access tokens this provider issued. */
   function bearerOk(request: IncomingMessage): boolean {
@@ -212,6 +240,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       lots = Array.isArray(body.lots) ? (body.lots as FakeLot[]) : [];
       devices = Array.isArray(body.devices) ? (body.devices as FakeDevice[]) : [];
       devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
+      failing = 'none';
+      lotReads = 0;
       posts = [];
       lotPosts = [];
       created.clear();
@@ -220,7 +250,17 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       return;
     }
     if (path === '/control/sites') {
-      send(response, 200, { sites, posts, lots, lotPosts });
+      send(response, 200, { sites, posts, lots, lotPosts, lotReads });
+      return;
+    }
+    if (path === '/control/reads' && request.method === 'POST') {
+      const requested = (await readJson(request)).failing;
+      if (typeof requested !== 'string' || !failingReads.includes(requested as FailingReads)) {
+        send(response, 400, { error: 'unknown reads' });
+        return;
+      }
+      failing = requested as FailingReads;
+      send(response, 200, { failing });
       return;
     }
 
@@ -231,6 +271,11 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         return;
       }
       if (request.method === 'GET') {
+        if (failing === 'all') {
+          // No answer at all: the web app sees a Server it cannot reach.
+          request.socket.destroy();
+          return;
+        }
         send(response, 200, { sites });
         return;
       }
@@ -302,14 +347,27 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         problem(response, 404, 'site-not-found');
         return;
       }
-      const rank = { Member: 1, Administrator: 2, Owner: 3 } as const;
-      const allowed = (minimum: keyof typeof rank): boolean => rank[site.role] >= rank[minimum];
+      const roleRank = { Member: 1, Administrator: 2, Owner: 3 } as const;
+      const allowed = (minimum: keyof typeof roleRank): boolean => roleRank[site.role] >= roleRank[minimum];
+      const statusOf = (lot: FakeLot): string => lot.status ?? (lot.claimed === true ? 'unknown' : 'noNode');
       const lotView = (lot: FakeLot): Record<string, unknown> => ({
         id: lot.id,
         name: lot.name,
-        status: lot.claimed === true ? 'unknown' : 'noNode',
+        status: statusOf(lot),
+        statusSince: lot.statusSince ?? startedAt,
+        ...(lot.lastReadingAt === undefined ? {} : { lastReadingAt: lot.lastReadingAt }),
+        ...(lot.unknownCause !== undefined ? { unknownCause: lot.unknownCause } : statusOf(lot) === 'unknown' ? { unknownCause: 'node' } : {}),
+        ...(lot.pausedBy === undefined ? {} : { pausedBy: lot.pausedBy }),
+        ...(lot.pausedUntil === undefined ? {} : { pausedUntil: lot.pausedUntil }),
+        ...(lot.moisturePercent === undefined ? {} : { moisturePercent: lot.moisturePercent }),
+        ...(lot.lowThresholdPercent === undefined ? {} : { lowThresholdPercent: lot.lowThresholdPercent }),
         ...(lot.removed === true ? { removed: true } : {}),
       });
+      /** The Server's order: by status, then creation. A status outside the contract sorts last. */
+      const rank = (lot: FakeLot): number => {
+        const index = (lotStatusOrder as readonly string[]).indexOf(statusOf(lot));
+        return index === -1 ? lotStatusOrder.length : index;
+      };
       const nameOf = (body: Record<string, unknown>): string | null => {
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         return name === '' || name.length > 100 ? null : name;
@@ -338,10 +396,14 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       const lotId = siteMatch[3] === undefined ? null : decodeURIComponent(siteMatch[3]);
       if (lotId === null) {
         if (request.method === 'GET') {
-          // The Server's order: status (unknown before noNode), then creation.
+          lotReads++;
+          if (failing !== 'none') {
+            request.socket.destroy();
+            return;
+          }
           const live = lots.filter((lot) => lot.siteId === siteId && lot.removed !== true);
-          const ordered = [...live.filter((lot) => lot.claimed === true), ...live.filter((lot) => lot.claimed !== true)];
-          send(response, 200, { lots: ordered.map(lotView) });
+          const ordered = live.map((lot, index) => ({ lot, index })).toSorted((a, b) => rank(a.lot) - rank(b.lot) || a.index - b.index);
+          send(response, 200, { lots: ordered.map(({ lot }) => lotView(lot)) });
           return;
         }
         if (request.method !== 'POST') {

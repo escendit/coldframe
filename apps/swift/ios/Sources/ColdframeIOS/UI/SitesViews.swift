@@ -188,9 +188,12 @@
     }
   }
 
-  /// The Garden (UX-DR62, UX-DR82): the Site summary header with the switcher and the Site
-  /// menu, "No Readings yet", the four first-run tiles (UX-DR54) and the Member notice, then the
-  /// Site's Lot tiles in the Server's order (UX-DR18, UX-DR20). The Site menu's Site settings
+  /// The Site overview (UX-DR62, UX-DR82): the Site name with the switcher and the Site menu,
+  /// then the summary (UX-DR21, UX-DR129), or the stale header in stale mode (UX-DR24), or
+  /// "Loading ‹Site›" on a first load (UX-DR80); the four first-run tiles (UX-DR54) and the
+  /// Member notice; then the Site's Lot tiles in the Server's order (UX-DR18 to UX-DR20). Pull
+  /// to refresh reads the Lots again (UX-DR112). A one-minute tick moves the stale age and the
+  /// tiles' durations; it fetches nothing and announces nothing. The Site menu's Site settings
   /// opens Site settings (UX-DR74). A *no Node* Lot tile starts Add a Node with its Lot for
   /// Administrators and Owners; the first-run "Add a Node" step tile starts nothing.
   public struct GardenView: View {
@@ -200,15 +203,19 @@
     let lotsActions: LotsActions
     let onAddHub: () -> Void
     let onAddNode: (String) -> Void
+    let now: () -> Date
+    let timeZone: TimeZone
     @State private var switching = false
     @State private var openingSiteSettings = false
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
 
     public init(
       presentation: GardenPresentation, lots: LotsPresentation = .waiting,
       actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
-      onAddNode: @escaping (String) -> Void = { _ in }
+      onAddNode: @escaping (String) -> Void = { _ in },
+      now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
     ) {
       self.presentation = presentation
       self.lots = lots
@@ -216,21 +223,37 @@
       self.lotsActions = lotsActions
       self.onAddHub = onAddHub
       self.onAddNode = onAddNode
+      self.now = now
+      self.timeZone = timeZone
     }
 
     public var body: some View {
+      let context = CopyContext.catalogue(now: now(), timeZone: timeZone, locale: locale)
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.step6) {
-          header
+          header(context)
           tiles
           if let notice = presentation.memberNotice {
             InlineNotice(message: notice)
           }
-          LotGrid(lots: lots, onTryAgain: lotsActions.load, onAddNode: onAddNode)
+          LotGrid(
+            lots: lots, context: context, onTryAgain: lotsActions.load, onAddNode: onAddNode)
         }
         .padding(Spacing.gutterMobile)
       }
       .background(palette.background)
+      .refreshable { [lotsActions] in
+        await MainActor.run { lotsActions.refresh() }
+      }
+      .task { [lotsActions] in
+        // The only timer of the overview: once a minute the core's snapshot is read again.
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .seconds(60))
+          if !Task.isCancelled {
+            await MainActor.run { lotsActions.tick() }
+          }
+        }
+      }
       .navigationDestination(isPresented: $openingSiteSettings) {
         SiteSettingsView(presentation: lots, actions: lotsActions)
       }
@@ -248,8 +271,9 @@
       }
     }
 
-    private var header: some View {
-      VStack(alignment: .leading, spacing: Spacing.step3) {
+    private func header(_ context: CopyContext) -> some View {
+      let menu = presentation.menu(lots: lots)
+      return VStack(alignment: .leading, spacing: Spacing.step3) {
         HStack(alignment: .top, spacing: Spacing.step3) {
           Button {
             switching = true
@@ -269,14 +293,20 @@
           .accessibilityLabel(Text(verbatim: L10n.sitesOpenSwitcher.string(presentation.siteName)))
           Spacer(minLength: 0)
           SiteMenu(
-            siteName: presentation.siteName, items: presentation.menuItems,
-            enabled: presentation.menuEnabled, onOpenSiteSettings: { openingSiteSettings = true })
+            siteName: presentation.siteName, items: menu.items, enabled: menu.enabled,
+            onOpenSiteSettings: { openingSiteSettings = true })
         }
-        presentation.headline.text.role(Typography.headline).foregroundStyle(palette.textPrimary)
-          .fixedSize(horizontal: false, vertical: true)
-          .accessibilityAddTraits(.isHeader)
-        presentation.subline.text.role(Typography.body).foregroundStyle(palette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+        switch presentation.header(lots: lots) {
+        case .summary(let summary):
+          SiteSummaryHeader(summary: summary, context: context)
+        case .stale(let stale):
+          StaleHeader(stale: stale, context: context)
+        case .loading(let siteName):
+          Text(verbatim: L10n.gardenLoading.string(siteName)).role(Typography.headline)
+            .foregroundStyle(palette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+        }
       }
     }
 
@@ -301,6 +331,55 @@
             }
           }
         }
+      }
+    }
+  }
+
+  /// The Site summary (UX-DR21, UX-DR129): the headline sentence, exposed as a heading and in
+  /// paused ink for a paused Site, over the counts subline.
+  struct SiteSummaryHeader: View {
+    let summary: SiteSummaryPresentation
+    let context: CopyContext
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+      VStack(alignment: .leading, spacing: Spacing.step3) {
+        Text(verbatim: summary.headline(context)).role(Typography.headline)
+          .foregroundStyle(palette.color(summary.headlineInk))
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityAddTraits(.isHeader)
+        if let subline = summary.subline(context) {
+          Text(verbatim: subline).role(Typography.body).foregroundStyle(palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+  }
+
+  /// The stale header (UX-DR24): `cloud--offline` beside "‹Site› · can't reach your Server",
+  /// the age in `headline` and `stale-ink`, and the line that says when the data is from. The
+  /// age changes with the minute tick as plain text: nothing here posts an announcement.
+  struct StaleHeader: View {
+    let stale: StaleHeaderPresentation
+    let context: CopyContext
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+      VStack(alignment: .leading, spacing: Spacing.step3) {
+        HStack(alignment: .top, spacing: Spacing.step2) {
+          CarbonIconShape(stale.icon).fill(palette.textPrimary).frame(width: 20, height: 20)
+            .accessibilityHidden(true)
+          Text(verbatim: stale.title(context)).role(Typography.bodyLg)
+            .foregroundStyle(palette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        Text(verbatim: stale.ageText(context)).role(Typography.headline)
+          .foregroundStyle(palette.color(stale.ageInk))
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityAddTraits(.isHeader)
+        Text(verbatim: stale.detail(context)).role(Typography.body)
+          .foregroundStyle(palette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }

@@ -32,6 +32,9 @@ class FakeLotsApi : LotsApi {
     val calls = mutableListOf<String>()
     val keys = mutableListOf<String>()
     val failures = ArrayDeque<ApiFailure>()
+
+    /** Fails the next list calls, one each; then [listFailure] decides. */
+    val listFailures = ArrayDeque<ApiFailure>()
     var listFailure: ApiFailure? = null
     var listGate: CompletableDeferred<Unit>? = null
     private val byKey = mutableMapOf<String, LotDto>()
@@ -40,6 +43,7 @@ class FakeLotsApi : LotsApi {
     override suspend fun listLots(siteId: String): ApiResult<LotListDto> {
         calls += "list $siteId"
         listGate?.await()
+        listFailures.removeFirstOrNull()?.let { return ApiResult.Failed(it) }
         listFailure?.let { return ApiResult.Failed(it) }
         return ApiResult.Ok(LotListDto(lots[siteId].orEmpty().toList()))
     }
@@ -110,7 +114,7 @@ class LotsEngineTest {
                 newKey = { "site-key" },
                 zones = { emptyList() },
             )
-        val lots = LotsEngine(api, sitesEngine, backgroundScope, newKey = { "key-${++keys}" })
+        val lots = LotsEngine(api, sitesEngine, MapSettings(), backgroundScope, newKey = { "key-${++keys}" })
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
         return sitesEngine to lots
@@ -153,6 +157,7 @@ class LotsEngineTest {
                 LotsEngine(
                     api,
                     SitesEngine(sitesApi, DeviceChoices(MapSettings()), backgroundScope, signIn),
+                    MapSettings(),
                     backgroundScope,
                 )
             runCurrent()

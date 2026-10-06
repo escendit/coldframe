@@ -63,3 +63,15 @@ func numbersAndPercent() {
   #expect(Formats.percent(20, locale: Locale(identifier: "de_DE")).hasPrefix("20"))
   #expect(Formats.percent(20, locale: Locale(identifier: "de_DE")) != "20%")
 }
+
+@Test("UX-DR127 a day without its year is 1 Nov, or 1 November in full")
+func days() {
+  let zurich = TimeZone(identifier: "Europe/Zurich")!
+  let november = Date(timeIntervalSince1970: 1_793_534_400)  // 2026-11-01 12:00 UTC
+  let english = Locale(identifier: "en_GB")
+
+  #expect(Formats.day(november, timeZone: zurich, locale: english) == "1 Nov")
+  #expect(Formats.day(november, timeZone: zurich, locale: english, long: true) == "1 November")
+  #expect(
+    Formats.day(november, timeZone: zurich, locale: Locale(identifier: "en_US")) == "Nov 1")
+}

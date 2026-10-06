@@ -61,8 +61,26 @@ public sealed record RenameLotRequest(string? Name);
 /// <param name="Id">The Lot ID.</param>
 /// <param name="Name">The Lot name.</param>
 /// <param name="Status">The Server's status (AD-14), a <c>LotStatus</c> of the contract.</param>
+/// <param name="StatusSince">When the Lot got that status, ISO-8601 UTC.</param>
+/// <param name="LastReadingAt">The newest Reading time of the Lot's Node since it took the Lot, ISO-8601 UTC; omitted without one.</param>
+/// <param name="UnknownCause"><c>node</c> or <c>hub</c>; sent only for an <c>unknown</c> Lot.</param>
+/// <param name="PausedBy"><c>device</c> and/or <c>site</c>; sent only for a <c>paused</c> Lot.</param>
+/// <param name="PausedUntil">When the Pause ends, ISO-8601 UTC; omitted when the Lot is not paused or the Pause has no end.</param>
 /// <param name="Removed"><see langword="true"/> for a removed Lot; omitted otherwise.</param>
-public sealed record LotResponse(string Id, string Name, string Status, bool? Removed = null);
+/// <remarks>
+/// The contract's <c>moisturePercent</c> and <c>lowThresholdPercent</c> are not here: nothing produces them
+/// before Calibration (Epic 5) and Threshold Alerts (Epic 6), so the Server never sends them.
+/// </remarks>
+public sealed record LotResponse(
+    string Id,
+    string Name,
+    string Status,
+    string StatusSince,
+    string? LastReadingAt = null,
+    string? UnknownCause = null,
+    IReadOnlyList<string>? PausedBy = null,
+    string? PausedUntil = null,
+    bool? Removed = null);
 
 /// <summary>
 /// The body of <c>GET /sites/{siteId}/lots</c>: the Site's live Lots in the Server's order.
@@ -966,14 +984,27 @@ public static partial class EdgeApi
         Guid.TryParse(lotId, out var id) ? id.ToString() : null;
 
     /// <summary>
-    /// Maps a Lot of the read model to the response: <c>removed</c> only when true.
+    /// Maps a Lot of the read model to the response: every time in UTC, the optional fields only when set, and
+    /// <c>removed</c> only when true.
     /// </summary>
     internal static LotResponse ToLotResponse(LotView view)
     {
         ArgumentNullException.ThrowIfNull(view);
 
-        return new LotResponse(view.LotId, view.Name, view.Status, view.Removed ? true : null);
+        return new LotResponse(
+            view.LotId,
+            view.Name,
+            view.Status,
+            ToServerTime(view.StatusSince),
+            view.LastReadingAt is { } lastReadingAt ? ToServerTime(lastReadingAt) : null,
+            view.UnknownCause,
+            view.PausedBy is { Count: > 0 } ? view.PausedBy : null,
+            view.PausedUntil is { } pausedUntil ? ToServerTime(pausedUntil) : null,
+            view.Removed ? true : null);
     }
+
+    private static string ToServerTime(DateTimeOffset time) =>
+        time.UtcDateTime.ToString(ServerTimeFormat, CultureInfo.InvariantCulture);
 
     // The Lot grain brought the lots projection up to date before it returned (read-your-writes).
     private static async Task<LotView> FindLotAsync(LotsReadModel lots, string siteId, string lotId, HttpContext httpContext) =>

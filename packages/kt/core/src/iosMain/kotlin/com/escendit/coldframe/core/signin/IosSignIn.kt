@@ -38,18 +38,21 @@ public class IosSignIn private constructor(
 
     private val api = SitesWiring.api(config, Darwin.create(), engine)
 
+    /** Per-device choices and the last good Lots; not the Keychain. */
+    private val settings = NSUserDefaultsSettings(NSUserDefaults.standardUserDefaults)
+
     private val sitesEngine =
         SitesWiring.engine(
             api = api,
             signIn = engine,
-            settings = NSUserDefaultsSettings(NSUserDefaults.standardUserDefaults),
+            settings = settings,
             scope = scope,
         )
 
     /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
     public val sites: IosSites = IosSites(sitesEngine, scope)
 
-    private val lotsEngine = SitesWiring.lots(api, sitesEngine, scope)
+    private val lotsEngine = SitesWiring.lots(api, sitesEngine, settings, scope)
     private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope)
     private val radio = KableSetupRadio(IosRadioState())
     private val nodeSetupEngine =

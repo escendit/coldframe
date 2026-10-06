@@ -7,7 +7,7 @@ import com.russhwolf.settings.Settings
  * picked. The time zone waits here until the Notification Window story sends it to the User.
  */
 public class DeviceChoices(
-    private val settings: Settings,
+    internal val settings: Settings,
 ) {
     public var currentSiteId: String?
         get() = settings.getStringOrNull(CURRENT_SITE)

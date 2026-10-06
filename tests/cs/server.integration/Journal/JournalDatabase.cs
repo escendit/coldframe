@@ -32,7 +32,13 @@ public sealed class JournalDatabase(AppHostFixture fixture) : IAsyncLifetime
     public NpgsqlDataSource DataSource =>
         _dataSource ?? throw new InvalidOperationException("The database has not been created.");
 
-    public async ValueTask InitializeAsync()
+    public ValueTask InitializeAsync() => InitializeAsync(upTo: null);
+
+    /// <summary>
+    /// Creates the database and migrates it: to the end, or up to and including the migration
+    /// <paramref name="upTo"/>, as a database from before the later migrations.
+    /// </summary>
+    public async ValueTask InitializeAsync(long? upTo)
     {
         using var timeout = new CancellationTokenSource(AppHostFixture.ResourceTimeout);
 
@@ -57,7 +63,7 @@ public sealed class JournalDatabase(AppHostFixture fixture) : IAsyncLifetime
             await create.ExecuteNonQueryAsync(timeout.Token);
         }
 
-        Migrate(_connectionString);
+        Migrate(_connectionString, upTo);
 
         _dataSource = NpgsqlDataSource.Create(_connectionString);
     }
@@ -86,7 +92,14 @@ public sealed class JournalDatabase(AppHostFixture fixture) : IAsyncLifetime
     /// Runs the migration set against a database, exactly as the migration job does.
     /// </summary>
     /// <returns>Whether any migration was pending before the run.</returns>
-    public static bool Migrate(string connectionString)
+    public static bool Migrate(string connectionString) => Migrate(connectionString, upTo: null);
+
+    /// <summary>
+    /// Runs the migration set against a database up to and including the migration <paramref name="upTo"/>,
+    /// or to the end when it is <see langword="null"/>.
+    /// </summary>
+    /// <returns>Whether any migration was pending before the run.</returns>
+    public static bool Migrate(string connectionString, long? upTo)
     {
         using var services = new ServiceCollection()
             .AddColdframeMigrations(connectionString)
@@ -95,7 +108,15 @@ public sealed class JournalDatabase(AppHostFixture fixture) : IAsyncLifetime
 
         var runner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
         var pending = runner.HasMigrationsToApplyUp();
-        runner.MigrateUp();
+
+        if (upTo is { } version)
+        {
+            runner.MigrateUp(version);
+        }
+        else
+        {
+            runner.MigrateUp();
+        }
 
         return pending;
     }

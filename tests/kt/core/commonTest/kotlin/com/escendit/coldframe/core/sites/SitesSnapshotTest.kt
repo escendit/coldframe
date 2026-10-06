@@ -45,6 +45,14 @@ class SitesSnapshotTest {
     }
 
     @Test
+    fun uxDr80SitesKeptOnTheDeviceAreMarked() {
+        val home = SiteSummary("a", "Home", SiteRole.Owner)
+        assertFalse(snapshotOf(SitesState.Ready(listOf(home), home, creating = null)).fromCache)
+        assertTrue(snapshotOf(SitesState.Ready(listOf(home), home, creating = null, fromCache = true)).fromCache)
+        assertFalse(snapshotOf(SitesState.Failed(SitesNotice.Unreachable)).fromCache)
+    }
+
+    @Test
     fun theKeyNeverCrossesTheBoundary() {
         val snapshot = snapshotOf(SitesState.NeedsSite(form))
 

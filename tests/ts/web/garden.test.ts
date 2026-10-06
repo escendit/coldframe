@@ -22,7 +22,7 @@ function text(html: string): string {
 }
 
 function gardenPage(site: Site | null): string {
-  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: site === null ? [] : [site], currentSite: site, sitesNotice: null, lots: [], lotsNotice: null };
+  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: site === null ? [] : [site], currentSite: site, sitesNotice: null, sitesStale: null, lots: [], lotsNotice: null, staleSince: null, loadedAt: '2026-10-06T07:17:00.000Z', timeZone: 'UTC' };
   return render(GardenPage, { props: { data, params: {} } as never }).body;
 }
 

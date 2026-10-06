@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
@@ -33,12 +35,15 @@ import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import java.time.Instant
 
 /**
@@ -47,6 +52,11 @@ import java.time.Instant
  * Create Site replaces the tab shell without a Membership, and covers it from "New Site"; Add a
  * Hub and Add a Node cover it while their flow is open, and closing one returns to the tab it was
  * opened from.
+ *
+ * [now] is the clock of the shell: last-seen times, the stale age and the Lots' durations are told
+ * against it, and the Garden reads it again on its minute tick. [lotsEvents] are the core's
+ * stale-mode events for the Garden's polite announcements. [onForeground] runs on every start of
+ * the activity: the app resumes its session and reads the Lots again (UX-DR112).
  */
 @Composable
 fun ColdframeRoot(
@@ -67,7 +77,11 @@ fun ColdframeRoot(
     now: () -> Instant = Instant::now,
     nodeSetup: NodeSetupState = NodeSetupState.CLOSED,
     nodeSetupActions: NodeSetupActions = NodeSetupActions.None,
+    lotsEvents: Flow<LotsEvent> = emptyFlow(),
+    onForeground: () -> Unit = {},
 ) {
+    // Every start of the activity, the first one and each return to the foreground.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { onForeground() }
     ColdframeTheme(isDark = theme.isDark(systemIsDark)) {
         when (state) {
             SignInState.Restoring -> {
@@ -98,6 +112,7 @@ fun ColdframeRoot(
                     now,
                     nodeSetup,
                     nodeSetupActions,
+                    lotsEvents,
                 )
             }
         }
@@ -120,6 +135,7 @@ private fun SignedIn(
     now: () -> Instant,
     nodeSetup: NodeSetupState,
     nodeSetupActions: NodeSetupActions,
+    lotsEvents: Flow<LotsEvent>,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -180,6 +196,7 @@ private fun SignedIn(
                     devicesActions = devicesActions,
                     tabState = tab,
                     now = now,
+                    lotsEvents = lotsEvents,
                 )
             }
         }

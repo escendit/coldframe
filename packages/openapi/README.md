@@ -62,6 +62,14 @@ is planned today.
   Only `stored` and `duplicate` carry a `downlink`, which the Hub relays to the Node unchanged. 400
   is only an envelope that does not parse, 401 a failed Hub authentication, 503 an envelope whose
   every frame would be `retry`.
+- **Lot status.** Every `Lot` carries the Server's `status` (AD-14) and `statusSince`, the time it got
+  that status. The supporting fields are present only where they apply: `lastReadingAt` (the newest
+  `measured_at` of the Node's Readings since it was put in the Lot), `unknownCause` (`node` or `hub`,
+  only for `unknown`), `pausedBy` (`device` and/or `site`, only for `paused`) and `pausedUntil` (the
+  latest end of the Pause sources, absent when any of them has no end). `moisturePercent` and
+  `lowThresholdPercent` are part of the contract, but the Server sends them only once Calibration
+  (Epic 5) and Threshold Alerts (Epic 6) exist. Clients render these fields; they never compute a
+  status and never re-sort the list.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

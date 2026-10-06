@@ -89,6 +89,18 @@ object Formats {
         }
     }
 
+    /** A calendar day without its year: "1 Nov", or "1 November" when [long] (spoken labels). */
+    fun day(
+        instant: Instant,
+        zone: ZoneId,
+        locale: Locale,
+        long: Boolean = false,
+    ): String =
+        DateTimeFormatter
+            .ofPattern(DateFormat.getBestDateTimePattern(locale, if (long) "dMMMM" else "dMMM"), locale)
+            .withZone(zone)
+            .format(instant)
+
     /** A whole number in the locale's format. */
     fun number(
         value: Number,

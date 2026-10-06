@@ -28,6 +28,10 @@ declare global {
       /** Theme of this browser, from the `cf_theme` cookie. */
       theme?: Theme;
     }
+    interface PageData {
+      /** Site overview only: when its data was last read, while the Server cannot be reached. */
+      staleSince?: string | null;
+    }
   }
 }
 

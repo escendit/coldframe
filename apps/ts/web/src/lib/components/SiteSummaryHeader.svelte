@@ -5,15 +5,18 @@
     siteName: string;
     /** The one-sentence Site state, exposed as a heading ("No Readings yet"). */
     headline: string;
-    subline: string;
+    /** The counts, or the detail line of an empty Site; nothing is rendered without one. */
+    subline: string | null;
+    /** The whole Site is paused: the headline takes the paused ink (UX-DR129). */
+    paused?: boolean;
     /** The Site menu trigger (mobile places it here; the web puts it on the Site tab). */
     menu?: Snippet;
   }
 
-  let { siteName, headline, subline, menu }: Props = $props();
+  let { siteName, headline, subline, paused = false, menu }: Props = $props();
 </script>
 
-<!-- Site summary header (UX-DR21). No Readings yet, so there is no Site clock and no counts. -->
+<!-- Site summary header (UX-DR21): the headline sentence as a heading, then the counts. No Site clock yet. -->
 <section class="cf-site-summary" aria-labelledby="cf-site-summary-headline">
   <div class="cf-site-summary__top">
     <p class="cf-site-summary__name">{siteName}</p>
@@ -21,8 +24,10 @@
       {@render menu()}
     {/if}
   </div>
-  <h2 id="cf-site-summary-headline" class="cf-site-summary__headline">{headline}</h2>
-  <p class="cf-site-summary__subline">{subline}</p>
+  <h2 id="cf-site-summary-headline" class="cf-site-summary__headline" class:cf-site-summary__headline--paused={paused}>{headline}</h2>
+  {#if subline !== null}
+    <p class="cf-site-summary__subline">{subline}</p>
+  {/if}
 </section>
 
 <style>
@@ -56,6 +61,10 @@
     font-weight: var(--cf-type-headline-font-weight);
     line-height: var(--cf-type-headline-line-height);
     overflow-wrap: anywhere;
+  }
+
+  .cf-site-summary__headline--paused {
+    color: var(--cf-color-status-paused-ink);
   }
 
   .cf-site-summary__subline {

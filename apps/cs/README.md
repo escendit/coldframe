@@ -392,8 +392,8 @@ saw `specifications_unknown` (`attachSpecifications` attaches or withholds it ex
 | `device.enrolled` | Creates the row: `site_id`, `kind` (`hub` or `node`), `enrolled_at` |
 | `device.assigned` | Sets `lot_id` |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
-| `device.relay-changed`, `device.paused`, `device.resumed` | Nothing (Stories 4.7, 4.8 and Epic 8 read them) |
-| `device.specifications-declared` | Nothing: no read model shows Sensors yet |
+| `device.relay-changed` | Nothing (Story 4.8 and Epic 7 read it) |
+| `device.paused`, `device.resumed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |
 
 `site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
 never journaled. `device.seen` carries no Site, so the projector keys on the stream ID. The projector
@@ -407,6 +407,67 @@ missed heartbeats at the slowest interval of 60 s, so one late beat does not fli
 It is not the Hub Silence Window of the Silent Alert (Epic 7). A Device that never sent a heartbeat
 has no `lastSeenAt` and is offline. Clients show `online` as received and read the list again to
 refresh it; they never compute it and never keep it past a failed reload.
+
+### Lot status
+
+Every Lot has exactly one status, computed once on the Server (AD-14) and returned by
+`GET /sites/{siteId}/lots` and `GET /sites/{siteId}/lots/{lotId}`. Clients render it; they never
+compute a status and never re-sort the list.
+
+**The rule** is `LotStatusRule.Evaluate` (`server/Lots/LotStatusRule.cs`), a pure function and the only
+place that decides a status. The first line that holds wins:
+
+| Input | Status | Supporting field |
+| --- | --- | --- |
+| No Node on the Lot | `noNode` | |
+| The Node has a Pause source | `paused` | `pausedBy`: `device` and/or `site`; `pausedUntil`: the latest end, absent when any source has no end |
+| The Node or its relay Hub is silent | `unknown` | `unknownCause`: `node` or `hub` |
+| A `calibration: true` soil-moisture Sensor has no Calibration | `needsCalibration` | |
+| A low-side Threshold Alert is open on a soil-moisture Sensor | `needsWater` | |
+| Otherwise | `ok` | |
+
+The list is ordered `needsWater`, `needsCalibration`, `unknown`, `ok`, `paused`, `noNode`, then by
+creation time, then by Lot ID (`LotsReadModel.StatusOrder`).
+
+**The projection.** `LotsProjector` (projector name `lots`) is the only writer of `lots` and of its two
+support tables. It reads three kinds of streams and, after every event that can change a status, runs
+the Lots it touches through the rule again:
+
+| Event | Effect |
+| --- | --- |
+| `lot.created`, `lot.renamed`, `lot.removed` | The row, its name, its tombstone |
+| `lot.claimed`, `lot.released` | `claimed_by` and `claimed_at`; the Lot is evaluated |
+| `device.paused`, `device.resumed` | The Device's Pause sources and their ends in `lot_status_devices`; its Lot is evaluated |
+| `device.specifications-declared` | The Sensor IDs of the Device's accepted set in `lot_status_devices`; its Lot is evaluated |
+| `sensor.declared`, `sensor.specification-changed` | The Sensor's Device, quantity and `calibration` flag in `lot_status_sensors`; the Lot of its Device is evaluated |
+
+`status_since` moves only when the status changes, to the time of the event that changed it: the
+journal's `recorded_at` for a Lot event (Lot events carry no time), the event's own time otherwise.
+Applying an event again therefore changes nothing. A Sensor is declared before its Device's set
+(`sensor.declared` precedes `device.specifications-declared` in the journal); until the set names the
+Sensor, the Lot keeps its status. To rebuild, delete the three tables' rows and the `lots` checkpoint;
+the migration that added the status columns does exactly that, so Lots from before it get their
+status and its time from the journal when the Server starts.
+
+**Live and fixture-only inputs.** Three inputs are live in Epic 4: the Node on the Lot, the Pause
+sources (journaled only by tests until Epic 8 adds the commands), and the uncalibrated soil Sensor.
+No Calibration exists before Epic 5, so every declared `calibration: true` soil-moisture Sensor counts
+as uncalibrated. The other two have no producer yet:
+
+- **Silence.** No Silent Alert exists before Epic 7. The only silence the projector knows is a Node
+  that has declared no Sensor: it has never reported, so its Lot is `unknown` with `unknownCause: node`
+  (`LotsProjector.InputsOf`). Without this a freshly assigned Node would read `ok`. `unknownCause: hub`
+  is never produced.
+- **Open low-side Alert.** No Threshold Alert exists before Epic 6; the projector always passes
+  "none", so `needsWater` is never produced.
+
+Tests and client fixtures cover `needsWater` and `unknown` by Hub with seeded rows.
+
+**`lastReadingAt` is read, not projected.** Both queries of `LotsReadModel` take the newest
+`measured_at` of the Readings of the Lot's Node with `measured_at >= claimed_at`, through
+`ix_readings_device_id_measured_at`. It is absent without a Node or before its first Reading since it
+took the Lot. `moisturePercent` and `lowThresholdPercent` are in the contract for the clients'
+fixtures, but `LotResponse` has no such property: the Server sends them from Epics 5 and 6 on.
 
 ### Add an endpoint
 

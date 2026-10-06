@@ -9,8 +9,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
@@ -19,7 +17,8 @@ import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 
 /**
- * Registers the Custom Tabs flow, resumes the session on every foreground, renders the root.
+ * Registers the Custom Tabs flow, renders the root, and on every foreground resumes the session
+ * and reads the Lots again (stale mode is left by the first read that succeeds).
  * Add a Hub and Add a Node keep the screen on through their own view while a flow is open.
  */
 class MainActivity : ComponentActivity() {
@@ -60,7 +59,6 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose {}
             }
-            LifecycleEventEffect(Lifecycle.Event.ON_START) { engine.resume() }
             ColdframeRoot(
                 state = state,
                 sites = sitesState,
@@ -78,6 +76,12 @@ class MainActivity : ComponentActivity() {
                 devicesActions = devicesActions,
                 nodeSetup = nodeSetupState,
                 nodeSetupActions = nodeSetupActions,
+                lotsEvents = lots.events,
+                // Reload on start: a no-op until a Site is current, else the Lots are read again.
+                onForeground = {
+                    engine.resume()
+                    lots.refresh()
+                },
             )
         }
     }
