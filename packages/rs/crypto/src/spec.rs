@@ -171,3 +171,30 @@ pub const HEARTBEAT_NONCE_LENGTH: usize = 16;
 
 /// Largest accepted difference between the request time and the Server clock, in ms.
 pub const HEARTBEAT_MAX_SKEW_MS: u64 = 300000;
+
+// Sensor identity (AD-19)
+
+/// UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace,
+/// "https://github.com/escendit/coldframe/sensor"): `sensorId = UUIDv5(namespace, name), name =
+/// UTF-8 of nameFormat; namespace = UUIDv5(urlNamespace, namespaceName)`.
+pub const SENSOR_ID_NAMESPACE: &str = "5f496f62-2f32-5456-8b2a-ebe01228c999";
+
+/// The UUIDv5 name of a Sensor: deviceIdHex is the Device ID as 16 lowercase hex digits, slot the
+/// decimal slot without leading zeros, quantity one of the tokens below.
+pub const SENSOR_ID_NAME_FORMAT: &str = "{deviceIdHex}:{slot}:{quantity}";
+
+/// Quantity token of soil moisture.
+pub const SENSOR_QUANTITY_SOIL_MOISTURE: &str = "soil_moisture";
+
+/// Quantity token of air temperature.
+pub const SENSOR_QUANTITY_AIR_TEMPERATURE: &str = "air_temperature";
+
+/// Quantity token of relative humidity.
+pub const SENSOR_QUANTITY_RELATIVE_HUMIDITY: &str = "relative_humidity";
+
+/// Quantity token of raw gas resistance.
+pub const SENSOR_QUANTITY_GAS_RESISTANCE: &str = "gas_resistance";
+
+/// Stands in for the Sensor ID where a device report is keyed: the nil UUID stands in for the
+/// Sensor in the key of a device report (AD-9).
+pub const DEVICE_REPORT_SENSOR_ID: &str = "00000000-0000-0000-0000-000000000000";

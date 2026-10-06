@@ -17,10 +17,12 @@ The REST contract, written before the code that serves it (AD-10):
 | `GET /enrolment-key` | `Authenticated` | Story 3.3 (contract: Story 3.1) |
 | `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1); a Node's `lotId` since Story 4.2 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
-| `POST /device/ingest` (placeholder) | `Device` | Contract: Story 3.1; served: Epic 4 |
+| `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
 An operation with `x-coldframe-planned: "<story>"` is in the contract ahead of the Server. The Server's
-endpoint test requires that it is not mapped yet; the story that serves it removes the mark.
+endpoint test requires that it is not mapped yet; the story that serves it removes the mark. A planned
+operation was never served, so it may still change: the compatibility check leaves it out. No operation
+is planned today.
 
 ## Conventions
 
@@ -41,7 +43,8 @@ endpoint test requires that it is not mapped yet; the story that serves it remov
   this Site), `validation` (400), `idempotency-key-missing` (400), `lot-claimed` (409, a Node is
   assigned to the Lot), `idempotency-key-reused` (422), `identity-provider-unavailable` (503),
   `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409),
-  `device-assigned` (409, the Node is in another Lot already). Enrolling a Node with a `lotId` answers
+  `device-assigned` (409, the Node is in another Lot already), `ingest-unavailable` (503, no frame of an
+  ingest envelope could be committed). Enrolling a Node with a `lotId` answers
   `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
   when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an
   `x-extensible-enum`.
@@ -51,6 +54,14 @@ endpoint test requires that it is not mapped yet; the story that serves it remov
   different request answers 422. For `POST /sites/{siteId}/devices` the key covers the Device's
   registration on the Site only: a Node's `lotId` is checked against the Device on every request, and a
   refused claim persists nothing for the Device, so a retry with the same key may name another Lot.
+- **Ingest.** `POST /device/ingest` takes `{frames: [...]}`: at most 32 sealed Node frames, each a
+  serialized `SealedEnvelope` of [`packages/proto`](../proto) in standard base64 with padding, in a
+  body of at most 16 384 bytes. It answers 200 whenever the envelope parses, with one
+  `{status, downlink?}` per frame in request order: `stored`, `duplicate`, `rejected_auth`,
+  `rejected_replay`, `rejected_time`, `unknown_device` or `retry` (snake case, as AD-9 names them).
+  Only `stored` and `duplicate` carry a `downlink`, which the Hub relays to the Node unchanged. 400
+  is only an envelope that does not parse, 401 a failed Hub authentication, 503 an envelope whose
+  every frame would be `retry`.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.
@@ -63,14 +74,19 @@ clients (`oasdiff breaking --fail-on ERR`, see [`packages/proto`](../proto/READM
 
 The Hub's `no_std` JSON structs are hand-written (`coldframe_uplink::json`), so they are checked
 against fixtures generated from this file (AD-10, AD-24). `scripts/generate-fixtures.ts` writes
-`fixtures/hub/` from the `deviceHeartbeat` request and 200 response schemas and their `examples`:
-the minimal and full request, a response with and without a fraction of a second, a response with an
-extra property the Hub must ignore, and `schemas.json` (each schema's properties and required keys).
+`fixtures/hub/` from the `deviceHeartbeat` and `deviceIngest` request and 200 response schemas and
+their `examples`. Heartbeat: the minimal and full request, a response with and without a fraction of
+a second, and a response with an extra property the Hub must ignore. Ingest: a request without and
+with frames, a response without results, with a stored and a rejected frame, with every status, and
+with extra properties on the response and on every result. `schemas.json` holds each schema's
+properties and required keys, the frame limit and the statuses. The generator refuses an ingest
+example whose `downlink` is on another status than `stored` or `duplicate`. The ingest fixtures are
+for Story 4.4's Hub relay; no Rust struct reads them yet.
 `tests/rs/uplink` decodes every response fixture and encodes the request fixtures' values back to
 the same JSON.
 
 ```sh
-pnpm --filter @coldframe/openapi run generate   # after changing the heartbeat schemas or examples
+pnpm --filter @coldframe/openapi run generate   # after changing the heartbeat or ingest schemas or examples
 pnpm --filter @coldframe/openapi run check      # CI: fails when a committed fixture is stale
 ```
 

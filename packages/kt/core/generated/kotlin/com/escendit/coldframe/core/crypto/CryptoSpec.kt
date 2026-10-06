@@ -187,4 +187,37 @@ public object CryptoSpec {
 
     /** Largest accepted difference between the request time and the Server clock, in ms. */
     public const val HEARTBEAT_MAX_SKEW_MS: Long = 300000L
+
+    // Sensor identity (AD-19)
+
+    /**
+     * UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace,
+     * "https://github.com/escendit/coldframe/sensor"): `sensorId = UUIDv5(namespace, name), name = UTF-8
+     * of nameFormat; namespace = UUIDv5(urlNamespace, namespaceName)`.
+     */
+    public const val SENSOR_ID_NAMESPACE: String = "5f496f62-2f32-5456-8b2a-ebe01228c999"
+
+    /**
+     * The UUIDv5 name of a Sensor: deviceIdHex is the Device ID as 16 lowercase hex digits, slot the
+     * decimal slot without leading zeros, quantity one of the tokens below.
+     */
+    public const val SENSOR_ID_NAME_FORMAT: String = "{deviceIdHex}:{slot}:{quantity}"
+
+    /** Quantity token of soil moisture. */
+    public const val SENSOR_QUANTITY_SOIL_MOISTURE: String = "soil_moisture"
+
+    /** Quantity token of air temperature. */
+    public const val SENSOR_QUANTITY_AIR_TEMPERATURE: String = "air_temperature"
+
+    /** Quantity token of relative humidity. */
+    public const val SENSOR_QUANTITY_RELATIVE_HUMIDITY: String = "relative_humidity"
+
+    /** Quantity token of raw gas resistance. */
+    public const val SENSOR_QUANTITY_GAS_RESISTANCE: String = "gas_resistance"
+
+    /**
+     * Stands in for the Sensor ID where a device report is keyed: the nil UUID stands in for the Sensor in
+     * the key of a device report (AD-9).
+     */
+    public const val DEVICE_REPORT_SENSOR_ID: String = "00000000-0000-0000-0000-000000000000"
 }

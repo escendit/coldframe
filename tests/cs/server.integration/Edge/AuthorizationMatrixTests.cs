@@ -78,6 +78,9 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         _samples["POST /device/heartbeat"] = new(
             (server, _, cancellationToken) => HeartbeatTests.PostUnsignedAsync(server, cancellationToken),
             HttpStatusCode.Unauthorized);
+        _samples["POST /device/ingest"] = new(
+            (server, _, cancellationToken) => IngestTests.PostUnsignedAsync(server, cancellationToken),
+            HttpStatusCode.Unauthorized);
 
         // Each call enrols a fresh simulated Device, sealed to the Server's key, so no call meets an enrolled one.
         _samples["POST /sites/{siteId}/devices"] = new(

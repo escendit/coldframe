@@ -26,5 +26,7 @@
     <ProjectReference Include="..\..\..\packages\cs\contracts\Coldframe.Contracts.csproj" />
     <!-- Device enrolment opens HPKE-sealed K_dev (AD-12). -->
     <ProjectReference Include="..\..\..\packages\cs\crypto\Coldframe.Crypto.csproj" />
+    <!-- Ingestion decodes sealed Node frames and seals downlinks (AD-9, AD-10). -->
+    <ProjectReference Include="..\..\..\packages\cs\protocol\Coldframe.Protocol.csproj" />
   </ItemGroup>
 </Project>

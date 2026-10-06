@@ -13,6 +13,15 @@ tests:
           path: spec.strategy.type
           value: Recreate
 
+  - it: runs no replica while it is stopped for a restore
+    set:
+      stopped: true
+      replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+
   - it: is named after the release
     release:
       name: coldframe-server

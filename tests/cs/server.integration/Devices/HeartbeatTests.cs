@@ -266,14 +266,16 @@ public sealed class HeartbeatTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
     /// <summary>
     /// A heartbeat request without any Device header, for the authorization matrix.
     /// </summary>
-    internal static Task<HttpResponseMessage> PostUnsignedAsync(HttpClient server, CancellationToken cancellationToken)
+    internal static async Task<HttpResponseMessage> PostUnsignedAsync(HttpClient server, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(SimulatedDevice.HeartbeatPath, UriKind.Relative))
         {
             Content = new ByteArrayContent(SimulatedDevice.HeartbeatBody(1)),
         };
         request.Content.Headers.ContentType = new("application/json");
-        return server.SendAsync(request, cancellationToken);
+
+        // Awaited here: the request must outlive the send.
+        return await server.SendAsync(request, cancellationToken);
     }
 
     private static DateTimeOffset Now() => TimeProvider.System.GetUtcNow();

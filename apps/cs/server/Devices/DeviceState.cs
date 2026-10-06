@@ -3,13 +3,17 @@ using Coldframe.Contracts.Devices;
 namespace Coldframe.Server.Devices;
 
 /// <summary>
-/// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, a Node's Lot, and
-/// when it was last seen.
+/// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, a Node's Lot, when
+/// it was last seen, its Pause sources (AD-8) and a Node's last relay Hub (AD-18). The replay window and the
+/// downlink counter are not journaled: they live in <c>device_replay</c> and commit with the Readings (AD-9).
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.device-state")]
 public sealed class DeviceState
 {
+    [Id(7)]
+    private readonly Dictionary<DevicePauseSource, DateTimeOffset?> _pausedBy = [];
+
     /// <summary>
     /// The Site the Device is enrolled on, or <see langword="null"/> before enrolment.
     /// </summary>
@@ -54,6 +58,22 @@ public sealed class DeviceState
     [Id(6)]
     public string? LotId { get; private set; }
 
+    /// <summary>
+    /// The Pause sources of the Device, each with its optional end date (AD-8).
+    /// </summary>
+    public IReadOnlyDictionary<DevicePauseSource, DateTimeOffset?> PausedBy => _pausedBy;
+
+    /// <summary>
+    /// Whether the Device is paused: if and only if it has at least one Pause source.
+    /// </summary>
+    public bool IsPaused => _pausedBy.Count > 0;
+
+    /// <summary>
+    /// The Hub that relayed the Node's last accepted frame, or <see langword="null"/> before the first.
+    /// </summary>
+    [Id(8)]
+    public string? LastRelayHubId { get; private set; }
+
     public void Apply(DeviceEnrolled @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -74,5 +94,23 @@ public sealed class DeviceState
         ArgumentNullException.ThrowIfNull(@event);
         LastSeenAt = @event.SeenAt;
         LastHeartbeatTimestampMs = Math.Max(LastHeartbeatTimestampMs, @event.DeviceTimestampMs);
+    }
+
+    public void Apply(DeviceRelayChanged @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        LastRelayHubId = @event.HubId;
+    }
+
+    public void Apply(DevicePaused @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pausedBy[@event.Source] = @event.EndsAt;
+    }
+
+    public void Apply(DeviceResumed @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pausedBy.Remove(@event.Source);
     }
 }

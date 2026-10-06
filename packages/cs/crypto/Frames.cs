@@ -60,16 +60,64 @@ public static class Frames
 
 /// <summary>
 /// Accepts a counter above the high-water mark, or an unseen one among the 64 counters ending at it (AD-17).
-/// Anything else is a replay.
+/// Anything else is a replay. Its whole state is <see cref="Highest"/> and <see cref="Seen"/>, so it can be
+/// stored and created again (<see cref="FromState"/>) across a restart.
 /// </summary>
 public sealed class ReplayWindow
 {
     private ulong _seen;
 
     /// <summary>
+    /// A window that has accepted nothing yet.
+    /// </summary>
+    public ReplayWindow()
+    {
+    }
+
+    private ReplayWindow(ulong highest, ulong seen)
+    {
+        Highest = highest;
+        _seen = seen;
+    }
+
+    /// <summary>
     /// The highest accepted counter, or <see langword="null"/> before the first.
     /// </summary>
     public ulong? Highest { get; private set; }
+
+    /// <summary>
+    /// The seen bitmap: bit <c>n</c> is set when the counter <c>Highest - n</c> was accepted, so bit 0 is
+    /// always set once <see cref="Highest"/> has a value. 0 before the first counter.
+    /// </summary>
+    public ulong Seen => _seen;
+
+    /// <summary>
+    /// The window with a stored state: <paramref name="highest"/> as the high-water mark and
+    /// <paramref name="seen"/> as exported by <see cref="Seen"/>. The high-water mark itself always counts as
+    /// seen.
+    /// </summary>
+    public static ReplayWindow FromState(ulong highest, ulong seen) => new(highest, seen | 1);
+
+    /// <summary>
+    /// A copy that changes independently of this window.
+    /// </summary>
+    public ReplayWindow Clone() => Highest is { } highest ? new ReplayWindow(highest, _seen) : new ReplayWindow();
+
+    /// <summary>
+    /// Moves the high-water mark up by <paramref name="margin"/> and marks the whole window seen, as after a
+    /// database restore (AD-15, AD-17): every counter at or below the new mark is then a replay. A window that
+    /// accepted nothing ends at <c>margin - 1</c>, so its first <paramref name="margin"/> counters are
+    /// refused too. The mark stops at the largest counter.
+    /// </summary>
+    public void Advance(ulong margin)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(margin);
+
+        var from = Highest ?? 0;
+        var step = Highest is null ? margin - 1 : margin;
+        Highest = step > ulong.MaxValue - from ? ulong.MaxValue : from + step;
+        _seen = ulong.MaxValue;
+    }
 
     /// <summary>
     /// Whether <paramref name="counter"/> would be accepted, without recording it.

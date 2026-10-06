@@ -33,7 +33,137 @@ public interface IDeviceGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("heartbeat")]
     Task<DeviceHeartbeatResult> Heartbeat(DeviceHeartbeat request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Authenticates a Hub's signed <c>POST /device/ingest</c> (AD-9, AD-12), called on the grain of the Hub
+    /// that signed it. It is the heartbeat's check (the <c>hub-auth/v1</c> HMAC over method, path, body hash,
+    /// timestamp and nonce; a timestamp within <c>HeartbeatMaxSkewMs</c> of the clock; a nonce not seen while
+    /// the grain is active), and it also refuses a Device that is not an enrolled Hub. It journals nothing and
+    /// does not move the heartbeat's timestamp rule: the frames carry their own replay protection (AD-17).
+    /// </summary>
+    /// <param name="request">The request as the Hub signed it.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("authenticate-relay")]
+    Task<DeviceRelayAuthenticationResult> AuthenticateRelay(DeviceRelayAuthentication request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ingests one sealed Node frame (AD-9, AD-17), called on the grain of the Node that sealed it. In order:
+    /// open the seal with the <c>seal/v1</c> key, check the replay window, decode the Node frame, check its
+    /// time, apply the Pause gate (AD-8), write the Readings, the device report, the replay window and the
+    /// reserved downlink counter in one PostgreSQL transaction, and only after that commit seal the
+    /// acknowledgement with the <c>ack/v1</c> key. A failed transaction changes neither the stored nor the
+    /// in-memory replay state and answers <see cref="DeviceIngestStatus.Retry"/>.
+    /// </summary>
+    /// <param name="request">The frame as the Edge API decoded its <c>SealedEnvelope</c>.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("ingest")]
+    Task<DeviceIngestResult> Ingest(DeviceIngest request, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// A Hub's signed ingest request as the Edge API hands it to the Hub's Device grain: parsed, not yet verified.
+/// </summary>
+/// <param name="Method">The HTTP method, uppercase.</param>
+/// <param name="Path">The request path, exactly as sent.</param>
+/// <param name="Body">The exact body bytes (at most 16 KiB).</param>
+/// <param name="TimestampMs">The <c>X-Coldframe-Timestamp</c>, Unix milliseconds.</param>
+/// <param name="Nonce">The <c>X-Coldframe-Nonce</c>, 16 bytes.</param>
+/// <param name="Signature">The <c>X-Coldframe-Signature</c>, 32 bytes.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-relay-authentication")]
+public sealed record DeviceRelayAuthentication(
+    [property: Id(0)] string Method,
+    [property: Id(1)] string Path,
+    [property: Id(2)] byte[] Body,
+    [property: Id(3)] long TimestampMs,
+    [property: Id(4)] byte[] Nonce,
+    [property: Id(5)] byte[] Signature);
+
+/// <summary>
+/// The result of <see cref="IDeviceGrain.AuthenticateRelay"/>.
+/// </summary>
+/// <param name="Authenticated">
+/// Whether the request is an authentic, new request of an enrolled Hub. The reason of a refusal is not told.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.device-relay-authentication-result")]
+public sealed record DeviceRelayAuthenticationResult([property: Id(0)] bool Authenticated);
+
+/// <summary>
+/// One sealed Node frame as the Edge API hands it to the Node's Device grain: the fields of its
+/// <c>SealedEnvelope</c>, and the Hub that relayed it.
+/// </summary>
+/// <param name="ProtocolVersion">The envelope's wire major.</param>
+/// <param name="Counter">The frame counter.</param>
+/// <param name="Ciphertext">The sealed Node frame followed by its tag.</param>
+/// <param name="RelayHubId">The Device ID of the authenticated Hub that relayed the frame.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-ingest")]
+public sealed record DeviceIngest(
+    [property: Id(0)] uint ProtocolVersion,
+    [property: Id(1)] ulong Counter,
+    [property: Id(2)] byte[] Ciphertext,
+    [property: Id(3)] string RelayHubId);
+
+/// <summary>
+/// How one frame ended (AD-9). The contract's <c>IngestFrameStatus</c> is its snake-case name.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-ingest-status")]
+public enum DeviceIngestStatus
+{
+    /// <summary>
+    /// At least one Reading or the device report was new and is committed; or the Device is paused and the
+    /// frame was acknowledged and discarded (AD-8).
+    /// </summary>
+    Stored = 0,
+
+    /// <summary>
+    /// Everything in the frame was stored before. It is acknowledged again and adds no row.
+    /// </summary>
+    Duplicate = 1,
+
+    /// <summary>
+    /// The frame has an unsupported protocol version, does not open with the Node's key, or its plaintext
+    /// is not a valid Node frame.
+    /// </summary>
+    RejectedAuth = 2,
+
+    /// <summary>
+    /// The frame is authentic, but its counter is below the replay window or was seen.
+    /// </summary>
+    RejectedReplay = 3,
+
+    /// <summary>
+    /// A synced <c>measured_at</c> is more than 5 min after the Server clock. The counter is consumed.
+    /// </summary>
+    RejectedTime = 4,
+
+    /// <summary>
+    /// The Device is not an enrolled Node.
+    /// </summary>
+    UnknownDevice = 5,
+
+    /// <summary>
+    /// The frame could not be committed. Nothing changed; the Node resends.
+    /// </summary>
+    Retry = 6,
+}
+
+/// <summary>
+/// The result of <see cref="IDeviceGrain.Ingest"/>.
+/// </summary>
+/// <param name="Status">How the frame ended.</param>
+/// <param name="Downlink">
+/// The serialized <c>SealedEnvelope</c> of the acknowledgement, sealed with the Node's <c>ack/v1</c> key; set
+/// exactly when <paramref name="Status"/> is <see cref="DeviceIngestStatus.Stored"/> or
+/// <see cref="DeviceIngestStatus.Duplicate"/>.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.device-ingest-result")]
+public sealed record DeviceIngestResult(
+    [property: Id(0)] DeviceIngestStatus Status,
+    [property: Id(1)] byte[]? Downlink = null);
 
 /// <summary>
 /// A Hub's heartbeat as the Edge API hands it to the Device grain: the parts of the signed request, parsed

@@ -75,6 +75,18 @@ export interface CryptoSpec {
     nonceLength: number;
     maxSkewMs: number;
   };
+  sensorId: {
+    algorithm: string;
+    construction: string;
+    urlNamespace: string;
+    namespaceName: string;
+    namespace: string;
+    nameFormat: string;
+    name: string;
+    quantities: { soilMoisture: string; airTemperature: string; relativeHumidity: string; gasResistance: string };
+    deviceReport: string;
+    deviceReportUse: string;
+  };
 }
 
 export function loadSpec(root = repoRoot): CryptoSpec {
@@ -102,7 +114,7 @@ export interface ConstantGroup {
 
 /** Every generated constant, grouped as the spec groups them. */
 export function constantsOf(spec: CryptoSpec): ConstantGroup[] {
-  const { keyHierarchy: keys, aead, frame, enrolment, setup, heartbeat } = spec;
+  const { keyHierarchy: keys, aead, frame, enrolment, setup, heartbeat, sensorId } = spec;
   const hpke = enrolment.hpke;
   return [
     {
@@ -187,6 +199,18 @@ export function constantsOf(spec: CryptoSpec): ConstantGroup[] {
         { name: 'heartbeatSignatureHeader', kind: 'str', value: heartbeat.headers.signature, doc: `Header carrying the signature: \`${heartbeat.signature}\`.` },
         { name: 'heartbeatNonceLength', kind: 'len', value: heartbeat.nonceLength, doc: 'Length of the request nonce in bytes.' },
         { name: 'heartbeatMaxSkewMs', kind: 'ms', value: heartbeat.maxSkewMs, doc: 'Largest accepted difference between the request time and the Server clock, in ms.' },
+      ],
+    },
+    {
+      title: 'Sensor identity (AD-19)',
+      constants: [
+        { name: 'sensorIdNamespace', kind: 'str', value: sensorId.namespace, doc: `UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace, "${sensorId.namespaceName}"): \`${sensorId.construction}\`.` },
+        { name: 'sensorIdNameFormat', kind: 'str', value: sensorId.nameFormat, doc: `The UUIDv5 name of a Sensor: ${sensorId.name}.` },
+        { name: 'sensorQuantitySoilMoisture', kind: 'str', value: sensorId.quantities.soilMoisture, doc: 'Quantity token of soil moisture.' },
+        { name: 'sensorQuantityAirTemperature', kind: 'str', value: sensorId.quantities.airTemperature, doc: 'Quantity token of air temperature.' },
+        { name: 'sensorQuantityRelativeHumidity', kind: 'str', value: sensorId.quantities.relativeHumidity, doc: 'Quantity token of relative humidity.' },
+        { name: 'sensorQuantityGasResistance', kind: 'str', value: sensorId.quantities.gasResistance, doc: 'Quantity token of raw gas resistance.' },
+        { name: 'deviceReportSensorId', kind: 'str', value: sensorId.deviceReport, doc: `Stands in for the Sensor ID where a device report is keyed: ${sensorId.deviceReportUse}.` },
       ],
     },
   ];

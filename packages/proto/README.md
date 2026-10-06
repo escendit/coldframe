@@ -6,9 +6,10 @@ The Protobuf contract between Devices, the app and the Server (AD-10, AD-25), a 
 | File | Package | What |
 | --- | --- | --- |
 | [`coldframe/setup/v1/setup.proto`](coldframe/setup/v1/setup.proto) | `coldframe.setup.v1` | The BLE setup protocol, one message set for Hub and Node: the plaintext key exchange (`SessionHello`, `SessionHelloReply`), `SealedSetupMessage`, and the sealed `SetupMessage` steps (identity, Wi-Fi scan list, Wi-Fi config and result, Site binding, enrolment request and response, errors) |
-| [`coldframe/device/v1/envelope.proto`](coldframe/device/v1/envelope.proto) | `coldframe.device.v1` | `SealedEnvelope` for uplink frames and downlinks, and the sealed `Downlink` with its empty `commands` (AD-16) |
+| [`coldframe/device/v1/envelope.proto`](coldframe/device/v1/envelope.proto) | `coldframe.device.v1` | `SealedEnvelope` for uplink frames and downlinks; `NodeFrame`, the plaintext of an uplink (one wake report: `Reading`s with their `Quantity` and `reading_seq`, the time as synced `measured_at_ms` or `Unsynced` boot ID and uptime, `report_seq`, battery and `ChargeStatus`); and the sealed `Downlink` with `acked_readings` (`ReadingSeqRange`, both ends included) and its empty `commands` (AD-9, AD-11, AD-16) |
 
-The ESP-NOW messages, the Node frame payload and the Specification set arrive in Epic 4.
+The ESP-NOW messages and the Specification set arrive in Epic 4 (Stories 4.4 and 4.6). `NodeFrame.spec_hash`
+is carried from Story 4.5 and used from Story 4.6.
 
 ## Versioning
 
@@ -25,9 +26,11 @@ The ESP-NOW messages, the Node frame payload and the Specification set arrive in
 [`check-compat.sh`](check-compat.sh) runs `buf lint` (STANDARD), then `buf breaking` (FILE rules) on
 this folder and `oasdiff breaking --fail-on ERR` on
 [`packages/openapi/coldframe.openapi.json`](../openapi/coldframe.openapi.json), both against a baseline
-commit. A baseline without `.proto` files or without the OpenAPI file passes with a notice. CI's
+commit. An operation that carries `x-coldframe-planned` in the baseline was never served, so it is left
+out of the OpenAPI comparison: the story that serves it may replace it. A baseline without `.proto` files or without the OpenAPI file passes with a notice. CI's
 `contracts` job compares a pull request with its merge base and a push with the previous commit, after
-`--self-test` proves that a removed field, a removed operation and a newly required property fail.
+`--self-test` proves that a removed field, a removed operation and a newly required property fail, and
+that removing or replacing a planned operation passes while the same change to a served one fails.
 
 ```sh
 packages/proto/install-tools.sh "$HOME/.local/bin"   # pinned buf and oasdiff, sha256-checked (Linux x86_64)

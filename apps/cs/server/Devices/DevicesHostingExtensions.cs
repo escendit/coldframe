@@ -1,4 +1,5 @@
 using Coldframe.Server.Journal;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace Coldframe.Server.Devices;
@@ -6,7 +7,7 @@ namespace Coldframe.Server.Devices;
 /// <summary>
 /// Registers the Devices: the enrolment key and the Device key vault (configuration section
 /// <see cref="EnrolmentOptions.SectionName"/>), checked at start, and the devices projector with its read
-/// model. The Device grain is found with the other grains.
+/// model, and the ingestion store of the Device grain. The Device grain is found with the other grains.
 /// </summary>
 public static class DevicesHostingExtensions
 {
@@ -21,6 +22,9 @@ public static class DevicesHostingExtensions
         services.AddSingleton<EnrolmentKeyring>();
         services.AddSingleton<DeviceKeyVault>();
         services.AddSingleton<DevicesReadModel>();
+
+        // The ingestion tables, written only through the Device grain; a test host registers its own first.
+        services.TryAddSingleton<DeviceIngestionStore>();
         services.AddProjector<DevicesProjector>();
 
         return services

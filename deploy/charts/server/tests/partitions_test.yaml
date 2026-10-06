@@ -1,0 +1,116 @@
+suite: server partition CronJob
+templates:
+  - templates/partitions-cronjob.yaml
+tests:
+  - it: runs once a day in UTC, never two runs at once
+    asserts:
+      - isKind:
+          of: CronJob
+      - equal:
+          path: spec.schedule
+          value: "17 3 * * *"
+      - equal:
+          path: spec.timeZone
+          value: Etc/UTC
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+
+  - it: is no Helm hook, so it stays installed between upgrades
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: runs the partitions command of the migrations image at the chart's appVersion
+    chart:
+      appVersion: 9.8.7
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: ghcr.io/escendit/coldframe/migrations:9.8.7
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args
+          value:
+            - partitions
+            - --months-ahead
+            - "3"
+
+  - it: follows the migrations image override
+    set:
+      migrations.image.repository: localhost/coldframe/migrations
+      migrations.image.tag: smoke
+      migrations.image.pullPolicy: Never
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: localhost/coldframe/migrations:smoke
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].imagePullPolicy
+          value: Never
+
+  - it: keeps more months ahead when asked
+    set:
+      partitions.monthsAhead: 6
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[2]
+          value: "6"
+
+  - it: fails when fewer than two months ahead are asked for
+    set:
+      partitions.monthsAhead: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: partitions.monthsAhead \(1\) must be at least 2
+
+  - it: reads the database credentials from the migration Job's Secret
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-db-coldframe
+                key: password
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: ConnectionStrings__coldframe
+            value: Host=coldframe-db-rw;Port=5432;Database=coldframe;Username=$(DB_USERNAME);Password=$(DB_PASSWORD)
+
+  - it: fails fast and is bounded in time
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.backoffLimit
+          value: 1
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 600
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.restartPolicy
+          value: Never
+
+  - it: runs as the numeric non-root user with a restricted security context
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1654
+            runAsGroup: 1654
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: does not select the Server's pods
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: partitions

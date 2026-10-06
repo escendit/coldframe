@@ -9,6 +9,7 @@ using Coldframe.Server.Lots;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using Npgsql;
 using Orleans.Hosting;
 using Orleans.Streams;
 using Orleans.TestingHost;
@@ -27,6 +28,8 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(10);
 
     private const string ConnectionStringKey = "Coldframe:Tests:ConnectionString";
+
+    private const string DeviceKekKey = "Coldframe:Tests:DeviceKek";
 
     private TestCluster? _cluster;
 
@@ -59,6 +62,22 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public LotsReadModel Lots => SiloServices.GetRequiredService<LotsReadModel>();
 
     /// <summary>
+    /// The silo's ingestion store, which a test can make fail a commit.
+    /// </summary>
+    public FaultyIngestionStore Ingestion => (FaultyIngestionStore)SiloServices.GetRequiredService<DeviceIngestionStore>();
+
+    /// <summary>
+    /// Stops the silo and starts it again on the same database and with the same key-encryption key: every
+    /// activation and everything a grain held in memory is gone, as after a crash. The clock starts at
+    /// <see cref="Start"/> again.
+    /// </summary>
+    public async Task RestartSiloAsync()
+    {
+        await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
+        await Cluster.WaitForLivenessToStabilizeAsync();
+    }
+
+    /// <summary>
     /// The User grain's Site set, replayed from its journal stream.
     /// </summary>
     public async Task<IReadOnlyDictionary<string, SiteRole>> UserSitesAsync(string userId)
@@ -79,6 +98,9 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
 
         var builder = new TestClusterBuilder(1);
         builder.Properties[ConnectionStringKey] = Database.ConnectionString;
+
+        // One key-encryption key for the life of the cluster, so wrapped keys survive a silo restart.
+        builder.Properties[DeviceKekKey] = Guid.NewGuid().ToString("N");
         builder.AddSiloBuilderConfigurator<SiloConfigurator>();
 
         _cluster = builder.Build();
@@ -149,10 +171,15 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddProjector<IdentityProjector>();
             siloBuilder.Services.AddSingleton<IdentityReadModel>();
             siloBuilder.Services.AddLots();
+
+            // Registered before AddDevices, which adds the real store only when there is none.
+            siloBuilder.Services.AddSingleton<DeviceIngestionStore, FaultyIngestionStore>();
+            var deviceKek = siloBuilder.Configuration[DeviceKekKey]
+                ?? throw new InvalidOperationException("The test cluster has no Device key-encryption key.");
             siloBuilder.Services.AddDevices().Configure(options =>
             {
                 options.PrivateKeyPem = EnrolmentKeyring.ToPrivateKeyPem(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-                options.DeviceKeyEncryptionKey = Guid.NewGuid().ToString("N");
+                options.DeviceKeyEncryptionKey = deviceKek;
             });
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
@@ -161,5 +188,56 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             // No hint stream: projectors converge by polling alone, every 10 minutes of fake time.
             siloBuilder.AddJournalGrains(hintStream: null);
         }
+    }
+}
+
+/// <summary>
+/// The real ingestion store, except that a test can make the next commits fail the way a lost database does:
+/// the transaction is rolled back instead of committed, and the store throws.
+/// </summary>
+public sealed class FaultyIngestionStore(NpgsqlDataSource dataSource) : DeviceIngestionStore(dataSource)
+{
+    private int _failures;
+    private int _loadFailures;
+
+    /// <summary>
+    /// How many commits were attempted, failed ones included.
+    /// </summary>
+    public int Commits { get; private set; }
+
+    /// <summary>
+    /// Makes the next <paramref name="commits"/> commits fail.
+    /// </summary>
+    public void FailNextCommits(int commits) => Interlocked.Exchange(ref _failures, commits);
+
+    /// <summary>
+    /// Makes the next <paramref name="loads"/> reads of a replay window fail.
+    /// </summary>
+    public void FailNextLoads(int loads) => Interlocked.Exchange(ref _loadFailures, loads);
+
+    public override Task<StoredReplay?> LoadReplayAsync(string deviceId, CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.Decrement(ref _loadFailures) >= 0)
+        {
+            throw new NpgsqlException("The test failed this read.");
+        }
+
+        Interlocked.Exchange(ref _loadFailures, 0);
+        return base.LoadReplayAsync(deviceId, cancellationToken);
+    }
+
+    protected override async Task CommitTransactionAsync(NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        Commits++;
+
+        if (Interlocked.Decrement(ref _failures) >= 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new NpgsqlException("The test failed this commit.");
+        }
+
+        Interlocked.Exchange(ref _failures, 0);
+        await base.CommitTransactionAsync(transaction, cancellationToken);
     }
 }

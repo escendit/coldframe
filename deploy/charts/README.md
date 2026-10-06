@@ -11,7 +11,7 @@ the fixed Secrets listed in [`../SECRETS.md`](../SECRETS.md).
 | [`nats`](nats) | NATS Server with JetStream, one replica, store on an `emptyDir` (disposable, AD-5) | `docker.io/library/nats:2.15.0` | release / `2.15.0` |
 | [`temporal`](temporal) | Temporal Server, every service in one Deployment on PostgreSQL; schema and namespace hook Jobs | `docker.io/temporalio/server:1.31.2`, `admin-tools:1.31.2` | release / `1.31.2` |
 | [`keycloak`](keycloak) | Keycloak (Phase Two + `keycloak-temporal-extensions`), `start --optimized` | `ghcr.io/escendit/coldframe/keycloak` | release / release |
-| [`server`](server) | The Server (Orleans silo, Edge API, SignalR) and its migration hook Job | `ghcr.io/escendit/coldframe/server`, `.../migrations` | release / release |
+| [`server`](server) | The Server (Orleans silo, Edge API, SignalR), its migration hook Job and the daily partition CronJob | `ghcr.io/escendit/coldframe/server`, `.../migrations` | release / release |
 | [`web`](web) | The web backend-for-frontend | `ghcr.io/escendit/coldframe/web` | release / release |
 | [`ingress`](ingress) | HTTPS for the three hosts: a cert-manager `Issuer` for Let's Encrypt with a Cloudflare DNS-01 solver, the `Certificate` `coldframe-tls`, and a Traefik `Ingress` on `websecure` (443) only | none | release / `1.21.2` (cert-manager) |
 
@@ -149,6 +149,8 @@ manual equivalent.
 | server | `identity.authority`, `identity.requireHttpsMetadata` | in-cluster Keycloak, `true` | an `https` authority in production |
 | server | `shutdownTimeoutSeconds`, `terminationGracePeriodSeconds` | `45`, `60` | the chart fails unless the grace period is longer |
 | server | `migrations.image.*`, `migrations.backoffLimit`, `migrations.activeDeadlineSeconds` | `migrations` image at `appVersion`, `1`, `600` | |
+| server | `partitions.schedule`, `partitions.monthsAhead`, `partitions.backoffLimit`, `partitions.activeDeadlineSeconds` | `17 3 * * *` (UTC), `3`, `1`, `600` | the CronJob runs the `migrations` image with `partitions`; the chart fails below 2 months ahead (AD-22) |
+| server | `stopped` | `false` | `true` renders 0 replicas: only while a restore under Fleet advances the replay windows ([restore.md](../../docs/operations/restore.md), step 5) |
 | server | `nats.url`, `keycloak.*`, `keycloakEvents.*` | the other releases | |
 | web | `serverUrl`, `keycloak.issuer`, `origin`, `sessionCookieSecure` | the other releases, empty, `true` | |
 | keycloak | `hostname` | empty: `KC_HOSTNAME_STRICT=false` | set the public host name in production |
@@ -173,7 +175,10 @@ are fixed in the templates so that `SECRETS.md` stays the whole contract.
   Deployment: when the migration fails, the release fails and the running Server stays as it is.
   Then the old pod stops (the host gets `shutdownTimeoutSeconds` to drain the silo, Kubernetes
   waits `terminationGracePeriodSeconds`) and the new one starts. The previous Job is deleted only
-  when the next one is created, so its logs stay available.
+  when the next one is created, so its logs stay available. The Job also creates the monthly
+  partitions of the Readings and device-report tables; the CronJob `server-partitions` runs the
+  same image with `partitions` once a day, so they stay at least two months ahead between
+  upgrades (AD-22). A failed run changes nothing; the next one catches up.
 - **Temporal**: a `pre-install,pre-upgrade` hook Job sets up and updates both schemas (idempotent);
   a `post-install,post-upgrade` hook Job creates the namespace when it is absent.
 - **Keycloak**: one replica, `Recreate`; an existing realm is not overwritten by the import.
@@ -201,7 +206,7 @@ deploy/charts/smoke.sh coldframe/server:dev coldframe/web:dev coldframe/migratio
 | `crd-schemas.py <dir>` | reads CRD manifests on stdin and writes strict kubeconform schemas `<kind>_<version>.json` (unknown fields fail) | python3, PyYAML |
 | `dependencies.env` | the pinned cert-manager, CloudNativePG and Barman Cloud plugin manifests and their Helm charts (the Fleet bundles' repo and version), the rke2-traefik and rke2-traefik-crd charts of RKE2 v1.36.4+rke2r1, Fleet (the CLI per architecture, the fleet-crd and fleet charts) (version, URL, sha256), and the smoke's RustFS and aws-cli images; sourced by `test.sh`, `smoke.sh`, CI and the install commands above | |
 | `check-version.sh <version>` | fails naming each `Chart.yaml` whose `version` (all charts) or `appVersion` (server, web, keycloak) differs | bash |
-| `smoke.sh <server> <web> <migrations> <keycloak>` | a disposable k3d cluster (`rancher/k3s:v1.36.4-k3s1`) with cert-manager, CloudNativePG and the Barman Cloud plugin, placeholder Secrets and RustFS as the S3 target (`testdata/rustfs.yaml`): installs RKE2's Traefik (pinned rke2-traefik with the `HelmChartConfig` values), the database and every chart, asserts every pod Ready (or a completed Job), the Server's `/.well-known/healthz` Healthy and the imported realm served; installs the `ingress` chart with a test CA (`testdata/smoke-ca.yaml`) in place of Let's Encrypt and checks the Certificate Ready with a `renewalTime`, the Server, Keycloak (issuer `https://auth.<domain>:<port>/…`) and the web app over HTTPS through Traefik's 443 with that CA, and no port 80 or `web` entrypoint on Traefik; checks that a failing migration fails `helm upgrade server` without touching the Deployment and that a good upgrade reruns the migration Job, then runs a backup-and-restore round trip (a marker before and one after a base backup, uninstall, recovery into a new folder, both markers and every table's row count back, the Server healthy on the restored cluster) | k3d v5.9.0, helm, kubectl, jq, curl, docker |
+| `smoke.sh <server> <web> <migrations> <keycloak>` | a disposable k3d cluster (`rancher/k3s:v1.36.4-k3s1`) with cert-manager, CloudNativePG and the Barman Cloud plugin, placeholder Secrets and RustFS as the S3 target (`testdata/rustfs.yaml`): installs RKE2's Traefik (pinned rke2-traefik with the `HelmChartConfig` values), the database and every chart, asserts every pod Ready (or a completed Job), the Server's `/.well-known/healthz` Healthy and the imported realm served; installs the `ingress` chart with a test CA (`testdata/smoke-ca.yaml`) in place of Let's Encrypt and checks the Certificate Ready with a `renewalTime`, the Server, Keycloak (issuer `https://auth.<domain>:<port>/…`) and the web app over HTTPS through Traefik's 443 with that CA, and no port 80 or `web` entrypoint on Traefik; checks that a failing migration fails `helm upgrade server` without touching the Deployment and that a good upgrade reruns the migration Job, then runs a backup-and-restore round trip (a marker before and one after a base backup, uninstall, recovery into a new folder, both markers and every table's row count back, `advance-replay` as a one-off Job from the partition CronJob before the apps start, the Server healthy on the restored cluster) | k3d v5.9.0, helm, kubectl, jq, curl, docker |
 
 `ci-values.yaml` holds the CI overrides: the plain-HTTP in-cluster Keycloak, RustFS
 (`http://rustfs:9000`) as the database's S3 target, and for `ingress` the domain

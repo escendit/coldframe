@@ -15,5 +15,40 @@
     "required": [
       "serverTime"
     ]
+  },
+  "IngestRequest": {
+    "properties": [
+      "frames"
+    ],
+    "required": [
+      "frames"
+    ],
+    "maxFrames": 32
+  },
+  "IngestResponse": {
+    "properties": [
+      "results"
+    ],
+    "required": [
+      "results"
+    ]
+  },
+  "IngestFrameResult": {
+    "properties": [
+      "downlink",
+      "status"
+    ],
+    "required": [
+      "status"
+    ],
+    "statuses": [
+      "stored",
+      "duplicate",
+      "rejected_auth",
+      "rejected_replay",
+      "rejected_time",
+      "unknown_device",
+      "retry"
+    ]
   }
 }
