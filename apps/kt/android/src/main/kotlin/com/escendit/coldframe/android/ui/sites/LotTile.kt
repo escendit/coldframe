@@ -118,7 +118,7 @@ fun LotTileVariant.carbonIcon(): CarbonIcon =
     }
 
 /** The tokens of one variant (DESIGN.md components `lot-tile-*`). */
-private class TilePaint(
+internal class TilePaint(
     val ink: Color,
     val labelInk: Color = ink,
     val footInk: Color = ink,
@@ -130,7 +130,7 @@ private class TilePaint(
     val border: Color = Color.Unspecified,
 )
 
-private fun ColdframeColors.paint(variant: LotTileVariant): TilePaint =
+internal fun ColdframeColors.paint(variant: LotTileVariant): TilePaint =
     when (variant) {
         LotTileVariant.NeedsWater -> {
             TilePaint(
@@ -193,7 +193,7 @@ private fun ColdframeColors.paint(variant: LotTileVariant): TilePaint =
  * under a 2 dp edge; a 12 dp tick on the right edge marks [lowPercent]. Both are drawn only on a
  * measured tile, with the numbers the core gave.
  */
-private fun Modifier.tileSurface(
+internal fun Modifier.tileSurface(
     shape: TileShape,
     paint: TilePaint,
     soilPercent: Int?,
@@ -278,8 +278,8 @@ private fun <T> TileGrid(
 /**
  * The Garden Lot grid (UX-DR20): one tile per Lot, exactly in the order the core's overview has
  * them, which is the Server's. Nothing here sorts, filters or reads a status. With [onAddNode], a
- * tile the core marks [LotTile.opensAddNode] starts Add a Node with its Lot; no other tile is a
- * tap target (Lot detail arrives later).
+ * tile the core marks [LotTile.opensAddNode] starts Add a Node with its Lot; with [onOpenLot] every
+ * other tile opens its Lot detail (UX-DR63).
  */
 @Composable
 fun LotTiles(
@@ -287,6 +287,7 @@ fun LotTiles(
     copy: OverviewCopy,
     modifier: Modifier = Modifier,
     onAddNode: ((lotId: String) -> Unit)? = null,
+    onOpenLot: ((lotId: String, name: String) -> Unit)? = null,
 ) {
     TileGrid(tiles, modifier) { tile, side, oneColumn, cell ->
         LotTileView(
@@ -296,6 +297,7 @@ fun LotTiles(
             oneColumn = oneColumn,
             modifier = cell,
             onAddNode = onAddNode?.let { add -> { add(tile.id) } },
+            onOpen = onOpenLot?.let { open -> { open(tile.id, tile.name) } },
         )
     }
 }
@@ -316,8 +318,8 @@ fun SkeletonLotTiles(modifier: Modifier = Modifier) {
 /**
  * One Lot tile (UX-DR17, UX-DR18, UX-DR19): the variant's fill, outline and Carbon icon, then the
  * words of [copy]. It is one accessibility element with the complete spoken label (UX-DR98). A
- * tile the core marks [LotTile.opensAddNode] is a button when [onAddNode] is given; every other
- * tile is not interactive.
+ * tile the core marks [LotTile.opensAddNode] is a button that starts Add a Node when [onAddNode]
+ * is given; any other tile is a button that opens Lot detail when [onOpen] is given.
  */
 @Composable
 fun LotTileView(
@@ -327,10 +329,11 @@ fun LotTileView(
     oneColumn: Boolean,
     modifier: Modifier = Modifier,
     onAddNode: (() -> Unit)? = null,
+    onOpen: (() -> Unit)? = null,
 ) {
     val paint = Coldframe.colors.paint(tile.variant)
     val spoken = copy.spoken(tile)
-    val act = onAddNode?.takeIf { tile.opensAddNode }
+    val act = if (tile.opensAddNode && onAddNode != null) onAddNode else onOpen
     Box(
         modifier =
             modifier

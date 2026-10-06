@@ -386,7 +386,7 @@ describe('Garden with Lot statuses', () => {
     const lots = [tomatoes, peppers, beans, herbs, strawberries, potatoes];
     const body = gardenPage({ lots });
     expect([...body.matchAll(/data-lot="([^"]+)"/gu)].map((match) => match[1])).toEqual(lots.map((target) => target.id));
-    expect(body.slice(body.indexOf('cf-lot-grid'))).not.toMatch(/<a |<button/u);
+    expect(body.slice(body.indexOf('cf-lot-grid'))).not.toMatch(/<button/u);
   });
 
   test('UX-DR24 UX-DR79 in stale mode the stale header replaces the summary header and every tile is stale', () => {

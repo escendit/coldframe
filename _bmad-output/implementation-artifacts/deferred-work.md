@@ -557,3 +557,27 @@ source_spec: `spec-4-7-lot-status-and-the-site-overview.md`
 severity: medium
 reason: CoreLotsService.presentation(of:) maps about 28 parallel snapshot fields by hand. The CI ios job runs xcodebuild build only; the swift job tests the package, where Support.swift hand-builds a LotsPresentation, and OverviewPresentationTests assert on the source text of CoreLotsService.swift and ColdframeApp.swift. Swapping two same-typed arguments (for example lotValues and lotFoots) compiles and passes. The App target has no test bundle and needs the Kotlin framework; close this when one exists, or move the mapping into the tested package behind a protocol. The same holds for the Android activity: MainActivity's foreground refresh is checked by a regex on its source, because there is no seam to inject a fake core.
 status: open
+
+### DW-72: Lot detail has no Threshold band, below-low bars, admin strip (Thresholds, Calibrate, Pause/Resume) or Sensor-cell tap target; the hero's percentage and low Threshold are fixture-only.
+origin: spec-deferred story-4-8-1
+location: apps/ts/web/src/routes/(app)/garden/[lotId]/, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/LotDetailScreen.kt, apps/swift/ios/Sources/ColdframeIOS/UI/LotDetailViews.swift
+source_spec: `spec-4-8-lot-detail-with-history-and-device-status.md`
+severity: low
+reason: No Thresholds exist before Epic 5, no Calibrate, Pause or Resume destination before Epics 5 and 8, so Story 4.8 draws no strip, no band and no below-low bars (every bar is normal-style). `moisturePercent` and `lowThresholdPercent` are never sent by the Server before Epics 5 and 6; the hero's `~N %` path is exercised only by fixtures. Epics 5 and 8 add the strip and the band.
+status: open
+
+### DW-73: Devices (all clients) and Lot detail on mobile have no refetch on focus; the Hub-silent hero text has no Hub ID.
+origin: spec-deferred story-4-8-2
+location: apps/ts/web/src/routes/(app)/devices/+page.server.ts, apps/ts/web/src/lib/lot-detail.ts, packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/lots/LotDetail.kt
+source_spec: `spec-4-8-lot-detail-with-history-and-device-status.md`
+severity: low
+reason: Carried from DW-70: Devices still has no stale mode or pull-to-refresh (the Nodes section inherits that). The `Lot` contract carries no Hub ID, so "Hub ‹id› is silent" falls back to the first Hub of the Devices list (web) or "The Hub is silent" (mobile); nothing produces a hub-silent Lot before Epic 7, which should add the Hub ID to `Lot` or `unknownCause`.
+status: open
+
+### DW-74: The Lot detail iOS views and App target are compiled only on macOS CI, and the web chart's 30 days end on the browser's clock day.
+origin: spec-deferred story-4-8-3
+location: apps/swift/ios/Sources/ColdframeIOS/UI/LotDetailViews.swift, apps/swift/ios/App/CoreLotDetailService.swift, apps/ts/web/src/lib/lot-detail.ts
+source_spec: `spec-4-8-lot-detail-with-history-and-device-status.md`
+severity: medium
+reason: Same limit as DW-71: the SwiftUI views and the `Int32`/`KotlinInt` mapping in CoreLotDetailService are unproven until the macOS `swift` and `ios` jobs run, and iOS render tests assert only that an image renders. On the web the chart's day axis uses the browser clock while the Server's days are UTC, so around midnight the last bar can differ by one day from the Server's.
+status: open

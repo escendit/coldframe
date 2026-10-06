@@ -274,7 +274,7 @@ class SitesScreensTest {
     }
 
     @Test
-    fun `UX-DR67 UX-DR18 a no-Node Lot tile opens Add a Node with its Lot for Admin+ and does nothing for a Member`() {
+    fun `UX-DR67 UX-DR18 a no-Node Lot tile opens Add a Node with its Lot for Admin+ and never for a Member`() {
         val opened = mutableListOf<String?>()
         var role by mutableStateOf(SiteRole.Owner)
         compose.setContent {
@@ -310,8 +310,8 @@ class SitesScreensTest {
 
         role = SiteRole.Member
         compose.waitForIdle()
-        compose.onAllNodes(hasContentDescription(tile).and(hasClickAction())).assertCountEquals(0)
-        compose.onNodeWithContentDescription(tile).assertExists()
+        compose.onNodeWithContentDescription(tile).performScrollTo().performClick()
+        assertEquals(2, opened.size)
         // The first-run Add a Node tile stays without an action for every Role.
         compose.onAllNodes(hasText("Add a Node").and(hasClickAction())).assertCountEquals(0)
         assertEquals(2, opened.size)

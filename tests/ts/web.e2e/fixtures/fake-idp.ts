@@ -66,6 +66,35 @@ export interface FakeLot {
   readonly pausedUntil?: string;
   readonly moisturePercent?: number;
   readonly lowThresholdPercent?: number;
+  /** Story 4.8: sent by `GET /sites/{id}/lots/{id}` only, never by the list. */
+  readonly node?: FakeNodeStatus;
+  readonly sensors?: readonly FakeSensorReading[];
+  /** Daily history per quantity, as `GET /sites/{id}/lots/{id}/history` returns it. */
+  readonly history?: Readonly<Record<string, readonly FakeHistoryDay[]>>;
+}
+
+/** A Node's health as `Lot.node` carries it. */
+export interface FakeNodeStatus {
+  readonly deviceId: string;
+  readonly batteryPercent?: number;
+  readonly charging?: 'charging' | 'notCharging';
+  readonly lastSeenAt?: string;
+}
+
+/** A converted latest Reading as `Lot.sensors` carries it. */
+export interface FakeSensorReading {
+  readonly quantity: 'soil_moisture' | 'air_temperature' | 'relative_humidity' | 'gas_resistance';
+  readonly value: number;
+  readonly unit: 'raw' | '°C' | '%' | 'kΩ';
+  readonly measuredAt: string;
+}
+
+/** One UTC day of a Lot's history. */
+export interface FakeHistoryDay {
+  readonly day: string;
+  readonly low: number;
+  readonly high: number;
+  readonly readingCount: number;
 }
 
 /** Which reads of the fake Server fail: none, the Sites and the Lots, or the Lots only. */
@@ -81,6 +110,10 @@ export interface FakeDevice {
   readonly lotId?: string;
   readonly lastSeenAt?: string;
   readonly online: boolean;
+  /** Story 4.8: a Node's Lot name, battery and charger state from its newest report. */
+  readonly lotName?: string;
+  readonly batteryPercent?: number;
+  readonly charging?: 'charging' | 'notCharging';
 }
 
 /** Seeded by default, so every spec that signs in still reaches Garden. */
@@ -322,15 +355,58 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       }
       const listed = devices
         .filter((device) => device.siteId === siteId)
-        .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        // The Server's order: Hubs by Device ID, then Nodes by Lot name (unassigned last), then Device ID.
+        .toSorted((a, b) => {
+          const byId = a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          if (a.kind !== b.kind) {
+            return a.kind === 'hub' ? -1 : 1;
+          }
+          if (a.kind === 'hub' || a.lotName === b.lotName) {
+            return byId;
+          }
+          if (a.lotName === undefined || b.lotName === undefined) {
+            return a.lotName === undefined ? 1 : -1;
+          }
+          return a.lotName < b.lotName ? -1 : 1;
+        })
         .map((device) => ({
           id: device.id,
           kind: device.kind,
           ...(device.lotId === undefined ? {} : { lotId: device.lotId }),
           ...(device.lastSeenAt === undefined ? {} : { lastSeenAt: device.lastSeenAt }),
           online: device.online,
+          ...(device.lotName === undefined ? {} : { lotName: device.lotName }),
+          ...(device.batteryPercent === undefined ? {} : { batteryPercent: device.batteryPercent }),
+          ...(device.charging === undefined ? {} : { charging: device.charging }),
         }));
       send(response, 200, { devices: listed });
+      return;
+    }
+
+    // Story 4.8: a Lot's daily history of one quantity (Member), the default window as seeded.
+    const historyMatch = /^\/sites\/([^/]+)\/lots\/([^/]+)\/history$/u.exec(path);
+    if (historyMatch !== null && request.method === 'GET') {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(historyMatch[1] ?? '');
+      const lot = lots.find((candidate) => candidate.id === decodeURIComponent(historyMatch[2] ?? '') && candidate.siteId === siteId);
+      const quantity = url.searchParams.get('quantity') ?? '';
+      const units: Record<string, string> = { soil_moisture: 'raw', air_temperature: '°C', relative_humidity: '%', gas_resistance: 'kΩ' };
+      if (!sites.some((candidate) => candidate.id === siteId)) {
+        problem(response, 404, 'site-not-found');
+      } else if (lot === undefined) {
+        problem(response, 404, 'lot-not-found');
+      } else if (units[quantity] === undefined) {
+        problem(response, 400, 'validation');
+      } else {
+        if (failing !== 'none') {
+          request.socket.destroy();
+          return;
+        }
+        send(response, 200, { quantity, unit: units[quantity], days: lot.history?.[quantity] ?? [] });
+      }
       return;
     }
 
@@ -350,7 +426,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       const roleRank = { Member: 1, Administrator: 2, Owner: 3 } as const;
       const allowed = (minimum: keyof typeof roleRank): boolean => roleRank[site.role] >= roleRank[minimum];
       const statusOf = (lot: FakeLot): string => lot.status ?? (lot.claimed === true ? 'unknown' : 'noNode');
-      const lotView = (lot: FakeLot): Record<string, unknown> => ({
+      const lotView = (lot: FakeLot, detail = false): Record<string, unknown> => ({
         id: lot.id,
         name: lot.name,
         status: statusOf(lot),
@@ -361,6 +437,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         ...(lot.pausedUntil === undefined ? {} : { pausedUntil: lot.pausedUntil }),
         ...(lot.moisturePercent === undefined ? {} : { moisturePercent: lot.moisturePercent }),
         ...(lot.lowThresholdPercent === undefined ? {} : { lowThresholdPercent: lot.lowThresholdPercent }),
+        ...(detail && lot.node !== undefined ? { node: lot.node, sensors: lot.sensors ?? [] } : {}),
         ...(lot.removed === true ? { removed: true } : {}),
       });
       /** The Server's order: by status, then creation. A status outside the contract sorts last. */
@@ -448,7 +525,12 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         if (lot === undefined) {
           problem(response, 404, 'lot-not-found');
         } else {
-          send(response, 200, lotView(lot));
+          lotReads++;
+          if (failing !== 'none') {
+            request.socket.destroy();
+            return;
+          }
+          send(response, 200, lotView(lot, true));
         }
         return;
       }

@@ -41,6 +41,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.android.LotFixtures.plainSpaces
 import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.android.ui.sites.LOT_TILE_SKELETON_TAG
+import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotTileContent
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.OverviewCopy
@@ -82,6 +83,7 @@ class LotOverviewTest {
 
     private val calls = mutableListOf<String>()
     private val opened = mutableListOf<String?>()
+    private val detailOpened = mutableListOf<String>()
     private val events = MutableSharedFlow<LotsEvent>(extraBufferCapacity = 8)
     private var foregrounds = 0
     private var clock: Instant = LotFixtures.now
@@ -119,6 +121,7 @@ class LotOverviewTest {
                     lotsActions = LotsActions(load = { calls += "load" }, refresh = { calls += "refresh" }),
                     now = { clock },
                     nodeSetupActions = NodeSetupActions(open = { opened += it }),
+                    lotDetailActions = LotDetailActions(open = { id, _ -> detailOpened += id }),
                     lotsEvents = events,
                     onForeground = { foregrounds++ },
                 )
@@ -206,21 +209,28 @@ class LotOverviewTest {
     }
 
     @Test
-    fun `UX-DR20 only a no-Node tile is a tap target, for Administrators and Owners`() {
+    fun `UX-DR63 every tile opens its Lot detail, a no-Node tile starts Add a Node for Admin+`() {
         show(LotFixtures.ready())
 
-        val tappable = tiles().filter { it.isClickable }
-        assertEquals(listOf("Carrots, no Node, add a Node"), tappable.map { it.description })
+        assertTrue(tiles().all { it.isClickable })
         compose.onNodeWithContentDescription("Carrots, no Node, add a Node").performScrollTo().performClick()
         assertEquals(listOf<String?>("lot-carrots"), opened)
+        assertTrue(detailOpened.isEmpty())
+        compose
+            .onNodeWithContentDescription("Lettuce, OK, about 35 percent, low 25 percent")
+            .performScrollTo()
+            .performClick()
+        assertEquals(listOf("lot-lettuce"), detailOpened)
     }
 
     @Test
-    fun `UX-DR20 a Member has no tile to tap`() {
+    fun `UX-DR63 a Member's no-Node tile opens its Lot detail, never Add a Node`() {
         show(LotFixtures.ready(role = SiteRole.Member), role = SiteRole.Member)
 
         assertEquals(10, tiles().size)
-        assertTrue(tiles().none { it.isClickable })
+        compose.onNodeWithContentDescription("Carrots, no Node, add a Node").performScrollTo().performClick()
+        assertTrue(opened.isEmpty())
+        assertEquals(listOf("lot-carrots"), detailOpened)
     }
 
     @Test
@@ -560,8 +570,9 @@ class LotOverviewTest {
             ),
             tiles().map { it.description },
         )
-        // A stale no-Node tile does not start Add a Node.
-        assertTrue(tiles().none { it.isClickable })
+        // A stale no-Node tile does not start Add a Node; it opens its detail, which is stale too.
+        compose.onNodeWithContentDescription("Carrots, was no Node", substring = true).performScrollTo().performClick()
+        assertTrue(opened.isEmpty())
     }
 
     @Test

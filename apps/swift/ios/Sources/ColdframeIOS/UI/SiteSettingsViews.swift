@@ -222,13 +222,14 @@
 
   /// The Lot grid on the Site overview (UX-DR18 to UX-DR20, UX-DR97, UX-DR107): the Server's
   /// order, two columns, one from Accessibility 1. A load failure shows its notice in place of
-  /// the grid; a first load shows skeleton tiles. A *no Node* tile starts Add a Node with its
-  /// Lot where the core says so; no other tile is tappable.
+  /// the grid; a first load shows skeleton tiles. Every tile opens Lot detail, except a *no
+  /// Node* tile that starts Add a Node with its Lot where the core says so.
   struct LotGrid: View {
     let lots: LotsPresentation
     let context: CopyContext
     let onTryAgain: () -> Void
     let onAddNode: (String) -> Void
+    let onOpenLot: (String, String) -> Void
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -258,18 +259,18 @@
               let tileView = LotTile(
                 tile: tile, context: context,
                 valueFollowsLabel: LotTilePresentation.valueFollowsLabel(columns: columns))
-              if tile.isTappable {
-                Button {
+              Button {
+                if tile.opensAddNode {
                   onAddNode(tile.id)
-                } label: {
-                  // The tile is transparent: the whole of it takes the tap.
-                  tileView.contentShape(Rectangle())
+                } else {
+                  onOpenLot(tile.id, tile.name)
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(.isButton)
-              } else {
-                tileView
+              } label: {
+                // The tile is transparent: the whole of it takes the tap.
+                tileView.contentShape(Rectangle())
               }
+              .buttonStyle(.plain)
+              .accessibilityAddTraits(.isButton)
             }
           }
         }

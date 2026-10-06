@@ -4187,6 +4187,436 @@
           }
         }
       }
+    },
+    "devices_nodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes"
+          }
+        }
+      }
+    },
+    "devices_no_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not in a Lot"
+          }
+        }
+      }
+    },
+    "devices_charging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "charging"
+          }
+        }
+      }
+    },
+    "devices_not_charging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not charging"
+          }
+        }
+      }
+    },
+    "lot_detail_since": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "since %1$@"
+          }
+        }
+      }
+    },
+    "lot_detail_reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "±5 %% · %1$@"
+          }
+        }
+      }
+    },
+    "lot_detail_node_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check power or range."
+          }
+        }
+      }
+    },
+    "lot_detail_hub_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Hub is silent; Lots behind it can't be read."
+          }
+        }
+      }
+    },
+    "lot_detail_paused_until": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused until %1$@"
+          }
+        }
+      }
+    },
+    "lot_detail_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        }
+      }
+    },
+    "lot_detail_paused_with_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused with the Site"
+          }
+        }
+      }
+    },
+    "lot_detail_resume_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume the Site to resume this Node"
+          }
+        }
+      }
+    },
+    "lot_detail_no_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Lot has no Node."
+          }
+        }
+      }
+    },
+    "lot_detail_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no such Lot. Nothing was changed."
+          }
+        }
+      }
+    },
+    "lot_detail_forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't open this Lot on %1$@. Ask an Owner or Administrator."
+          }
+        }
+      }
+    },
+    "lot_detail_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Server couldn't read this Lot. Nothing was changed."
+          }
+        }
+      }
+    },
+    "lot_detail_sensors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensors"
+          }
+        }
+      }
+    },
+    "lot_detail_no_readings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Readings yet."
+          }
+        }
+      }
+    },
+    "lot_detail_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@"
+          }
+        }
+      }
+    },
+    "lot_detail_battery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Battery"
+          }
+        }
+      }
+    },
+    "lot_detail_last_seen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last seen"
+          }
+        }
+      }
+    },
+    "lot_detail_every_fifteen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "every 15 min"
+          }
+        }
+      }
+    },
+    "lot_detail_history": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History"
+          }
+        }
+      }
+    },
+    "lot_detail_picker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensor"
+          }
+        }
+      }
+    },
+    "lot_detail_quantity_soil_moisture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soil moisture"
+          }
+        }
+      }
+    },
+    "lot_detail_quantity_air_temperature": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temperature"
+          }
+        }
+      }
+    },
+    "lot_detail_quantity_relative_humidity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Humidity"
+          }
+        }
+      }
+    },
+    "lot_detail_quantity_gas_resistance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Air (gas)"
+          }
+        }
+      }
+    },
+    "lot_detail_value_raw": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "raw %1$@"
+          }
+        }
+      }
+    },
+    "lot_detail_value_celsius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ °C"
+          }
+        }
+      }
+    },
+    "lot_detail_value_percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %%"
+          }
+        }
+      }
+    },
+    "lot_detail_value_kiloohm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kΩ"
+          }
+        }
+      }
+    },
+    "lot_detail_chart_readout_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: lowest %2$@"
+          }
+        }
+      }
+    },
+    "lot_detail_chart_readout_range": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ to %3$@"
+          }
+        }
+      }
+    },
+    "lot_detail_chart_no_readings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Readings in the last 30 days."
+          }
+        }
+      }
+    },
+    "lot_detail_chart_summary_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, 30 days, no Readings."
+          }
+        }
+      }
+    },
+    "lot_detail_chart_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't load the history. Nothing was changed."
+          }
+        }
+      }
+    },
+    "lot_detail_chart_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$@, 30 days, lowest %2$@ on %3$@, %4$lld day with Readings."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$@, 30 days, lowest %2$@ on %3$@, %4$lld days with Readings."
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"

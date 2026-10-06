@@ -56,14 +56,16 @@ async function noControls(page: Page): Promise<void> {
 
 test.describe('Devices', () => {
   for (const theme of themes) {
-    test(`UX-DR30 UX-DR65 UX-DR85 an Owner sees the Hubs with ID, status and last seen, and the mobile app notice (${theme}, largest text)`, async ({ page }) => {
+    test(`UX-DR30 UX-DR65 UX-DR85 an Owner sees the Hubs, then the Nodes by Lot with battery, charging and last seen, and the mobile app notice (${theme}, largest text)`, async ({ page }) => {
       await resetSites(
         [home],
         [],
         [
           hub(hubId, true, '07:02'),
           hub(silentHubId, false, '06:40'),
-          { id: '0a0a0a0a0a0a0a0a', siteId: homeId, kind: 'node', online: false },
+          { id: '7c19000000000003', siteId: homeId, kind: 'node', online: false },
+          { id: '7c19000000000002', siteId: homeId, kind: 'node', online: false, lotId: 'lot-2', lotName: 'Tomatoes', lastSeenAt: todayAt('06:30'), batteryPercent: 14, charging: 'notCharging' },
+          { id: '7c19000000000001', siteId: homeId, kind: 'node', online: false, lotId: 'lot-1', lotName: 'Peppers', lastSeenAt: todayAt('07:02'), batteryPercent: 62, charging: 'charging' },
         ],
       );
       await useTheme(page, theme, appUrl);
@@ -77,7 +79,7 @@ test.describe('Devices', () => {
       await expect(page.getByRole('heading', { level: 1, name: 'Devices' })).toBeVisible();
       await expect(page.getByRole('heading', { level: 2, name: 'Hubs' })).toBeVisible();
       const rows = page.getByRole('list', { name: 'Hubs' }).getByRole('listitem');
-      // By Device ID; the Node of the Server's list is not shown.
+      // Hubs by Device ID.
       await expect(rows).toHaveCount(2);
       await expect(rows.nth(0)).toContainText(silentHubId);
       await expect(rows.nth(0)).toContainText('Offline');
@@ -85,7 +87,23 @@ test.describe('Devices', () => {
       await expect(rows.nth(1)).toContainText(hubId);
       await expect(rows.nth(1)).toContainText('Online');
       await expect(rows.nth(1)).toContainText('Last seen 7:02 AM');
-      await expect(page.getByRole('heading', { name: 'Nodes' })).toHaveCount(0);
+
+      // Nodes follow Hubs in the Server's order: by Lot name, the unassigned one last.
+      await expect(page.getByRole('heading', { level: 2, name: 'Nodes' })).toBeVisible();
+      const nodes = page.getByRole('list', { name: 'Nodes' }).getByRole('listitem');
+      await expect(nodes).toHaveCount(3);
+      await expect(nodes.nth(0)).toContainText('7c19000000000001');
+      await expect(nodes.nth(0)).toContainText('Peppers');
+      await expect(nodes.nth(0)).toContainText('Last seen 7:02 AM');
+      await expect(nodes.nth(0)).toContainText('62 %');
+      await expect(nodes.nth(0)).toContainText('charging');
+      await expect(nodes.nth(0).locator('[data-icon="battery--low"]')).toHaveCount(0);
+      await expect(nodes.nth(1)).toContainText('Tomatoes');
+      await expect(nodes.nth(1)).toContainText('14 %');
+      await expect(nodes.nth(1)).toContainText('not charging');
+      await expect(nodes.nth(1).locator('[data-icon="battery--low"]')).toBeVisible();
+      await expect(nodes.nth(2)).toContainText('7c19000000000003');
+      await expect(nodes.nth(2)).toContainText('Not in a Lot');
 
       // The full ID in the mono face; the status is a word with an icon, not a colour.
       await expect(rows.nth(1).locator('.cf-devices__id')).toHaveText(hubId);

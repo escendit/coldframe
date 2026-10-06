@@ -167,7 +167,7 @@ func staleMode() throws {
   #expect(stale.tiles.count == Overview.everyLot.count)
   #expect(stale.tiles.allSatisfy { $0.isStale && $0.valueText(context) == nil })
   #expect(stale.tiles.allSatisfy { $0.footText(context) == "as of 07:02" })
-  #expect(stale.tiles.allSatisfy { !$0.isTappable })
+  #expect(stale.tiles.allSatisfy { $0.opensLotDetail })
   // Live again: the summary and the live tiles are back.
   let live = Overview.lots()
   #expect(staleHeader(live) == nil)
@@ -288,7 +288,8 @@ func refreshPrimitives() throws {
   let sleeps = Repo.swiftSources("apps/swift/ios").filter {
     ((try? String(contentsOf: $0, encoding: .utf8)) ?? "").contains("Task.sleep")
   }
-  #expect(sleeps.map(\.lastPathComponent) == ["SitesViews.swift"])
+  // The overview and Lot detail (Story 4.8) each have their minute tick, and no other timer.
+  #expect(Set(sleeps.map(\.lastPathComponent)) == ["SitesViews.swift", "LotDetailViews.swift"])
   #expect(garden.contains("try? await Task.sleep(for: .seconds(60))"))
   #expect(garden.contains("lotsActions.tick()"))
   #expect(garden.components(separatedBy: "Task.sleep").count == 2)

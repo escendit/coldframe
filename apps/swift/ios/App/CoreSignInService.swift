@@ -38,6 +38,9 @@ final class CoreSignInService: SignInService {
   /// The Lots half of the same core instance, for `CoreLotsService`.
   var lots: IosLots { core.lots }
 
+  /// Lot detail of the same core instance, for `CoreLotDetailService`.
+  var lotDetail: IosLotDetail { core.lotDetail }
+
   /// The Devices half of the same core instance, for `CoreDevicesService`.
   var devices: IosDevices { core.devices }
 

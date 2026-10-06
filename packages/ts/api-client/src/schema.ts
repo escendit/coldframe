@@ -119,7 +119,7 @@ export type paths = {
         };
         /**
          * List the Site's Devices
-         * @description Every Device enrolled on the Site, Hubs and Nodes, ordered by Device ID, from the devices projection of the Device streams. lastSeenAt is the time of the last accepted heartbeat. online is computed by the Server when it answers: for a Hub, true only while lastSeenAt is at most 120 s old (two missed 60 s heartbeats); the same window is applied to a Node until Nodes get their own rule, so a Node's online is not meaningful yet. It is never stored; clients show it as received and never compute or keep it.
+         * @description Every Device enrolled on the Site, Hubs and Nodes, Hubs by Device ID first, then Nodes by Lot name (unassigned last) then Device ID, from the devices projection of the Device streams. lastSeenAt is the time of the last accepted heartbeat. online is computed by the Server when it answers: for a Hub, true only while lastSeenAt is at most 120 s old (two missed 60 s heartbeats); the same window is applied to a Node until Nodes get their own rule, so a Node's online is not meaningful yet. It is never stored; clients show it as received and never compute or keep it.
          */
         get: operations["listDevices"];
         put?: never;
@@ -181,6 +181,26 @@ export type paths = {
         head?: never;
         /** Rename a Lot */
         patch: operations["renameLot"];
+        trace?: never;
+    };
+    "/sites/{siteId}/lots/{lotId}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a Lot's daily history of one quantity
+         * @description One entry per UTC day that has Readings, ascending, with the day's lowest and highest converted value and its Reading count; a day without Readings is absent, never zero. The history follows the Lot's current Node: only the Readings of that Node since it was put in the Lot. Values are converted by the Server like Lot.sensors. from defaults to to minus 30 days and to to now. The page holds at most limit days (default 31, at most 366); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad quantity, from, to, cursor or limit, or from after to, answers 400 validation.
+         */
+        get: operations["getLotHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 };
@@ -295,8 +315,92 @@ export type components = {
             moisturePercent?: number;
             /** @description The low Threshold of the Lot's soil-moisture Sensor, in percent. Absent without one; the Server sends it from Epic 6 on. */
             lowThresholdPercent?: number;
+            /** @description The Lot's Node with its battery and last seen. Sent only by GET /sites/{siteId}/lots/{lotId}, never by the list, and only while the Lot holds a Node. */
+            node?: components["schemas"]["NodeStatus"];
+            /** @description The newest Reading of each Sensor of the Lot's Node, converted by the Server, in slot order. Sent with node, only by GET /sites/{siteId}/lots/{lotId}; empty while the Node has no Reading. */
+            sensors?: components["schemas"]["SensorReading"][];
             /** @description Present and true only for a removed Lot. */
             removed?: boolean;
+        };
+        /**
+         * @description What a Sensor measures.
+         * @enum {string}
+         */
+        SensorQuantity: "soil_moisture" | "air_temperature" | "relative_humidity" | "gas_resistance";
+        /**
+         * @description The unit of a converted value: raw is the uncalibrated soil-moisture count (never a percentage before Calibration, Epic 5).
+         * @enum {string}
+         */
+        SensorUnit: "raw" | "°C" | "%" | "kΩ";
+        /**
+         * @description The charger state of a Node at its last report.
+         * @enum {string}
+         */
+        ChargeState: "charging" | "notCharging";
+        /** @description A Node's health from its newest device report. */
+        NodeStatus: {
+            deviceId: components["schemas"]["DeviceId"];
+            /** @description The approximate battery charge of the newest report; absent when unknown. */
+            batteryPercent?: number;
+            /** @description Absent when the charger state is unknown or there is no report. */
+            charging?: components["schemas"]["ChargeState"];
+            /**
+             * Format: date-time
+             * @description The measured_at of the Node's newest device report, ISO-8601 UTC with Z; absent without a report.
+             */
+            lastSeenAt?: string;
+        };
+        /** @description The newest Reading of one Sensor, converted by the Server: soil moisture stays the raw count, temperature is in °C, humidity in %, gas resistance in kΩ. Clients only format it. */
+        SensorReading: {
+            quantity: components["schemas"]["SensorQuantity"];
+            value: number;
+            unit: components["schemas"]["SensorUnit"];
+            /**
+             * Format: date-time
+             * @description When the Reading was taken, ISO-8601 UTC with Z.
+             */
+            measuredAt: string;
+        };
+        LotHistoryDay: {
+            /**
+             * Format: date
+             * @description A UTC date, yyyy-MM-dd.
+             */
+            day: string;
+            /** @description The day's lowest converted value. */
+            low: number;
+            /** @description The day's highest converted value. */
+            high: number;
+            /** @description How many Readings the day has. */
+            readingCount: number;
+        };
+        /**
+         * @example {
+         *       "quantity": "soil_moisture",
+         *       "unit": "raw",
+         *       "days": [
+         *         {
+         *           "day": "2026-10-05",
+         *           "low": 1840,
+         *           "high": 2210,
+         *           "readingCount": 96
+         *         },
+         *         {
+         *           "day": "2026-10-06",
+         *           "low": 1790,
+         *           "high": 2050,
+         *           "readingCount": 30
+         *         }
+         *       ]
+         *     }
+         */
+        LotHistory: {
+            quantity: components["schemas"]["SensorQuantity"];
+            unit: components["schemas"]["SensorUnit"];
+            /** @description Days with Readings, ascending; a day without Readings is absent. */
+            days: components["schemas"]["LotHistoryDay"][];
+            /** @description Opaque; present only when more days follow. */
+            nextCursor?: string;
         };
         LotList: {
             /** @description In the Server's order: status, then creation time, then Lot ID. */
@@ -483,11 +587,17 @@ export type components = {
             lotId?: string;
             /**
              * Format: date-time
-             * @description When the Server accepted the Device's last heartbeat, ISO-8601 UTC with Z; absent until the first one.
+             * @description For a Hub, when the Server accepted its last heartbeat; for a Node, the measured_at of its newest device report. ISO-8601 UTC with Z; absent until the first one.
              */
             lastSeenAt?: string;
             /** @description Computed by the Server at read time. For a Hub: lastSeenAt is present and at most 120 s old. Not meaningful for a Node yet. Clients never compute it. */
             online: boolean;
+            /** @description The name of the Lot a Node is on; absent for a Hub and an unassigned Node. */
+            lotName?: string;
+            /** @description A Node's approximate battery charge from its newest device report; absent when unknown. */
+            batteryPercent?: number;
+            /** @description A Node's charger state from its newest device report; absent when unknown. */
+            charging?: components["schemas"]["ChargeState"];
         };
         DeviceList: {
             /** @description Every enrolled Device of the Site, ordered by Device ID. */
@@ -1038,6 +1148,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Lot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["LotNotFound"];
+        };
+    };
+    getLotHistory: {
+        parameters: {
+            query: {
+                /** @description The quantity to read. */
+                quantity: components["schemas"]["SensorQuantity"];
+                /** @description Start of the window, ISO-8601 UTC. Defaults to to minus 30 days. */
+                from?: string;
+                /** @description End of the window, ISO-8601 UTC. Defaults to now. */
+                to?: string;
+                /** @description The nextCursor of the previous page; opaque. */
+                cursor?: string;
+                /** @description The most days in a page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Lot ID, a UUIDv7. */
+                lotId: components["parameters"]["LotId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the Lot's daily history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LotHistory"];
                 };
             };
             400: components["responses"]["BadRequest"];

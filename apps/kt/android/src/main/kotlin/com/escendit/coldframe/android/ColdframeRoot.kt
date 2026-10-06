@@ -28,6 +28,7 @@ import com.escendit.coldframe.android.ui.shell.AppShell
 import com.escendit.coldframe.android.ui.shell.Tab
 import com.escendit.coldframe.android.ui.signin.SignInScreen
 import com.escendit.coldframe.android.ui.sites.CreateSiteScreen
+import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.sites.loadMessage
@@ -35,6 +36,7 @@ import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.setup.HubSetupState
@@ -78,6 +80,9 @@ fun ColdframeRoot(
     nodeSetup: NodeSetupState = NodeSetupState.CLOSED,
     nodeSetupActions: NodeSetupActions = NodeSetupActions.None,
     lotsEvents: Flow<LotsEvent> = emptyFlow(),
+    lotDetail: LotDetailState = LotDetailState.Idle,
+    lotDetailActions: LotDetailActions = LotDetailActions.None,
+    lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
     onForeground: () -> Unit = {},
 ) {
     // Every start of the activity, the first one and each return to the foreground.
@@ -113,6 +118,9 @@ fun ColdframeRoot(
                     nodeSetup,
                     nodeSetupActions,
                     lotsEvents,
+                    lotDetail,
+                    lotDetailActions,
+                    lotDetailEvents,
                 )
             }
         }
@@ -136,6 +144,9 @@ private fun SignedIn(
     nodeSetup: NodeSetupState,
     nodeSetupActions: NodeSetupActions,
     lotsEvents: Flow<LotsEvent>,
+    lotDetail: LotDetailState,
+    lotDetailActions: LotDetailActions,
+    lotDetailEvents: Flow<LotsEvent>,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -197,6 +208,9 @@ private fun SignedIn(
                     tabState = tab,
                     now = now,
                     lotsEvents = lotsEvents,
+                    lotDetail = lotDetail,
+                    lotDetailActions = lotDetailActions,
+                    lotDetailEvents = lotDetailEvents,
                 )
             }
         }

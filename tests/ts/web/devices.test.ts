@@ -2,7 +2,7 @@ import { isRedirect } from '@sveltejs/kit';
 import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import DevicesPage from '../../../apps/ts/web/src/routes/(app)/devices/+page.svelte';
-import { devicesAccessOf, devicesNoticeOf, hubsOf, lastSeenText, statusOf, type DeviceListItem, type DevicesNotice } from '$lib/devices';
+import { devicesAccessOf, devicesNoticeOf, hubsOf, lastSeenText, nodesOf, statusOf, type DeviceListItem, type DevicesNotice } from '$lib/devices';
 import { listDevices, loadDevices } from '$lib/server/devices';
 import type { Role } from '$lib/roles';
 import type { Site } from '$lib/sites';
@@ -138,12 +138,28 @@ describe('Devices rows', () => {
 
 describe('Devices surface', () => {
   test('UX-DR30 UX-DR65 a Hubs section lists each Hub with its full Device ID, status and last seen', () => {
-    const body = page('Member', [online, node, offline]);
+    const body = page('Member', [online, offline]);
     expect(body).toMatch(/<h2[^>]*class="cf-section-title"[^>]*>Hubs<\/h2>/u);
     expect(text(body)).toMatch(/Devices Hubs 1b00aa11bb22cc33 Offline Last seen 6:54 AM 3f2a9c0d1e4b5a67 Online Last seen 7:03 AM$/u);
     expect(body).toMatch(/<span class="cf-devices__id[^"]*">3f2a9c0d1e4b5a67<\/span>/u);
-    expect(body).not.toContain(node.id);
     expect(text(body)).not.toContain('Nodes');
+  });
+
+  test('UX-DR30 a Nodes section follows Hubs: Lot name, Device ID, last seen, battery and charging, in the Server order', () => {
+    const tomatoes: DeviceListItem = { id: '7c19000000000001', kind: 'node', lotId: 'l1', lotName: 'Tomatoes', online: false, lastSeenAt: '2026-10-06T07:02:00.000Z', batteryPercent: 62, charging: 'charging' };
+    const peppers: DeviceListItem = { id: '7c19000000000002', kind: 'node', lotId: 'l2', lotName: 'Peppers', online: false, lastSeenAt: '2026-10-06T06:30:00.000Z', batteryPercent: 14, charging: 'notCharging' };
+    const spare: DeviceListItem = { id: '7c19000000000003', kind: 'node', online: false };
+    const body = page('Member', [online, tomatoes, peppers, spare]);
+    expect(body).toMatch(/<h2[^>]*class="cf-section-title"[^>]*>Nodes<\/h2>/u);
+    expect(body.indexOf('>Hubs<')).toBeLessThan(body.indexOf('>Nodes<'));
+    // The page keeps the order the Server listed: no re-sort by Device ID or Lot name.
+    expect([...body.matchAll(/data-device="([^"]+)"/gu)].map((match) => match[1])).toEqual([online.id, tomatoes.id, peppers.id, spare.id]);
+    expect(text(row(body, tomatoes.id))).toBe('7c19000000000001 Tomatoes Last seen 7:02 AM 62 % charging');
+    expect(text(row(body, peppers.id))).toBe('7c19000000000002 Peppers Last seen 6:30 AM 14 % not charging');
+    expect(row(body, peppers.id)).toContain('data-icon="battery--low"');
+    expect(row(body, tomatoes.id)).not.toContain('battery--low');
+    expect(text(row(body, spare.id))).toBe('7c19000000000003 Not in a Lot Not seen yet —');
+    expect(nodesOf([online, peppers, tomatoes]).map((device) => device.id)).toEqual([peppers.id, tomatoes.id]);
   });
 
   test('UX-DR30 an online Hub reads Online with an icon; no colour-only status', () => {

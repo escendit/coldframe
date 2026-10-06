@@ -94,7 +94,8 @@ extension Catalogue {
         .min { $0.lowerBound < $1.lowerBound }
       if let next { result.replaceSubrange(next, with: value) }
     }
-    return result
+    // `%%` is a literal percent sign in a format string.
+    return result.replacingOccurrences(of: "%%", with: "%")
   }
 }
 
@@ -239,5 +240,202 @@ enum Overview {
 
   static func staleTile(_ lot: Lot) -> LotTilePresentation {
     staleLots([lot]).tiles[0]
+  }
+}
+
+/// Lot detail as the core flattens it into a `LotDetailSnapshot`, at the clock of `Overview`
+/// (6 October 2026, 10:00 UTC). Defaults are a live Lot that needs calibration, the Peppers on
+/// Node 7c19 with a soil Sensor; each scenario overrides what differs.
+struct LotDetailFixture {
+  var surface = "ready"
+  var notice: String?
+  var lotName = "Peppers"
+  var stale = false
+  var fetchedAtMs: Int64 = Overview.nowMs
+  var staleAge: (days: Int, hours: Int, minutes: Int) = (0, 0, 0)
+  var heroVariant = "needsCalibration"
+  var heroLabel = "needsCalibration"
+  var heroStatusSince = String(Overview.readingMs)
+  var heroValue = "raw"
+  var heroRawNumber = "1840"
+  var heroSoilPercent = ""
+  var heroLowPercent = ""
+  var heroReadingAt = String(Overview.readingMs)
+  var heroNote = "noPercentUntilCalibrated"
+  var heroPausedUntil = ""
+  var heroResumeSiteHint = false
+  var heroDuration: (value: String, unit: String) = ("", "")
+  var noNode = false
+  var canAddNode = true
+  var hasSensors = true
+  var sensors: [(quantity: String, number: String, unit: String)] = [
+    ("soilMoisture", "1840", "raw"), ("airTemperature", "14", "celsius"),
+    ("relativeHumidity", "78", "percent"), ("gasResistance", "142", "kiloOhm"),
+  ]
+  var hasDevice = true
+  var battery = "62"
+  var batteryLow = false
+  var charging = "charging"
+  var lastSeen = String(Overview.readingMs)
+  var picked: String? = "soilMoisture"
+  var historyUnavailable = false
+  var chartQuantity: String? = "soilMoisture"
+  var chartUnit: String? = "raw"
+  /// Days back from today (0 = today) with their low, high, Reading count and axis fraction.
+  var days: [Int: (low: String, high: String, count: Int, fraction: Double)] = [
+    0: ("1790", "2050", 30, 0.5), 1: ("1840", "2210", 96, 0.8), 3: ("2100", "2300", 96, 1.0),
+  ]
+  var chartLowest = "1790"
+  var chartLowestDay = ""
+
+  /// Midnight UTC of today.
+  static let todayMs: Int64 = Overview.nowMs / 86_400_000 * 86_400_000
+
+  static func dayText(back: Int) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter.string(
+      from: Date(timeIntervalSince1970: Double(todayMs - Int64(back) * 86_400_000) / 1000))
+  }
+
+  func build() -> LotDetailPresentation {
+    let order = Array((0..<30).reversed())
+    let lowestDay = chartLowestDay.isEmpty ? Self.dayText(back: 0) : chartLowestDay
+    return LotDetailPresentation(
+      surface: surface, notice: notice, lotId: "p", lotName: lotName, stale: stale,
+      refreshing: false, fetchedAtEpochMs: fetchedAtMs, staleAgeDays: staleAge.days,
+      staleAgeHours: staleAge.hours, staleAgeMinutes: staleAge.minutes, heroVariant: heroVariant,
+      heroLabel: heroLabel, heroStatusSince: heroStatusSince, heroValue: heroValue,
+      heroRawNumber: heroRawNumber, heroSoilPercent: heroSoilPercent,
+      heroLowPercent: heroLowPercent, heroReadingAt: heroReadingAt, heroNote: heroNote,
+      heroPausedUntil: heroPausedUntil, heroResumeSiteHint: heroResumeSiteHint,
+      heroNeedsWaterFill: heroVariant == "needsWater", heroDurationValue: heroDuration.value,
+      heroDurationUnit: heroDuration.unit, noNode: noNode, canAddNode: canAddNode,
+      hasSensors: hasSensors, sensorQuantities: sensors.map(\.quantity),
+      sensorNumbers: sensors.map(\.number), sensorUnits: sensors.map(\.unit),
+      sensorMeasuredAts: sensors.map { _ in String(Overview.readingMs) }, hasDevice: hasDevice,
+      deviceNodeId: "7c19", deviceBattery: battery, deviceBatteryLow: batteryLow,
+      deviceCharging: charging, deviceLastSeen: lastSeen,
+      quantities: sensors.map(\.quantity), picked: picked, historyUnavailable: historyUnavailable,
+      hasChart: chartQuantity != nil, chartQuantity: chartQuantity, chartUnit: chartUnit,
+      barDays: order.map(Self.dayText(back:)),
+      barDayEpochMs: order.map { Self.todayMs - Int64($0) * 86_400_000 },
+      barPresent: order.map { days[$0] != nil }, barLows: order.map { days[$0]?.low ?? "" },
+      barHighs: order.map { days[$0]?.high ?? "" }, barCounts: order.map { days[$0]?.count ?? 0 },
+      barFractions: order.map { days[$0]?.fraction ?? 0 }, chartDaysWithReadings: days.count,
+      chartLowest: chartLowest, chartLowestDay: lowestDay, chartHighest: "2300",
+      chartHighestDay: Self.dayText(back: 3))
+  }
+
+  static let needsCalibration = LotDetailFixture()
+
+  static var needsWater: LotDetailFixture {
+    var detail = LotDetailFixture()
+    detail.lotName = "Tomatoes"
+    detail.heroVariant = "needsWater"
+    detail.heroLabel = "needsWater"
+    detail.heroValue = "percent"
+    detail.heroSoilPercent = "20"
+    detail.heroLowPercent = "30"
+    detail.heroNote = "none"
+    detail.batteryLow = true
+    detail.battery = "14"
+    detail.charging = "notCharging"
+    return detail
+  }
+
+  static var ok: LotDetailFixture {
+    var detail = needsWater
+    detail.lotName = "Herbs"
+    detail.heroVariant = "ok"
+    detail.heroLabel = "ok"
+    detail.heroSoilPercent = "35"
+    detail.heroLowPercent = "25"
+    detail.batteryLow = false
+    detail.battery = "62"
+    detail.charging = "charging"
+    return detail
+  }
+
+  static var nodeSilent: LotDetailFixture {
+    var detail = LotDetailFixture()
+    detail.lotName = "Beans"
+    detail.heroVariant = "unknown"
+    detail.heroLabel = "silent"
+    detail.heroValue = "none"
+    detail.heroRawNumber = ""
+    detail.heroNote = "checkPowerOrRange"
+    detail.heroReadingAt = String(Overview.earlierMs)
+    detail.heroDuration = ("6", "hours")
+    return detail
+  }
+
+  static var hubSilent: LotDetailFixture {
+    var detail = nodeSilent
+    detail.heroLabel = "hubSilent"
+    detail.heroNote = "hubSilent"
+    detail.heroDuration = ("12", "minutes")
+    return detail
+  }
+
+  static var pausedUntil: LotDetailFixture {
+    var detail = LotDetailFixture()
+    detail.lotName = "Squash"
+    detail.heroVariant = "paused"
+    detail.heroLabel = "paused"
+    detail.heroValue = "none"
+    detail.heroNote = "pausedUntil"
+    detail.heroPausedUntil = String(Overview.novemberMs)
+    return detail
+  }
+
+  static var pausedBySite: LotDetailFixture {
+    var detail = pausedUntil
+    detail.lotName = "Leeks"
+    detail.heroLabel = "pausedBySite"
+    detail.heroNote = "pausedWithSite"
+    detail.heroPausedUntil = ""
+    detail.heroResumeSiteHint = true
+    return detail
+  }
+
+  static var noNodeLot: LotDetailFixture {
+    var detail = LotDetailFixture()
+    detail.lotName = "Zucchini"
+    detail.heroVariant = "noNode"
+    detail.heroLabel = "noNode"
+    detail.heroValue = "none"
+    detail.heroRawNumber = ""
+    detail.heroNote = "none"
+    detail.heroReadingAt = ""
+    detail.noNode = true
+    detail.hasSensors = false
+    detail.sensors = []
+    detail.hasDevice = false
+    detail.picked = nil
+    detail.chartQuantity = nil
+    return detail
+  }
+
+  /// Any of the above in stale mode, as the core flattens it: no value, no cells, "as of".
+  var asStale: LotDetailFixture {
+    var detail = self
+    detail.stale = true
+    detail.fetchedAtMs = Overview.readingMs
+    detail.staleAge = (0, 2, 58)
+    detail.heroVariant = "stale"
+    detail.heroValue = "none"
+    detail.heroRawNumber = ""
+    detail.heroSoilPercent = ""
+    detail.heroLowPercent = ""
+    detail.heroReadingAt = ""
+    detail.heroNote = "none"
+    detail.heroDuration = ("", "")
+    detail.heroResumeSiteHint = false
+    detail.hasSensors = false
+    detail.hasDevice = false
+    return detail
   }
 }

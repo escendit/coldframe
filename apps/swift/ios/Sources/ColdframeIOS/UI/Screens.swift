@@ -71,6 +71,8 @@
     let onAddNode: (String?) -> Void
     let devices: DevicesPresentation
     let devicesActions: DevicesActions
+    let lotDetail: LotDetailPresentation
+    let lotDetailActions: LotDetailActions
     let hoistedSelection: Binding<AppTab>?
     @State private var ownSelection: AppTab = .garden
     @Environment(\.palette) private var palette
@@ -84,10 +86,13 @@
       lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
       onAddNode: @escaping (String?) -> Void = { _ in },
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
+      lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       selection: Binding<AppTab>? = nil
     ) {
       self.devices = devices
       self.devicesActions = devicesActions
+      self.lotDetail = lotDetail
+      self.lotDetailActions = lotDetailActions
       self.hoistedSelection = selection
       self.theme = theme
       self.onSelectTheme = onSelectTheme
@@ -135,7 +140,9 @@
         if let garden {
           GardenView(
             presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
-            onAddHub: onAddHub, onAddNode: { onAddNode($0) })
+            onAddHub: onAddHub, onAddNode: { onAddNode($0) }, lotDetail: lotDetail,
+            lotDetailActions: lotDetailActions, onOpenDevices: { selection.wrappedValue = .devices }
+          )
         } else {
           palette.background.ignoresSafeArea()
         }
@@ -266,6 +273,8 @@
     let onSelectTheme: (ThemePreference) -> Void
     let devices: DevicesPresentation
     let devicesActions: DevicesActions
+    let lotDetail: LotDetailPresentation
+    let lotDetailActions: LotDetailActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
@@ -279,8 +288,11 @@
       onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void,
       onSelectTheme: @escaping (ThemePreference) -> Void,
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
-      nodeSetup: NodeSetupPresentation = .closed, nodeSetupActions: NodeSetupActions = .none
+      nodeSetup: NodeSetupPresentation = .closed, nodeSetupActions: NodeSetupActions = .none,
+      lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none
     ) {
+      self.lotDetail = lotDetail
+      self.lotDetailActions = lotDetailActions
       self.devices = devices
       self.devicesActions = devicesActions
       self.nodeSetup = nodeSetup
@@ -337,7 +349,8 @@
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
           sitesActions: sitesActions, lots: lots, lotsActions: lotsActions,
           onAddHub: hubSetupActions.open, onAddNode: nodeSetupActions.open, devices: devices,
-          devicesActions: devicesActions, selection: $tab
+          devicesActions: devicesActions, lotDetail: lotDetail,
+          lotDetailActions: lotDetailActions, selection: $tab
         )
         .sheet(
           isPresented: Binding(
@@ -362,6 +375,7 @@
     @Published public private(set) var hubSetup = HubSetupPresentation.closed
     @Published public private(set) var devices = DevicesPresentation.waiting
     @Published public private(set) var nodeSetup = NodeSetupPresentation.closed
+    @Published public private(set) var lotDetail = LotDetailPresentation.idle
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -369,12 +383,15 @@
     public let hubSetupService: HubSetupService?
     public let devicesService: DevicesService?
     public let nodeSetupService: NodeSetupService?
+    public let lotDetailService: LotDetailService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
       lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
-      devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil
+      devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
+      lotDetail: LotDetailService? = nil
     ) {
+      self.lotDetailService = lotDetail
       self.devicesService = devices
       self.nodeSetupService = nodeSetup
       self.signIn = signIn
@@ -388,19 +405,34 @@
       lots?.observe { [weak self] in self?.lots = $0 }
       // Entering and leaving stale mode are said once, politely (UX-DR106); the minute tick
       // and an unchanged refresh send no event.
-      lots?.observeEvents { event in
-        if let text = event.text(.catalogue()) {
-          AccessibilityNotification.Announcement(AttributedString(text)).post()
-        }
+      // While a Lot is open its own events are said instead of the overview's, so entering or
+      // leaving stale mode is announced once.
+      lots?.observeEvents { [weak self] event in
+        if self?.lotDetail.surface ?? .idle == .idle { Self.announce(event) }
+      }
+      lotDetail?.observe { [weak self] in self?.lotDetail = $0 }
+      lotDetail?.observeEvents { [weak self] event in
+        if self?.lotDetail.surface ?? .idle != .idle { Self.announce(event) }
       }
       hubSetup?.observe { [weak self] in self?.hubSetup = $0 }
       devices?.observe { [weak self] in self?.devices = $0 }
       nodeSetup?.observe { [weak self] in self?.nodeSetup = $0 }
     }
 
+    private static func announce(_ event: LotsEventPresentation) {
+      if let text = event.text(.catalogue()) {
+        AccessibilityNotification.Announcement(AttributedString(text)).post()
+      }
+    }
+
     /// The Devices actions for the views; nothing happens without a service.
     public var devicesActions: DevicesActions {
       devicesService.map(DevicesActions.init(service:)) ?? .none
+    }
+
+    /// The Lot detail actions for the views; nothing happens without a service.
+    public var lotDetailActions: LotDetailActions {
+      lotDetailService.map(LotDetailActions.init(service:)) ?? .none
     }
 
     /// The Add a Hub actions for the views; nothing happens without a service.

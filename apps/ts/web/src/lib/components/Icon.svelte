@@ -1,5 +1,6 @@
 <script lang="ts" module>
   import add from '@coldframe/design-tokens/icons/add.svg?raw';
+  import batteryLow from '@coldframe/design-tokens/icons/battery--low.svg?raw';
   import checkmark from '@coldframe/design-tokens/icons/checkmark.svg?raw';
   import checkmarkOutline from '@coldframe/design-tokens/icons/checkmark--outline.svg?raw';
   import chevronDown from '@coldframe/design-tokens/icons/chevron--down.svg?raw';
@@ -19,6 +20,7 @@
 
   const sources = {
     add,
+    'battery--low': batteryLow,
     checkmark,
     'checkmark--outline': checkmarkOutline,
     'chevron--down': chevronDown,

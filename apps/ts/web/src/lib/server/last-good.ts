@@ -80,6 +80,10 @@ export function lotsKey(user: string, siteId: string): string {
   return JSON.stringify([user, 'lots', siteId]);
 }
 
+export function lotDetailKey(user: string, siteId: string, lotId: string): string {
+  return JSON.stringify([user, 'lot', siteId, lotId]);
+}
+
 /**
  * Stale mode is about transport only: the Server did not answer (`unreachable`) or answered that
  * it cannot serve (`unavailable`, `unexpected`: a 5xx or an answer outside the contract). A 401,

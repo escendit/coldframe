@@ -320,10 +320,10 @@ function garden(lots: readonly Lot[], lotsNotice: 'unreachable' | 'certificate' 
 describe('Lot tiles on Garden', () => {
   test('UX-DR18 a no-Node tile: name, add icon, a large +, foot add a Node, dotted and transparent, one accessible element', () => {
     const { body } = render(LotTiles, { props: { lots: [tomatoes], now, timeZone: 'UTC' } });
-    expect(body).toMatch(/<div class="cf-lot-tile cf-lot-tile--no-node[^"]*" role="img" aria-label="Tomatoes, no Node, add a Node"/u);
+    expect(body).toMatch(/<a class="cf-lot-tile cf-lot-tile--no-node[^"]*" href="\/garden\/[^"]+" aria-label="Tomatoes, no Node, add a Node"/u);
     expect(body).toContain('data-icon="add"');
     expect(text(body)).toMatch(/Tomatoes No Node \+ add a Node/u);
-    expect(body).not.toMatch(/<a |<button/u);
+    expect(body.match(/<a |<button/gu)).toHaveLength(1);
   });
 
   test('UX-DR18 a Lot whose Node has not reported is unknown, never fine: hatched, help, how long, no Readings yet', () => {
@@ -334,11 +334,12 @@ describe('Lot tiles on Garden', () => {
     expect(text(body)).not.toMatch(/\bOK\b/u);
   });
 
-  test('UX-DR20 tiles keep the Server order and are not tappable', () => {
+  test('UX-DR20 tiles keep the Server order and are each one link to Lot detail', () => {
     const body = garden([peppers, tomatoes, beans]);
     expect([...body.matchAll(/<li class="cf-lot-grid__cell[^"]*" data-lot="([^"]+)"/gu)].map((match) => match[1])).toEqual([peppers.id, tomatoes.id, beans.id]);
     const grid = body.slice(body.indexOf('cf-lot-grid'));
-    expect(grid).not.toMatch(/<a |<button/u);
+    expect(grid.match(/<a /gu)).toHaveLength(3);
+    expect(grid).not.toMatch(/<button/u);
   });
 
   test('UX-DR18 the Lot grid sits below the empty-Site header, steps and notice', () => {

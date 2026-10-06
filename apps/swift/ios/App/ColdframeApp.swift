@@ -12,7 +12,8 @@ struct ColdframeApp: App {
       sites: CoreSitesService(core: signIn.sites), lots: CoreLotsService(core: signIn.lots),
       hubSetup: CoreHubSetupService(core: signIn.hubSetup),
       devices: CoreDevicesService(core: signIn.devices),
-      nodeSetup: CoreNodeSetupService(core: signIn.nodeSetup))
+      nodeSetup: CoreNodeSetupService(core: signIn.nodeSetup),
+      lotDetail: CoreLotDetailService(core: signIn.lotDetail))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -33,13 +34,17 @@ struct ColdframeApp: App {
         devices: model.devices,
         devicesActions: model.devicesActions,
         nodeSetup: model.nodeSetup,
-        nodeSetupActions: model.nodeSetupActions
+        nodeSetupActions: model.nodeSetupActions,
+        lotDetail: model.lotDetail,
+        lotDetailActions: model.lotDetailActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active {
           model.signIn.resume()
           // The overview reads its Lots again every time the app comes to the front.
           model.lotsService?.refresh()
+          // An open Lot detail reads its Lot again too; with none open this does nothing.
+          model.lotDetailService?.refresh()
         }
       }
     }

@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.setup.NodeSetupActions
+import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 
@@ -32,6 +33,8 @@ class MainActivity : ComponentActivity() {
         val sitesActions = SitesActions.of(sites)
         val lots = app.signIn.lots
         val lotsActions = LotsActions.of(lots)
+        val lotDetail = app.signIn.lotDetail
+        val lotDetailActions = LotDetailActions.of(lotDetail)
         val devices = app.signIn.devices
         val devicesActions = DevicesActions.of(devices)
         val hubSetup = app.signIn.hubSetup
@@ -43,6 +46,7 @@ class MainActivity : ComponentActivity() {
             val theme by appearance.theme.collectAsStateWithLifecycle()
             val sitesState by sites.state.collectAsStateWithLifecycle()
             val lotsState by lots.state.collectAsStateWithLifecycle()
+            val lotDetailState by lotDetail.state.collectAsStateWithLifecycle()
             val devicesState by devices.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val nodeSetupState by nodeSetup.state.collectAsStateWithLifecycle()
@@ -77,10 +81,14 @@ class MainActivity : ComponentActivity() {
                 nodeSetup = nodeSetupState,
                 nodeSetupActions = nodeSetupActions,
                 lotsEvents = lots.events,
+                lotDetail = lotDetailState,
+                lotDetailActions = lotDetailActions,
+                lotDetailEvents = lotDetail.events,
                 // Reload on start: a no-op until a Site is current, else the Lots are read again.
                 onForeground = {
                     engine.resume()
                     lots.refresh()
+                    lotDetail.refresh()
                 },
             )
         }

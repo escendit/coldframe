@@ -81,10 +81,11 @@
         InlineNotice(
           message: notice.message,
           action: notice.offersTryAgain ? (label: L10n.noticeTryAgain, perform: actions.load) : nil)
-      case .ready(let hubs) where hubs.isEmpty:
+      case .ready(let hubs) where hubs.isEmpty && presentation.nodes.isEmpty:
         L10n.devicesEmpty.text.role(Typography.body).foregroundStyle(palette.textSecondary)
       case .ready(let hubs):
-        hubsSection(hubs)
+        if !hubs.isEmpty { hubsSection(hubs) }
+        if !presentation.nodes.isEmpty { nodesSection(presentation.nodes) }
       }
     }
 
@@ -97,6 +98,22 @@
         divider
         ForEach(hubs) { hub in
           row(hub, shownAt: shownAt)
+          divider
+        }
+      }
+    }
+
+    /// The "Nodes" section after the Hubs (UX-DR30), in the Server's order: Lot name, then
+    /// unassigned last. Nothing here sorts.
+    private func nodesSection(_ nodes: [NodeRowPresentation]) -> some View {
+      let shownAt = now()
+      return VStack(alignment: .leading, spacing: 0) {
+        L10n.devicesNodes.text.role(Typography.section).foregroundStyle(palette.textPrimary)
+          .accessibilityAddTraits(.isHeader)
+          .padding(.bottom, Spacing.step4)
+        divider
+        ForEach(nodes) { node in
+          nodeRow(node, shownAt: shownAt)
           divider
         }
       }
@@ -123,6 +140,46 @@
         )
         .role(Typography.helper)
         .foregroundStyle(palette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.vertical, Spacing.step4)
+      .accessibilityElement(children: .combine)
+    }
+
+    /// One element per row for VoiceOver: the ID, the Lot, then last seen, battery and charging.
+    private func nodeRow(_ node: NodeRowPresentation, shownAt: Date) -> some View {
+      VStack(alignment: .leading, spacing: Spacing.step2) {
+        Text(verbatim: node.id).role(Typography.metaMono).foregroundStyle(palette.textPrimary)
+          .fixedSize(horizontal: false, vertical: true)
+        Group {
+          if let lotName = node.lotName {
+            Text(verbatim: lotName)
+          } else {
+            L10n.devicesNoLot.text
+          }
+        }
+        .role(Typography.bodyLg).foregroundStyle(palette.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: Spacing.step5) {
+          Text(
+            verbatim: node.lastSeenCopy(now: shownAt, timeZone: timeZone, locale: locale).string
+          )
+          .role(Typography.helper).foregroundStyle(palette.textSecondary)
+          if let battery = node.batteryCopy {
+            HStack(spacing: Spacing.step2) {
+              if let icon = node.batteryIcon {
+                CarbonIconShape(icon).fill(palette.textPrimary).frame(width: 16, height: 16)
+                  .accessibilityHidden(true)
+              }
+              Text(verbatim: battery.string).role(Typography.helper)
+                .foregroundStyle(palette.textSecondary)
+            }
+          }
+          if let charging = node.chargingLabel {
+            charging.text.role(Typography.helper).foregroundStyle(palette.textSecondary)
+          }
+        }
         .fixedSize(horizontal: false, vertical: true)
       }
       .frame(maxWidth: .infinity, alignment: .leading)

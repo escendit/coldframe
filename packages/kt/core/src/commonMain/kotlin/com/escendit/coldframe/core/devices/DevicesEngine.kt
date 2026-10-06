@@ -4,6 +4,8 @@ import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.DeviceListDto
 import com.escendit.coldframe.core.api.DeviceListItemDto
+import com.escendit.coldframe.core.lots.ChargeState
+import com.escendit.coldframe.core.lots.SensorFormat
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesState
@@ -93,7 +95,7 @@ public class DevicesEngine(
             mutableState.value =
                 when (result) {
                     is ApiResult.Ok -> {
-                        DevicesState.Ready(latest, result.value.devices.toHubs())
+                        DevicesState.Ready(latest, result.value.devices.toHubs(), result.value.devices.toNodes())
                     }
 
                     is ApiResult.Failed -> {
@@ -123,6 +125,24 @@ public class DevicesEngine(
             filter { it.kind == KIND_HUB }
                 .sortedBy { it.id }
                 .map { HubSummary(it.id, it.online, it.lastSeenAt?.let(::epochMsOf)) }
+
+        /** The contract's `DeviceKind` of a Node. */
+        public const val KIND_NODE: String = "node"
+
+        /** The Nodes in the Server's order (Lot name, unassigned last, Device ID); no client sort. */
+        internal fun List<DeviceListItemDto>.toNodes(): List<NodeSummary> =
+            filter { it.kind == KIND_NODE }
+                .map {
+                    NodeSummary(
+                        id = it.id,
+                        lotId = it.lotId,
+                        lotName = it.lotName,
+                        batteryPercent = it.batteryPercent,
+                        batteryLow = SensorFormat.batteryLow(it.batteryPercent),
+                        charging = ChargeState.fromServer(it.charging),
+                        lastSeenAtEpochMs = it.lastSeenAt?.let(::epochMsOf),
+                    )
+                }
 
         /** An ISO-8601 instant as Unix milliseconds, or `null` when it is not one. */
         internal fun epochMsOf(instant: String): Long? = Instant.parseOrNull(instant)?.toEpochMilliseconds()

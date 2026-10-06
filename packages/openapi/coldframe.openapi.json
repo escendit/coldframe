@@ -200,7 +200,7 @@
       "get": {
         "operationId": "listDevices",
         "summary": "List the Site's Devices",
-        "description": "Every Device enrolled on the Site, Hubs and Nodes, ordered by Device ID, from the devices projection of the Device streams. lastSeenAt is the time of the last accepted heartbeat. online is computed by the Server when it answers: for a Hub, true only while lastSeenAt is at most 120 s old (two missed 60 s heartbeats); the same window is applied to a Node until Nodes get their own rule, so a Node's online is not meaningful yet. It is never stored; clients show it as received and never compute or keep it.",
+        "description": "Every Device enrolled on the Site, Hubs and Nodes, Hubs by Device ID first, then Nodes by Lot name (unassigned last) then Device ID, from the devices projection of the Device streams. lastSeenAt is the time of the last accepted heartbeat. online is computed by the Server when it answers: for a Hub, true only while lastSeenAt is at most 120 s old (two missed 60 s heartbeats); the same window is applied to a Node until Nodes get their own rule, so a Node's online is not meaningful yet. It is never stored; clients show it as received and never compute or keep it.",
         "x-coldframe-minimum-role": "Member",
         "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
         "responses": {
@@ -385,6 +385,67 @@
           "409": { "$ref": "#/components/responses/LotClaimed" }
         }
       }
+    },
+    "/sites/{siteId}/lots/{lotId}/history": {
+      "get": {
+        "operationId": "getLotHistory",
+        "summary": "Read a Lot's daily history of one quantity",
+        "description": "One entry per UTC day that has Readings, ascending, with the day's lowest and highest converted value and its Reading count; a day without Readings is absent, never zero. The history follows the Lot's current Node: only the Readings of that Node since it was put in the Lot. Values are converted by the Server like Lot.sensors. from defaults to to minus 30 days and to to now. The page holds at most limit days (default 31, at most 366); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad quantity, from, to, cursor or limit, or from after to, answers 400 validation.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/LotId" },
+          {
+            "name": "quantity",
+            "in": "query",
+            "required": true,
+            "description": "The quantity to read.",
+            "schema": { "$ref": "#/components/schemas/SensorQuantity" }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the window, ISO-8601 UTC. Defaults to to minus 30 days.",
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the window, ISO-8601 UTC. Defaults to now.",
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The nextCursor of the previous page; opaque.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most days in a page.",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 366, "default": 31 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the Lot's daily history.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LotHistory" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/LotNotFound" }
+        }
+      }
     }
   },
   "components": {
@@ -557,6 +618,15 @@
             "maximum": 100,
             "description": "The low Threshold of the Lot's soil-moisture Sensor, in percent. Absent without one; the Server sends it from Epic 6 on."
           },
+          "node": {
+            "allOf": [{ "$ref": "#/components/schemas/NodeStatus" }],
+            "description": "The Lot's Node with its battery and last seen. Sent only by GET /sites/{siteId}/lots/{lotId}, never by the list, and only while the Lot holds a Node."
+          },
+          "sensors": {
+            "type": "array",
+            "description": "The newest Reading of each Sensor of the Lot's Node, converted by the Server, in slot order. Sent with node, only by GET /sites/{siteId}/lots/{lotId}; empty while the Node has no Reading.",
+            "items": { "$ref": "#/components/schemas/SensorReading" }
+          },
           "removed": { "type": "boolean", "description": "Present and true only for a removed Lot." }
         },
         "examples": [
@@ -582,6 +652,89 @@
             "statusSince": "2026-10-01T09:00:00.000Z",
             "pausedBy": ["device", "site"],
             "pausedUntil": "2026-11-01T00:00:00.000Z"
+          }
+        ]
+      },
+      "SensorQuantity": {
+        "type": "string",
+        "enum": ["soil_moisture", "air_temperature", "relative_humidity", "gas_resistance"],
+        "description": "What a Sensor measures."
+      },
+      "SensorUnit": {
+        "type": "string",
+        "enum": ["raw", "°C", "%", "kΩ"],
+        "description": "The unit of a converted value: raw is the uncalibrated soil-moisture count (never a percentage before Calibration, Epic 5)."
+      },
+      "ChargeState": {
+        "type": "string",
+        "enum": ["charging", "notCharging"],
+        "description": "The charger state of a Node at its last report."
+      },
+      "NodeStatus": {
+        "type": "object",
+        "description": "A Node's health from its newest device report.",
+        "required": ["deviceId"],
+        "properties": {
+          "deviceId": { "$ref": "#/components/schemas/DeviceId" },
+          "batteryPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "The approximate battery charge of the newest report; absent when unknown."
+          },
+          "charging": {
+            "allOf": [{ "$ref": "#/components/schemas/ChargeState" }],
+            "description": "Absent when the charger state is unknown or there is no report."
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The measured_at of the Node's newest device report, ISO-8601 UTC with Z; absent without a report."
+          }
+        }
+      },
+      "SensorReading": {
+        "type": "object",
+        "description": "The newest Reading of one Sensor, converted by the Server: soil moisture stays the raw count, temperature is in °C, humidity in %, gas resistance in kΩ. Clients only format it.",
+        "required": ["quantity", "value", "unit", "measuredAt"],
+        "properties": {
+          "quantity": { "$ref": "#/components/schemas/SensorQuantity" },
+          "value": { "type": "number" },
+          "unit": { "$ref": "#/components/schemas/SensorUnit" },
+          "measuredAt": { "type": "string", "format": "date-time", "description": "When the Reading was taken, ISO-8601 UTC with Z." }
+        }
+      },
+      "LotHistoryDay": {
+        "type": "object",
+        "required": ["day", "low", "high", "readingCount"],
+        "properties": {
+          "day": { "type": "string", "format": "date", "description": "A UTC date, yyyy-MM-dd." },
+          "low": { "type": "number", "description": "The day's lowest converted value." },
+          "high": { "type": "number", "description": "The day's highest converted value." },
+          "readingCount": { "type": "integer", "minimum": 1, "description": "How many Readings the day has." }
+        }
+      },
+      "LotHistory": {
+        "type": "object",
+        "required": ["quantity", "unit", "days"],
+        "properties": {
+          "quantity": { "$ref": "#/components/schemas/SensorQuantity" },
+          "unit": { "$ref": "#/components/schemas/SensorUnit" },
+          "days": {
+            "type": "array",
+            "description": "Days with Readings, ascending; a day without Readings is absent.",
+            "items": { "$ref": "#/components/schemas/LotHistoryDay" }
+          },
+          "nextCursor": { "type": "string", "description": "Opaque; present only when more days follow." }
+        },
+        "examples": [
+          {
+            "quantity": "soil_moisture",
+            "unit": "raw",
+            "days": [
+              { "day": "2026-10-05", "low": 1840, "high": 2210, "readingCount": 96 },
+              { "day": "2026-10-06", "low": 1790, "high": 2050, "readingCount": 30 }
+            ]
           }
         ]
       },
@@ -769,11 +922,22 @@
           "lastSeenAt": {
             "type": "string",
             "format": "date-time",
-            "description": "When the Server accepted the Device's last heartbeat, ISO-8601 UTC with Z; absent until the first one."
+            "description": "For a Hub, when the Server accepted its last heartbeat; for a Node, the measured_at of its newest device report. ISO-8601 UTC with Z; absent until the first one."
           },
           "online": {
             "type": "boolean",
             "description": "Computed by the Server at read time. For a Hub: lastSeenAt is present and at most 120 s old. Not meaningful for a Node yet. Clients never compute it."
+          },
+          "lotName": { "type": "string", "description": "The name of the Lot a Node is on; absent for a Hub and an unassigned Node." },
+          "batteryPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "A Node's approximate battery charge from its newest device report; absent when unknown."
+          },
+          "charging": {
+            "allOf": [{ "$ref": "#/components/schemas/ChargeState" }],
+            "description": "A Node's charger state from its newest device report; absent when unknown."
           }
         },
         "examples": [

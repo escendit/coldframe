@@ -62,6 +62,7 @@ data class ColdframeColors(
     val statusPausedInk: Color,
     val staleBorder: Color,
     val staleInk: Color,
+    val chartBar: Color,
 ) {
     companion object {
         /** Resolves every token for [isDark]; nothing else in the app names a colour. */
@@ -112,6 +113,7 @@ data class ColdframeColors(
                 statusPausedInk = ColorTokens.statusPausedInk.color(),
                 staleBorder = ColorTokens.staleBorder.color(),
                 staleInk = ColorTokens.staleInk.color(),
+                chartBar = ColorTokens.chartBar.color(),
             )
         }
     }

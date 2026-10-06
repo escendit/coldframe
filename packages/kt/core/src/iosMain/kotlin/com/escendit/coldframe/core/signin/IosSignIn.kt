@@ -2,6 +2,7 @@ package com.escendit.coldframe.core.signin
 
 import com.escendit.coldframe.core.Watch
 import com.escendit.coldframe.core.devices.IosDevices
+import com.escendit.coldframe.core.lots.IosLotDetail
 import com.escendit.coldframe.core.lots.IosLots
 import com.escendit.coldframe.core.setup.IosHubSetup
 import com.escendit.coldframe.core.setup.IosNodeSetup
@@ -53,6 +54,7 @@ public class IosSignIn private constructor(
     public val sites: IosSites = IosSites(sitesEngine, scope)
 
     private val lotsEngine = SitesWiring.lots(api, sitesEngine, settings, scope)
+    private val lotDetailEngine = SitesWiring.lotDetail(api, sitesEngine, settings, scope)
     private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope)
     private val radio = KableSetupRadio(IosRadioState())
     private val nodeSetupEngine =
@@ -60,6 +62,9 @@ public class IosSignIn private constructor(
 
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
     public val lots: IosLots = IosLots(lotsEngine, scope)
+
+    /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history. */
+    public val lotDetail: IosLotDetail = IosLotDetail(lotDetailEngine, scope)
 
     /** The Devices of the current Site; Swift loads it on every entry of the Devices tab. */
     public val devices: IosDevices = IosDevices(devicesEngine, scope)

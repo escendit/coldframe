@@ -203,10 +203,14 @@
     let lotsActions: LotsActions
     let onAddHub: () -> Void
     let onAddNode: (String) -> Void
+    let lotDetail: LotDetailPresentation
+    let lotDetailActions: LotDetailActions
+    let onOpenDevices: () -> Void
     let now: () -> Date
     let timeZone: TimeZone
     @State private var switching = false
     @State private var openingSiteSettings = false
+    @State private var openedLot: OpenedLot?
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
@@ -215,6 +219,8 @@
       presentation: GardenPresentation, lots: LotsPresentation = .waiting,
       actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
       onAddNode: @escaping (String) -> Void = { _ in },
+      lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
+      onOpenDevices: @escaping () -> Void = {},
       now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
     ) {
       self.presentation = presentation
@@ -223,6 +229,9 @@
       self.lotsActions = lotsActions
       self.onAddHub = onAddHub
       self.onAddNode = onAddNode
+      self.lotDetail = lotDetail
+      self.lotDetailActions = lotDetailActions
+      self.onOpenDevices = onOpenDevices
       self.now = now
       self.timeZone = timeZone
     }
@@ -237,7 +246,8 @@
             InlineNotice(message: notice)
           }
           LotGrid(
-            lots: lots, context: context, onTryAgain: lotsActions.load, onAddNode: onAddNode)
+            lots: lots, context: context, onTryAgain: lotsActions.load, onAddNode: onAddNode,
+            onOpenLot: { openedLot = OpenedLot(id: $0, name: $1) })
         }
         .padding(Spacing.gutterMobile)
       }
@@ -253,6 +263,17 @@
             await MainActor.run { lotsActions.tick() }
           }
         }
+      }
+      .navigationDestination(item: $openedLot) { lot in
+        // The core reads the Lot while the destination is on screen and forgets it on leaving.
+        LotDetailView(
+          presentation: lotDetail, siteName: presentation.siteName, actions: lotDetailActions,
+          onAddNode: onAddNode, onOpenDevices: onOpenDevices, now: now, timeZone: timeZone
+        )
+        .navigationTitle(lot.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { lotDetailActions.open(lot.id, lot.name) }
+        .onDisappear { lotDetailActions.close() }
       }
       .navigationDestination(isPresented: $openingSiteSettings) {
         SiteSettingsView(presentation: lots, actions: lotsActions)

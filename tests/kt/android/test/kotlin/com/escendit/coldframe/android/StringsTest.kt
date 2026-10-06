@@ -114,8 +114,9 @@ class StringsTest {
         for ((key, value) in android) {
             assertFalse(value.contains('!'), key)
             assertFalse(
+                // The degree sign of "°C" is a unit, not an emoji.
                 value.codePoints().anyMatch {
-                    Character.getType(it) == Character.OTHER_SYMBOL.toInt()
+                    it != DEGREE_SIGN && Character.getType(it) == Character.OTHER_SYMBOL.toInt()
                 },
                 "$key has an emoji",
             )
@@ -290,6 +291,7 @@ class StringsTest {
     }
 
     private companion object {
+        const val DEGREE_SIGN = 0xB0
         const val STRINGS_XML = "apps/kt/android/src/main/res/values/strings.xml"
         const val XCSTRINGS = "apps/swift/ios/Sources/ColdframeIOS/Resources/Localizable.xcstrings"
     }

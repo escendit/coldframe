@@ -53,6 +53,51 @@ public data class LotDto(
     val pausedUntil: String? = null,
     val moisturePercent: Double? = null,
     val lowThresholdPercent: Double? = null,
+    val node: NodeStatusDto? = null,
+    val sensors: List<SensorReadingDto>? = null,
+)
+
+/**
+ * `NodeStatus`: the Node of a Lot with its battery and last seen from its newest device report.
+ * [charging] is `charging` or `notCharging`; each optional field is absent when unknown.
+ */
+@Serializable
+public data class NodeStatusDto(
+    val deviceId: String,
+    val batteryPercent: Int? = null,
+    val charging: String? = null,
+    val lastSeenAt: String? = null,
+)
+
+/**
+ * `SensorReading`: the newest Reading of a Sensor, converted by the Server. [quantity] is
+ * `soil_moisture`, `air_temperature`, `relative_humidity` or `gas_resistance`; [unit] is `raw`,
+ * `°C`, `%` or `kΩ`.
+ */
+@Serializable
+public data class SensorReadingDto(
+    val quantity: String,
+    val value: Double,
+    val unit: String,
+    val measuredAt: String,
+)
+
+/** `LotHistoryDay`: one UTC day (`yyyy-MM-dd`) with Readings. */
+@Serializable
+public data class LotHistoryDayDto(
+    val day: String,
+    val low: Double,
+    val high: Double,
+    val readingCount: Int,
+)
+
+/** `LotHistory`: a page of daily history of one quantity, days ascending; [nextCursor] only when more follow. */
+@Serializable
+public data class LotHistoryDto(
+    val quantity: String,
+    val unit: String,
+    val days: List<LotHistoryDayDto>,
+    val nextCursor: String? = null,
 )
 
 /** `LotList`: the Site's live Lots in the Server's order. */
@@ -108,9 +153,12 @@ public data class DeviceListItemDto(
     val online: Boolean,
     val lotId: String? = null,
     val lastSeenAt: String? = null,
+    val lotName: String? = null,
+    val batteryPercent: Int? = null,
+    val charging: String? = null,
 )
 
-/** `DeviceList`: every enrolled Device of the Site, Hubs and Nodes, by Device ID. */
+/** `DeviceList`: every enrolled Device of the Site: Hubs by Device ID, then Nodes by Lot name. */
 @Serializable
 public data class DeviceListDto(
     val devices: List<DeviceListItemDto>,

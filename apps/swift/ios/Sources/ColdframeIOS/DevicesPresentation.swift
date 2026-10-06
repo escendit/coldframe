@@ -48,6 +48,50 @@ public struct HubRowPresentation: Equatable, Sendable, Identifiable {
   }
 }
 
+/// One Node row of the Devices list (UX-DR30): the Device ID in `meta-mono`, the Lot name in
+/// `body-lg` (or "Not in a Lot"), and its last seen, battery and charging in `helper`, as the
+/// Server sent them. The Server's order (Lot name, unassigned last) is kept; nothing sorts.
+public struct NodeRowPresentation: Equatable, Sendable, Identifiable {
+  /// The Device ID, shown in full and never reformatted.
+  public let id: String
+  /// The Lot the Node is in; nil for an unassigned Node.
+  public let lotName: String?
+  public let battery: Int?
+  /// Below 20 %, as the core decided: shows `battery--low`.
+  public let batteryLow: Bool
+  public let charging: ChargeKind?
+  public let lastSeen: Date?
+
+  public init(
+    id: String, lotName: String?, battery: Int?, batteryLow: Bool, charging: ChargeKind?,
+    lastSeen: Date?
+  ) {
+    self.id = id
+    self.lotName = lotName
+    self.battery = battery
+    self.batteryLow = batteryLow
+    self.charging = charging
+    self.lastSeen = lastSeen
+  }
+
+  public var batteryIcon: CarbonIcon? { batteryLow ? .batteryLow : nil }
+
+  /// "Last seen 07:02" by the Voice rules, or "Not seen yet".
+  public func lastSeenCopy(now: Date, timeZone: TimeZone, locale: Locale) -> Copy {
+    guard let lastSeen else { return Copy(.devicesNotSeen) }
+    return Copy(
+      .devicesLastSeen,
+      .text(Formats.when(lastSeen, now: now, timeZone: timeZone, locale: locale)))
+  }
+
+  /// "62 %", or nil when the Node's battery is not known.
+  public var batteryCopy: Copy? {
+    battery.map { Copy(.lotDetailValuePercent, .text(String($0))) }
+  }
+
+  public var chargingLabel: L10n? { charging?.label }
+}
+
 /// What the Devices tab shows.
 public enum DevicesSurface: Equatable, Sendable {
   /// Signed out, no current Site, or the list is being read: no rows.
@@ -65,11 +109,18 @@ public struct DevicesPresentation: Equatable, Sendable {
   public let canAddHub: Bool
   /// Add a Node sits beside it, for the same Roles, as the core decided.
   public let canAddNode: Bool
+  /// The Nodes of the current Site in the Server's order, shown under "Nodes" after the Hubs;
+  /// empty unless ready.
+  public let nodes: [NodeRowPresentation]
 
-  public init(surface: DevicesSurface, canAddHub: Bool, canAddNode: Bool = false) {
+  public init(
+    surface: DevicesSurface, canAddHub: Bool, canAddNode: Bool = false,
+    nodes: [NodeRowPresentation] = []
+  ) {
     self.surface = surface
     self.canAddHub = canAddHub
     self.canAddNode = canAddNode
+    if case .ready = surface { self.nodes = nodes } else { self.nodes = [] }
   }
 
   public static let waiting = DevicesPresentation(surface: .waiting, canAddHub: false)
@@ -79,17 +130,31 @@ public struct DevicesPresentation: Equatable, Sendable {
   /// or an empty string for a Hub that never sent a heartbeat.
   public init(
     surface: String, notice: String?, siteId: String?, canAddHub: Bool, canAddNode: Bool = false,
-    hubIds: [String], hubStatuses: [String], hubLastSeen: [String]
+    hubIds: [String], hubStatuses: [String], hubLastSeen: [String], nodeIds: [String] = [],
+    nodeLotNames: [String] = [], nodeBatteries: [String] = [], nodeBatteryLow: [Bool] = [],
+    nodeCharging: [String] = [], nodeLastSeen: [String] = []
   ) {
     self.canAddHub = siteId != nil && canAddHub
     self.canAddNode = siteId != nil && canAddNode
     switch surface {
     case "failed":
+      self.nodes = []
       self.surface = .failed(notice.flatMap(DevicesNoticeKind.init(rawValue:)) ?? .unreachable)
     case "ready":
       guard siteId != nil else {
+        self.nodes = []
         self.surface = .waiting
         return
+      }
+      let nodeCount = min(
+        nodeIds.count, nodeLotNames.count, nodeBatteries.count, nodeBatteryLow.count,
+        nodeCharging.count, nodeLastSeen.count)
+      self.nodes = (0..<nodeCount).map {
+        NodeRowPresentation(
+          id: nodeIds[$0], lotName: nodeLotNames[$0].isEmpty ? nil : nodeLotNames[$0],
+          battery: Int(nodeBatteries[$0]), batteryLow: nodeBatteryLow[$0],
+          charging: ChargeKind(rawValue: nodeCharging[$0]),
+          lastSeen: Int64(nodeLastSeen[$0]).map { Date(timeIntervalSince1970: Double($0) / 1000) })
       }
       let count = min(hubIds.count, hubStatuses.count, hubLastSeen.count)
       self.surface = .ready(
@@ -101,6 +166,7 @@ public struct DevicesPresentation: Equatable, Sendable {
             })
         })
     default:
+      self.nodes = []
       self.surface = .waiting
     }
   }
@@ -111,9 +177,9 @@ public struct DevicesPresentation: Equatable, Sendable {
     return []
   }
 
-  /// The list was read and the Site has no Hub to show: "No Devices yet."
+  /// The list was read and the Site has no Hub and no Node to show: "No Devices yet."
   public var isEmpty: Bool {
-    if case .ready(let hubs) = surface { return hubs.isEmpty }
+    if case .ready(let hubs) = surface { return hubs.isEmpty && nodes.isEmpty }
     return false
   }
 

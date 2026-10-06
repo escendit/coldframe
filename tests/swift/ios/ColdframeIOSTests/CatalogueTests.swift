@@ -103,7 +103,8 @@ func phoneCopy() throws {
 private let coveredUxDrs: [String: [Int]] = [
   "4.7 Lot status and the Site overview": [
     12, 17, 18, 19, 20, 24, 77, 79, 80, 97, 98, 99, 106, 107, 112, 128, 129,
-  ]
+  ],
+  "4.8 Lot detail with history and Device status": [27, 28, 29, 30, 32, 33, 63, 78, 98],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")

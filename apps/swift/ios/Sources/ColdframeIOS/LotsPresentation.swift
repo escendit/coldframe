@@ -458,11 +458,14 @@ public struct LotTilePresentation: Equatable, Sendable, Identifiable {
     }
   }
 
-  /// A tile is a button only where it starts Add a Node; no other tile is tappable (Lot detail
-  /// is a later story).
-  public var isTappable: Bool { opensAddNode }
+  /// Every tile is a button (UX-DR63): it opens Lot detail, except a live *no Node* tile for
+  /// Administrators and Owners, which keeps starting Add a Node, as the core decided.
+  public var isTappable: Bool { true }
 
-  public var traits: Set<ControlTrait> { isTappable ? [.button] : [] }
+  /// Opens Lot detail: every tile that does not start Add a Node.
+  public var opensLotDetail: Bool { !opensAddNode }
+
+  public var traits: Set<ControlTrait> { [.button] }
 
   /// Two columns, one from Accessibility 1 (UX-DR97, UX-DR107).
   public static func columns(accessibilitySize: Bool) -> Int { accessibilitySize ? 1 : 2 }

@@ -97,3 +97,30 @@ that its Lots are not live.
 
 iOS gets all of it through the flat `LotsSnapshot` (`IosLots.watch`, `IosLots.current()` for the
 minute tick, `IosLots.watchEvents`, `IosLots.refresh()`); Android reads `AndroidSignIn.lots`.
+
+## Lot detail and Device status (Story 4.8)
+
+`lots/LotDetailEngine` reads one Lot (`getLot`, which carries `node` and `sensors` for a Lot that
+holds a Node) and the paged daily history of the picked quantity (`getLotHistory`, following
+`nextCursor` up to four pages). It has the Lots engine's stale rules: a transport failure is
+retried once, then the last good detail stays with `staleReason = Unreachable`; a cold start shows
+the stored detail (`lotDetail.lastGood.‹siteId›.‹lotId›`, with the histories read for it) as
+`Cached`; 403/404 drop it and show a notice; the stored entries are cleared when the session ends.
+`events` sends the same `EnteredStale` / `LeftStale` pair.
+
+`lots/LotDetail` is the shared presentation model, built for one `now`: `LotDetail.of(ready, now)`
+gives the hero (the tile's variant, label and spoken label, `raw N` while `needsCalibration`,
+`moisturePercent` only when the Server sends it, the UX-DR78 note), the Sensor cells, the Device
+cells (`battery--low` below 20 %) and the History chart (30 UTC days ending today, gaps for days
+without Readings, daily lows scaled to the axis). While stale, the Sensor and Device cells are
+`null`: no live value is drawn. `SensorFormat` only formats: soil `raw N`, whole °C and %RH, kΩ to
+3 significant digits. Units and quantities are converted by the Server; the client never converts,
+aggregates or computes a status.
+
+The Devices engine lists Nodes (`NodeSummary`: Lot name, battery, charging, last seen) after the
+Hubs, in the Server's order (Lot name, unassigned last, Device ID); the client does not sort them.
+For Swift, `IosLotDetail` observes a flat `LotDetailSnapshot`, and `DevicesSnapshot` gains the
+parallel `node…` lists.
+
+Fixture-only or absent until later epics: no Threshold band or below-low bar (Epic 5), no admin
+strip, no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7).

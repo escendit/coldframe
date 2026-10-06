@@ -194,11 +194,12 @@ func staleTile() throws {
     #expect(tile.icon == .cloudOffline)
     #expect(tile.statusLabel == label, "\(lot.name)")
     #expect(entries[label.rawValue] == english)
-    // No value, no level and no tap target: nothing on a stale tile is live.
+    // No value and no level: nothing on a stale tile is live. It still opens Lot detail, which
+    // is stale too.
     #expect(tile.valueText(context) == nil)
     #expect(tile.level == nil)
     #expect(tile.lowMarker == nil)
-    #expect(!tile.isTappable)
+    #expect(tile.opensLotDetail && !tile.opensAddNode)
     #expect(tile.footText(context) == "as of 07:02")
   }
 }
@@ -283,19 +284,21 @@ func serverOrder() {
 }
 
 @Test(
-  "UX-DR20 UX-DR67 UX-DR84 only a no-Node tile the core opens starts Add a Node; no other tile is tappable"
+  "UX-DR20 UX-DR63 UX-DR67 UX-DR84 every tile is a button; only a no-Node tile the core opens starts Add a Node"
 )
-func onlyNoNodeIsTappable() {
+func everyTileOpensDetailExceptNoNode() {
   for tile in Overview.lots().tiles {
-    #expect(tile.isTappable == (tile.id == "z"), "\(tile.name)")
-    #expect(tile.traits == (tile.id == "z" ? [.button] : []), "\(tile.name)")
+    #expect(tile.isTappable, "\(tile.name)")
+    #expect(tile.traits == [.button], "\(tile.name)")
+    #expect(tile.opensAddNode == (tile.id == "z"), "\(tile.name)")
+    #expect(tile.opensLotDetail == (tile.id != "z"), "\(tile.name)")
   }
-  // A Member, or stale mode: the core does not open it, so it is not a button.
+  // A Member, or stale mode: the core does not open Add a Node, so the tile opens Lot detail.
   var member = Overview.noNode
   member.opensAddNode = false
-  #expect(!Overview.tile(member).isTappable)
-  // The core's word alone decides: no flag, no button.
-  #expect(Overview.lots().tiles.filter(\.isTappable).map(\.spoken) == [.noNode])
+  #expect(Overview.tile(member).opensLotDetail)
+  // The core's word alone decides: no flag, no Add a Node.
+  #expect(Overview.lots().tiles.filter(\.opensAddNode).map(\.spoken) == [.noNode])
 }
 
 @Test("UX-DR77 a status, variant or label this client does not know is drawn as unknown")
@@ -326,7 +329,7 @@ func unknownNames() {
     removingLotId: nil, removingLotName: nil, removeWorking: false,
     actionNotice: nil, actionNoticeSubject: nil)
   #expect(short.tiles.map(\.variant) == [.unknown])
-  #expect(short.tiles.allSatisfy { !$0.isTappable })
+  #expect(short.tiles.allSatisfy { $0.opensLotDetail })
   #expect(short.overview?.summary.kind == .noReadings)
 }
 

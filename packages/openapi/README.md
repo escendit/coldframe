@@ -12,6 +12,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `GET /sites/{siteId}/lots` | `Member` | Story 1.9 |
 | `POST /sites/{siteId}/lots` | `Administrator` | Story 1.9 |
 | `GET /sites/{siteId}/lots/{lotId}` | `Member` | Story 1.9 |
+| `GET /sites/{siteId}/lots/{lotId}/history` | `Member` | Story 4.8 |
 | `PATCH /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `DELETE /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `GET /enrolment-key` | `Authenticated` | Story 3.3 (contract: Story 3.1) |
@@ -70,6 +71,14 @@ is planned today.
   `lowThresholdPercent` are part of the contract, but the Server sends them only once Calibration
   (Epic 5) and Threshold Alerts (Epic 6) exist. Clients render these fields; they never compute a
   status and never re-sort the list.
+- **Lot detail and history.** `GET /sites/{siteId}/lots/{lotId}` alone also carries `node` (the Node's
+  `deviceId`, `batteryPercent`, `charging` and `lastSeenAt` from its newest device report) and
+  `sensors` (the newest Reading per Sensor), both only while the Lot holds a Node. The Server converts
+  values: soil moisture stays the raw count (`unit: raw`, never a percentage before Calibration),
+  temperature is in `°C`, humidity in `%`, gas resistance in `kΩ`. `GET /sites/{siteId}/lots/{lotId}/history`
+  returns one entry per UTC day with Readings (`low`, `high`, `readingCount`), ascending, paged by
+  `from`/`to`, `limit` and an opaque `cursor`. Devices list items of Nodes add `lotName`,
+  `batteryPercent` and `charging`.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

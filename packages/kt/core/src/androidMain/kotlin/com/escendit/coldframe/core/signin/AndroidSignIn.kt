@@ -3,6 +3,7 @@ package com.escendit.coldframe.core.signin
 import android.content.Context
 import androidx.activity.ComponentActivity
 import com.escendit.coldframe.core.devices.DevicesEngine
+import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.setup.AndroidRadioState
 import com.escendit.coldframe.core.setup.HubSetupEngine
@@ -61,6 +62,9 @@ public class AndroidSignIn private constructor(
      * The shell calls `refresh` on pull-to-refresh and whenever the overview comes to the front.
      */
     public val lots: LotsEngine = SitesWiring.lots(api, sites, settings, scope)
+
+    /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history; the shell opens and closes it. */
+    public val lotDetail: LotDetailEngine = SitesWiring.lotDetail(api, sites, settings, scope)
 
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
     public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)

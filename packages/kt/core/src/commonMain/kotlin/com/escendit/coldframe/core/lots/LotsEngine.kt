@@ -598,7 +598,7 @@ public class LotsEngine(
         mutableState.value = change(ready)
     }
 
-    private companion object {
+    internal companion object {
         const val EVENT_BUFFER = 8
 
         fun List<LotDto>.toSummaries(): List<LotSummary> =
@@ -618,6 +618,8 @@ public class LotsEngine(
                 pausedUntilEpochMs = pausedUntil?.let(DevicesEngine::epochMsOf),
                 moisturePercent = moisturePercent,
                 lowThresholdPercent = lowThresholdPercent,
+                node = node?.toNodeStatus(),
+                sensors = sensors.orEmpty().mapNotNull { it.toSensorReading() },
             )
 
         fun loadNoticeOf(failure: ApiFailure): SitesNotice =
