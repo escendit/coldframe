@@ -52,6 +52,9 @@ public sealed interface DevicesState {
          * Add a Hub is for Owners and Administrators (UX-DR84): hidden for a Member, never disabled.
          */
         public fun canAddHub(role: SiteRole): Boolean = role >= SiteRole.Administrator
+
+        /** Add a Node follows the same rule: Owners and Administrators only, hidden for a Member. */
+        public fun canAddNode(role: SiteRole): Boolean = canAddHub(role)
     }
 }
 
@@ -68,3 +71,7 @@ public val DevicesState.site: SiteSummary?
 /** Whether the Add a Hub header action shows: a current Site on which the Role is Administrator or Owner. */
 public val DevicesState.canAddHub: Boolean
     get() = site?.let { DevicesState.canAddHub(it.role) } == true
+
+/** Whether the Add a Node header action shows: the same rule as [canAddHub]. */
+public val DevicesState.canAddNode: Boolean
+    get() = site?.let { DevicesState.canAddNode(it.role) } == true

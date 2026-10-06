@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
+import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesNotice
 import com.escendit.coldframe.core.devices.DevicesState
@@ -31,6 +32,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.time.Instant
 import java.util.TimeZone
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** The Devices tab (UX-DR30, UX-DR65, UX-DR84), Story 3.7: the Hubs of the current Site. */
@@ -90,6 +92,7 @@ class DevicesScreenTest {
                     ),
                 devices = devices,
                 devicesActions = DevicesActions(load = { calls += "load" }),
+                nodeSetupActions = NodeSetupActions(open = { calls += "openNode $it" }),
                 now = { now },
             )
         }
@@ -177,12 +180,40 @@ class DevicesScreenTest {
     }
 
     @Test
+    fun `UX-DR30 UX-DR67 an Administrator gets Add a Node beside Add a Hub, which opens the Node flow`() {
+        show(SiteRole.Administrator, ready(SiteRole.Administrator, online))
+
+        val addNode = compose.allNodes().single { it.isClickable && it.spokenLabel() == "ADD A NODE" }
+        val addHub = compose.allNodes().single { it.isClickable && it.spokenLabel() == "ADD A HUB" }
+        assertEquals(Role.Button, addNode.role)
+        // Add a Hub first, Add a Node after it.
+        assertTrue(
+            addHub.positionInRoot.x < addNode.positionInRoot.x || addHub.positionInRoot.y < addNode.positionInRoot.y,
+        )
+        compose.onNodeWithText("ADD A NODE").performClick()
+
+        assertTrue("openNode null" in calls)
+        assertFalse("open" in calls)
+    }
+
+    @Test
+    fun `UX-DR67 Add a Node shows only on the Devices tab and is hidden for a Member`() {
+        show(SiteRole.Owner, ready(SiteRole.Owner, online))
+        compose.onNodeWithText("ADD A NODE").assertExists()
+
+        compose.onNodeWithText("Alerts").performClick()
+
+        compose.onAllNodesWithText("ADD A NODE").assertCountEquals(0)
+    }
+
+    @Test
     fun `UX-DR84 a Member sees the list without Add a Hub, hidden and not disabled`() {
         show(SiteRole.Member, ready(SiteRole.Member, online))
 
         compose.onNodeWithText("3f2a9c0d1e4b5a67").assertExists()
         compose.onAllNodesWithText("ADD A HUB").assertCountEquals(0)
         compose.onAllNodesWithText("Add a Hub").assertCountEquals(0)
+        compose.onAllNodesWithText("ADD A NODE").assertCountEquals(0)
         // Nothing in the tab can be pressed: only the four tabs of the shell.
         assertEquals(4, compose.allNodes().count { it.isClickable })
     }

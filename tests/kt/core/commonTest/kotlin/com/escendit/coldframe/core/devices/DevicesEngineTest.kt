@@ -243,6 +243,7 @@ class DevicesEngineTest {
             assertEquals(1, devices.ready().hubs.size)
             assertFalse(devices.state.value.canAddHub)
             assertFalse(snapshotOf(devices.state.value).canAddHub)
+            assertFalse(snapshotOf(devices.state.value).canAddNode)
         }
 
     @Test
@@ -404,6 +405,7 @@ class DevicesEngineTest {
                     siteId = "a",
                     siteName = "Home",
                     canAddHub = true,
+                    canAddNode = true,
                     hubIds = listOf("1b00aa11bb22cc33", "3f2a9c0d1e4b5a67"),
                     hubStatuses = listOf("offline", "online"),
                     hubLastSeen = listOf("", "1791270120000"),

@@ -37,6 +37,7 @@ class LotsSnapshotTest {
         assertEquals("administrator", snapshot.role)
         assertFalse(snapshot.canRenameSite)
         assertTrue(snapshot.canEditLots)
+        assertTrue(snapshot.canAddNode)
         assertFalse(snapshot.readOnlyNotice)
         assertEquals(listOf("l2", "l1"), snapshot.lotIds)
         assertEquals(listOf("Beans", "Tomatoes"), snapshot.lotNames)
@@ -83,6 +84,7 @@ class LotsSnapshotTest {
         assertEquals("member", snapshot.role)
         assertFalse(snapshot.canRenameSite)
         assertFalse(snapshot.canEditLots)
+        assertFalse(snapshot.canAddNode)
         assertTrue(snapshot.readOnlyNotice)
     }
 

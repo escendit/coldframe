@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
@@ -325,7 +326,14 @@ class SiteSettingsScreenTest {
         compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").assertExists()
         compose.onNodeWithContentDescription("Beans, no Node, add a Node").assertExists()
         compose.onNode(isHeading().and(hasText("Lots"))).assertExists()
-        // One element per tile, spoken as a whole; not tappable until Lot detail and Add a Node exist.
+        // One element per tile, spoken as a whole. For an Owner it starts Add a Node (Story 4.3).
+        compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").assertHasClickAction()
+    }
+
+    @Test
+    fun `UX-DR18 UX-DR84 a Member's no-Node tile is spoken the same and is not tappable`() {
+        show(ready(role = SiteRole.Member, lots = listOf(tomatoes)))
+
         compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").assert(hasNoClickAction())
     }
 
@@ -352,8 +360,8 @@ class SiteSettingsScreenTest {
     }
 
     @Test
-    fun `UX-DR20 the tiles keep the Server's order and are not tappable in this story`() {
-        show(ready(lots = listOf(beans, tomatoes)))
+    fun `UX-DR20 the tiles keep the Server's order and a Member's are not tappable`() {
+        show(ready(role = SiteRole.Member, lots = listOf(beans, tomatoes)))
 
         val beansTile = compose.onNodeWithContentDescription("Beans, no Node, add a Node").fetchSemanticsNode()
         val tomatoesTile = compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").fetchSemanticsNode()

@@ -309,41 +309,35 @@ func refusals() throws {
 
 @Test("UX-DR105 new candidates and progress are polite; errors are assertive with the next action")
 func announcements() throws {
-  let found = try #require(
-    hubSetup(announcementId: 1, announcementKind: "candidateFound", announcementSignal: "strong")
-      .announcement)
-  #expect(found.announcement == .polite)
-  let foundMessage = try #require(found.message(siteName: "Home garden"))
-  let signal = try resolve(foundMessage.parts[0])
+  let found = hubSetup(
+    announcementId: 1, announcementKind: "candidateFound", announcementSignal: "strong")
+  #expect(found.announcement?.announcement == .polite)
+  #expect(try found.spokenAnnouncement(resolve: resolve) == "Hub 3F2A found, strong signal.")
+
+  let sent = hubSetup(
+    announcementId: 2, announcementKind: "wifiSent", announcementSsid: "Novak-Home")
+  #expect(sent.announcement?.announcement == .polite)
+  #expect(try sent.spokenAnnouncement(resolve: resolve) == "Wi-Fi sent. Joining Novak-Home.")
+
+  let server = hubSetup(announcementId: 3, announcementKind: "serverSees")
+  #expect(try server.spokenAnnouncement(resolve: resolve) == "Server sees Hub 3F2A.")
+
+  let error = hubSetup(
+    announcementId: 4, announcementKind: "error", announcementAssertive: true,
+    announcementSsid: "Novak-Home", announcementOutcome: "wrongPassword")
+  #expect(error.announcement?.announcement == .assertive)
   #expect(
-    try resolve(
-      Copy(key: foundMessage.copy.key, arguments: foundMessage.copy.arguments + [.text(signal)]))
-      == "Hub 3F2A found, strong signal.")
-
-  let sent = try #require(
-    hubSetup(announcementId: 2, announcementKind: "wifiSent", announcementSsid: "Novak-Home")
-      .announcement)
-  #expect(sent.announcement == .polite)
+    try error.spokenAnnouncement(resolve: resolve) == "Wrong Wi-Fi password. Re-enter password.")
+  // A headline that ends in a full stop loses it before the action.
+  let noServer = hubSetup(
+    announcementId: 5, announcementKind: "error", announcementAssertive: true,
+    announcementSsid: "Novak-Home", announcementOutcome: "noServer")
   #expect(
-    try resolve(try #require(sent.message(siteName: "")).copy) == "Wi-Fi sent. Joining Novak-Home.")
-
-  let server = try #require(
-    hubSetup(announcementId: 3, announcementKind: "serverSees").announcement)
-  #expect(try resolve(try #require(server.message(siteName: "")).copy) == "Server sees Hub 3F2A.")
-
-  let error = try #require(
-    hubSetup(
-      announcementId: 4, announcementKind: "error", announcementAssertive: true,
-      announcementSsid: "Novak-Home", announcementOutcome: "wrongPassword"
-    ).announcement)
-  #expect(error.announcement == .assertive)
-  let errorMessage = try #require(error.message(siteName: ""))
-  let text = try resolve(
-    Copy(
-      errorMessage.copy.key, .text(try resolve(errorMessage.parts[0])),
-      .text(try resolve(errorMessage.parts[1]))))
-  #expect(text == "Wrong Wi-Fi password. Re-enter password.")
-  #expect(hubSetup(announcementId: 0, announcementKind: "error").announcement == nil)
+    try noServer.spokenAnnouncement(resolve: resolve)
+      == "Hub 3F2A is on Novak-Home but can't reach your Server. Try again.")
+  let none = hubSetup(announcementId: 0, announcementKind: "error")
+  #expect(none.announcement == nil)
+  #expect(try none.spokenAnnouncement(resolve: resolve) == nil)
 }
 
 @Test("UX-DR103 the reading-time hold is at least a second plus 60 ms per character")

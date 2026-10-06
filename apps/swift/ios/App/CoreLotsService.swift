@@ -34,7 +34,8 @@ final class CoreLotsService: LotsService {
             removingLotId: snapshot.removingLotId, removingLotName: snapshot.removingLotName,
             removeWorking: snapshot.removeWorking,
             actionNotice: snapshot.actionNotice,
-            actionNoticeSubject: snapshot.actionNoticeSubject))
+            actionNoticeSubject: snapshot.actionNoticeSubject,
+            canAddNode: snapshot.canAddNode))
       }
     }
   }

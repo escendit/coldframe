@@ -43,7 +43,7 @@ import com.escendit.coldframe.designtokens.Typography
 data class OutcomeCopy(
     val title: String,
     val body: String,
-    val help: String?,
+    val help: String? = null,
 )
 
 /** The copy of [outcome] for Hub [hub] on [ssid], added to [siteName]. */
@@ -128,10 +128,8 @@ fun outcomeCopy(
 }
 
 /**
- * Outcome screens (UX-DR55): full screen, focus on the headline, one primary next action.
- * Success is full-bleed `support-success` with `ink-on-bright` ("Hub is online"); an error is
- * the neutral background with `error--filled` and the eyebrow "Step 5 stopped" in
- * `support-error-text`, a plain headline, and never dismisses itself.
+ * The Add a Hub outcome screen (UX-DR55): [SetupOutcomeLayout] with the Hub's actions. An error
+ * carries the eyebrow "Step 5 stopped".
  */
 @Composable
 fun SetupOutcomeScreen(
@@ -140,11 +138,42 @@ fun SetupOutcomeScreen(
     onAction: (OutcomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    SetupOutcomeLayout(
+        key = outcome.kind,
+        success = outcome.success,
+        eyebrow = stringResource(R.string.add_hub_stopped, outcome.stoppedStep),
+        copy = copy,
+        primaryLabel = stringResource(outcome.primary.label()),
+        onPrimary = { onAction(outcome.primary) },
+        modifier = modifier,
+        secondaryLabel = outcome.secondary?.let { stringResource(it.label()) },
+        onSecondary = { outcome.secondary?.let(onAction) },
+    )
+}
+
+/**
+ * Outcome screens (UX-DR55) of every setup flow: full screen, focus on the headline, one primary
+ * next action. Success is full-bleed `support-success` with `ink-on-bright` ("Hub is online"); an
+ * error is the neutral background with `error--filled` and the [eyebrow] ("Step 5 stopped") in
+ * `support-error-text`, a plain headline, and never dismisses itself. A new [key] moves focus to
+ * the headline again.
+ */
+@Composable
+fun SetupOutcomeLayout(
+    key: Any,
+    success: Boolean,
+    eyebrow: String,
+    copy: OutcomeCopy,
+    primaryLabel: String,
+    onPrimary: () -> Unit,
+    modifier: Modifier = Modifier,
+    secondaryLabel: String? = null,
+    onSecondary: () -> Unit = {},
+) {
     val colors = Coldframe.colors
-    val success = outcome.success
     val ink = if (success) colors.inkOnBright else colors.textPrimary
     val headlineFocus = remember { FocusRequester() }
-    LaunchedEffect(outcome.kind) { headlineFocus.requestFocus() }
+    LaunchedEffect(key) { headlineFocus.requestFocus() }
     Column(
         modifier =
             modifier
@@ -168,11 +197,7 @@ fun SetupOutcomeScreen(
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
-                    text =
-                        styledText(
-                            stringResource(R.string.add_hub_stopped, outcome.stoppedStep),
-                            Typography.statusLabel,
-                        ),
+                    text = styledText(eyebrow, Typography.statusLabel),
                     style = Typography.statusLabel.textStyle(),
                     color = colors.supportErrorText,
                 )
@@ -193,17 +218,13 @@ fun SetupOutcomeScreen(
         copy.help?.let { Text(text = it, style = Typography.body.textStyle(), color = ink) }
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.STEP_4.dp)) {
             ColdframeButton(
-                label = stringResource(outcome.primary.label()),
-                onClick = { onAction(outcome.primary) },
+                label = primaryLabel,
+                onClick = onPrimary,
                 variant = if (success) ButtonVariant.Secondary else ButtonVariant.Primary,
                 modifier = Modifier.fillMaxWidth(),
             )
-            outcome.secondary?.let { secondary ->
-                ColdframeButton(
-                    label = stringResource(secondary.label()),
-                    onClick = { onAction(secondary) },
-                    variant = ButtonVariant.Ghost,
-                )
+            if (secondaryLabel != null) {
+                ColdframeButton(label = secondaryLabel, onClick = onSecondary, variant = ButtonVariant.Ghost)
             }
         }
     }

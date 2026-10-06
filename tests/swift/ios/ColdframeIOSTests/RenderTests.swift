@@ -236,9 +236,211 @@
         dark: dark))
   }
 
+  @MainActor
+  private func nodeFlow(_ presentation: NodeSetupPresentation) -> some View {
+    AddNodeFlowView(presentation: presentation, actions: .none)
+  }
+
+  @Test(
+    "UX-DR39 UX-DR67 Add a Node step 1 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addNodePressAtAccessibility5(dark: Bool) {
+    #expect(renders(nodeFlow(nodeSetup(selectedId: nil, node: nil)), dark: dark))
+  }
+
+  @Test(
+    "UX-DR37 UX-DR94 Add a Node step 2 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addNodeScanAtAccessibility5(dark: Bool) {
+    #expect(renders(nodeFlow(nodeSetup(step: 2)), dark: dark))
+    #expect(renders(nodeFlow(nodeSetup(step: 2, noNodeYet: true)), dark: dark))
+    #expect(renders(nodeFlow(nodeSetup(step: 2, radio: "off")), dark: dark))
+  }
+
+  @Test(
+    "UX-DR41 UX-DR94 Add a Node step 3 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addNodeCodeAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        nodeFlow(nodeSetup(step: 3, codeText: "K7M2Q9XQ", codeError: "wrongCode")), dark: dark))
+    #expect(
+      renders(
+        nodeFlow(
+          nodeSetup(
+            step: 3, codeText: "K7M2Q9XP", codeAccepted: true, deviceId: "7c19000000000001")),
+        dark: dark))
+  }
+
+  @Test(
+    "UX-DR38 Add a Node step 4 renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addNodeLotAtAccessibility5(dark: Bool) {
+    #expect(renders(nodeFlow(nodeSetup(step: 4)), dark: dark))
+    #expect(
+      renders(
+        nodeFlow(nodeSetup(step: 4, lotsLoaded: true, selectedLotId: "t", lotName: "Tomatoes")),
+        dark: dark))
+    #expect(
+      renders(
+        nodeFlow(
+          nodeSetup(
+            step: 4, lotsLoaded: true, newLotOpen: true, newLotName: "", newLotError: "blank")),
+        dark: dark))
+  }
+
+  @Test(
+    "UX-DR38 UX-DR94 the Lot-taken notice of Add a Node renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addNodeLotTakenAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        nodeFlow(
+          nodeSetup(step: 4, lotsLoaded: true, lotNotice: "lotTaken", lotNoticeLot: "Tomatoes")),
+        dark: dark))
+    #expect(
+      renders(
+        nodeFlow(nodeSetup(step: 4, lotNotice: "unreachable", lotsRetryable: true)), dark: dark))
+  }
+
+  @Test(
+    "UX-DR55 UX-DR94 the Add a Node outcomes render at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func addNodeOutcomesAtAccessibility5(dark: Bool) {
+    #expect(
+      renders(
+        nodeFlow(
+          nodeSetup(
+            step: 5, lotName: "Tomatoes", outcome: "assigned", outcomePrimary: "done",
+            stoppedStep: 5)),
+        dark: dark))
+    #expect(
+      renders(
+        nodeFlow(
+          nodeSetup(
+            step: 5, outcome: "stoppedListening", outcomePrimary: "startOver", stoppedStep: 3)),
+        dark: dark))
+  }
+
+  @Test("UX-DR39 UX-DR67 the leave question of Add a Node renders over its step")
+  @MainActor
+  func addNodeLeaveAtAccessibility5() {
+    #expect(
+      renders(nodeFlow(nodeSetup(step: 4, lotsLoaded: true, confirmingLeave: true)), dark: false))
+  }
+
+  /// Counts what the views ask of the core.
+  @MainActor
+  private final class CountingNodeSetup: NodeSetupService {
+    var calls: [String] = []
+
+    func observe(_ onChange: @escaping @MainActor (NodeSetupPresentation) -> Void) {}
+    func open(lotId: String?) { calls.append("open(\(lotId ?? "nil"))") }
+    func close() { calls.append("close") }
+    func recheckRadio() { calls.append("recheckRadio") }
+    func announcing(_ active: Bool) { calls.append("announcing(\(active))") }
+    func back() { calls.append("back") }
+    func leave() { calls.append("leave") }
+    func confirmLeave() { calls.append("confirmLeave") }
+    func stayInFlow() { calls.append("stayInFlow") }
+    func continueFromPress() { calls.append("continueFromPress") }
+    func select(candidateId: String) { calls.append("select(\(candidateId))") }
+    func continueFromScan() { calls.append("continueFromScan") }
+    func setCode(_ text: String) { calls.append("setCode") }
+    func submitCode() { calls.append("submitCode") }
+    func continueFromCode() { calls.append("continueFromCode") }
+    func retryLots() { calls.append("retryLots") }
+    func chooseLot(_ lotId: String) { calls.append("chooseLot(\(lotId))") }
+    func openNewLot() { calls.append("openNewLot") }
+    func setNewLotName(_ name: String) { calls.append("setNewLotName(\(name))") }
+    func createLot() { calls.append("createLot") }
+    func assign() { calls.append("assign") }
+    func outcomeAction(_ action: NodeOutcomeActionKind) {
+      calls.append("outcomeAction(\(action.rawValue))")
+    }
+  }
+
+  @Test("UX-DR67 the Add a Node actions forward every tap to the service")
+  @MainActor
+  func addNodeActionsForward() {
+    let service = CountingNodeSetup()
+    let actions = NodeSetupActions(service: service)
+    actions.open(nil)
+    actions.open("t")
+    actions.close()
+    actions.recheckRadio()
+    actions.announcing(true)
+    actions.back()
+    actions.leave()
+    actions.confirmLeave()
+    actions.stayInFlow()
+    actions.continueFromPress()
+    actions.select("n-1")
+    actions.continueFromScan()
+    actions.setCode("K7M2Q9XP")
+    actions.submitCode()
+    actions.continueFromCode()
+    actions.retryLots()
+    actions.chooseLot("t")
+    actions.openNewLot()
+    actions.setNewLotName("Peppers")
+    actions.createLot()
+    actions.assign()
+    actions.outcomeAction(.startOver)
+    #expect(
+      service.calls == [
+        "open(nil)", "open(t)", "close", "recheckRadio", "announcing(true)", "back", "leave",
+        "confirmLeave", "stayInFlow", "continueFromPress", "select(n-1)", "continueFromScan",
+        "setCode", "submitCode", "continueFromCode", "retryLots", "chooseLot(t)", "openNewLot",
+        "setNewLotName(Peppers)", "createLot", "assign", "outcomeAction(startOver)",
+      ])
+  }
+
+  @Test(
+    "UX-DR67 the root shows Add a Node in place of the tab shell while its flow is open",
+    arguments: [false, true])
+  @MainActor
+  func rootWithNodeFlowAtAccessibility5(dark: Bool) {
+    let signedIn = SignInPresentation(
+      restoring: false, working: false, signedIn: true, notice: nil, action: nil)
+    #expect(
+      renders(
+        ColdframeRootView(
+          presentation: signedIn,
+          sites: SitesPresentation(surface: .garden(emptyGarden, creating: nil)),
+          theme: dark ? .dark : .light, onSignIn: {}, onSignOut: {}, onSelectTheme: { _ in },
+          nodeSetup: nodeSetup(step: 2), nodeSetupActions: .none)))
+  }
+
+  @Test(
+    "UX-DR18 UX-DR67 the Garden with tappable no-Node tiles renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func gardenWithTappableLotsAtAccessibility5(dark: Bool) {
+    let lots = LotsPresentation(
+      surface: "ready", notice: nil, siteId: "a", siteName: "Home garden", role: "administrator",
+      canRenameSite: false, canEditLots: true, readOnlyNotice: false,
+      siteNameDraft: "Home garden", siteNameError: nil, siteRenameWorking: false,
+      lotIds: ["t", "b"], lotNames: ["Tomatoes", "Beans"], lotStatuses: ["noNode", "unknown"],
+      newLotName: "", newLotNameError: nil, createWorking: false,
+      renamingLotId: nil, renameDraft: "", renameError: nil, renameWorking: false,
+      removingLotId: nil, removingLotName: nil, removeWorking: false,
+      actionNotice: nil, actionNoticeSubject: nil, canAddNode: true)
+    #expect(
+      renders(
+        NavigationStack { GardenView(presentation: emptyGarden, lots: lots, actions: .none) },
+        dark: dark))
+  }
+
   private func devicesReady(canAddHub: Bool, hubs: Bool = true) -> DevicesPresentation {
     DevicesPresentation(
-      surface: "ready", notice: nil, siteId: "a", canAddHub: canAddHub,
+      surface: "ready", notice: nil, siteId: "a", canAddHub: canAddHub, canAddNode: canAddHub,
       hubIds: hubs ? ["1b00aa11bb22cc33", "3f2a9c0d1e4b5a67", "7c19000000000001"] : [],
       hubStatuses: hubs ? ["offline", "online", "offline"] : [],
       hubLastSeen: hubs ? ["1791268800000", "1791270120000", ""] : [])

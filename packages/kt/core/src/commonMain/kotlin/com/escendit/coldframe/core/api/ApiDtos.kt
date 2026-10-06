@@ -63,7 +63,8 @@ public data class EnrolmentKeyDto(
 
 /**
  * `EnrolDeviceRequest`: the Device's sealed enrolment, relayed unread. [deviceId] is lowercase
- * hex; [enc] and [ciphertext] are base64url without padding; [kind] is `hub` or `node`.
+ * hex; [enc] and [ciphertext] are base64url without padding; [kind] is `hub` or `node`. [lotId]
+ * is the Lot a Node is assigned to; it is left out for a Hub.
  */
 @Serializable
 public data class EnrolDeviceRequestDto(
@@ -71,14 +72,16 @@ public data class EnrolDeviceRequestDto(
     val kind: String,
     val enc: String,
     val ciphertext: String,
+    val lotId: String? = null,
 )
 
-/** `Device`: an enrolled Device and its Site. */
+/** `Device`: an enrolled Device and its Site; [lotId] only for a Node assigned to a Lot. */
 @Serializable
 public data class DeviceDto(
     val id: String,
     val kind: String,
     val siteId: String,
+    val lotId: String? = null,
 )
 
 /**

@@ -23,6 +23,9 @@ public enum class ApiFailure {
     /** 409 `device-on-another-site`: the Device is enrolled on another Site; nothing changed. */
     DeviceOnAnotherSite,
 
+    /** 409 `device-assigned`: the Node is assigned to another Lot; nothing changed. */
+    DeviceAssigned,
+
     /** 401, or no session: the engine signs out with the SignedOut notice. */
     Unauthorized,
 

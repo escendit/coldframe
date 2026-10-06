@@ -215,10 +215,12 @@
   }
 
   /// The Lot grid on Garden (UX-DR18, UX-DR20): the Server's order, two columns, one at
-  /// accessibility text sizes. A load failure shows its notice in place of the grid.
+  /// accessibility text sizes. A load failure shows its notice in place of the grid. For
+  /// Administrators and Owners a *no Node* tile starts Add a Node with its Lot.
   struct LotGrid: View {
     let lots: LotsPresentation
     let onTryAgain: () -> Void
+    let onAddNode: (String) -> Void
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -240,7 +242,18 @@
             spacing: Spacing.tileGap
           ) {
             ForEach(lots.tiles) { tile in
-              LotTile(tile: tile)
+              if tile.isTappable {
+                Button {
+                  onAddNode(tile.id)
+                } label: {
+                  // The tile is transparent: the whole of it takes the tap.
+                  LotTile(tile: tile).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(.isButton)
+              } else {
+                LotTile(tile: tile)
+              }
             }
           }
         }
@@ -250,7 +263,8 @@
 
   /// One Lot tile. *No Node*: transparent, 1 pt dotted `status-no-node-border`, ink
   /// `status-no-node-ink`, the name over `add` + "no Node", a large "+" over "add a Node". Other
-  /// statuses show the name only in 1.9. One accessibility element; not tappable yet.
+  /// statuses show the name only in 1.9. One accessibility element with the same spoken label
+  /// whether or not `LotGrid` makes it a button.
   struct LotTile: View {
     let tile: LotTilePresentation
     @Environment(\.palette) private var palette

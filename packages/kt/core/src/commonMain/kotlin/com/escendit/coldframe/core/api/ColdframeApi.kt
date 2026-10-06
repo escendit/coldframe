@@ -197,10 +197,10 @@ public class ColdframeApi(
             }
 
             HttpStatusCode.Conflict -> {
-                if (problemType(response) == PROBLEM_DEVICE_ON_ANOTHER_SITE) {
-                    ApiFailure.DeviceOnAnotherSite
-                } else {
-                    ApiFailure.LotClaimed
+                when (problemType(response)) {
+                    PROBLEM_DEVICE_ON_ANOTHER_SITE -> ApiFailure.DeviceOnAnotherSite
+                    PROBLEM_DEVICE_ASSIGNED -> ApiFailure.DeviceAssigned
+                    else -> ApiFailure.LotClaimed
                 }
             }
 
@@ -239,6 +239,7 @@ public class ColdframeApi(
         public const val IDEMPOTENCY_KEY: String = "Idempotency-Key"
         public const val PROBLEM_VALIDATION: String = "urn:coldframe:problem:validation"
         public const val PROBLEM_DEVICE_ON_ANOTHER_SITE: String = "urn:coldframe:problem:device-on-another-site"
+        public const val PROBLEM_DEVICE_ASSIGNED: String = "urn:coldframe:problem:device-assigned"
 
         private val JSON =
             Json {

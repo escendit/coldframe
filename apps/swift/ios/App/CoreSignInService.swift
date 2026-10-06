@@ -44,6 +44,9 @@ final class CoreSignInService: SignInService {
   /// Add a Hub of the same core instance, for `CoreHubSetupService`.
   var hubSetup: IosHubSetup { core.hubSetup }
 
+  /// Add a Node of the same core instance, for `CoreNodeSetupService`.
+  var nodeSetup: IosNodeSetup { core.nodeSetup }
+
   func signIn() { core.signIn() }
 
   func resume() { core.resume() }

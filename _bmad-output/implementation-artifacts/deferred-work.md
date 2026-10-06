@@ -201,7 +201,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: medium
 reason: The Add a Hub flow is a later epic. When it lands, pass flowAvailable = true on mobile so the next step starts the flow for Administrators and Owners; the tile states and the Member notice are already real. Done steps (checkmark) also need Hub/Node data.
 status: open
-progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data. Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds the Hub data a done checkmark needs (`GET /sites/{siteId}/devices`, the core's `DevicesEngine`), but the Add a Hub tile does not read it yet: it stays "next" after a Hub is enrolled.
+progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data. Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds the Hub data a done checkmark needs (`GET /sites/{siteId}/devices`, the core's `DevicesEngine`), but the Add a Hub tile does not read it yet: it stays "next" after a Hub is enrolled. Story 4.3 (`spec-4-3-add-a-node-from-my-phone.md`) adds the Add a Node flow but leaves the first-run Add a Node tile without an action (see DW-57).
 
 ### DW-27: The Kotlin API client and DTOs are hand-written instead of generated from coldframe.openapi.json (AD-10 deviation).
 origin: spec-deferred ec8f62ba78ca
@@ -373,7 +373,8 @@ location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/set
 source_spec: `spec-3-6-add-a-hub-from-my-phone.md`
 severity: low
 reason: The Add a Node flow arrives in Epic 4; wire OutcomeAction.AddNode to it there.
-status: open
+status: resolved
+resolution: Story 4.3 (`spec-4-3-add-a-node-from-my-phone.md`): `HubSetupEngine` calls `onAddNode` with the Hub's Site after closing, and `SitesWiring` passes `NodeSetupEngine.open(siteId)` on both platforms.
 
 ### DW-49: The engine's check that the EnrolmentResponse device_id matches the accepted Identity has no test.
 origin: spec-deferred 14b884d696f1
@@ -404,4 +405,52 @@ location: apps/rs/node/src/board/flash.rs (BoardFlash::write)
 source_spec: `spec-4-1-node-firmware-foundation-wake-measure-sleep.md`
 severity: low
 reason: Host counter tests run over MockFlash only; apps/rs/node/src/board/flash.rs is only cross-compiled in CI. Reverting BoardFlash::write to esp-storage's read-erase-rewrite would pass every automated check. Mitigated by the bench power-cut step in docs/bench/node-power-checklist.md Part B and the DW-51 note; a host test needs the board adapter extracted into a crate that can run over a fake NOR backend (DW-51).
+status: open
+
+### DW-53: On iOS, reloading the list on every entry of the Devices tab and returning to Devices after Add a Hub closes have no behavioural test.
+origin: spec-deferred e07df2630c2f
+location: apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift (AppTabView .onChange, ColdframeRootView tab state)
+source_spec: `spec-3-7-see-my-hub-in-devices.md`
+severity: medium
+reason: The only iOS tests that reach AppTabView are RenderTests, whose helper asserts that ImageRenderer returns an image; the Devices one passes selection: .constant(.devices) and no actions. Removing the .onChange(of: selection) modifier in UI/Screens.swift, or passing selection: nil from the root view, fails no test. Android has both tests in DevicesScreenTest. Closing the gap needs the "entered Devices, so load" decision in a type that compiles on Linux, or a SwiftUI interaction harness.
+status: open
+
+### DW-54: The app-target wiring of the Devices engine (MainActivity, ColdframeApp, CoreDevicesService) can be dropped or mis-mapped without any test failing.
+origin: spec-deferred 4240a8dab832
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/MainActivity.kt; apps/swift/ios/App/{ColdframeApp,CoreDevicesService}.swift
+source_spec: `spec-3-7-see-my-hub-in-devices.md`
+severity: medium
+reason: ColdframeRoot, the iOS root view and ShellModel default the Devices parameters to Idle/.waiting/.none, so deleting the two argument lines in MainActivity.setContent keeps ./gradlew check green with a blank Devices tab. MainActivityTest only asserts the cold start shows SIGN IN. CoreDevicesService maps hubStatuses and hubLastSeen, both [String], by position, and apps/swift/ios/App has no tests. The Lots and Add a Hub wiring has the same shape.
+status: open
+
+### DW-55: The Node candidate tile shows no battery % and no Sensor count, which UX-DR37 asks for.
+origin: spec-deferred ddbb054be520
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/setup/CandidateTile.kt; apps/swift/ios/Sources/ColdframeIOS/UI/HubSetupViews.swift (CandidateTileView); packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/NodeSetupState.kt (NodeCandidate)
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: low
+reason: Neither the setup-mode advertisement (name `Coldframe Node XXXX` and RSSI) nor `Identity` (device_id, kind, firmware_version) carries a battery level or the Sensor set, and the tile is shown before any session exists. Showing them needs a firmware and proto change (advertisement manufacturer data or new `Identity` fields); the tile then takes two more strings.
+status: open
+
+### DW-56: Add a Node and Add a Hub candidates never expire: a Device that stopped advertising stays in the list until the step is left.
+origin: spec-deferred 1c8e910e303c
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/NodeSetupEngine.kt (onAdvert); packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/HubSetupEngine.kt (onAdvert)
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: low
+reason: A Node listens for 180 s; a Node whose window closed while the list is shown is still listed, and picking it ends on "7C19 stopped listening" after the code is typed. "Pressed just now" likewise stays on the candidate first heard last, however long ago. Pruning needs a last-heard time per candidate and a timer in the engine (the same rejected finding exists for Add a Hub in `spec-3-6-add-a-hub-from-my-phone.md`).
+status: open
+
+### DW-57: The first-run Add a Node tile on the Garden is not actionable, though UX-DR67 lists first-run step 2 as an entry point.
+origin: spec-deferred 6bd3db5dd179
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/FirstRunSteps.kt; apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/sites/GardenScreen.kt (FirstRunTiles); apps/swift/ios/Sources/ColdframeIOS/UI/SitesViews.swift
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: low
+reason: Story 4.3 names three entry points (Devices, a *no Node* tile, "Hub is online"). The tile's state (next only once a Hub is online, done once a Node is assigned) needs Hub and Node knowledge the Garden does not have; the Add a Hub tile has the same gap (DW-26). Make the tile start the flow when `FirstRunSteps` is computed from the Devices list.
+status: open
+
+### DW-58: The "‹Lot› has a Node" outcome shows no Sensors, no CALIBRATE SOIL MOISTURE action and no paused-Site note.
+origin: spec-deferred d4006c8485c3
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/NodeSetupState.kt (NodeOutcome); apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/setup/AddNodeFlow.kt; apps/swift/ios/Sources/ColdframeIOS/UI/NodeSetupViews.swift
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: medium
+reason: UX-DR67 and UJ-1 step 6 show the Node's Sensors with "needs calibration" and a Calibrate action, and State Patterns adds "Home garden is paused, so 7C19 starts paused" with Resume Site. Sensors exist only after the first Readings (Stories 4.4 to 4.6), Calibrate arrives in Epic 5 and Pause in Epic 8. Until then the outcome says "Its Sensors appear with its first Readings." and offers Done.
 status: open

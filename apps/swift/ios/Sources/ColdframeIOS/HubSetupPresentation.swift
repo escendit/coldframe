@@ -24,6 +24,28 @@ public struct Copy: Equatable, Sendable {
   }
 }
 
+/// The text of a setup announcement from its catalogue entries, each filled in by `resolve`: the
+/// entry alone; an error as "%1$@. %2$@." of its headline, without its full stop, and its next
+/// action; otherwise the entry with its one part as the last argument ("Hub 3F2A found, strong
+/// signal.").
+public func setupAnnouncementText(
+  _ message: (copy: Copy, parts: [Copy]), isError: Bool, resolve: (Copy) throws -> String
+) rethrows -> String {
+  if message.parts.isEmpty {
+    return try resolve(message.copy)
+  }
+  if isError, message.parts.count > 1 {
+    let title = try resolve(message.parts[0]).trimmingCharacters(
+      in: CharacterSet(charactersIn: "."))
+    return try resolve(
+      Copy(message.copy.key, .text(title), .text(try resolve(message.parts[1]))))
+  }
+  return try resolve(
+    Copy(
+      key: message.copy.key,
+      arguments: message.copy.arguments + [.text(try resolve(message.parts[0]))]))
+}
+
 /// The five steps of Add a Hub (UX-DR66).
 public enum HubSetupStepKind: Int, CaseIterable, Sendable {
   case scan = 1
@@ -618,6 +640,14 @@ public struct HubSetupPresentation: Equatable, Sendable {
   }
 
   public var selectedSiteName: String { selectedSite?.name ?? "" }
+
+  /// What the flow posts for the current announcement (UX-DR105), or nil when there is none.
+  public func spokenAnnouncement(resolve: (Copy) throws -> String) rethrows -> String? {
+    guard let announcement, let message = announcement.message(siteName: selectedSiteName)
+    else { return nil }
+    return try setupAnnouncementText(
+      message, isError: announcement.kind == .error, resolve: resolve)
+  }
 
   static func twoDigits(_ value: Int) -> String {
     value < 10 ? "0\(value)" : "\(value)"

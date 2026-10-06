@@ -20,7 +20,7 @@ final class CoreDevicesService: DevicesService {
         onChange(
           DevicesPresentation(
             surface: snapshot.surface, notice: snapshot.notice, siteId: snapshot.siteId,
-            canAddHub: snapshot.canAddHub,
+            canAddHub: snapshot.canAddHub, canAddNode: snapshot.canAddNode,
             hubIds: snapshot.hubIds, hubStatuses: snapshot.hubStatuses,
             hubLastSeen: snapshot.hubLastSeen))
       }
