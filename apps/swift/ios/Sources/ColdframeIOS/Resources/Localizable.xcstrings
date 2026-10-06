@@ -311,6 +311,17 @@
         }
       }
     },
+    "devices_add_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a Node"
+          }
+        }
+      }
+    },
     "devices_unreachable": {
       "extractionState": "manual",
       "localizations": {
@@ -2628,6 +2639,721 @@
           "stringUnit": {
             "state": "translated",
             "value": "Try again"
+          }
+        }
+      }
+    },
+    "add_node_title_press": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press the setup button on the Node"
+          }
+        }
+      }
+    },
+    "add_node_title_scan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick the Node"
+          }
+        }
+      }
+    },
+    "add_node_title_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the setup code"
+          }
+        }
+      }
+    },
+    "add_node_title_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a Lot"
+          }
+        }
+      }
+    },
+    "add_node_press_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the button for 3 seconds. The Node then listens for 3 minutes."
+          }
+        }
+      }
+    },
+    "add_node_press_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look for the Node"
+          }
+        }
+      }
+    },
+    "add_node_scan_intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes that listen in Bluetooth range appear here, strongest first."
+          }
+        }
+      }
+    },
+    "add_node_bluetooth_needed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coldframe needs Bluetooth to find the Node."
+          }
+        }
+      }
+    },
+    "add_node_bluetooth_unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone has no Bluetooth that can find the Node."
+          }
+        }
+      }
+    },
+    "add_node_open_settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        }
+      }
+    },
+    "add_node_no_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Node in range yet. Hold its setup button for 3 seconds; it listens for 3 minutes."
+          }
+        }
+      }
+    },
+    "add_node_still_scanning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still scanning…"
+          }
+        }
+      }
+    },
+    "add_node_candidate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@"
+          }
+        }
+      }
+    },
+    "add_node_candidate_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@, %2$@"
+          }
+        }
+      }
+    },
+    "add_node_candidate_description_pressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@, pressed just now, %2$@"
+          }
+        }
+      }
+    },
+    "add_node_pressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressed just now"
+          }
+        }
+      }
+    },
+    "add_node_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@ found, %2$@."
+          }
+        }
+      }
+    },
+    "add_node_select_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up Node %@"
+          }
+        }
+      }
+    },
+    "add_node_code_intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The setup code is on the Node's serial console."
+          }
+        }
+      }
+    },
+    "add_node_code_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup code"
+          }
+        }
+      }
+    },
+    "add_node_code_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letters and digits; spaces and dashes don't matter."
+          }
+        }
+      }
+    },
+    "add_node_code_blank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the setup code."
+          }
+        }
+      }
+    },
+    "add_node_code_wrong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That setup code doesn't match Node %@. Check the serial console."
+          }
+        }
+      }
+    },
+    "add_node_code_accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accepted"
+          }
+        }
+      }
+    },
+    "add_node_code_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check setup code"
+          }
+        }
+      }
+    },
+    "add_node_code_working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking setup code…"
+          }
+        }
+      }
+    },
+    "add_node_code_continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a Lot"
+          }
+        }
+      }
+    },
+    "add_node_device_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device ID"
+          }
+        }
+      }
+    },
+    "add_node_lot_intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@ reports for the Lot you pick on %2$@."
+          }
+        }
+      }
+    },
+    "add_node_lots_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching the Lots of %@…"
+          }
+        }
+      }
+    },
+    "add_node_lots_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Server returned an error. Nothing was changed."
+          }
+        }
+      }
+    },
+    "add_node_lot_has_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has a Node"
+          }
+        }
+      }
+    },
+    "add_node_lot_description_has_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, has a Node"
+          }
+        }
+      }
+    },
+    "add_node_new_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ New Lot"
+          }
+        }
+      }
+    },
+    "add_node_lot_taken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ got a Node meanwhile. Pick another Lot."
+          }
+        }
+      }
+    },
+    "add_node_lot_gone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Lot is gone. Pick another Lot."
+          }
+        }
+      }
+    },
+    "add_node_assign_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Server. Nothing was assigned."
+          }
+        }
+      }
+    },
+    "add_node_assign_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put %1$@ in %2$@"
+          }
+        }
+      }
+    },
+    "add_node_assign_working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Putting %1$@ in %2$@…"
+          }
+        }
+      }
+    },
+    "add_node_leave_question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop setting up Node %@?"
+          }
+        }
+      }
+    },
+    "add_node_leave_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is saved on the Node."
+          }
+        }
+      }
+    },
+    "add_node_stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %lld stopped"
+          }
+        }
+      }
+    },
+    "add_node_announce_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@. %2$@."
+          }
+        }
+      }
+    },
+    "add_node_announce_assigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has a Node."
+          }
+        }
+      }
+    },
+    "add_node_assigned_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has a Node"
+          }
+        }
+      }
+    },
+    "add_node_assigned_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@ reports for %2$@. Its Sensors appear with its first Readings."
+          }
+        }
+      }
+    },
+    "add_node_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "add_node_stopped_listening_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stopped listening"
+          }
+        }
+      }
+    },
+    "add_node_stopped_listening_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press its setup button again."
+          }
+        }
+      }
+    },
+    "add_node_lost_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lost the connection to Node %@"
+          }
+        }
+      }
+    },
+    "add_node_lost_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was saved."
+          }
+        }
+      }
+    },
+    "add_node_refused_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@ refused the setup"
+          }
+        }
+      }
+    },
+    "add_node_refused_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was assigned. Press its setup button and try again."
+          }
+        }
+      }
+    },
+    "add_node_unreachable_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Server"
+          }
+        }
+      }
+    },
+    "add_node_unreachable_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@ was not assigned. Check that this phone is on your home Wi-Fi."
+          }
+        }
+      }
+    },
+    "add_node_fingerprint_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Server's enrolment key doesn't check out"
+          }
+        }
+      }
+    },
+    "add_node_fingerprint_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was enrolled and the Node was not assigned."
+          }
+        }
+      }
+    },
+    "add_node_already_assigned_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@ is already in another Lot"
+          }
+        }
+      }
+    },
+    "add_node_already_assigned_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It stays in that Lot. Nothing was changed."
+          }
+        }
+      }
+    },
+    "add_node_on_another_site_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@ is on another Site"
+          }
+        }
+      }
+    },
+    "add_node_on_another_site_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It stays on the Site it was added to. Nothing was changed."
+          }
+        }
+      }
+    },
+    "add_node_not_allowed_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't add Nodes to %@"
+          }
+        }
+      }
+    },
+    "add_node_not_allowed_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask an Owner or Administrator. Nothing was changed."
+          }
+        }
+      }
+    },
+    "add_node_start_over": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again"
+          }
+        }
+      }
+    },
+    "add_node_close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
           }
         }
       }

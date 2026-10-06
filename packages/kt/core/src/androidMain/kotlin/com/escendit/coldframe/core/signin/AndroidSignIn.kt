@@ -7,6 +7,7 @@ import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.setup.AndroidRadioState
 import com.escendit.coldframe.core.setup.HubSetupEngine
 import com.escendit.coldframe.core.setup.KableSetupRadio
+import com.escendit.coldframe.core.setup.NodeSetupEngine
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesWiring
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -58,9 +59,14 @@ public class AndroidSignIn private constructor(
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
     public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)
 
-    /** Add a Hub over Kable; Bluetooth is only touched once the flow opens. */
+    private val radio = KableSetupRadio(AndroidRadioState(context))
+
+    /** Add a Node over Kable, on one Site; an assigned Node reloads the Lots and the Devices. */
+    public val nodeSetup: NodeSetupEngine = SitesWiring.nodeSetup(api, api, radio, sites, lots, devices, scope)
+
+    /** Add a Hub over Kable; Bluetooth is only touched once the flow opens. Its outcome leads to Add a Node. */
     public val hubSetup: HubSetupEngine =
-        SitesWiring.hubSetup(config, api, KableSetupRadio(AndroidRadioState(context)), sites, scope)
+        SitesWiring.hubSetup(config, api, radio, sites, scope, onAddNode = { nodeSetup.open(it) })
 
     /** Call in every `onCreate` of the activity that starts sign-in, before it is started. */
     public fun registerActivity(activity: ComponentActivity) {

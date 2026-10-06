@@ -142,6 +142,12 @@ class OpenApiContractTest {
         }
         val kinds = schema("DeviceKind")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertTrue(com.escendit.coldframe.core.setup.HubSetupEngine.DEVICE_KIND_HUB in kinds)
+        assertTrue(com.escendit.coldframe.core.setup.NodeSetupEngine.DEVICE_KIND_NODE in kinds)
+        // A Node's Lot is optional on the request and on the answer.
+        for (name in listOf("EnrolDeviceRequest", "Device")) {
+            assertNotNull(schema(name)["properties"]!!.jsonObject["lotId"], "$name.lotId")
+        }
+        assertTrue(EnrolDeviceRequestDto.serializer().descriptor.isElementOptional(4))
     }
 
     @Test
@@ -212,6 +218,7 @@ class OpenApiContractTest {
                 .map { it.jsonPrimitive.content }
         assertTrue(ColdframeApi.PROBLEM_VALIDATION in types)
         assertTrue(ColdframeApi.PROBLEM_DEVICE_ON_ANOTHER_SITE in types)
+        assertTrue(ColdframeApi.PROBLEM_DEVICE_ASSIGNED in types)
         for (slug in listOf("forbidden", "site-not-found", "lot-not-found", "lot-claimed", "idempotency-key-reused")) {
             assertTrue("urn:coldframe:problem:$slug" in types, slug)
         }

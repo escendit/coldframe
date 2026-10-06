@@ -20,6 +20,7 @@ import com.escendit.coldframe.core.lots.LotSummary
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.SiteNameForm
 import com.escendit.coldframe.core.setup.HubSetupState
+import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.SiteRole
@@ -37,8 +38,8 @@ import java.time.Instant
 import java.util.TimeZone
 
 /**
- * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings, Devices and every Add a
- * Hub step and outcome, light and dark, at
+ * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings, Devices, every Add a
+ * Hub step and outcome and every Add a Node step with its outcomes, light and dark, at
  * the largest font scale (2×). Baselines live in tests/kt/android/snapshots; `check` compares against them and
  * `./gradlew :android:recordRoborazziDebug` rewrites them.
  */
@@ -100,6 +101,7 @@ class SnapshotTest {
         scrollTo: String? = null,
         hubSetup: HubSetupState = HubSetupState.CLOSED,
         devices: DevicesState? = null,
+        nodeSetup: NodeSetupState = NodeSetupState.CLOSED,
     ) {
         compose.setContent {
             AtFontScale(2f) {
@@ -115,6 +117,7 @@ class SnapshotTest {
                     hubSetup = hubSetup,
                     devices = devices ?: DevicesState.Idle,
                     now = { devicesNow },
+                    nodeSetup = nodeSetup,
                 )
             }
         }
@@ -285,4 +288,73 @@ class SnapshotTest {
     @Test
     fun `UX-DR55 UX-DR95 wrong Wi-Fi password, dark, font scale 2`() =
         hubDark("add-hub-wrong-password", HubStates.wrongPassword)
+
+    private fun node(
+        name: String,
+        state: NodeSetupState,
+    ) {
+        snapshot("$name-light", readySites(), ThemePreference.Light, nodeSetup = state)
+    }
+
+    private fun nodeDark(
+        name: String,
+        state: NodeSetupState,
+    ) {
+        snapshot("$name-dark", readySites(), ThemePreference.Dark, nodeSetup = state)
+    }
+
+    @Test
+    fun `UX-DR39 UX-DR67 Add a Node step 1, light, font scale 2`() = node("add-node-press", NodeStates.press)
+
+    @Test
+    fun `UX-DR39 UX-DR67 Add a Node step 1, dark, font scale 2`() = nodeDark("add-node-press", NodeStates.press)
+
+    @Test
+    fun `UX-DR37 Add a Node step 2, light, font scale 2`() = node("add-node-scan", NodeStates.scan)
+
+    @Test
+    fun `UX-DR37 Add a Node step 2, dark, font scale 2`() = nodeDark("add-node-scan", NodeStates.scan)
+
+    @Test
+    fun `UX-DR94 Add a Node step 3 with a wrong code, light, font scale 2`() =
+        node("add-node-code-wrong", NodeStates.wrongCode)
+
+    @Test
+    fun `UX-DR94 Add a Node step 3 with a wrong code, dark, font scale 2`() =
+        nodeDark("add-node-code-wrong", NodeStates.wrongCode)
+
+    @Test
+    fun `UX-DR41 Add a Node step 3 accepted, light, font scale 2`() =
+        node("add-node-code-accepted", NodeStates.accepted)
+
+    @Test
+    fun `UX-DR41 Add a Node step 3 accepted, dark, font scale 2`() =
+        nodeDark("add-node-code-accepted", NodeStates.accepted)
+
+    @Test
+    fun `UX-DR38 Add a Node step 4, light, font scale 2`() = node("add-node-lot", NodeStates.lot)
+
+    @Test
+    fun `UX-DR38 Add a Node step 4, dark, font scale 2`() = nodeDark("add-node-lot", NodeStates.lot)
+
+    @Test
+    fun `UX-DR94 UX-DR38 Lot taken meanwhile, light, font scale 2`() = node("add-node-lot-taken", NodeStates.lotTaken)
+
+    @Test
+    fun `UX-DR94 UX-DR38 Lot taken meanwhile, dark, font scale 2`() =
+        nodeDark("add-node-lot-taken", NodeStates.lotTaken)
+
+    @Test
+    fun `UX-DR55 UX-DR67 Lot has a Node, light, font scale 2`() = node("add-node-assigned", NodeStates.assigned)
+
+    @Test
+    fun `UX-DR55 UX-DR67 Lot has a Node, dark, font scale 2`() = nodeDark("add-node-assigned", NodeStates.assigned)
+
+    @Test
+    fun `UX-DR55 UX-DR94 the Node stopped listening, light, font scale 2`() =
+        node("add-node-stopped-listening", NodeStates.stoppedListening)
+
+    @Test
+    fun `UX-DR55 UX-DR94 the Node stopped listening, dark, font scale 2`() =
+        nodeDark("add-node-stopped-listening", NodeStates.stoppedListening)
 }

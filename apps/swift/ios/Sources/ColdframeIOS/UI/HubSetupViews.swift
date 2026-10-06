@@ -86,18 +86,13 @@
   }
 
   /// Add a Hub (UX-DR66): the five steps in the Setup flow shell, then an outcome screen, full
-  /// screen over the tab shell. The idle timer is off while the flow is open; VoiceOver focus
-  /// moves to the step title or headline; announcements are made once each, and while one is
-  /// read the core's progress timeout waits (UX-DR103, UX-DR105).
+  /// screen over the tab shell. VoiceOver focus moves to the step title or headline; the idle
+  /// timer, the leave question and the announcements are `SetupFlowEffects`, shared with Add a
+  /// Node.
   public struct AddHubFlowView: View {
     let presentation: HubSetupPresentation
     let actions: HubSetupActions
     @AccessibilityFocusState private var titleFocused: Bool
-    /// The announcement being read, if any; only its own finish or fallback ends the hold.
-    @State private var speakingId: Int?
-    @State private var speakingText: String?
-    @Environment(\.palette) private var palette
-    @Environment(\.scenePhase) private var scenePhase
 
     public init(presentation: HubSetupPresentation, actions: HubSetupActions) {
       self.presentation = presentation
@@ -108,75 +103,37 @@
       Group {
         if let outcome = presentation.outcome {
           OutcomeView(
-            outcome: outcome, onAction: actions.outcomeAction, titleFocused: $titleFocused)
+            isSuccess: outcome.isSuccess, eyebrow: outcome.eyebrow?.string,
+            title: outcome.title.string, detail: outcome.body.string, help: outcome.help?.string,
+            primary: outcome.primary.label, onPrimary: { actions.outcomeAction(outcome.primary) },
+            secondary: outcome.secondary?.label,
+            onSecondary: {
+              if let secondary = outcome.secondary { actions.outcomeAction(secondary) }
+            },
+            titleFocused: $titleFocused)
         } else {
-          shell
+          SetupFlowShellView(
+            backLabel: presentation.backLabel,
+            onBack: presentation.showsCancel ? actions.leave : actions.back,
+            counterCurrent: presentation.counterCurrent,
+            counterTotal: presentation.counterTotal.string,
+            counterDescription: presentation.counterDescription.string,
+            title: presentation.title.string, titleFocused: $titleFocused
+          ) {
+            step
+          }
         }
       }
-      .onAppear {
-        keepAwake(presentation.keepAwake)
-        titleFocused = true
-      }
-      .onDisappear { keepAwake(false) }
+      .onAppear { titleFocused = true }
       .onChange(of: presentation.step) { titleFocused = true }
       .onChange(of: presentation.outcome?.kind) { titleFocused = true }
-      .onChange(of: presentation.announcement?.id) { announce() }
-      .onChange(of: scenePhase) { _, phase in
-        if phase == .active { actions.recheckRadio() }
-      }
-      .confirmationDialog(
-        Text(verbatim: presentation.leaveQuestion.string),
-        isPresented: Binding(
-          get: { presentation.confirmingLeave }, set: { if !$0 { actions.stayInFlow() } }),
-        titleVisibility: .visible
-      ) {
-        Button(role: .destructive, action: actions.confirmLeave) { L10n.setupLeaveConfirm.text }
-        Button(role: .cancel, action: actions.stayInFlow) { L10n.setupLeaveStay.text }
-      } message: {
-        L10n.setupLeaveDetail.text
-      }
-      #if canImport(UIKit)
-        .onReceive(
-          NotificationCenter.default.publisher(
-            for: UIAccessibility.announcementDidFinishNotification)
-        ) { notification in
-          let finished =
-            notification.userInfo?[UIAccessibility.announcementStringValueUserInfoKey] as? String
-          if let speakingText, finished == nil || finished == speakingText { release(speakingId) }
-        }
-      #endif
-    }
-
-    private var shell: some View {
-      ScrollView {
-        VStack(alignment: .leading, spacing: Spacing.step6) {
-          PrimaryButton(
-            presentation.backLabel, variant: .ghost,
-            action: presentation.showsCancel ? actions.leave : actions.back)
-          counter
-          Text(verbatim: presentation.title.string).role(Typography.headline)
-            .foregroundStyle(palette.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityFocused($titleFocused)
-          step
-        }
-        .padding(Spacing.gutterMobile)
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .background(palette.background)
-    }
-
-    /// "01 / 05": the current number in `primary-text`, the total in `text-helper`.
-    private var counter: some View {
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.step3) {
-        Text(verbatim: presentation.counterCurrent).role(Typography.stepCounter)
-          .foregroundStyle(palette.primaryText)
-        Text(verbatim: presentation.counterTotal.string).role(Typography.stepCounter)
-          .foregroundStyle(palette.textHelper)
-      }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(Text(verbatim: presentation.counterDescription.string))
+      .setupFlowEffects(
+        keepAwake: presentation.keepAwake, onRecheckRadio: actions.recheckRadio,
+        leaveQuestion: presentation.leaveQuestion.string, leaveDetail: .setupLeaveDetail,
+        confirmingLeave: presentation.confirmingLeave, onConfirmLeave: actions.confirmLeave,
+        onStay: actions.stayInFlow, announcementId: presentation.announcement?.id,
+        isAssertive: presentation.announcement?.isAssertive == true,
+        announcementText: { announcementText() }, onAnnouncing: actions.announcing)
     }
 
     @ViewBuilder
@@ -190,39 +147,159 @@
       }
     }
 
-    private func keepAwake(_ on: Bool) {
+    private func announcementText() -> String? {
+      presentation.spokenAnnouncement { $0.string }
+    }
+  }
+
+  /// The Setup flow shell (UX-DR39) of Add a Hub and Add a Node: Cancel or Back top-left, the
+  /// step counter, the step title as a headline with VoiceOver focus, then the step.
+  struct SetupFlowShellView<Content: View>: View {
+    let backLabel: L10n
+    let onBack: () -> Void
+    let counterCurrent: String
+    let counterTotal: String
+    let counterDescription: String
+    let title: String
+    var titleFocused: AccessibilityFocusState<Bool>.Binding
+    let content: Content
+    @Environment(\.palette) private var palette
+
+    init(
+      backLabel: L10n, onBack: @escaping () -> Void, counterCurrent: String, counterTotal: String,
+      counterDescription: String, title: String,
+      titleFocused: AccessibilityFocusState<Bool>.Binding, @ViewBuilder content: () -> Content
+    ) {
+      self.backLabel = backLabel
+      self.onBack = onBack
+      self.counterCurrent = counterCurrent
+      self.counterTotal = counterTotal
+      self.counterDescription = counterDescription
+      self.title = title
+      self.titleFocused = titleFocused
+      self.content = content()
+    }
+
+    var body: some View {
+      ScrollView {
+        VStack(alignment: .leading, spacing: Spacing.step6) {
+          PrimaryButton(backLabel, variant: .ghost, action: onBack)
+          counter
+          Text(verbatim: title).role(Typography.headline)
+            .foregroundStyle(palette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused(titleFocused)
+          content
+        }
+        .padding(Spacing.gutterMobile)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .background(palette.background)
+    }
+
+    /// "01 / 05": the current number in `primary-text`, the total in `text-helper`.
+    private var counter: some View {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.step3) {
+        Text(verbatim: counterCurrent).role(Typography.stepCounter)
+          .foregroundStyle(palette.primaryText)
+        Text(verbatim: counterTotal).role(Typography.stepCounter)
+          .foregroundStyle(palette.textHelper)
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(Text(verbatim: counterDescription))
+    }
+  }
+
+  /// What both setup flows do around their steps: the idle timer is off while the flow is open,
+  /// the radio is checked again on every return to the foreground, leaving asks first, and each
+  /// announcement is posted once; while VoiceOver reads one, the core is told to wait (UX-DR103,
+  /// UX-DR105).
+  struct SetupFlowEffects: ViewModifier {
+    let keepAwake: Bool
+    let onRecheckRadio: () -> Void
+    let leaveQuestion: String
+    let leaveDetail: L10n
+    let confirmingLeave: Bool
+    let onConfirmLeave: () -> Void
+    let onStay: () -> Void
+    let announcementId: Int?
+    let isAssertive: Bool
+    let announcementText: () -> String?
+    let onAnnouncing: (Bool) -> Void
+    /// The announcement being read, if any; only its own finish or fallback ends the hold.
+    @State private var speakingId: Int?
+    @State private var speakingText: String?
+    @Environment(\.scenePhase) private var scenePhase
+
+    init(
+      keepAwake: Bool, onRecheckRadio: @escaping () -> Void, leaveQuestion: String,
+      leaveDetail: L10n, confirmingLeave: Bool, onConfirmLeave: @escaping () -> Void,
+      onStay: @escaping () -> Void, announcementId: Int?, isAssertive: Bool,
+      announcementText: @escaping () -> String?, onAnnouncing: @escaping (Bool) -> Void
+    ) {
+      self.keepAwake = keepAwake
+      self.onRecheckRadio = onRecheckRadio
+      self.leaveQuestion = leaveQuestion
+      self.leaveDetail = leaveDetail
+      self.confirmingLeave = confirmingLeave
+      self.onConfirmLeave = onConfirmLeave
+      self.onStay = onStay
+      self.announcementId = announcementId
+      self.isAssertive = isAssertive
+      self.announcementText = announcementText
+      self.onAnnouncing = onAnnouncing
+    }
+
+    func body(content: Content) -> some View {
+      content
+        .onAppear { setIdleTimer(disabled: keepAwake) }
+        .onDisappear { setIdleTimer(disabled: false) }
+        .onChange(of: announcementId) { announce() }
+        .onChange(of: scenePhase) { _, phase in
+          if phase == .active { onRecheckRadio() }
+        }
+        .confirmationDialog(
+          Text(verbatim: leaveQuestion),
+          isPresented: Binding(get: { confirmingLeave }, set: { if !$0 { onStay() } }),
+          titleVisibility: .visible
+        ) {
+          Button(role: .destructive, action: onConfirmLeave) { L10n.setupLeaveConfirm.text }
+          Button(role: .cancel, action: onStay) { L10n.setupLeaveStay.text }
+        } message: {
+          leaveDetail.text
+        }
+        #if canImport(UIKit)
+          .onReceive(
+            NotificationCenter.default.publisher(
+              for: UIAccessibility.announcementDidFinishNotification)
+          ) { notification in
+            let finished =
+              notification.userInfo?[UIAccessibility.announcementStringValueUserInfoKey] as? String
+            if let speakingText, finished == nil || finished == speakingText {
+              release(speakingId)
+            }
+          }
+        #endif
+    }
+
+    private func setIdleTimer(disabled: Bool) {
       #if canImport(UIKit)
-        UIApplication.shared.isIdleTimerDisabled = on
+        UIApplication.shared.isIdleTimerDisabled = disabled
       #endif
     }
 
     private func announce() {
-      guard let announcement = presentation.announcement,
-        let message = announcement.message(siteName: presentation.selectedSiteName)
-      else { return }
-      let text: String
-      if message.parts.isEmpty {
-        text = message.copy.string
-      } else if announcement.kind == .error {
-        let title = message.parts[0].string.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        text = Copy(message.copy.key, .text(title), .text(message.parts[1].string)).string
-      } else {
-        text =
-          Copy(
-            key: message.copy.key,
-            arguments: message.copy.arguments + [.text(message.parts[0].string)]
-          ).string
-      }
+      guard let id = announcementId, let text = announcementText() else { return }
       var attributed = AttributedString(text)
-      if announcement.isAssertive {
+      if isAssertive {
         attributed.accessibilitySpeechAnnouncementPriority = .high
       }
       #if canImport(UIKit)
         if UIAccessibility.isVoiceOverRunning {
-          let id = announcement.id
           speakingId = id
           speakingText = text
-          actions.announcing(true)
+          onAnnouncing(true)
           // The finished notification ends the hold; this bounds it if it never comes.
           DispatchQueue.main.asyncAfter(deadline: .now() + readingTime(of: text) * 2) {
             release(id)
@@ -237,7 +314,25 @@
       guard let id, id == speakingId else { return }
       speakingId = nil
       speakingText = nil
-      actions.announcing(false)
+      onAnnouncing(false)
+    }
+  }
+
+  extension View {
+    /// The effects every setup flow shares; see `SetupFlowEffects`.
+    func setupFlowEffects(
+      keepAwake: Bool, onRecheckRadio: @escaping () -> Void, leaveQuestion: String,
+      leaveDetail: L10n, confirmingLeave: Bool, onConfirmLeave: @escaping () -> Void,
+      onStay: @escaping () -> Void, announcementId: Int?, isAssertive: Bool,
+      announcementText: @escaping () -> String?, onAnnouncing: @escaping (Bool) -> Void
+    ) -> some View {
+      modifier(
+        SetupFlowEffects(
+          keepAwake: keepAwake, onRecheckRadio: onRecheckRadio, leaveQuestion: leaveQuestion,
+          leaveDetail: leaveDetail, confirmingLeave: confirmingLeave,
+          onConfirmLeave: onConfirmLeave, onStay: onStay, announcementId: announcementId,
+          isAssertive: isAssertive, announcementText: announcementText,
+          onAnnouncing: onAnnouncing))
     }
   }
 
@@ -256,14 +351,22 @@
         if let notice = presentation.radio.notice {
           InlineNotice(
             message: notice, announcement: .assertive,
-            action: presentation.radio.opensSettings ? (.addHubOpenSettings, openSettings) : nil)
+            action: presentation.radio.opensSettings
+              ? (.addHubOpenSettings, { openSettings() }) : nil)
         }
         if presentation.noHubYet {
           InlineNotice(message: .addHubNoHub)
         }
         VStack(spacing: Spacing.tileGap) {
           ForEach(presentation.candidates) { candidate in
-            CandidateTileView(candidate: candidate) { actions.select(candidate.id) }
+            let signal = candidate.signal.label.string
+            CandidateTileView(
+              name: candidate.name.string, signal: signal, badge: nil,
+              description: Copy(
+                .addHubCandidateDescription, .text(candidate.hub), .text(signal)
+              ).string,
+              isSelected: candidate.isSelected
+            ) { actions.select(candidate.id) }
           }
         }
         if presentation.showsStillScanning {
@@ -275,17 +378,27 @@
       }
     }
 
-    private func openSettings() {
-      #if canImport(UIKit)
-        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-      #endif
-    }
+    private func openSettings() { openAppSettings(with: openURL) }
   }
 
-  /// Device candidate tile (UX-DR37): one element "Hub 3F2A, strong signal", selected with a
-  /// 2 pt `primary-text` border, a checkmark and the selected trait.
+  /// Opens this app's page of Settings, where Bluetooth is allowed (UX-DR94).
+  @MainActor
+  func openAppSettings(with openURL: OpenURLAction) {
+    #if canImport(UIKit)
+      if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+    #endif
+  }
+
+  /// Device candidate tile (UX-DR37) of Add a Hub and Add a Node: `name` ("Hub 3F2A") in
+  /// `meta-mono` and its `signal` in words, an optional text `badge` ("Pressed just now"); one
+  /// element that reads `description` ("Hub 3F2A, strong signal"), selected with a 2 pt
+  /// `primary-text` border, a checkmark and the selected trait.
   struct CandidateTileView: View {
-    let candidate: CandidatePresentation
+    let name: String
+    let signal: String
+    let badge: String?
+    let description: String
+    let isSelected: Bool
     let onSelect: () -> Void
     @Environment(\.palette) private var palette
 
@@ -293,13 +406,18 @@
       Button(action: onSelect) {
         HStack(spacing: Spacing.step4) {
           VStack(alignment: .leading, spacing: Spacing.step2) {
-            Text(verbatim: candidate.name.string).role(Typography.metaMono)
+            Text(verbatim: name).role(Typography.metaMono)
               .foregroundStyle(palette.textPrimary)
-            candidate.signal.label.text.role(Typography.statusLabel)
+            Text(verbatim: signal).role(Typography.statusLabel)
               .foregroundStyle(palette.textSecondary)
+            if let badge {
+              Text(verbatim: badge).role(Typography.statusLabel)
+                .foregroundStyle(palette.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            }
           }
           Spacer(minLength: 0)
-          if candidate.isSelected {
+          if isSelected {
             CarbonIconShape(.checkmark).fill(palette.primaryText).frame(width: 20, height: 20)
               .accessibilityHidden(true)
           }
@@ -308,7 +426,7 @@
         .frame(maxWidth: .infinity, minHeight: TouchTarget.control, alignment: .leading)
         .background(palette.layer01)
         .overlay {
-          if candidate.isSelected {
+          if isSelected {
             Rectangle().strokeBorder(palette.primaryText, lineWidth: 2)
           }
         }
@@ -316,13 +434,8 @@
       }
       .buttonStyle(.plain)
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel(
-        Text(
-          verbatim: Copy(
-            .addHubCandidateDescription, .text(candidate.hub), .text(candidate.signal.label.string)
-          ).string)
-      )
-      .accessibilityAddTraits(candidate.isSelected ? [.isButton, .isSelected] : .isButton)
+      .accessibilityLabel(Text(verbatim: description))
+      .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
   }
 
@@ -336,7 +449,11 @@
       VStack(alignment: .leading, spacing: Spacing.step6) {
         L10n.addHubCodeIntro.text.role(Typography.body).foregroundStyle(palette.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
-        SetupCodeFieldView(presentation: presentation, onChange: actions.setCode)
+        SetupCodeFieldView(
+          label: L10n.addHubCodeLabel.string, text: presentation.codeText,
+          helper: L10n.addHubCodeHelper.string, acceptedLabel: L10n.addHubCodeAccepted.string,
+          isAccepted: presentation.codeAccepted, error: presentation.codeErrorMessage?.string,
+          onChange: actions.setCode)
         if let deviceId = presentation.deviceId {
           VStack(alignment: .leading, spacing: Spacing.step2) {
             L10n.addHubDeviceId.text.role(Typography.helper).foregroundStyle(palette.textHelper)
@@ -353,38 +470,39 @@
   /// Setup code field (UX-DR41): `meta-mono`, auto-uppercase, no autocorrect; the core
   /// normalizes what was typed. "Accepted" chip on success; the reason replaces the helper.
   struct SetupCodeFieldView: View {
-    let presentation: HubSetupPresentation
+    let label: String
+    let text: String
+    let helper: String
+    let acceptedLabel: String
+    let isAccepted: Bool
+    let error: String?
     let onChange: (String) -> Void
     @Environment(\.palette) private var palette
 
     var body: some View {
-      let error = presentation.codeErrorMessage?.string
       VStack(alignment: .leading, spacing: Spacing.step3) {
-        L10n.addHubCodeLabel.text.role(Typography.body).foregroundStyle(palette.textSecondary)
+        Text(verbatim: label).role(Typography.body).foregroundStyle(palette.textSecondary)
         HStack(spacing: Spacing.step3) {
-          TextField(
-            L10n.addHubCodeLabel.string,
-            text: Binding(get: { presentation.codeText }, set: { onChange($0) })
-          )
-          .role(Typography.metaMono)
-          .foregroundStyle(palette.textPrimary)
-          .autocorrectionDisabled()
-          #if canImport(UIKit)
-            .textInputAutocapitalization(.characters)
-          #endif
-          .disabled(presentation.codeAccepted)
-          .accessibilityHint(error ?? L10n.addHubCodeHelper.string)
+          TextField(label, text: Binding(get: { text }, set: { onChange($0) }))
+            .role(Typography.metaMono)
+            .foregroundStyle(palette.textPrimary)
+            .autocorrectionDisabled()
+            #if canImport(UIKit)
+              .textInputAutocapitalization(.characters)
+            #endif
+            .disabled(isAccepted)
+            .accessibilityHint(error ?? helper)
           if error != nil {
             CarbonIconShape(.errorFilled).fill(palette.supportErrorText).frame(
               width: 16, height: 16
             )
             .accessibilityHidden(true)
           }
-          if presentation.codeAccepted {
+          if isAccepted {
             HStack(spacing: Spacing.step2) {
               CarbonIconShape(.checkmark).fill(palette.textPrimary).frame(width: 16, height: 16)
                 .accessibilityHidden(true)
-              L10n.addHubCodeAccepted.text.role(Typography.statusLabel)
+              Text(verbatim: acceptedLabel).role(Typography.statusLabel)
                 .foregroundStyle(palette.textPrimary)
             }
             .padding(Spacing.step3)
@@ -401,7 +519,7 @@
         .overlay {
           if error != nil { Rectangle().strokeBorder(palette.supportError, lineWidth: 2) }
         }
-        Text(verbatim: error ?? L10n.addHubCodeHelper.string).role(Typography.helper)
+        Text(verbatim: error ?? helper).role(Typography.helper)
           .foregroundStyle(error == nil ? palette.textHelper : palette.supportErrorText)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -662,48 +780,55 @@
     }
   }
 
-  /// Outcome screens (UX-DR55): VoiceOver focus on the headline, one primary next action;
-  /// success full-bleed `support-success`, an error with the "Step 5 stopped" eyebrow.
+  /// Outcome screens (UX-DR55) of Add a Hub and Add a Node: VoiceOver focus on the headline,
+  /// one primary next action; success full-bleed `support-success`, an error with its `eyebrow`
+  /// ("Step 5 stopped") beside `error--filled`.
   struct OutcomeView: View {
-    let outcome: OutcomePresentation
-    let onAction: (OutcomeActionKind) -> Void
+    let isSuccess: Bool
+    let eyebrow: String?
+    let title: String
+    let detail: String
+    let help: String?
+    let primary: L10n
+    let onPrimary: () -> Void
+    let secondary: L10n?
+    let onSecondary: () -> Void
     var titleFocused: AccessibilityFocusState<Bool>.Binding
     @Environment(\.palette) private var palette
 
     var body: some View {
-      let ink = outcome.isSuccess ? palette.inkOnBright : palette.textPrimary
+      let ink = isSuccess ? palette.inkOnBright : palette.textPrimary
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.step6) {
-          if let eyebrow = outcome.eyebrow, let icon = outcome.eyebrowIcon {
+          if let eyebrow {
             HStack(spacing: Spacing.step3) {
-              CarbonIconShape(icon).fill(palette.supportErrorText).frame(width: 20, height: 20)
+              CarbonIconShape(.errorFilled).fill(palette.supportErrorText)
+                .frame(width: 20, height: 20)
                 .accessibilityHidden(true)
-              Text(verbatim: eyebrow.string).role(Typography.statusLabel)
+              Text(verbatim: eyebrow).role(Typography.statusLabel)
                 .foregroundStyle(palette.supportErrorText)
             }
           }
-          Text(verbatim: outcome.title.string).role(Typography.headline).foregroundStyle(ink)
+          Text(verbatim: title).role(Typography.headline).foregroundStyle(ink)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.isHeader)
             .accessibilityFocused(titleFocused)
-          Text(verbatim: outcome.body.string).role(Typography.bodyLg).foregroundStyle(ink)
+          Text(verbatim: detail).role(Typography.bodyLg).foregroundStyle(ink)
             .fixedSize(horizontal: false, vertical: true)
-          if let help = outcome.help {
-            Text(verbatim: help.string).role(Typography.body).foregroundStyle(ink)
+          if let help {
+            Text(verbatim: help).role(Typography.body).foregroundStyle(ink)
               .fixedSize(horizontal: false, vertical: true)
           }
-          PrimaryButton(
-            outcome.primary.label, variant: outcome.isSuccess ? .secondary : .primary
-          ) { onAction(outcome.primary) }
-          if let secondary = outcome.secondary {
-            PrimaryButton(secondary.label, variant: .ghost) { onAction(secondary) }
+          PrimaryButton(primary, variant: isSuccess ? .secondary : .primary, action: onPrimary)
+          if let secondary {
+            PrimaryButton(secondary, variant: .ghost, action: onSecondary)
           }
         }
         .padding(Spacing.gutterMobile)
         .frame(maxWidth: .infinity, alignment: .leading)
       }
       .background(
-        (outcome.isSuccess ? palette.color(ColorTokens.supportSuccess) : palette.background)
+        (isSuccess ? palette.color(ColorTokens.supportSuccess) : palette.background)
           .ignoresSafeArea())
     }
   }
@@ -711,11 +836,13 @@
   /// A primary button whose label has arguments ("Set up Hub 3F2A").
   struct CopyButton: View {
     let copy: Copy
+    let isEnabled: Bool
     let action: () -> Void
     @Environment(\.palette) private var palette
 
-    init(_ copy: Copy, action: @escaping () -> Void) {
+    init(_ copy: Copy, isEnabled: Bool = true, action: @escaping () -> Void) {
       self.copy = copy
+      self.isEnabled = isEnabled
       self.action = action
     }
 
@@ -734,6 +861,7 @@
           .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      .disabled(!isEnabled)
     }
   }
 #endif

@@ -74,24 +74,13 @@ fun AddHubFlow(
     actions: HubSetupActions,
     modifier: Modifier = Modifier,
 ) {
-    val view = LocalView.current
-    DisposableEffect(state.keepAwake) {
-        view.keepScreenOn = state.keepAwake
-        onDispose { view.keepScreenOn = false }
-    }
-    BackHandler(enabled = state.open) { actions.back() }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { actions.recheckRadio() }
-    val permissions =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            actions.recheckRadio()
-        }
-    LaunchedEffect(state.radio == RadioState.Unauthorized) {
-        if (state.radio ==
-            RadioState.Unauthorized
-        ) {
-            permissions.launch(AndroidRadioState.REQUIRED_PERMISSIONS.toTypedArray())
-        }
-    }
+    SetupFlowEffects(
+        open = state.open,
+        keepAwake = state.keepAwake,
+        radio = state.radio,
+        onSystemBack = actions.back,
+        onRecheckRadio = actions.recheckRadio,
+    )
 
     val hub = state.hubId.orEmpty()
     val siteName =
@@ -129,34 +118,20 @@ fun AddHubFlow(
                 }
             }
         }
-        AnnouncementRegion(state.announcement, siteName, actions.announcing)
+        val announcement = state.announcement
+        SetupAnnouncementRegion(
+            id = announcement?.id,
+            message = announcement?.let { announcementText(it, siteName) }.orEmpty(),
+            assertive = announcement?.assertive == true,
+            onAnnouncing = actions.announcing,
+        )
     }
     if (state.confirmingLeave) {
-        // A native dialog naming the result (UX-DR39); Keep setting up changes nothing.
-        AlertDialog(
-            onDismissRequest = actions.stayInFlow,
-            title = {
-                Text(
-                    stringResource(R.string.setup_leave_question, hub),
-                    style = Typography.section.textStyle(),
-                )
-            },
-            text = { Text(stringResource(R.string.setup_leave_detail), style = Typography.body.textStyle()) },
-            confirmButton = {
-                ColdframeButton(
-                    label = stringResource(R.string.setup_leave_confirm),
-                    onClick = actions.confirmLeave,
-                    variant = ButtonVariant.Secondary,
-                )
-            },
-            dismissButton = {
-                ColdframeButton(
-                    label = stringResource(R.string.setup_leave_stay),
-                    onClick = actions.stayInFlow,
-                    variant = ButtonVariant.Ghost,
-                )
-            },
-            containerColor = Coldframe.colors.background,
+        SetupLeaveDialog(
+            question = stringResource(R.string.setup_leave_question, hub),
+            detail = stringResource(R.string.setup_leave_detail),
+            onConfirm = actions.confirmLeave,
+            onStay = actions.stayInFlow,
         )
     }
 }
@@ -192,8 +167,11 @@ private fun ScanStep(
     if (state.noHubYet) InlineNotice(message = stringResource(R.string.add_hub_no_hub))
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.TILE_GAP.dp)) {
         state.candidates.forEach { candidate ->
+            val signal = stringResource(candidate.signal.label())
             CandidateTile(
-                candidate = candidate,
+                name = stringResource(R.string.add_hub_candidate, candidate.shortId),
+                signal = signal,
+                description = stringResource(R.string.add_hub_candidate_description, candidate.shortId, signal),
                 selected = candidate.peripheralId == state.selected?.peripheralId,
                 onClick = { actions.select(candidate.peripheralId) },
             )
@@ -413,53 +391,6 @@ private fun siteName(state: HubSetupState): String =
         ?.name
         .orEmpty()
 
-/**
- * One announcement as a live region that exists before it is filled (UX-DR105): polite for
- * progress and candidates, assertive for errors. While TalkBack is on, the core hears that an
- * announcement is being read for an estimated reading time, so a timeout waits (UX-DR103);
- * Android reports no "finished" event.
- */
-@Composable
-private fun AnnouncementRegion(
-    announcement: SetupAnnouncement?,
-    siteName: String,
-    onAnnouncing: (Boolean) -> Unit,
-) {
-    val message = announcement?.let { announcementText(it, siteName) }.orEmpty()
-    val context = LocalContext.current
-    val announcing by rememberUpdatedState(onAnnouncing)
-    val latest by rememberUpdatedState(message)
-    // The region always exists; every announcement id empties it, then fills it on the next
-    // frame, so the same words twice are still a change TalkBack reads.
-    var shown by remember { mutableStateOf("") }
-    LaunchedEffect(announcement?.id) {
-        shown = ""
-        if (announcement == null) return@LaunchedEffect
-        withFrameNanos { }
-        shown = latest
-        val manager = context.getSystemService(AccessibilityManager::class.java)
-        if (manager?.isEnabled == true && manager.isTouchExplorationEnabled) {
-            announcing(true)
-            try {
-                delay(readingTimeMillis(latest))
-            } finally {
-                announcing(false)
-            }
-        }
-    }
-    val assertive = announcement?.assertive == true
-    Box(
-        modifier =
-            Modifier.size(1.dp).semantics {
-                contentDescription = shown
-                liveRegion = if (assertive) LiveRegionMode.Assertive else LiveRegionMode.Polite
-            },
-    )
-}
-
-/** At least 1 s plus 60 ms per character: a screen reader's pace, generously. */
-fun readingTimeMillis(message: String): Long = 1_000L + 60L * message.length
-
 @Composable
 private fun announcementText(
     announcement: SetupAnnouncement,
@@ -494,14 +425,4 @@ private fun announcementText(
             )
         }
     }
-}
-
-private fun Context.openBluetoothSettings(bluetoothOff: Boolean) {
-    val intent =
-        if (bluetoothOff) {
-            Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-        } else {
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
-        }
-    startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }

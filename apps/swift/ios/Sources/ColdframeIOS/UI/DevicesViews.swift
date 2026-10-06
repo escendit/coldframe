@@ -21,13 +21,14 @@
   }
 
   /// The Devices tab (UX-DR30, UX-DR65): a "Hubs" section with one row per Hub, by Device ID,
-  /// and Add a Hub as a ghost header action for Administrators and Owners (hidden for a Member,
-  /// UX-DR84). A failed load shows the notice and no rows. `now` is the clock the last-seen
-  /// times are told against.
+  /// and Add a Hub and Add a Node as ghost header actions for Administrators and Owners (hidden
+  /// for a Member, UX-DR84). Add a Node opens its flow with no Lot picked. A failed load shows
+  /// the notice and no rows. `now` is the clock the last-seen times are told against.
   public struct DevicesView: View {
     let presentation: DevicesPresentation
     let actions: DevicesActions
     let onAddHub: () -> Void
+    let onAddNode: () -> Void
     let now: () -> Date
     let timeZone: TimeZone
     @Environment(\.palette) private var palette
@@ -35,12 +36,13 @@
 
     public init(
       presentation: DevicesPresentation, actions: DevicesActions = .none,
-      onAddHub: @escaping () -> Void = {}, now: @escaping () -> Date = { Date() },
-      timeZone: TimeZone = .current
+      onAddHub: @escaping () -> Void = {}, onAddNode: @escaping () -> Void = {},
+      now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
     ) {
       self.presentation = presentation
       self.actions = actions
       self.onAddHub = onAddHub
+      self.onAddNode = onAddNode
       self.now = now
       self.timeZone = timeZone
     }
@@ -59,6 +61,11 @@
         if presentation.canAddHub {
           ToolbarItem(placement: .primaryAction) {
             PrimaryButton(.devicesAddHub, variant: .ghost, action: onAddHub)
+          }
+        }
+        if presentation.canAddNode {
+          ToolbarItem(placement: .primaryAction) {
+            PrimaryButton(.devicesAddNode, variant: .ghost, action: onAddNode)
           }
         }
       }

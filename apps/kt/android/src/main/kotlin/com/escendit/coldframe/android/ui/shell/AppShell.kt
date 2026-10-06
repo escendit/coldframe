@@ -3,6 +3,7 @@ package com.escendit.coldframe.android.ui.shell
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -43,6 +45,7 @@ import com.escendit.coldframe.android.ui.settings.SettingsScreen
 import com.escendit.coldframe.android.ui.settings.SiteSettingsScreen
 import com.escendit.coldframe.android.ui.sites.GardenScreen
 import com.escendit.coldframe.android.ui.sites.LotsActions
+import com.escendit.coldframe.android.ui.sites.ONE_COLUMN_FONT_SCALE
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
@@ -50,6 +53,7 @@ import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.canAddHub
+import com.escendit.coldframe.core.devices.canAddNode
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
@@ -73,12 +77,13 @@ enum class Tab(
  * `TopAppBar` heading per screen. The selected tab uses `primary-text` plus the M3 indicator as
  * its non-colour cue and is exposed as selected. Garden shows the current Site (Story 1.8);
  * Alerts shows its heading only; Devices lists the Hubs (Story 3.7) and reads them again every
- * time the tab is entered, with Add a Hub as a ghost header action for Administrators and Owners;
+ * time the tab is entered, with Add a Hub and Add a Node as ghost header actions for Administrators
+ * and Owners;
  * Settings leads to Site settings and Appearance, and system/predictive back returns. The Site
  * menu's "Site settings" opens Site settings.
  *
  * [tabState] is the selected tab. The root hoists it, so closing a flow that replaced the shell
- * (Add a Hub) returns to the tab it was opened from. [now] is the clock last-seen times are told against.
+ * (Add a Hub, Add a Node) returns to the tab it was opened from. [now] is the clock last-seen times are told against.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,6 +97,7 @@ fun AppShell(
     lots: LotsState = LotsState.Idle,
     lotsActions: LotsActions = LotsActions.None,
     onAddHub: () -> Unit = {},
+    onAddNode: (lotId: String?) -> Unit = {},
     devices: DevicesState = DevicesState.Idle,
     devicesActions: DevicesActions = DevicesActions.None,
     tabState: MutableState<Tab> = rememberSaveable { mutableStateOf(Tab.Garden) },
@@ -118,13 +124,19 @@ fun AppShell(
 
     // The bar grows with the heading's line height, so a scaled title never clips (UX-DR96).
     val titleStyle = Typography.title.textStyle()
-    val barHeight =
+    val titleHeight =
         with(LocalDensity.current) {
             maxOf(
                 TopAppBarDefaults.TopAppBarExpandedHeight,
                 titleStyle.fontSize.toDp() * Typography.title.lineHeight + Spacing.STEP_6.dp,
             )
         }
+    // Add a Hub and Add a Node sit side by side; from the font scale at which the Lot grid drops
+    // to one column they stack, so the heading keeps its width, and the bar grows to hold both.
+    val showsAddActions = tab == Tab.Devices && devices.canAddHub && devices.canAddNode
+    val stackActions = LocalDensity.current.fontScale >= ONE_COLUMN_FONT_SCALE
+    val barHeight =
+        if (showsAddActions && stackActions) maxOf(titleHeight, Spacing.BUTTON_HEIGHT.dp * 2) else titleHeight
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -167,12 +179,12 @@ fun AppShell(
                     },
                     actions = {
                         // Hidden for a Member, never disabled (UX-DR84).
-                        if (tab == Tab.Devices && devices.canAddHub) {
-                            ColdframeButton(
-                                label = stringResource(R.string.devices_add_hub),
-                                onClick = onAddHub,
-                                variant = ButtonVariant.Ghost,
-                            )
+                        if (showsAddActions) {
+                            if (stackActions) {
+                                Column(horizontalAlignment = Alignment.End) { AddDeviceActions(onAddHub, onAddNode) }
+                            } else {
+                                AddDeviceActions(onAddHub, onAddNode)
+                            }
                         }
                     },
                     expandedHeight = barHeight,
@@ -230,6 +242,7 @@ fun AppShell(
                     lots = lots,
                     lotsActions = lotsActions,
                     onAddHub = onAddHub,
+                    onAddNode = onAddNode,
                 )
             } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)
@@ -245,4 +258,22 @@ fun AppShell(
             }
         }
     }
+}
+
+/** The Devices header actions (UX-DR30): Add a Hub, then Add a Node, both ghost buttons. */
+@Composable
+private fun AddDeviceActions(
+    onAddHub: () -> Unit,
+    onAddNode: (lotId: String?) -> Unit,
+) {
+    ColdframeButton(
+        label = stringResource(R.string.devices_add_hub),
+        onClick = onAddHub,
+        variant = ButtonVariant.Ghost,
+    )
+    ColdframeButton(
+        label = stringResource(R.string.devices_add_node),
+        onClick = { onAddNode(null) },
+        variant = ButtonVariant.Ghost,
+    )
 }

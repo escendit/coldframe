@@ -40,6 +40,7 @@ import com.escendit.coldframe.android.ui.components.styledText
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
+import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.sites.FirstRunStep
 import com.escendit.coldframe.core.sites.FirstRunSteps
@@ -53,8 +54,9 @@ import com.escendit.coldframe.designtokens.Typography
  * The Garden of a Site without Readings (UX-DR62, UX-DR82): the Site summary header, "No
  * Readings yet" and the four first-run step tiles; for Administrators and Owners the Add a Hub
  * tile starts Add a Hub (UX-DR66), and Members see the read-only notice instead. Below them, the Site's Lots as tiles in the Server's order
- * (UX-DR18, UX-DR20); a failed Lot load shows its notice in place of the grid. The Site
- * switcher and the Site menu hang off the header.
+ * (UX-DR18, UX-DR20); a *no Node* tile starts Add a Node with its Lot for Administrators and
+ * Owners (UX-DR67). A failed Lot load shows its notice in place of the grid. The Site switcher
+ * and the Site menu hang off the header.
  */
 @Composable
 fun GardenScreen(
@@ -65,6 +67,7 @@ fun GardenScreen(
     lots: LotsState = LotsState.Idle,
     lotsActions: LotsActions = LotsActions.None,
     onAddHub: () -> Unit = {},
+    onAddNode: (lotId: String) -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
@@ -87,7 +90,9 @@ fun GardenScreen(
         if (steps.memberNotice) {
             InlineNotice(message = stringResource(R.string.garden_member_notice))
         }
-        GardenLots(lots, siteId = sites.current.id, actions = lotsActions)
+        // A *no Node* tile starts Add a Node with its Lot for Administrators and Owners only.
+        val addNode = if (DevicesState.canAddNode(sites.current.role)) onAddNode else null
+        GardenLots(lots, siteId = sites.current.id, actions = lotsActions, onAddNode = addNode)
     }
     if (switcherOpen) {
         SiteSwitcherSheet(
@@ -250,10 +255,11 @@ private fun GardenLots(
     lots: LotsState,
     siteId: String,
     actions: LotsActions,
+    onAddNode: ((lotId: String) -> Unit)?,
 ) {
     when (lots) {
         is LotsState.Ready -> {
-            if (lots.siteId == siteId && lots.lots.isNotEmpty()) LotTiles(lots.lots)
+            if (lots.siteId == siteId && lots.lots.isNotEmpty()) LotTiles(lots.lots, onAddNode = onAddNode)
         }
 
         is LotsState.Failed -> {

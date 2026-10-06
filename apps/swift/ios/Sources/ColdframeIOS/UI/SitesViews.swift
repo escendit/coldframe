@@ -191,13 +191,15 @@
   /// The Garden (UX-DR62, UX-DR82): the Site summary header with the switcher and the Site
   /// menu, "No Readings yet", the four first-run tiles (UX-DR54) and the Member notice, then the
   /// Site's Lot tiles in the Server's order (UX-DR18, UX-DR20). The Site menu's Site settings
-  /// opens Site settings (UX-DR74).
+  /// opens Site settings (UX-DR74). A *no Node* Lot tile starts Add a Node with its Lot for
+  /// Administrators and Owners; the first-run "Add a Node" step tile starts nothing.
   public struct GardenView: View {
     let presentation: GardenPresentation
     let lots: LotsPresentation
     let actions: SitesActions
     let lotsActions: LotsActions
     let onAddHub: () -> Void
+    let onAddNode: (String) -> Void
     @State private var switching = false
     @State private var openingSiteSettings = false
     @Environment(\.palette) private var palette
@@ -205,13 +207,15 @@
 
     public init(
       presentation: GardenPresentation, lots: LotsPresentation = .waiting,
-      actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {}
+      actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
+      onAddNode: @escaping (String) -> Void = { _ in }
     ) {
       self.presentation = presentation
       self.lots = lots
       self.actions = actions
       self.lotsActions = lotsActions
       self.onAddHub = onAddHub
+      self.onAddNode = onAddNode
     }
 
     public var body: some View {
@@ -222,7 +226,7 @@
           if let notice = presentation.memberNotice {
             InlineNotice(message: notice)
           }
-          LotGrid(lots: lots, onTryAgain: lotsActions.load)
+          LotGrid(lots: lots, onTryAgain: lotsActions.load, onAddNode: onAddNode)
         }
         .padding(Spacing.gutterMobile)
       }

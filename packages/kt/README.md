@@ -42,4 +42,21 @@ its Kable 0.45 adapter (`KableSetupRadio`, radio state from `AndroidRadioState` 
 and `HubSetupEngine`, which runs the flow and every error rule and exposes one `HubSetupState`;
 Android reads `AndroidSignIn.hubSetup`, iOS the flat `HubSetupSnapshot` through
 `IosSignIn.hubSetup`. `ColdframeApi` gains `GET /enrolment-key` and `POST /sites/{siteId}/devices`.
+
+**Add a Node (Story 4.3).** `NodeSetupEngine` reuses the same radio port, session, framing and
+enrolment calls for the five steps Press, Scan, Code, Lot and Outcome, on one Site (the one passed
+to `open`, else the current one; Administrators and Owners only). It lists only adverts named
+`Coldframe Node XXXX`. Session order, once per code attempt on the code step: connect → hello →
+`IdentityRequest` (the kind must be `NODE`) → `GET /enrolment-key` (fingerprint recomputed) →
+`EnrolmentRequest` → `EnrolmentResponse`; the engine keeps `enc`/`ciphertext` in memory,
+disconnects, then shows the accepted chip. A Node drops an idle connection after 60 s and listens
+for 180 s, so nothing is held open through the Lot picker, and a Node is never sent `SiteBinding`,
+`WifiScanRequest` or `WifiConfig`. The Lot step reads `GET /sites/{siteId}/lots` (only `noNode`
+Lots can be picked), creates a Lot inline, and `assign` posts `POST /sites/{siteId}/devices` with
+`kind: node`, the sealed key relayed unread, `lotId` and one Idempotency-Key per Device and Site.
+409 `lot-claimed` and 404 stay on the Lot step; 409 `device-assigned` (`ApiFailure.DeviceAssigned`),
+409 `device-on-another-site` and 403 end on an outcome. On 201 the Lots and Devices engines reload
+(`SitesWiring.nodeSetup`). "Add a Node" on the Hub's outcome closes that flow and opens this one
+for the Hub's Site (`HubSetupEngine.onAddNode`). Android reads `AndroidSignIn.nodeSetup`, iOS the
+flat `NodeSetupSnapshot` through `IosSignIn.nodeSetup`.
 Tests live in [`tests/kt`](../../tests/kt).

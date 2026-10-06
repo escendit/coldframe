@@ -68,6 +68,7 @@ public class HubSetupEngine(
     private val scope: CoroutineScope,
     private val newKey: () -> String = SitesEngine::randomKey,
     private val newSession: () -> SetupSession = { SetupSession() },
+    private val onAddNode: (siteId: String) -> Unit = {},
 ) {
     private val serverUrl = serverUrl.trimEnd('/')
     private val serverHost =
@@ -663,7 +664,14 @@ public class HubSetupEngine(
         val outcome = current.outcome ?: return
         if (action != outcome.primary && action != outcome.secondary) return
         when (action) {
-            OutcomeAction.AddNode, OutcomeAction.Close -> {
+            OutcomeAction.AddNode -> {
+                // Add a Node opens for the Site the Hub was added to, once this flow is closed.
+                val siteId = current.site.selectedId
+                close()
+                siteId?.let(onAddNode)
+            }
+
+            OutcomeAction.Close -> {
                 close()
             }
 
@@ -925,9 +933,15 @@ public class HubSetupEngine(
 
         private fun enrolmentOutcome(failure: ApiFailure): OutcomeKind =
             when (failure) {
-                ApiFailure.DeviceOnAnotherSite, ApiFailure.LotClaimed -> OutcomeKind.OnAnotherSite
+                ApiFailure.DeviceOnAnotherSite,
+                ApiFailure.LotClaimed,
+                ApiFailure.DeviceAssigned,
+                -> OutcomeKind.OnAnotherSite
+
                 ApiFailure.Forbidden -> OutcomeKind.NotAllowed
+
                 ApiFailure.NotFound -> OutcomeKind.SiteGone
+
                 else -> OutcomeKind.ServerUnreachable
             }
 

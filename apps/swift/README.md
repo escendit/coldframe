@@ -29,9 +29,19 @@ Swift runtimes.
   finishes one, so the progress timeout waits (UX-DR103). The app needs
   `NSBluetoothAlwaysUsageDescription` (both Info.plists) and links `CoreBluetooth`. WPA3-only
   networks are shown but cannot be chosen.
+  `NodeSetupService` (Story 4.3) carries Add a Node as a `NodeSetupPresentation` built from the
+  core's flat `NodeSetupSnapshot`: press the setup button, pick the Node ("Pressed just now" on
+  the one first heard last), its setup code, the Lot picker ("Has a Node" rows cannot be picked,
+  "+ New Lot" creates one inline) and the outcome "Tomatoes has a Node". It opens from "Add a
+  Node" in Devices, from a *no Node* Lot tile (with that Lot preselected) and from "Add a Node" on
+  "Hub is online", for Administrators and Owners only (`canAddNode` of the Devices and Lots
+  snapshots). The session order is the core's: the BLE session runs on the code step and ends
+  before the accepted chip shows; the Lot step needs no BLE and posts the sealed key with the Lot.
+  The shell, the leave question, the candidate tile, the code field, the outcome view and the
+  announcements (`SetupFlowEffects`) are shared with Add a Hub.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
   (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`, `CoreDevicesService`,
-  `CoreHubSetupService`), the
+  `CoreHubSetupService`, `CoreNodeSetupService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
 - `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
   is not committed. `ios/Config` holds the build-time configuration and the Info.plists.

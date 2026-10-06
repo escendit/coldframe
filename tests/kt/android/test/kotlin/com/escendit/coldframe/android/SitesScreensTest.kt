@@ -29,8 +29,14 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.lots.CreateLotForm
+import com.escendit.coldframe.core.lots.LotStatus
+import com.escendit.coldframe.core.lots.LotSummary
+import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.lots.SiteNameForm
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.NameError
@@ -265,6 +271,50 @@ class SitesScreensTest {
         compose.onNodeWithText("NEXT").assertExists()
         compose.onAllNodesWithText("LATER").assertCountEquals(3)
         compose.onAllNodesWithText("Only Owners and Administrators can add Devices.").assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR67 UX-DR18 a no-Node Lot tile opens Add a Node with its Lot for Admin+ and does nothing for a Member`() {
+        val opened = mutableListOf<String?>()
+        var role by mutableStateOf(SiteRole.Owner)
+        compose.setContent {
+            val site = homeSite(role)
+            ColdframeRoot(
+                state = SignInState.SignedIn("Simon"),
+                sites = readySites(site),
+                theme = ThemePreference.Light,
+                onSignIn = {},
+                onSignOut = {},
+                onSelectTheme = {},
+                lots =
+                    LotsState.Ready(
+                        site = site,
+                        lots = listOf(LotSummary("lot-t", "Tomatoes", LotStatus.NoNode)),
+                        siteName = SiteNameForm("Home garden", null, false),
+                        create = CreateLotForm("", null, false, "key-1"),
+                        renaming = null,
+                        removing = null,
+                        notice = null,
+                    ),
+                nodeSetupActions = NodeSetupActions(open = { opened += it }),
+            )
+        }
+        val tile = "Tomatoes, no Node, add a Node"
+
+        for (allowed in listOf(SiteRole.Owner, SiteRole.Administrator)) {
+            role = allowed
+            compose.waitForIdle()
+            compose.onNode(hasContentDescription(tile).and(hasClickAction())).performScrollTo().performClick()
+        }
+        assertEquals(listOf<String?>("lot-t", "lot-t"), opened)
+
+        role = SiteRole.Member
+        compose.waitForIdle()
+        compose.onAllNodes(hasContentDescription(tile).and(hasClickAction())).assertCountEquals(0)
+        compose.onNodeWithContentDescription(tile).assertExists()
+        // The first-run Add a Node tile stays without an action for every Role.
+        compose.onAllNodes(hasText("Add a Node").and(hasClickAction())).assertCountEquals(0)
+        assertEquals(2, opened.size)
     }
 
     @Test

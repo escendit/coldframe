@@ -19,7 +19,9 @@ import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.AddHubFlow
+import com.escendit.coldframe.android.ui.setup.AddNodeFlow
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
+import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.android.ui.shell.AppShell
 import com.escendit.coldframe.android.ui.shell.Tab
 import com.escendit.coldframe.android.ui.signin.SignInScreen
@@ -33,6 +35,7 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.setup.HubSetupState
+import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
@@ -42,7 +45,8 @@ import java.time.Instant
  * Maps the core's state to a surface. No branching on errors, URLs or tokens here: the shell
  * only renders [SignInState], [SitesState] and [ThemePreference]. Signed in, the Sites decide:
  * Create Site replaces the tab shell without a Membership, and covers it from "New Site"; Add a
- * Hub covers it while its flow is open, and closing it returns to the tab it was opened from.
+ * Hub and Add a Node cover it while their flow is open, and closing one returns to the tab it was
+ * opened from.
  */
 @Composable
 fun ColdframeRoot(
@@ -61,6 +65,8 @@ fun ColdframeRoot(
     devices: DevicesState = DevicesState.Idle,
     devicesActions: DevicesActions = DevicesActions.None,
     now: () -> Instant = Instant::now,
+    nodeSetup: NodeSetupState = NodeSetupState.CLOSED,
+    nodeSetupActions: NodeSetupActions = NodeSetupActions.None,
 ) {
     ColdframeTheme(isDark = theme.isDark(systemIsDark)) {
         when (state) {
@@ -90,6 +96,8 @@ fun ColdframeRoot(
                     devices,
                     devicesActions,
                     now,
+                    nodeSetup,
+                    nodeSetupActions,
                 )
             }
         }
@@ -110,6 +118,8 @@ private fun SignedIn(
     devices: DevicesState,
     devicesActions: DevicesActions,
     now: () -> Instant,
+    nodeSetup: NodeSetupState,
+    nodeSetupActions: NodeSetupActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -144,8 +154,8 @@ private fun SignedIn(
         }
 
         is SitesState.Ready -> {
-            // The selected tab outlives the shell: Create Site and Add a Hub replace it while open, and
-            // closing them returns to the tab they were opened from.
+            // The selected tab outlives the shell: Create Site, Add a Hub and Add a Node replace it
+            // while open, and closing them returns to the tab they were opened from.
             val tab = rememberSaveable { mutableStateOf(Tab.Garden) }
             // Create Site replaces the shell while open, so no hidden tab stays reachable.
             val creating = sites.creating
@@ -153,6 +163,8 @@ private fun SignedIn(
                 CreateSiteScreen(form = creating, actions = actions)
             } else if (hubSetup.open) {
                 AddHubFlow(state = hubSetup, actions = hubSetupActions)
+            } else if (nodeSetup.open) {
+                AddNodeFlow(state = nodeSetup, actions = nodeSetupActions)
             } else {
                 AppShell(
                     sites = sites,
@@ -163,6 +175,7 @@ private fun SignedIn(
                     lots = lots,
                     lotsActions = lotsActions,
                     onAddHub = hubSetupActions.open,
+                    onAddNode = nodeSetupActions.open,
                     devices = devices,
                     devicesActions = devicesActions,
                     tabState = tab,

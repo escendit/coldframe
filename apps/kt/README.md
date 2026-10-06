@@ -26,4 +26,34 @@ live regions; while TalkBack is on the core's 90 s timeout waits for an estimate
   denied or Bluetooth off shows "Coldframe needs Bluetooth to find the Hub." with Open Settings.
 - **WPA3-only networks** are listed but cannot be chosen: the Hub joins WPA2 and WPA2/WPA3
   transition networks only.
-- ADD A NODE on "Hub is online" closes the flow to the Garden until the Node flow (Epic 4).
+- ADD A NODE on "Hub is online" closes the flow and opens Add a Node for the Hub's Site.
+
+## Add a Node (Story 4.3)
+
+Administrators and Owners start Add a Node from three places: "Add a Node" in the Devices header
+(beside "Add a Hub"), a *no Node* Lot tile on the Garden (which preselects that Lot), and ADD A
+NODE on "Hub is online". A Member has none of them: the header actions are hidden and the tile is
+not a button. The flow (`ui/setup/AddNodeFlow.kt`) renders the core's `NodeSetupState` in the same
+Setup flow shell as Add a Hub; the candidate tile, the outcome layout, the leave dialog and the
+announcement region are shared by both flows.
+
+1. **Press** — "Press the setup button on the Node": hold it for 3 seconds; the Node then listens
+   for 3 minutes. No radio yet.
+2. **Scan** — only adverts named `Coldframe Node XXXX`, strongest first; "Pressed just now" marks
+   the one first heard last. After 30 s without one a notice says how to wake it; scanning goes on.
+3. **Code** — one BLE session per attempt: connect, hello, `IdentityRequest` (a reply that does
+   not open is the wrong code), `GET /enrolment-key` with the fingerprint checked, then
+   `EnrolmentRequest` → `EnrolmentResponse`. The core keeps the sealed key in memory, disconnects,
+   and only then shows the accepted chip. A Node is never sent a Site binding or Wi-Fi message.
+4. **Lot** — no BLE. Lots from `GET /sites/{siteId}/lots`; a Lot that has a Node says "Has a Node"
+   and cannot be picked; "+ New Lot" creates one inline with the Create Lot copy. "Put 7C19 in
+   Tomatoes" posts `POST /sites/{siteId}/devices` (`kind: node`, the sealed key, `lotId`) with one
+   Idempotency-Key per Device and Site. A Lot taken meanwhile, a Lot that is gone and an
+   unreachable Server are answered on this step, and another Lot needs no second BLE session.
+5. **Outcome** — "Tomatoes has a Node"; the Lots and the Devices are read again.
+
+Top-left is Cancel on step 1 and Back on steps 2 and 3; Back on step 4 and system back once a Node
+is selected ask "Stop setting up Node 7C19? Nothing is saved on the Node." The candidate tile shows
+no battery or Sensor count (neither the advert nor the Node's identity carries them), and the
+outcome shows no Sensors or Calibrate action yet (see `deferred-work.md` DW-55 to DW-58). At font
+scale 1.5 and larger the two Devices header actions stack, so the heading keeps its width.

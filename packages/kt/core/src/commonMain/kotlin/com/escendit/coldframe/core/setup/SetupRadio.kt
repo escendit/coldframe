@@ -80,4 +80,7 @@ public object SetupGatt {
 
     /** The advertised name of a Hub: this prefix and the first four Device ID digits. */
     public const val HUB_NAME_PREFIX: String = "Coldframe Hub "
+
+    /** The advertised name of a Node in setup mode: this prefix and the first four Device ID digits. */
+    public const val NODE_NAME_PREFIX: String = "Coldframe Node "
 }
