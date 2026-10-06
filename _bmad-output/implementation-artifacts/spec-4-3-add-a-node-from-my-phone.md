@@ -49,8 +49,6 @@ deferred:
       apps/kt/android/.../MainActivity.kt; apps/swift/ios/App/{ColdframeApp,CoreNodeSetupService,CoreLotsService,CoreDevicesService}.swift
     severity: medium
 operator_actions:
-  - "On a Mac with Xcode 26.6, run swift build && swift test && swift format lint --strict -r . at the repo root and fix any compile or test failure in the never-compiled SwiftUI files (UI/NodeSetupViews.swift, the refactored UI/HubSetupViews.swift, UI/DevicesViews.swift, UI/SiteSettingsViews.swift, UI/Screens.swift and RenderTests.swift at .accessibility5, light and dark)."
-  - "On that Mac, in apps/swift/ios, run xcodegen generate and xcodebuild build -scheme Coldframe -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO, and confirm App/CoreNodeSetupService.swift, CoreLotsService.swift and CoreDevicesService.swift compile against ColdframeCore (check the Kotlin/Native names of IosNodeSetup and the canAddNode snapshot fields)."
   - "With a dev-mode Node from the Story 4.2 bench (docs/bench/node-setup-checklist.md) and the Android app signed in as an Owner against the real Server, long-press the Node's setup button, run Add a Node from Devices, pick a free Lot and confirm the outcome reads '<Lot> has a Node' and the Lot's Garden tile is no longer 'no Node'."
   - "Repeat the Add a Node run on an iPhone, once from a 'no Node' tile (the Lot must be preselected on step 4) and once from Add a Node on 'Hub is online'; in the second run confirm the screen stays awake through the flow."
   - "On both phones, walk the error cases with a real Node: Bluetooth off, a wrong setup code, waiting more than 3 minutes before entering the code (expect '<ID> stopped listening'), and a second Node put on a Lot that got its Node meanwhile (expect the Lot-taken notice and a retry with another Lot without pressing the button again)."
@@ -249,19 +247,20 @@ Status: awaiting-operator
 - **Deferred (5 items):** two unverified iOS risks (Devices header at the largest text size; keep-awake when the Hub flow hands over) and three wiring test gaps (Hub outcome to Node flow, iOS entry-point taps, app-target wiring).
 - **Rejected (33 rows):** 29 low and 4 false, each with its reason in the triage log.
 
-**Follow-up review recommended:** true. Patched this pass: 0 high, 4 medium, 3 low. The named risk: the announcement text for both setup flows moved between Swift files that are only partly compiled on Linux, and the Add a Hub SwiftUI views were refactored without a compile.
+**Follow-up review recommended:** true. Patched this pass: 0 high, 4 medium, 3 low. The named risk: the Add a Hub SwiftUI views and the announcement text of both setup flows were refactored, and only render tests that assert an image exists cover them; real VoiceOver behaviour is unverified.
 
 **Verification:**
 - `./gradlew check :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64`: green; 353 core tests and 217 Android tests, 0 failed; Roborazzi verify, ktlint and lint pass. Add a Hub and Garden baselines are unchanged.
 - `swift:6.3.3` container, `swift build && swift test && swift format lint --strict -r .`: green, 148 tests.
 - `pnpm -r lint`, `typecheck`, `test`: green (335 unit, 42 e2e).
+- CI on PR #33: Kotlin, Swift (macOS) and iOS app jobs green, so the SwiftUI sources and the app target compile.
 - Matrix audit: every I/O row has a core engine test that ran and passed.
 - Tests were written together with the code, not before it; the implementer checked nine engine mutations and the four patched behaviours against the tests instead.
 
 **Residual risks:**
-- The SwiftUI views (new and refactored), the iOS app adapters and `RenderTests.swift` have never been compiled.
+- The SwiftUI views, the iOS app adapters and `RenderTests.swift` compile and pass only in CI's macOS jobs (Swift, iOS app, green on PR #33); nothing has run on an iPhone.
 - Nothing ran against a real Node; Kable and the radio are exercised through fakes only.
 - If the Server assigned the Node but its answer was lost, step 4 says "Nothing was assigned."; the same button then succeeds, and another Lot ends on "already in another Lot".
 - A Node whose 180 s window closed stays in the list and fails only after the code is typed (DW-56).
 
-**Operator actions owed:** see the frontmatter `operator_actions` (Mac build of the Swift sources, and bench runs with a real Node on Android and iPhone, including the error cases and screen readers).
+**Operator actions owed:** see the frontmatter `operator_actions` (bench runs with a real Node on Android and iPhone, including the error cases and screen readers).
