@@ -603,6 +603,38 @@ jobs:
     if: needs.changes.outputs.images == 'true'
     uses: ./.github/workflows/images-verify.yml
 
+  # The required status check for the images job. A called workflow reports its checks as
+  # "Images / <job>" and reports none when the caller is skipped, so requiring that name blocks
+  # every pull request that does not touch the images. This job always runs: it passes when the
+  # images job passed or was skipped as unaffected, and fails otherwise.
+  images-gate:
+    name: Images gate
+    needs: [changes, images]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the images job
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          WANTED: ${{ needs.changes.outputs.images }}
+          IMAGES: ${{ needs.images.result }}
+        shell: bash
+        run: |
+          echo "changes: ${CHANGES}, images wanted: ${WANTED}, images: ${IMAGES}"
+          if [[ "${CHANGES}" != "success" ]]; then
+            echo "::error::the changes job did not succeed, so the images job could not be decided."
+            exit 1
+          fi
+          if [[ "${WANTED}" == "true" && "${IMAGES}" != "success" ]]; then
+            echo "::error::the images job was needed and ended as '${IMAGES}'."
+            exit 1
+          fi
+          if [[ "${WANTED}" != "true" && "${IMAGES}" != "skipped" ]]; then
+            echo "::error::the images job was not needed but ended as '${IMAGES}'."
+            exit 1
+          fi
+
   secrets:
     name: Secrets
     runs-on: ubuntu-24.04
