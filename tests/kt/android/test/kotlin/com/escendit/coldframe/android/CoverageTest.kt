@@ -4,7 +4,7 @@ import org.junit.Test
 import java.io.File
 import kotlin.test.assertTrue
 
-/** Every UX requirement stories 1.5, 1.8, 1.9, 3.6 and 3.7 name has at least one test named after it. */
+/** Every UX requirement stories 1.5, 1.8, 1.9, 3.6, 3.7 and 4.3 name has at least one test named after it. */
 class CoverageTest {
     private val storyIds =
         listOf(
@@ -19,6 +19,7 @@ class CoverageTest {
             35,
             36,
             37,
+            38,
             39,
             40,
             41,
@@ -34,6 +35,7 @@ class CoverageTest {
             62,
             65,
             66,
+            67,
             71,
             74,
             75,
@@ -76,6 +78,7 @@ class CoverageTest {
             35,
             36,
             37,
+            38,
             39,
             40,
             41,
@@ -87,6 +90,7 @@ class CoverageTest {
             62,
             65,
             66,
+            67,
             71,
             74,
             75,

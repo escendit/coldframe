@@ -405,4 +405,42 @@ class ColdframeApiTest {
                 assertEquals(ApiResult.Failed(failure), api().enrolDevice("a", request, "key-1"), type)
             }
         }
+
+    @Test
+    fun uxDr67EnrolANodeSendsTheLotAndReadsItBack() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"id":"7c19aa01b2d4e6f8","kind":"node","siteId":"a","lotId":"lot-1"}""",
+                        HttpStatusCode.Created,
+                        json,
+                    )
+                }
+            val request = EnrolDeviceRequestDto("7c19aa01b2d4e6f8", "node", "e", "c", lotId = "lot-1")
+
+            val result = api().enrolDevice("a", request, "key-1")
+
+            assertEquals(ApiResult.Ok(DeviceDto("7c19aa01b2d4e6f8", "node", "a", "lot-1")), result)
+            assertEquals(
+                """{"deviceId":"7c19aa01b2d4e6f8","kind":"node","enc":"e","ciphertext":"c","lotId":"lot-1"}""",
+                requests.single().text(),
+            )
+        }
+
+    @Test
+    fun uxDr94ANodeAssignedToAnotherLotIsNotReadAsALotClaimed() =
+        runTest {
+            val request = EnrolDeviceRequestDto("7c19aa01b2d4e6f8", "node", "e", "c", lotId = "lot-1")
+            val cases =
+                listOf(
+                    "device-assigned" to ApiFailure.DeviceAssigned,
+                    "lot-claimed" to ApiFailure.LotClaimed,
+                    "device-on-another-site" to ApiFailure.DeviceOnAnotherSite,
+                )
+            for ((type, failure) in cases) {
+                answer = { respond(problem(type), HttpStatusCode.Conflict, problem) }
+                assertEquals(ApiResult.Failed(failure), api().enrolDevice("a", request, "key-1"), type)
+            }
+        }
 }

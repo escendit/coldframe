@@ -6,13 +6,13 @@ import Testing
 /// A snapshot as the core flattens it: an Owner of Site "a" with one online Hub seen at 07:02 UTC.
 private func devices(
   surface: String = "ready", notice: String? = nil, siteId: String? = "a",
-  canAddHub: Bool = true,
+  canAddHub: Bool = true, canAddNode: Bool = true,
   hubIds: [String] = ["3f2a9c0d1e4b5a67"], hubStatuses: [String] = ["online"],
   hubLastSeen: [String] = ["1791270120000"]
 ) -> DevicesPresentation {
   DevicesPresentation(
     surface: surface, notice: notice, siteId: siteId, canAddHub: canAddHub,
-    hubIds: hubIds, hubStatuses: hubStatuses, hubLastSeen: hubLastSeen)
+    canAddNode: canAddNode, hubIds: hubIds, hubStatuses: hubStatuses, hubLastSeen: hubLastSeen)
 }
 
 /// 2026-10-06 07:04 UTC, two minutes after the Hub was seen.
@@ -121,6 +121,26 @@ func devicesAddHubByRole() throws {
   #expect(!DevicesPresentation.waiting.canAddHub)
   #expect(!devices(siteId: nil, canAddHub: true).canAddHub)
   #expect(try Catalogue.entries()["devices_add_hub"] == "Add a Hub")
+}
+
+@Test("UX-DR84 UX-DR67 Add a Node shows beside Add a Hub for an Administrator or Owner only")
+func devicesAddNodeByRole() throws {
+  let owner = devices()
+  #expect(owner.canAddHub)
+  #expect(owner.canAddNode)
+  let member = devices(canAddHub: false, canAddNode: false)
+  #expect(!member.canAddNode)
+  // The Member still sees the list.
+  #expect(member.hubs.count == 1)
+  #expect(!DevicesPresentation.waiting.canAddNode)
+  #expect(!devices(siteId: nil).canAddNode)
+  // Each action follows its own flag from the core; neither is derived here.
+  #expect(!devices(canAddHub: true, canAddNode: false).canAddNode)
+  #expect(devices(canAddHub: false, canAddNode: true).canAddNode)
+  #expect(!DevicesPresentation(surface: .waiting, canAddHub: true).canAddNode)
+  #expect(try Catalogue.entries()["devices_add_node"] == "Add a Node")
+  // No Nodes section: the list holds Hubs only.
+  #expect(owner.hubs.map(\.id) == ["3f2a9c0d1e4b5a67"])
 }
 
 @Test("UX-DR65 a failed reload shows no rows, so nothing stays Online, with Try again")

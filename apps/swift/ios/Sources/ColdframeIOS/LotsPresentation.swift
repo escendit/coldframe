@@ -13,17 +13,21 @@ public enum LotStatusKind: String, CaseIterable, Sendable {
 
 /// One Lot tile on Garden (UX-DR18, UX-DR20). Story 1.9 draws the *no Node* variant in full:
 /// transparent, 1 pt dotted `status-no-node-border`, `add`, a large "+" and "add a Node". Every
-/// other status shows only the Lot name until its variant arrives (Epic 5). Tiles are not
-/// tappable yet: Lot detail and Add a Node are later epics.
+/// other status shows only the Lot name until its variant arrives (Epic 5). For Administrators
+/// and Owners a *no Node* tile starts Add a Node with its Lot (Story 4.3); no other tile is
+/// tappable yet: Lot detail is a later epic.
 public struct LotTilePresentation: Equatable, Sendable, Identifiable {
   public let id: String
   public let name: String
   public let status: LotStatusKind
+  /// Whether the caller may add a Node to the Site, as the core decided.
+  public let canAddNode: Bool
 
-  public init(id: String, name: String, status: LotStatusKind) {
+  public init(id: String, name: String, status: LotStatusKind, canAddNode: Bool = false) {
     self.id = id
     self.name = name
     self.status = status
+    self.canAddNode = canAddNode
   }
 
   public var isNoNode: Bool { status == .noNode }
@@ -47,8 +51,11 @@ public struct LotTilePresentation: Equatable, Sendable, Identifiable {
   /// or the name alone for a status whose variant is not drawn yet.
   public var accessibilityFormat: L10n? { isNoNode ? .lotTileDescriptionNoNode : nil }
 
-  /// Lot detail and Add a Node arrive in later epics.
-  public let isTappable = false
+  /// A *no Node* tile is a button for Administrators and Owners, with the same spoken label;
+  /// for a Member it is not interactive.
+  public var isTappable: Bool { isNoNode && canAddNode }
+
+  public var traits: Set<ControlTrait> { isTappable ? [.button] : [] }
 
   /// Two columns, one at accessibility text sizes (DESIGN.md Layout).
   public static func columns(accessibilitySize: Bool) -> Int { accessibilitySize ? 1 : 2 }
@@ -236,7 +243,7 @@ public struct LotsPresentation: Equatable, Sendable {
     newLotName: String, newLotNameError: String?, createWorking: Bool,
     renamingLotId: String?, renameDraft: String, renameError: String?, renameWorking: Bool,
     removingLotId: String?, removingLotName: String?, removeWorking: Bool,
-    actionNotice: String?, actionNoticeSubject: String?
+    actionNotice: String?, actionNoticeSubject: String?, canAddNode: Bool = false
   ) {
     switch surface {
     case "failed":
@@ -252,7 +259,7 @@ public struct LotsPresentation: Equatable, Sendable {
       let tiles = (0..<count).map {
         LotTilePresentation(
           id: lotIds[$0], name: lotNames[$0],
-          status: LotStatusKind(rawValue: lotStatuses[$0]) ?? .unknown)
+          status: LotStatusKind(rawValue: lotStatuses[$0]) ?? .unknown, canAddNode: canAddNode)
       }
       let role = role.flatMap(SiteRoleKind.init(rawValue:)) ?? .member
       let notice = actionNotice.map { LotsActionNoticeKind(rawValue: $0) ?? .unexpected }

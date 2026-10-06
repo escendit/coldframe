@@ -57,7 +57,8 @@
   /// The Garden tab shows the current Site's Garden with its Lots (Stories 1.8 and 1.9); the
   /// Devices tab lists the Hubs (Story 3.7) and reads them again every time it is entered.
   /// `selection` is the selected tab: the root hoists it, so closing a flow that replaced the
-  /// shell (Add a Hub) returns to the tab it was opened from.
+  /// shell (Add a Hub, Add a Node) returns to the tab it was opened from. `onAddNode` takes the
+  /// Lot of a *no Node* tile, or nil from Devices.
   public struct AppTabView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
@@ -67,6 +68,7 @@
     let lots: LotsPresentation
     let lotsActions: LotsActions
     let onAddHub: () -> Void
+    let onAddNode: (String?) -> Void
     let devices: DevicesPresentation
     let devicesActions: DevicesActions
     let hoistedSelection: Binding<AppTab>?
@@ -80,6 +82,7 @@
       onSignOut: @escaping () -> Void, garden: GardenPresentation? = nil,
       sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
       lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
+      onAddNode: @escaping (String?) -> Void = { _ in },
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       selection: Binding<AppTab>? = nil
     ) {
@@ -94,6 +97,7 @@
       self.lots = lots
       self.lotsActions = lotsActions
       self.onAddHub = onAddHub
+      self.onAddNode = onAddNode
     }
 
     public var body: some View {
@@ -131,12 +135,14 @@
         if let garden {
           GardenView(
             presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
-            onAddHub: onAddHub)
+            onAddHub: onAddHub, onAddNode: { onAddNode($0) })
         } else {
           palette.background.ignoresSafeArea()
         }
       case .devices:
-        DevicesView(presentation: devices, actions: devicesActions, onAddHub: onAddHub)
+        DevicesView(
+          presentation: devices, actions: devicesActions, onAddHub: onAddHub,
+          onAddNode: { onAddNode(nil) })
       case .alerts:
         // Alerts carries its heading only until its story.
         palette.background.ignoresSafeArea()
@@ -252,13 +258,16 @@
     let lotsActions: LotsActions
     let hubSetup: HubSetupPresentation
     let hubSetupActions: HubSetupActions
+    let nodeSetup: NodeSetupPresentation
+    let nodeSetupActions: NodeSetupActions
     let theme: ThemePreference
     let onSignIn: () -> Void
     let onSignOut: () -> Void
     let onSelectTheme: (ThemePreference) -> Void
     let devices: DevicesPresentation
     let devicesActions: DevicesActions
-    /// The selected tab outlives the tab shell, which Add a Hub replaces while its flow is open.
+    /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
+    /// their flow is open.
     @State private var tab: AppTab = .garden
     @Environment(\.colorScheme) private var systemScheme
 
@@ -269,10 +278,13 @@
       hubSetupActions: HubSetupActions = .none, theme: ThemePreference,
       onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void,
       onSelectTheme: @escaping (ThemePreference) -> Void,
-      devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none
+      devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
+      nodeSetup: NodeSetupPresentation = .closed, nodeSetupActions: NodeSetupActions = .none
     ) {
       self.devices = devices
       self.devicesActions = devicesActions
+      self.nodeSetup = nodeSetup
+      self.nodeSetupActions = nodeSetupActions
       self.presentation = presentation
       self.sites = sites
       self.sitesActions = sitesActions
@@ -304,8 +316,9 @@
     }
 
     /// No Membership: Create Site replaces the tab shell; "New Site" puts it over the shell.
-    /// Add a Hub replaces the tab shell while its flow is open (one modal level, UX-DR76);
-    /// closing it returns to the tab it was opened from.
+    /// Add a Hub and Add a Node replace the tab shell while their flow is open (one modal level,
+    /// UX-DR76); closing one returns to the tab it was opened from. "Add a Node" on "Hub is
+    /// online" is the Hub flow's own action: the core closes that flow and opens this one.
     @ViewBuilder
     private func signedIn(isDark: Bool) -> some View {
       switch sites.surface {
@@ -317,12 +330,14 @@
         CreateSiteView(presentation: form, actions: sitesActions)
       case .garden(_, _) where hubSetup.isOpen:
         AddHubFlowView(presentation: hubSetup, actions: hubSetupActions)
+      case .garden(_, _) where nodeSetup.isOpen:
+        AddNodeFlowView(presentation: nodeSetup, actions: nodeSetupActions)
       case .garden(let garden, let creating):
         AppTabView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
           sitesActions: sitesActions, lots: lots, lotsActions: lotsActions,
-          onAddHub: hubSetupActions.open, devices: devices, devicesActions: devicesActions,
-          selection: $tab
+          onAddHub: hubSetupActions.open, onAddNode: nodeSetupActions.open, devices: devices,
+          devicesActions: devicesActions, selection: $tab
         )
         .sheet(
           isPresented: Binding(
@@ -346,19 +361,22 @@
     @Published public private(set) var lots = LotsPresentation.waiting
     @Published public private(set) var hubSetup = HubSetupPresentation.closed
     @Published public private(set) var devices = DevicesPresentation.waiting
+    @Published public private(set) var nodeSetup = NodeSetupPresentation.closed
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
     public let lotsService: LotsService?
     public let hubSetupService: HubSetupService?
     public let devicesService: DevicesService?
+    public let nodeSetupService: NodeSetupService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
       lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
-      devices: DevicesService? = nil
+      devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil
     ) {
       self.devicesService = devices
+      self.nodeSetupService = nodeSetup
       self.signIn = signIn
       self.appearance = appearance
       self.sitesService = sites
@@ -370,6 +388,7 @@
       lots?.observe { [weak self] in self?.lots = $0 }
       hubSetup?.observe { [weak self] in self?.hubSetup = $0 }
       devices?.observe { [weak self] in self?.devices = $0 }
+      nodeSetup?.observe { [weak self] in self?.nodeSetup = $0 }
     }
 
     /// The Devices actions for the views; nothing happens without a service.
@@ -380,6 +399,11 @@
     /// The Add a Hub actions for the views; nothing happens without a service.
     public var hubSetupActions: HubSetupActions {
       hubSetupService.map(HubSetupActions.init(service:)) ?? .none
+    }
+
+    /// The Add a Node actions for the views; nothing happens without a service.
+    public var nodeSetupActions: NodeSetupActions {
+      nodeSetupService.map(NodeSetupActions.init(service:)) ?? .none
     }
 
     /// The Sites actions for the views; nothing happens without a service.

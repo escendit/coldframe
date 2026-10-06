@@ -1,5 +1,7 @@
 package com.escendit.coldframe.core.lots
 
+import com.escendit.coldframe.core.devices.DevicesState
+
 /**
  * [LotsState] flattened for Swift. Enum values cross as catalogue key suffixes (`owner`,
  * `lotClaimed`, `tooLong`, …), the Lots as parallel lists in the Server's order, and statuses
@@ -37,6 +39,8 @@ public data class LotsSnapshot(
     val removeWorking: Boolean,
     val actionNotice: String?,
     val actionNoticeSubject: String?,
+    /** Whether a *no Node* tile starts Add a Node: Administrators and Owners only. */
+    val canAddNode: Boolean,
 )
 
 private fun Enum<*>.key(): String = name.replaceFirstChar { it.lowercase() }
@@ -88,5 +92,6 @@ public fun snapshotOf(state: LotsState): LotsSnapshot {
         removeWorking = ready?.removing?.working == true,
         actionNotice = ready?.notice?.kind?.key(),
         actionNoticeSubject = ready?.notice?.subject,
+        canAddNode = site?.let { DevicesState.canAddNode(it.role) } == true,
     )
 }

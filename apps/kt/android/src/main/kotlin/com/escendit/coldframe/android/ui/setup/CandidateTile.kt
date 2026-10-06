@@ -15,7 +15,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -23,31 +22,30 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
-import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.components.styledText
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
-import com.escendit.coldframe.core.setup.HubCandidate
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
 /**
- * Device candidate tile (UX-DR37): `selectable-tile` tokens, "Hub 3F2A" in `meta-mono` and its
- * signal in words; selected = 2 dp `primary-text` border plus a checkmark, exposed as selected.
- * One accessibility element: "Hub 3F2A, strong signal".
+ * Device candidate tile (UX-DR37) for Add a Hub and Add a Node: `selectable-tile` tokens, [name]
+ * ("Hub 3F2A") in `meta-mono` and its [signal] in words; an optional text [badge] ("Pressed just
+ * now"); selected = 2 dp `primary-text` border plus a checkmark, exposed as selected. One
+ * accessibility element that reads [description] ("Hub 3F2A, strong signal").
  */
 @Composable
 fun CandidateTile(
-    candidate: HubCandidate,
+    name: String,
+    signal: String,
+    description: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    badge: String? = null,
 ) {
     val colors = Coldframe.colors
-    val name = stringResource(R.string.add_hub_candidate, candidate.shortId)
-    val signal = stringResource(candidate.signal.label())
-    val description = stringResource(R.string.add_hub_candidate_description, candidate.shortId, signal)
     Row(
         modifier =
             modifier
@@ -75,6 +73,13 @@ fun CandidateTile(
                 style = Typography.statusLabel.textStyle(),
                 color = colors.textSecondary,
             )
+            if (badge != null) {
+                Text(
+                    text = styledText(badge, Typography.statusLabel),
+                    style = Typography.statusLabel.textStyle(),
+                    color = colors.primaryText,
+                )
+            }
         }
         if (selected) {
             Icon(

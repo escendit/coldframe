@@ -11,7 +11,8 @@ struct ColdframeApp: App {
       signIn: signIn, appearance: CoreAppearanceService(),
       sites: CoreSitesService(core: signIn.sites), lots: CoreLotsService(core: signIn.lots),
       hubSetup: CoreHubSetupService(core: signIn.hubSetup),
-      devices: CoreDevicesService(core: signIn.devices))
+      devices: CoreDevicesService(core: signIn.devices),
+      nodeSetup: CoreNodeSetupService(core: signIn.nodeSetup))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -30,7 +31,9 @@ struct ColdframeApp: App {
         onSignOut: { model.signIn.signOut() },
         onSelectTheme: { model.appearance.select($0) },
         devices: model.devices,
-        devicesActions: model.devicesActions
+        devicesActions: model.devicesActions,
+        nodeSetup: model.nodeSetup,
+        nodeSetupActions: model.nodeSetupActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active { model.signIn.resume() }

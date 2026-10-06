@@ -4,6 +4,7 @@ import com.escendit.coldframe.core.Watch
 import com.escendit.coldframe.core.devices.IosDevices
 import com.escendit.coldframe.core.lots.IosLots
 import com.escendit.coldframe.core.setup.IosHubSetup
+import com.escendit.coldframe.core.setup.IosNodeSetup
 import com.escendit.coldframe.core.setup.IosRadioState
 import com.escendit.coldframe.core.setup.KableSetupRadio
 import com.escendit.coldframe.core.sites.IosSites
@@ -48,15 +49,27 @@ public class IosSignIn private constructor(
     /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
     public val sites: IosSites = IosSites(sitesEngine, scope)
 
+    private val lotsEngine = SitesWiring.lots(api, sitesEngine, scope)
+    private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope)
+    private val radio = KableSetupRadio(IosRadioState())
+    private val nodeSetupEngine =
+        SitesWiring.nodeSetup(api, api, radio, sitesEngine, lotsEngine, devicesEngine, scope)
+
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
-    public val lots: IosLots = IosLots(SitesWiring.lots(api, sitesEngine, scope), scope)
+    public val lots: IosLots = IosLots(lotsEngine, scope)
 
     /** The Devices of the current Site; Swift loads it on every entry of the Devices tab. */
-    public val devices: IosDevices = IosDevices(SitesWiring.devices(api, sitesEngine, scope), scope)
+    public val devices: IosDevices = IosDevices(devicesEngine, scope)
 
-    /** Add a Hub over Kable; the Bluetooth prompt appears only when the flow opens. */
+    /** Add a Node over Kable, on one Site; an assigned Node reloads the Lots and the Devices. */
+    public val nodeSetup: IosNodeSetup = IosNodeSetup(nodeSetupEngine, scope)
+
+    /** Add a Hub over Kable; the Bluetooth prompt appears only when the flow opens. Its outcome leads to Add a Node. */
     public val hubSetup: IosHubSetup =
-        IosHubSetup(SitesWiring.hubSetup(config, api, KableSetupRadio(IosRadioState()), sitesEngine, scope), scope)
+        IosHubSetup(
+            SitesWiring.hubSetup(config, api, radio, sitesEngine, scope, onAddNode = { nodeSetupEngine.open(it) }),
+            scope,
+        )
 
     /** Calls [onEach] on the main thread with the current snapshot and every change. */
     public fun watch(onEach: (SignInSnapshot) -> Unit): Watch = engine.state.watch(scope) { onEach(snapshotOf(it)) }

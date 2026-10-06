@@ -63,10 +63,13 @@ public struct DevicesPresentation: Equatable, Sendable {
   public let surface: DevicesSurface
   /// Add a Hub shows for Administrators and Owners; hidden for a Member, never disabled (UX-DR84).
   public let canAddHub: Bool
+  /// Add a Node sits beside it, for the same Roles, as the core decided.
+  public let canAddNode: Bool
 
-  public init(surface: DevicesSurface, canAddHub: Bool) {
+  public init(surface: DevicesSurface, canAddHub: Bool, canAddNode: Bool = false) {
     self.surface = surface
     self.canAddHub = canAddHub
+    self.canAddNode = canAddNode
   }
 
   public static let waiting = DevicesPresentation(surface: .waiting, canAddHub: false)
@@ -75,10 +78,11 @@ public struct DevicesPresentation: Equatable, Sendable {
   /// anything but `online` reads as offline. `hubLastSeen` holds Unix milliseconds in decimal,
   /// or an empty string for a Hub that never sent a heartbeat.
   public init(
-    surface: String, notice: String?, siteId: String?, canAddHub: Bool,
+    surface: String, notice: String?, siteId: String?, canAddHub: Bool, canAddNode: Bool = false,
     hubIds: [String], hubStatuses: [String], hubLastSeen: [String]
   ) {
     self.canAddHub = siteId != nil && canAddHub
+    self.canAddNode = siteId != nil && canAddNode
     switch surface {
     case "failed":
       self.surface = .failed(notice.flatMap(DevicesNoticeKind.init(rawValue:)) ?? .unreachable)

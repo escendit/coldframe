@@ -1,6 +1,7 @@
 package com.escendit.coldframe.android.ui.sites
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -20,9 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -43,12 +47,14 @@ const val ONE_COLUMN_FONT_SCALE = 1.5f
 /**
  * The Garden Lot grid (UX-DR20): the Lots exactly in the order the Server sent them, never
  * re-sorted. Two columns, one from font scale 1.5; tiles are at least square and grow in height.
- * Tiles are not tappable in Story 1.9 (Lot detail and Add a Node arrive later).
+ * With [onAddNode] (Administrators and Owners) a *no Node* tile is a button that starts Add a Node
+ * with its Lot; no other tile is tappable yet (Lot detail arrives later).
  */
 @Composable
 fun LotTiles(
     lots: List<LotSummary>,
     modifier: Modifier = Modifier,
+    onAddNode: ((lotId: String) -> Unit)? = null,
 ) {
     val columns = if (LocalDensity.current.fontScale >= ONE_COLUMN_FONT_SCALE) 1 else 2
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.TILE_GAP.dp)) {
@@ -67,7 +73,12 @@ fun LotTiles(
                         horizontalArrangement = Arrangement.spacedBy(Spacing.TILE_GAP.dp),
                     ) {
                         row.forEach { lot ->
-                            LotTile(lot, minHeight = side, modifier = Modifier.weight(1f).fillMaxHeight())
+                            LotTile(
+                                lot,
+                                minHeight = side,
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                onAddNode = onAddNode?.let { add -> { add(lot.id) } },
+                            )
                         }
                         repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                     }
@@ -80,7 +91,8 @@ fun LotTiles(
 /**
  * One Lot tile (UX-DR18), one accessibility element. *no Node*: transparent, 1 dp dotted
  * `status-no-node-border`, `status-no-node-ink`, the `add` icon with "no Node", a large "+" and
- * the foot "add a Node", spoken "{lot}, no Node, add a Node". Any other status shows only the
+ * the foot "add a Node", spoken "{lot}, no Node, add a Node". With [onAddNode] it is a button with
+ * the same spoken label; without (a Member) it is not interactive. Any other status shows only the
  * name until its variant arrives (Epic 5); the client claims no status it was not given.
  */
 @Composable
@@ -88,6 +100,7 @@ fun LotTile(
     lot: LotSummary,
     minHeight: Dp,
     modifier: Modifier = Modifier,
+    onAddNode: (() -> Unit)? = null,
 ) {
     val colors = Coldframe.colors
     if (lot.status != LotStatus.NoNode) {
@@ -110,8 +123,17 @@ fun LotTile(
             modifier
                 .heightIn(min = minHeight)
                 .dottedBorder(colors.statusNoNodeBorder)
-                .clearAndSetSemantics { contentDescription = spoken }
-                .padding(Spacing.TILE_PADDING.dp),
+                .then(if (onAddNode != null) Modifier.clickable(role = Role.Button, onClick = onAddNode) else Modifier)
+                .clearAndSetSemantics {
+                    contentDescription = spoken
+                    if (onAddNode != null) {
+                        role = Role.Button
+                        onClick {
+                            onAddNode()
+                            true
+                        }
+                    }
+                }.padding(Spacing.TILE_PADDING.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp)) {

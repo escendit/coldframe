@@ -16,7 +16,7 @@ private func lots(
   renamingLotId: String? = nil, renameDraft: String = "", renameError: String? = nil,
   renameWorking: Bool = false,
   removingLotId: String? = nil, removingLotName: String? = nil, removeWorking: Bool = false,
-  actionNotice: String? = nil, actionNoticeSubject: String? = nil
+  actionNotice: String? = nil, actionNoticeSubject: String? = nil, canAddNode: Bool = true
 ) -> LotsPresentation {
   LotsPresentation(
     surface: surface, notice: notice, siteId: siteId, siteName: siteName, role: role,
@@ -28,11 +28,13 @@ private func lots(
     renamingLotId: renamingLotId, renameDraft: renameDraft, renameError: renameError,
     renameWorking: renameWorking,
     removingLotId: removingLotId, removingLotName: removingLotName, removeWorking: removeWorking,
-    actionNotice: actionNotice, actionNoticeSubject: actionNoticeSubject)
+    actionNotice: actionNotice, actionNoticeSubject: actionNoticeSubject, canAddNode: canAddNode)
 }
 
 private func member() -> LotsPresentation {
-  lots(role: "member", canRenameSite: false, canEditLots: false, readOnlyNotice: true)
+  lots(
+    role: "member", canRenameSite: false, canEditLots: false, readOnlyNotice: true,
+    canAddNode: false)
 }
 
 @Test("UX-DR18 a Lot without a Node is a dotted tile with add, a large + and add a Node")
@@ -81,11 +83,38 @@ func serverOrder() {
   #expect(presentation.siteSettings?.lots.map(\.name) == ["Zucchini", "Beans", "Herbs"])
 }
 
-@Test("UX-DR20 tiles are one element each, not tappable yet, and drop to one column")
+@Test("UX-DR20 UX-DR84 a Member's tiles are one element each, not tappable, and drop to one column")
 func tileBehaviour() {
-  #expect(lots().tiles.allSatisfy { !$0.isTappable })
+  #expect(member().tiles.count == 2)
+  #expect(member().tiles.allSatisfy { !$0.isTappable && $0.traits.isEmpty })
+  // Without the core's word nothing is tappable.
+  #expect(!LotTilePresentation(id: "t", name: "Tomatoes", status: .noNode).isTappable)
   #expect(LotTilePresentation.columns(accessibilitySize: false) == 2)
   #expect(LotTilePresentation.columns(accessibilitySize: true) == 1)
+}
+
+@Test(
+  "UX-DR18 UX-DR67 a no-Node tile is a button with the same spoken label for Administrators and Owners"
+)
+func noNodeTileStartsAddNode() throws {
+  for role in ["owner", "administrator"] {
+    let tile = try #require(lots(role: role).tiles.first, "\(role)")
+    #expect(tile.isTappable, "\(role)")
+    #expect(tile.traits == [.button], "\(role)")
+    // The Lot the flow opens with.
+    #expect(tile.id == "t")
+  }
+  // The same tile, drawn and spoken the same, for a Member: only the button is missing.
+  let owner = try #require(lots().tiles.first)
+  let memberTile = try #require(member().tiles.first)
+  #expect(owner.accessibilityFormat == memberTile.accessibilityFormat)
+  #expect(owner.statusLabel == memberTile.statusLabel)
+  #expect(owner.foot == memberTile.foot)
+  #expect(!memberTile.isTappable)
+  // Only a Lot without a Node starts the flow, whatever the Role.
+  let other = try #require(lots(lotStatuses: ["unknown", "noNode"]).tiles.first)
+  #expect(!other.isTappable)
+  #expect(other.traits.isEmpty)
 }
 
 @Test("UX-DR20 a failed Lot load replaces the grid with the Sites load notice")

@@ -35,6 +35,16 @@ const val HUB_CODE = "K7M2Q9XP"
 val SERVER_KEY: ByteArray = ByteArray(32) { (it * 7 + 1).toByte() }
 val SERVER_FINGERPRINT: String = enrolmentKeyFingerprint(SERVER_KEY)
 
+/** The Device end of a [FakeLink]. */
+interface FakeDevice {
+    var link: FakeLink?
+
+    fun reset()
+
+    /** One payload from the app. */
+    fun onWrite(payload: ByteArray)
+}
+
 /**
  * A Hub that runs the real Device side of the session crypto (AD-25) over [SetupLink] payloads:
  * it answers the hello, opens every sealed message with its own [code], and records what the
@@ -53,7 +63,7 @@ class FakeHub(
             WifiNetwork(ssid = "Neighbour", rssi = -70, security = WifiSecurity.WIFI_SECURITY_WPA3_ONLY, channel = 1),
             WifiNetwork(ssid = "Office", rssi = -80, security = WifiSecurity.WIFI_SECURITY_OTHER, channel = 11),
         ),
-) {
+) : FakeDevice {
     /** What the app sent after the hello, in order, as message names. */
     val received = mutableListOf<String>()
     val messages = mutableListOf<SetupMessage>()
@@ -65,18 +75,18 @@ class FakeHub(
 
     /** Records a `WifiScanRequest` but never answers it, as a Hub still scanning. */
     var holdScan = false
-    var link: FakeLink? = null
+    override var link: FakeLink? = null
 
     private var cipher: SetupCipher? = null
     private val reassembler = Reassembler()
 
-    fun reset() {
+    override fun reset() {
         cipher = null
         reassembler.reset()
     }
 
     /** One payload from the app. */
-    fun onWrite(payload: ByteArray) {
+    override fun onWrite(payload: ByteArray) {
         val step = reassembler.push(payload)
         if (step is Reassembled.Frame) onFrame(step.bytes)
     }
@@ -177,9 +187,167 @@ class FakeHub(
     }
 }
 
-/** A link to a [FakeHub]; small payloads so every frame is fragmented. */
+/** The Node's Device ID in the fakes: `7c19…`, so it advertises as "Coldframe Node 7C19". */
+val NODE_DEVICE_ID: ByteArray = "7c19aa01b2d4e6f8".hexToByteArray()
+const val NODE_CODE = "N4D3C0DE"
+
+/**
+ * A Node in setup mode that runs the real Device side of the session crypto with the Node profile
+ * of `packages/rs/setup/src/session.rs`: kind `NODE`, Wi-Fi messages refused with
+ * `UNEXPECTED_MESSAGE`, enrolment without a prior binding. [received] is every message the app
+ * sent after the hello, by name.
+ */
+class FakeNode(
+    val code: String = NODE_CODE,
+) : FakeDevice {
+    val received = mutableListOf<String>()
+    var enc: ByteArray = ByteArray(32) { (it + 7).toByte() }
+    var ciphertext: ByteArray = ByteArray(48) { (it + 90).toByte() }
+    var hellos = 0
+    var kind: DeviceKind = DeviceKind.DEVICE_KIND_NODE
+
+    /** Answers `IdentityRequest` with a `SetupError`. */
+    var refuseIdentity = false
+    var refuseFingerprint = false
+
+    /** Records an `EnrolmentRequest` but never answers it. */
+    var holdEnrolment = false
+
+    /** Hangs up on an `EnrolmentRequest` instead of answering. */
+    var dropOnEnrolment = false
+
+    /** The Device ID of the `EnrolmentResponse`; the Identity always carries [NODE_DEVICE_ID]. */
+    var responseDeviceId: ByteArray = NODE_DEVICE_ID
+    override var link: FakeLink? = null
+
+    private var cipher: SetupCipher? = null
+    private val reassembler = Reassembler()
+
+    override fun reset() {
+        cipher = null
+        reassembler.reset()
+    }
+
+    override fun onWrite(payload: ByteArray) {
+        val step = reassembler.push(payload)
+        if (step is Reassembled.Frame) onFrame(step.bytes)
+    }
+
+    private fun onFrame(frame: ByteArray) {
+        val open = cipher
+        if (open == null) {
+            val hello = SessionHello.ADAPTER.decode(frame)
+            hellos++
+            val private = ByteArray(32) { (it * 5 + hellos).toByte() }
+            cipher = SetupCipher.of(SetupRole.Device, private, hello.app_public_key.toByteArray(), code)
+            send(
+                SessionHelloReply(
+                    protocol_version = 1,
+                    device_public_key = SetupCipher.publicKey(private).toByteString(),
+                ).encode(),
+            )
+            return
+        }
+        val sealed = SealedSetupMessage.ADAPTER.decode(frame)
+        val plain =
+            try {
+                open.open(sealed.counter, sealed.ciphertext.toByteArray())
+            } catch (failure: CryptoException) {
+                // A wrong code: one error under the Node's own keys, then hang up.
+                reply(error(SetupErrorCode.SETUP_ERROR_CODE_MALFORMED_MESSAGE))
+                link?.dropFromHub()
+                return
+            }
+        val message = SetupMessage.ADAPTER.decode(plain)
+        when {
+            message.identity_request != null -> {
+                received += "IdentityRequest"
+                if (refuseIdentity) {
+                    reply(error(SetupErrorCode.SETUP_ERROR_CODE_UNEXPECTED_MESSAGE))
+                } else {
+                    reply(
+                        SetupMessage(
+                            identity =
+                                Identity(
+                                    device_id = NODE_DEVICE_ID.toByteString(),
+                                    kind = kind,
+                                    firmware_version = "0.1.0",
+                                ),
+                        ),
+                    )
+                }
+            }
+
+            message.wifi_scan_request != null -> {
+                received += "WifiScanRequest"
+                reply(error(SetupErrorCode.SETUP_ERROR_CODE_UNEXPECTED_MESSAGE))
+            }
+
+            message.wifi_config != null -> {
+                received += "WifiConfig"
+                reply(error(SetupErrorCode.SETUP_ERROR_CODE_UNEXPECTED_MESSAGE))
+            }
+
+            message.site_binding != null -> {
+                received += "SiteBinding"
+            }
+
+            message.enrolment_request != null -> {
+                received += "EnrolmentRequest"
+                val request = message.enrolment_request
+                when {
+                    holdEnrolment -> {
+                        Unit
+                    }
+
+                    dropOnEnrolment -> {
+                        link?.dropFromHub()
+                    }
+
+                    refuseFingerprint ||
+                        enrolmentKeyFingerprint(request.server_public_key.toByteArray()) != request.fingerprint -> {
+                        reply(error(SetupErrorCode.SETUP_ERROR_CODE_FINGERPRINT_MISMATCH))
+                    }
+
+                    else -> {
+                        reply(
+                            SetupMessage(
+                                enrolment_response =
+                                    EnrolmentResponse(
+                                        device_id = responseDeviceId.toByteString(),
+                                        enc = enc.toByteString(),
+                                        ciphertext = ciphertext.toByteString(),
+                                    ),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun error(code: SetupErrorCode): SetupMessage = SetupMessage(error = SetupError(code = code))
+
+    private fun reply(message: SetupMessage) {
+        val sealed = cipher!!.seal(message.copy(protocol_version = CryptoSpec.PROTOCOL_MAJOR).encode())
+        send(
+            SealedSetupMessage(
+                protocol_version = 1,
+                counter = sealed.counter,
+                ciphertext = sealed.ciphertext.toByteString(),
+            ).encode(),
+        )
+    }
+
+    private fun send(frame: ByteArray) {
+        val current = link ?: return
+        for (payload in Framing.fragments(frame, current.maxPayload)) current.notify(payload)
+    }
+}
+
+/** A link to a [FakeDevice]; small payloads so every frame is fragmented. */
 class FakeLink(
-    private val hub: FakeHub,
+    private val hub: FakeDevice,
     override val maxPayload: Int,
 ) : SetupLink {
     private val channel = Channel<ByteArray>(Channel.UNLIMITED)
@@ -212,11 +380,15 @@ class FakeLink(
     }
 }
 
-/** A radio with scripted adverts, one [FakeHub] behind every id, and a settable state. */
+/**
+ * A radio with scripted adverts, one [FakeHub] behind every id (or [device], for a Node), and a
+ * settable state.
+ */
 class FakeSetupRadio(
     val hub: FakeHub = FakeHub(),
     initial: RadioState = RadioState.Ready,
     private val maxPayload: Int = 20,
+    private val device: FakeDevice = hub,
 ) : SetupRadio {
     val mutableState = MutableStateFlow(initial)
     val adverts = MutableSharedFlow<SetupAdvert>(extraBufferCapacity = 16)
@@ -240,9 +412,9 @@ class FakeSetupRadio(
     override suspend fun connect(id: String): SetupLink {
         connects++
         if (connectFails) throw SetupLinkException("unreachable")
-        hub.reset()
-        val link = FakeLink(hub, maxPayload)
-        hub.link = link
+        device.reset()
+        val link = FakeLink(device, maxPayload)
+        device.link = link
         links += link
         return link
     }

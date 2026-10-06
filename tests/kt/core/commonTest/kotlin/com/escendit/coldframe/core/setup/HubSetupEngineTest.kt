@@ -56,6 +56,7 @@ class HubSetupEngineTest {
     }
     private val enrolAnswers = ArrayDeque<MockRequestHandleScope.() -> HttpResponseData>()
     private var keys = 0
+    private val addNodeSites = mutableListOf<String>()
 
     private fun created(): MockRequestHandleScope.() -> HttpResponseData =
         { respond("""{"id":"3f2a9c01b2d4e6f8","kind":"hub","siteId":"site-home"}""", HttpStatusCode.Created, json) }
@@ -86,6 +87,7 @@ class HubSetupEngineTest {
             serverUrl = "https://coldframe.example.org/",
             scope = backgroundScope,
             newKey = { "key-${++keys}" },
+            onAddNode = { addNodeSites += it },
         )
     }
 
@@ -225,8 +227,11 @@ class HubSetupEngineTest {
             assertEquals("", engine.now.wifi.password)
             assertTrue(radio.links.single().closed)
 
+            // Add a Node closes this flow first, then opens the Node flow for the Hub's Site.
+            assertTrue(addNodeSites.isEmpty())
             engine.outcomeAction(OutcomeAction.AddNode)
             assertFalse(engine.now.open)
+            assertEquals(listOf("site-home"), addNodeSites)
         }
 
     @Test

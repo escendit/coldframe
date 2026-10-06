@@ -232,7 +232,7 @@ public enum class OutcomeKind {
 
 /** The primary and secondary actions of an outcome screen. */
 public enum class OutcomeAction {
-    /** Closes the flow to the Garden (the Node flow arrives in Epic 4). */
+    /** Closes the flow and opens Add a Node for the Hub's Site. */
     AddNode,
 
     /** Back to step 3 with the network kept and the password cleared. */

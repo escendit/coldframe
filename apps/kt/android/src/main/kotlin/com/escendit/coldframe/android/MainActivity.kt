@@ -14,12 +14,13 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
+import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 
 /**
  * Registers the Custom Tabs flow, resumes the session on every foreground, renders the root.
- * Add a Hub keeps the screen on through its own view while the flow is open.
+ * Add a Hub and Add a Node keep the screen on through their own view while a flow is open.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,6 +37,8 @@ class MainActivity : ComponentActivity() {
         val devicesActions = DevicesActions.of(devices)
         val hubSetup = app.signIn.hubSetup
         val hubSetupActions = HubSetupActions.of(hubSetup)
+        val nodeSetup = app.signIn.nodeSetup
+        val nodeSetupActions = NodeSetupActions.of(nodeSetup)
         setContent {
             val state by engine.state.collectAsStateWithLifecycle()
             val theme by appearance.theme.collectAsStateWithLifecycle()
@@ -43,6 +46,7 @@ class MainActivity : ComponentActivity() {
             val lotsState by lots.state.collectAsStateWithLifecycle()
             val devicesState by devices.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
+            val nodeSetupState by nodeSetup.state.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDark = theme.isDark(systemIsDark)
             // System bar icons follow the app's theme, which may differ from the OS appearance.
@@ -72,6 +76,8 @@ class MainActivity : ComponentActivity() {
                 hubSetupActions = hubSetupActions,
                 devices = devicesState,
                 devicesActions = devicesActions,
+                nodeSetup = nodeSetupState,
+                nodeSetupActions = nodeSetupActions,
             )
         }
     }
