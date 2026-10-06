@@ -117,7 +117,11 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List the Site's Devices
+         * @description Every Device enrolled on the Site, Hubs and Nodes, ordered by Device ID, from the devices projection of the Device streams. lastSeenAt is the time of the last accepted heartbeat. online is computed by the Server when it answers: for a Hub, true only while lastSeenAt is at most 120 s old (two missed 60 s heartbeats); the same window is applied to a Node until Nodes get their own rule, so a Node's online is not meaningful yet. It is never stored; clients show it as received and never compute or keep it.
+         */
+        get: operations["listDevices"];
         put?: never;
         /**
          * Enrol a Device on the Site
@@ -305,6 +309,40 @@ export type components = {
              * @description The Lot a Node is on; absent for a Hub and an unassigned Node.
              */
             lotId?: string;
+        };
+        /**
+         * @description A Device in the Site's Devices list.
+         * @example {
+         *       "id": "3f2a9c0d1e4b5a67",
+         *       "kind": "hub",
+         *       "lastSeenAt": "2026-10-06T07:02:00.000Z",
+         *       "online": true
+         *     }
+         * @example {
+         *       "id": "3f2a9c0d1e4b5a67",
+         *       "kind": "hub",
+         *       "online": false
+         *     }
+         */
+        DeviceListItem: {
+            id: components["schemas"]["DeviceId"];
+            kind: components["schemas"]["DeviceKind"];
+            /**
+             * Format: uuid
+             * @description The Lot a Node is on; absent for a Hub and an unassigned Node.
+             */
+            lotId?: string;
+            /**
+             * Format: date-time
+             * @description When the Server accepted the Device's last heartbeat, ISO-8601 UTC with Z; absent until the first one.
+             */
+            lastSeenAt?: string;
+            /** @description Computed by the Server at read time. For a Hub: lastSeenAt is present and at most 120 s old. Not meaningful for a Node yet. Clients never compute it. */
+            online: boolean;
+        };
+        DeviceList: {
+            /** @description Every enrolled Device of the Site, ordered by Device ID. */
+            devices: components["schemas"]["DeviceListItem"][];
         };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
@@ -632,6 +670,32 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SiteNotFound"];
             503: components["responses"]["IdentityProviderUnavailable"];
+        };
+    };
+    listDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Site's Devices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
         };
     };
     enrolDevice: {

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
+import type { FakeDevice, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -13,12 +13,20 @@ export async function setMode(mode: Mode): Promise<void> {
   expect(response.ok).toBe(true);
 }
 
-/** Resets the fake Server's Sites (the default seed, one Site, or exactly `sites`) and its Lots. */
-export async function resetSites(sites?: readonly FakeSite[], lots: readonly FakeLot[] = []): Promise<void> {
+/**
+ * Resets the fake Server's Sites (the default seed, one Site, or exactly `sites`), its Lots and its
+ * Devices. `devicesStatus` makes the Devices list answer that status instead.
+ */
+export async function resetSites(
+  sites?: readonly FakeSite[],
+  lots: readonly FakeLot[] = [],
+  devices: readonly FakeDevice[] = [],
+  devicesStatus: number | null = null,
+): Promise<void> {
   const response = await fetch(`${idpOrigin}/control/sites`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(sites === undefined ? { lots } : { sites, lots }),
+    body: JSON.stringify({ ...(sites === undefined ? {} : { sites }), lots, devices, ...(devicesStatus === null ? {} : { devicesStatus }) }),
   });
   expect(response.ok).toBe(true);
 }

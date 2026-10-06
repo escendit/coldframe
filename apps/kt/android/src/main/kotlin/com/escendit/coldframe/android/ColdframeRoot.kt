@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -15,9 +17,11 @@ import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
+import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.AddHubFlow
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.shell.AppShell
+import com.escendit.coldframe.android.ui.shell.Tab
 import com.escendit.coldframe.android.ui.signin.SignInScreen
 import com.escendit.coldframe.android.ui.sites.CreateSiteScreen
 import com.escendit.coldframe.android.ui.sites.LotsActions
@@ -26,17 +30,19 @@ import com.escendit.coldframe.android.ui.sites.loadMessage
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
+import java.time.Instant
 
 /**
  * Maps the core's state to a surface. No branching on errors, URLs or tokens here: the shell
  * only renders [SignInState], [SitesState] and [ThemePreference]. Signed in, the Sites decide:
  * Create Site replaces the tab shell without a Membership, and covers it from "New Site"; Add a
- * Hub covers it while its flow is open.
+ * Hub covers it while its flow is open, and closing it returns to the tab it was opened from.
  */
 @Composable
 fun ColdframeRoot(
@@ -52,6 +58,9 @@ fun ColdframeRoot(
     lotsActions: LotsActions = LotsActions.None,
     hubSetup: HubSetupState = HubSetupState.CLOSED,
     hubSetupActions: HubSetupActions = HubSetupActions.None,
+    devices: DevicesState = DevicesState.Idle,
+    devicesActions: DevicesActions = DevicesActions.None,
+    now: () -> Instant = Instant::now,
 ) {
     ColdframeTheme(isDark = theme.isDark(systemIsDark)) {
         when (state) {
@@ -78,6 +87,9 @@ fun ColdframeRoot(
                     lotsActions,
                     hubSetup,
                     hubSetupActions,
+                    devices,
+                    devicesActions,
+                    now,
                 )
             }
         }
@@ -95,6 +107,9 @@ private fun SignedIn(
     lotsActions: LotsActions,
     hubSetup: HubSetupState,
     hubSetupActions: HubSetupActions,
+    devices: DevicesState,
+    devicesActions: DevicesActions,
+    now: () -> Instant,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -129,6 +144,9 @@ private fun SignedIn(
         }
 
         is SitesState.Ready -> {
+            // The selected tab outlives the shell: Create Site and Add a Hub replace it while open, and
+            // closing them returns to the tab they were opened from.
+            val tab = rememberSaveable { mutableStateOf(Tab.Garden) }
             // Create Site replaces the shell while open, so no hidden tab stays reachable.
             val creating = sites.creating
             if (creating != null) {
@@ -145,6 +163,10 @@ private fun SignedIn(
                     lots = lots,
                     lotsActions = lotsActions,
                     onAddHub = hubSetupActions.open,
+                    devices = devices,
+                    devicesActions = devicesActions,
+                    tabState = tab,
+                    now = now,
                 )
             }
         }

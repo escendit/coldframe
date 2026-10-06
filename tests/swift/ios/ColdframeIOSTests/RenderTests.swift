@@ -235,4 +235,66 @@
             outcomePrimary: "reenterPassword", outcomeSecondary: "otherNetwork")),
         dark: dark))
   }
+
+  private func devicesReady(canAddHub: Bool, hubs: Bool = true) -> DevicesPresentation {
+    DevicesPresentation(
+      surface: "ready", notice: nil, siteId: "a", canAddHub: canAddHub,
+      hubIds: hubs ? ["1b00aa11bb22cc33", "3f2a9c0d1e4b5a67", "7c19000000000001"] : [],
+      hubStatuses: hubs ? ["offline", "online", "offline"] : [],
+      hubLastSeen: hubs ? ["1791268800000", "1791270120000", ""] : [])
+  }
+
+  @MainActor
+  private func devicesView(_ presentation: DevicesPresentation) -> some View {
+    NavigationStack {
+      DevicesView(
+        presentation: presentation, now: { Date(timeIntervalSince1970: 1_791_270_240) },
+        timeZone: TimeZone(identifier: "UTC") ?? .gmt)
+    }
+  }
+
+  @Test(
+    "UX-DR30 UX-DR65 Devices with online and offline Hubs renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func devicesAtAccessibility5(dark: Bool) {
+    #expect(renders(devicesView(devicesReady(canAddHub: true)), dark: dark))
+  }
+
+  @Test(
+    "UX-DR30 Devices without Devices renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func devicesEmptyAtAccessibility5(dark: Bool) {
+    #expect(renders(devicesView(devicesReady(canAddHub: true, hubs: false)), dark: dark))
+  }
+
+  @Test(
+    "UX-DR84 Devices for a Member renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func devicesMemberAtAccessibility5(dark: Bool) {
+    #expect(renders(devicesView(devicesReady(canAddHub: false)), dark: dark))
+  }
+
+  @Test(
+    "UX-DR65 Devices after a failed load renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func devicesFailedAtAccessibility5(dark: Bool) {
+    let failed = DevicesPresentation(
+      surface: "failed", notice: "unreachable", siteId: "a", canAddHub: true,
+      hubIds: [], hubStatuses: [], hubLastSeen: [])
+    #expect(renders(devicesView(failed), dark: dark))
+  }
+
+  @Test("UX-DR65 the tab shell with Devices renders at the largest accessibility text size")
+  @MainActor
+  func shellWithDevicesAtAccessibility5() {
+    #expect(
+      renders(
+        AppTabView(
+          theme: .system, onSelectTheme: { _ in }, onSignOut: {},
+          devices: devicesReady(canAddHub: true), selection: .constant(.devices))))
+  }
 #endif

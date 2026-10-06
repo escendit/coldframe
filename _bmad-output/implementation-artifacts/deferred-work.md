@@ -201,7 +201,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: medium
 reason: The Add a Hub flow is a later epic. When it lands, pass flowAvailable = true on mobile so the next step starts the flow for Administrators and Owners; the tile states and the Member notice are already real. Done steps (checkmark) also need Hub/Node data.
 status: open
-progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data.
+progress: Story 3.6 (`spec-3-6-add-a-hub-from-my-phone.md`) makes the Add a Hub tile start the flow on Android and iOS for Administrators and Owners (`FirstRunSteps.of` defaults `flowAvailable` to true in the mobile core). Still open: the Node, Calibrate and Threshold steps, and done checkmarks from Hub/Node data. Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds the Hub data a done checkmark needs (`GET /sites/{siteId}/devices`, the core's `DevicesEngine`), but the Add a Hub tile does not read it yet: it stays "next" after a Hub is enrolled.
 
 ### DW-27: The Kotlin API client and DTOs are hand-written instead of generated from coldframe.openapi.json (AD-10 deviation).
 origin: spec-deferred ec8f62ba78ca
@@ -218,6 +218,7 @@ source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: low
 reason: Story 1.8 forbids a polling loop and has no Lot data to refresh yet; the Sites list reloads on sign-in (mobile) and on every navigation (web). Add refresh with the Lot grid.
 status: open
+progress: Story 3.7 (`spec-3-7-see-my-hub-in-devices.md`) adds Devices without pull-to-refresh, refetch on focus, polling or SignalR (UX-DR112): the list is read on a page load (web) and on every entry of the Devices tab (mobile). A Devices screen left open is not read again, so a Hub whose heartbeat stops keeps reading "Online" with its old last-seen time until the user leaves and re-enters the tab or reloads the page; returning to the app from the background does not reload it either. The same refresh primitives close this for Devices (apps/ts/web/src/routes/(app)/devices/+page.server.ts, apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/shell/AppShell.kt, apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift).
 
 ### DW-29: On iOS, "New Site" in the Site switcher may never open Create Site, because the Create Site sheet is requested while the switcher sheet is still closing.
 origin: spec-deferred review-1-8-ios-sheet

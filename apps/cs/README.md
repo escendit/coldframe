@@ -103,6 +103,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `POST /sites` | any authenticated User | `User(sub).CreateSite(key, name)`: 201 `{id, name, role}` with `Location: /sites/{id}` |
 | `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection; 404 once the Site is `Deleted` |
 | `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
+| `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online}]}`; `online` is computed when the Server answers |
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 
@@ -240,6 +241,30 @@ day), so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read
 
 Tests drive the Device path through the Device simulator only
 (`SimulatedDevice.HeartbeatRequest`), never through hand-built headers.
+
+### The Devices list
+
+`GET /sites/{siteId}/devices` (Story 3.7) reads the `devices` table, which `DevicesProjector`
+(`server/Devices/`, projector name `devices`) builds from the Device streams only:
+
+| Event on `device/{id}` | Row |
+| --- | --- |
+| `device.enrolled` | Creates the row: `site_id`, `kind` (`hub` or `node`), `enrolled_at` |
+| `device.assigned` | Sets `lot_id` |
+| `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
+
+`site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
+never journaled. `device.seen` carries no Site, so the projector keys on the stream ID. The projector
+is not caught up inside `DeviceGrain.Heartbeat`; a heartbeat shows in the list after the next hint or
+poll (`JournalOptions.PollInterval`).
+
+**Online is never stored.** The handler computes it for every answer with
+`DeviceLiveness.IsOnline(lastSeenAt, now)`, `now` from the injected `TimeProvider`: a Device is online
+when it was seen and `now - lastSeenAt <= DeviceLiveness.HubOnlineWindow`. The window is 120 s, two
+missed heartbeats at the slowest interval of 60 s, so one late beat does not flip a Hub to offline.
+It is not the Hub Silence Window of the Silent Alert (Epic 7). A Device that never sent a heartbeat
+has no `lastSeenAt` and is offline. Clients show `online` as received and read the list again to
+refresh it; they never compute it and never keep it past a failed reload.
 
 ### Add an endpoint
 

@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.devices.HubSummary
 import com.escendit.coldframe.core.lots.CreateLotForm
 import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.LotSummary
@@ -24,15 +26,19 @@ import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.sites.TimeZoneProposal
 import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.time.Instant
+import java.util.TimeZone
 
 /**
- * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings and every Add a Hub
- * step and outcome, light and dark, at
+ * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings, Devices and every Add a
+ * Hub step and outcome, light and dark, at
  * the largest font scale (2×). Baselines live in tests/kt/android/snapshots; `check` compares against them and
  * `./gradlew :android:recordRoborazziDebug` rewrites them.
  */
@@ -72,6 +78,19 @@ class SnapshotTest {
             notice = null,
         )
 
+    private val defaultZone = TimeZone.getDefault()
+
+    // The last-seen times are told in the phone's zone: fixed, so the baselines hold anywhere.
+    @Before
+    fun utc() {
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    @After
+    fun restoreZone() {
+        TimeZone.setDefault(defaultZone)
+    }
+
     private fun snapshot(
         name: String,
         sites: SitesState,
@@ -80,6 +99,7 @@ class SnapshotTest {
         siteSettings: Boolean = false,
         scrollTo: String? = null,
         hubSetup: HubSetupState = HubSetupState.CLOSED,
+        devices: DevicesState? = null,
     ) {
         compose.setContent {
             AtFontScale(2f) {
@@ -93,8 +113,14 @@ class SnapshotTest {
                     sitesActions = SitesActions.None,
                     lots = lots,
                     hubSetup = hubSetup,
+                    devices = devices ?: DevicesState.Idle,
+                    now = { devicesNow },
                 )
             }
+        }
+        if (devices != null) {
+            compose.onNodeWithText("Devices").performClick()
+            compose.onNode(isHeading().and(hasText("Devices"))).assertExists()
         }
         if (siteSettings) {
             compose.onNodeWithText("Settings").performClick()
@@ -149,6 +175,58 @@ class SnapshotTest {
             ThemePreference.Light,
             siteSettings = true,
         )
+
+    private val devicesNow = Instant.parse("2026-10-06T07:04:00Z")
+    private val seenAt = Instant.parse("2026-10-06T07:02:00Z").toEpochMilli()
+
+    private val onlineHub = HubSummary("3f2a9c0d1e4b5a67", online = true, lastSeenAtEpochMs = seenAt)
+    private val offlineHubs =
+        listOf(
+            HubSummary("1b00aa11bb22cc33", online = false, lastSeenAtEpochMs = null),
+            HubSummary("3f2a9c0d1e4b5a67", online = false, lastSeenAtEpochMs = seenAt),
+        )
+
+    private fun devices(
+        name: String,
+        theme: ThemePreference,
+        role: SiteRole,
+        hubs: List<HubSummary>,
+    ) {
+        val site = homeSite(role)
+        snapshot(name, readySites(site), theme, devices = DevicesState.Ready(site, hubs))
+    }
+
+    @Test
+    fun `UX-DR30 UX-DR65 Devices with an online Hub for an Owner, light, font scale 2`() =
+        devices("devices-online-light", ThemePreference.Light, SiteRole.Owner, listOf(onlineHub))
+
+    @Test
+    fun `UX-DR30 UX-DR65 Devices with an online Hub for an Owner, dark, font scale 2`() =
+        devices("devices-online-dark", ThemePreference.Dark, SiteRole.Owner, listOf(onlineHub))
+
+    @Test
+    fun `UX-DR30 Devices with an offline Hub and one never seen, light, font scale 2`() =
+        devices("devices-offline-light", ThemePreference.Light, SiteRole.Administrator, offlineHubs)
+
+    @Test
+    fun `UX-DR30 Devices with an offline Hub and one never seen, dark, font scale 2`() =
+        devices("devices-offline-dark", ThemePreference.Dark, SiteRole.Administrator, offlineHubs)
+
+    @Test
+    fun `UX-DR30 Devices without Devices, light, font scale 2`() =
+        devices("devices-empty-light", ThemePreference.Light, SiteRole.Owner, emptyList())
+
+    @Test
+    fun `UX-DR30 Devices without Devices, dark, font scale 2`() =
+        devices("devices-empty-dark", ThemePreference.Dark, SiteRole.Owner, emptyList())
+
+    @Test
+    fun `UX-DR84 Devices for a Member, light, font scale 2`() =
+        devices("devices-member-light", ThemePreference.Light, SiteRole.Member, listOf(onlineHub))
+
+    @Test
+    fun `UX-DR84 Devices for a Member, dark, font scale 2`() =
+        devices("devices-member-dark", ThemePreference.Dark, SiteRole.Member, listOf(onlineHub))
 
     private fun hub(
         name: String,

@@ -30,7 +30,7 @@ Swift runtimes.
   `NSBluetoothAlwaysUsageDescription` (both Info.plists) and links `CoreBluetooth`. WPA3-only
   networks are shown but cannot be chosen.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
-  (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`,
+  (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`, `CoreDevicesService`,
   `CoreHubSetupService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
 - `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
