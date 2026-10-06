@@ -1,4 +1,5 @@
-# Integration tests for coldframe-protocol: round trips, sizes and capacities of the micropb types.
+# Integration tests for coldframe-protocol: round trips, sizes and capacities of the micropb types,
+# the NodeFrame and Downlink vectors of packages/crypto-spec, and the ESP-NOW radio messages.
 [package]
 name = "coldframe-protocol-tests"
 description = "Integration tests for coldframe-protocol"
@@ -10,9 +11,11 @@ repository.workspace = true
 publish.workspace = true
 
 [dev-dependencies]
+coldframe-crypto = { path = "../../../packages/rs/crypto" }
 coldframe-protocol = { path = "../../../packages/rs/protocol" }
 coldframe-setup = { path = "../../../packages/rs/setup" }
 heapless = "=0.9.3"
+serde_json = "=1.0.151"
 
 [lints]
 workspace = true

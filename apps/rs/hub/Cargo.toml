@@ -7,7 +7,7 @@ edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/escendit/coldframe"
 publish = false
-description = "Coldframe Hub firmware: hardware-bound identity, BLE setup, Wi-Fi uplink and signed heartbeats"
+description = "Coldframe Hub firmware: hardware-bound identity, BLE setup, Wi-Fi uplink, signed heartbeats and the ESP-NOW relay of sealed Node frames"
 
 # Exact versions (AD-15), the esp stack the radio spike validated; Cargo.lock pins the rest.
 [dependencies]
@@ -26,7 +26,8 @@ esp-backtrace = { version = "=0.20.0", features = ["panic-handler", "println", "
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3"] }
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "unstable", "log-04"] }
 esp-println = { version = "=0.18.0", features = ["esp32s3", "log-04"] }
-esp-radio = { version = "=1.0.0-beta.1", features = ["esp32s3", "unstable", "log-04", "wifi", "ble", "coex"] }
+# `esp-now`: the Node relay (Story 4.4) shares the Wi-Fi station's radio and channel.
+esp-radio = { version = "=1.0.0-beta.1", features = ["esp32s3", "unstable", "log-04", "wifi", "ble", "coex", "esp-now"] }
 esp-rtos = { version = "=0.4.0", features = ["esp32s3", "esp-radio", "embassy", "log-04"] }
 esp-storage = { version = "=0.10.0", features = ["esp32s3"] }
 heapless = { version = "=0.9.3", default-features = false }

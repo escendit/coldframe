@@ -1,7 +1,8 @@
 //! Coldframe Node firmware (ESP32-S3).
 //!
 //! Story 4.1: wake, measure, deep-sleep. Story 4.2: the setup button, BLE setup mode and
-//! enrolment. Every wake is a reset into `main`:
+//! enrolment. Story 4.4: the report buffer and the ESP-NOW transport to a Hub. Every wake is a
+//! reset into `main`:
 //! 1. esp-hal at 80 MHz, then the RTC watchdog armed at [`WATCHDOG_MS`] so a hung wake or a
 //!    halted panic resets the chip instead of staying awake. The heap and esp-rtos (the timer the
 //!    press is timed with). The RTC uptime at this point is the wake start. The setup button
@@ -19,25 +20,40 @@
 //!    radio is started only if a new root has to be drawn (first boot).
 //! 5. [`wake_plan`] decides the wake from the cause and the press, logged as
 //!    `wake plan=measure|report-now|setup|sleep-again`:
-//!    - `measure` (timer wake, cold boot): steps 6–8;
-//!    - `report-now` (short press): steps 6–8 now, then a full period;
+//!    - `measure` (timer wake, cold boot): steps 6–10;
+//!    - `report-now` (short press): steps 6–10 now, then a full period;
 //!    - `sleep-again` (a bounce): no measurement, a full period;
-//!    - `setup` (long press): setup mode ([`setup_mode`]), then steps 6–8 and a full period, so the
-//!      Readings that follow pairing arrive promptly.
-//! 6. [`run_wake`]: soil, BME680, battery and charger, with `reading_seq` reserved in `cf_seq`
-//!    before any value is issued (AD-17).
-//! 7. One log line with the seq range (`seq=none` when no Reading was issued) and counts. Only a
-//!    `dev-mode` build logs Reading values.
-//! 8. Deep sleep for [`sleep_after`]: the rest of the 15-minute period after a scheduled wake, a
-//!    full period after a press. The setup button is armed as a wakeup unless it is still held
-//!    ([`arm_button_wake`]): a stuck button leaves only the timer wake. The value actually slept
-//!    is logged as `sleep ms=<n> button_armed=<bool>`.
+//!    - `setup` (long press): setup mode ([`setup_mode`]), then steps 6–10 without the radio (the
+//!      report is buffered and goes out at the next wake) and a full period.
+//! 6. The link state from `cf_link` ([`begin`]): when a downlink set the clock on this boot ID,
+//!    the wall clock is restored, so the Readings are stamped with it (AD-11).
+//! 7. [`run_wake`]: soil, BME680, battery and charger, with `reading_seq` reserved in `cf_seq`
+//!    before any value is issued (AD-17); then [`issue_report_seq`], the `report_seq` of the wake
+//!    report from the same counter.
+//! 8. The transport ([`run`], Story 4.4): the report goes into the flash buffer `cf_buf`; the
+//!    radio starts for ESP-NOW only (no Wi-Fi station, ever); the Node probes for a Hub, collects
+//!    the late acknowledgements it kept, sends up to 8 buffered reports as sealed frames under
+//!    fresh counters from `cf_frame`, and listens 300 ms. Only a sealed downlink deletes a report
+//!    or sets the clock. The radio is dropped, and so off, before the sleep.
+//! 9. Two log lines: `wake done …` with the seq range (`seq=none` when no Reading was issued),
+//!    the counts and the sleep that follows, and `transport …`. Only a `dev-mode` build logs
+//!    Reading values.
+//! 10. Deep sleep for [`sleep_after`]: the rest of the 15-minute period after a scheduled wake, a
+//!     full period after a press. The setup button is armed as a wakeup unless it is still held
+//!     ([`arm_button_wake`]): a stuck button leaves only the timer wake. The value actually slept
+//!     is logged as `sleep ms=<n> button_armed=<bool>`.
 //!
 //! A failure of the identity or of a counter partition logs its kind and deep-sleeps one period,
-//! rather than parking awake and draining the battery. Keys and roots are never logged.
+//! rather than parking awake and draining the battery. A transport failure costs nothing but the
+//! send: the report stays buffered. Keys, roots, Readings and sealed payloads are never logged.
 //!
-//! BLE runs only in setup mode. No ESP-NOW transport, no buffer and no clock setting yet
-//! (Story 4.4); a `dev-mode` build runs an ESP-NOW coexistence probe in setup mode only.
+//! BLE runs only in setup mode, where a `dev-mode` build also runs an ESP-NOW coexistence probe.
+//! The transport is bounded. A send waits at most 200 ms for the radio's callback (normally a
+//! few milliseconds). The worst case is a full scan of 13 probes (the known channel first, then
+//! the others of 1 to 13), each a send and a 120 ms wait, then 120 ms for kept downlinks, 8
+//! frames and the 300 ms window: about 2.1 s with normal sends, and at most
+//! 13 × 320 + 120 + 8 × 200 + 300 ms = 6.2 s if every send ran into its timeout. Both are far
+//! inside the 30 s watchdog.
 
 #![no_std]
 #![no_main]
@@ -61,10 +77,12 @@ use coldframe_sensing::counter::{BOOT_MAGIC, SEQ_MAGIC};
 use coldframe_sensing::wake::WAKE_PERIOD_MS;
 use coldframe_sensing::{
     ChargeStatus, MeasuredAt, ReservedCounter, Sensors, WakeCause, WakeOutcome, WakePlan,
-    arm_button_wake, boot_id, classify_press, run_wake, sleep_after, wake_plan,
+    arm_button_wake, boot_id, classify_press, issue_report_seq, run_wake, sleep_after, sleep_ms,
+    wake_plan,
 };
 use coldframe_setup::store::{SetupStoreError, load_or_create_code};
 use coldframe_setup::{NodeSetupEnd, SETUP_WINDOW_MS, run_node_setup};
+use coldframe_transport::{Buffered, ClockChange, Hub, Outcome, Report, begin, buffer_only, run};
 use core::fmt::Display;
 use core::ops::Range;
 use embassy_executor::Spawner;
@@ -76,11 +94,13 @@ use esp_hal::ram;
 use esp_hal::time::Duration;
 use esp_hal::timer::timg::TimerGroup;
 use esp_radio::ble::controller::BleConnector;
+use esp_radio::wifi::{ControllerConfig, WifiController};
 use log::{LevelFilter, error, info, warn};
 use trouble_host::prelude::ExternalController;
 
 use board::ble::{BoardSetupLink, advertised_name};
 use board::button::BoardButton;
+use board::espnow::BoardEspNow;
 use board::flash::{BOOT_PARTITION, BoardStorage, SEQ_PARTITION, SETUP_PARTITION};
 use board::pins::DIVIDER;
 use board::radio::BoardRadio;
@@ -255,8 +275,21 @@ impl Display for SeqRange {
     }
 }
 
+/// A `report_seq` for the log: the number, or `none` when the counter failed.
+struct ReportSeq(Option<u64>);
+
+impl Display for ReportSeq {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            Some(seq) => write!(f, "{seq}"),
+            None => f.write_str("none"),
+        }
+    }
+}
+
 /// Logs the wake: counts and the seq range always, values only in a `dev-mode` build.
-fn log_outcome(outcome: &WakeOutcome) {
+/// `sleep_ms` is the deep sleep that follows, computed after the transport.
+fn log_outcome(outcome: &WakeOutcome, sleep_ms: u32) {
     let report = &outcome.report;
     let faults = &outcome.faults;
     if let Some(error) = faults.soil {
@@ -282,8 +315,10 @@ fn log_outcome(outcome: &WakeOutcome) {
         MeasuredAt::Unsynced { .. } => "unsynced",
     };
     let seq = SeqRange(report.seq_range());
+    let report_seq = ReportSeq(report.report_seq);
     info!(
-        "wake done readings={} seq={seq} measured_at={time} battery={} charging={} sleep_ms={}",
+        "wake done readings={} seq={seq} report_seq={report_seq} measured_at={time} battery={} \
+         charging={} sleep_ms={}",
         report.readings.len(),
         if report.battery.is_some() {
             "ok"
@@ -291,7 +326,7 @@ fn log_outcome(outcome: &WakeOutcome) {
             "none"
         },
         charging_name(report.charging),
-        outcome.sleep_ms
+        sleep_ms
     );
     #[cfg(feature = "dev-mode")]
     {
@@ -309,6 +344,58 @@ fn log_outcome(outcome: &WakeOutcome) {
         }
         info!("dev measured_at={:?}", report.measured_at);
     }
+}
+
+/// Logs the transport of a wake: counts and states only, never a Reading or a payload.
+fn log_transport(outcome: &Outcome) {
+    let faults = &outcome.faults;
+    if let Some(partition) = faults.partition {
+        error!("transport partition failed name={}", partition.name());
+    }
+    if let Some(error) = faults.buffer {
+        error!("transport buffer failed error={error}");
+    }
+    if let Some(error) = faults.counter {
+        error!("transport frame counter failed error={error}; nothing sealed");
+    }
+    if let Some(error) = faults.link {
+        warn!("transport link state failed error={error}");
+    }
+    if faults.seal.is_some() {
+        error!("transport seal failed; frame not sent");
+    }
+    let buffered = match outcome.buffered {
+        Buffered::NoReport => "none",
+        Buffered::Stored { dropped: 0 } => "ok",
+        Buffered::Stored { dropped } => {
+            warn!("transport buffer full; oldest reports dropped={dropped}");
+            "ok"
+        }
+        Buffered::Failed => "failed",
+    };
+    let clock = match outcome.clock {
+        ClockChange::Unchanged => "unchanged",
+        ClockChange::Set => "set",
+        ClockChange::Forward => "forward",
+        ClockChange::Back => "back",
+    };
+    let (hub, channel, scanned) = match outcome.hub {
+        Hub::NotTried => ("off", 0, false),
+        Hub::Found { channel, scanned } => ("found", channel, scanned),
+        Hub::NotFound { scanned } => ("none", 0, scanned),
+    };
+    info!(
+        "transport buffered={buffered} hub={hub} channel={channel} scanned={scanned} pending={} \
+         sent={} downlinks={} deleted={} fresh={} misses={} clock={clock} specs_sent={} backlog={}",
+        outcome.pending,
+        outcome.sent,
+        outcome.downlinks,
+        outcome.deleted,
+        outcome.fresh,
+        outcome.misses,
+        outcome.specifications_sent,
+        outcome.backlog
+    );
 }
 
 #[esp_rtos::main]
@@ -407,7 +494,7 @@ async fn main(_spawner: Spawner) -> ! {
         WakePlan::Setup => {
             setup_mode(
                 &mut storage,
-                wifi,
+                wifi.reborrow(),
                 peripherals.BT,
                 &mut rtc,
                 &provisioned.keys,
@@ -418,11 +505,12 @@ async fn main(_spawner: Spawner) -> ! {
         WakePlan::Measure | WakePlan::ReportNow => {}
     }
 
-    let seq_flash = match storage.partition(SEQ_PARTITION) {
-        Ok(flash) => flash,
-        Err(error) => fail(lpwr, &mut button, "seq_partition", &error),
-    };
-    let mut seq = ReservedCounter::new(seq_flash, SEQ_MAGIC);
+    // The link state, and with it the wall clock a downlink set on this boot: before the
+    // measurement, so its Readings are stamped with it.
+    let (mut link, link_fault) = begin(&mut storage, &mut rtc, boot);
+    if let Some(error) = link_fault {
+        warn!("link state unreadable error={error}; starting from none");
+    }
 
     let mut probe_switch = BoardSwitch::new(pins.probe_switch);
     let mut divider_switch = BoardSwitch::new(pins.divider_switch);
@@ -435,25 +523,73 @@ async fn main(_spawner: Spawner) -> ! {
     let mut soil = adc.soil();
     let mut battery = adc.battery();
 
-    let outcome = run_wake(
-        Sensors {
-            probe_switch: &mut probe_switch,
-            divider_switch: &mut divider_switch,
-            soil: &mut soil,
-            env: &mut env,
-            battery: &mut battery,
-            charger: &mut charger,
-            divider: DIVIDER,
-        },
-        &rtc,
-        &mut timer,
-        &mut seq,
-        boot,
-        wake_start_ms,
-    )
-    .await;
-    log_outcome(&outcome);
+    let outcome = {
+        let seq_flash = match storage.partition(SEQ_PARTITION) {
+            Ok(flash) => flash,
+            Err(error) => fail(lpwr, &mut button, "seq_partition", &error),
+        };
+        let mut seq = ReservedCounter::new(seq_flash, SEQ_MAGIC);
+        let mut outcome = run_wake(
+            Sensors {
+                probe_switch: &mut probe_switch,
+                divider_switch: &mut divider_switch,
+                soil: &mut soil,
+                env: &mut env,
+                battery: &mut battery,
+                charger: &mut charger,
+                divider: DIVIDER,
+            },
+            &rtc,
+            &mut timer,
+            &mut seq,
+            boot,
+            wake_start_ms,
+        )
+        .await;
+        // The report itself takes one more value of the same counter. A fault is recorded in the
+        // outcome and logged with it; the report then has no report_seq and cannot be sent.
+        let _ = issue_report_seq(&mut outcome, &mut seq);
+        outcome
+    };
 
-    // After a press the schedule restarts: a full period from now.
-    sleep(lpwr, &mut button, sleep_after(plan, outcome.sleep_ms))
+    let report = Report::from_wake(&outcome.report);
+    if report.is_none() {
+        error!("wake report has no report_seq; not buffered");
+    }
+    let transport = if plan == WakePlan::Setup {
+        // A wake that entered setup mode does not transmit: the report waits for the next wake.
+        buffer_only(&mut storage, report.as_ref())
+    } else {
+        // ESP-NOW only, never a Wi-Fi station. The controller and ESP-NOW are dropped at the end
+        // of this arm, so the radio is off before the deep sleep.
+        match WifiController::new(wifi.reborrow(), ControllerConfig::default()) {
+            Ok(controller) => {
+                let mut radio = BoardEspNow::new(controller.esp_now());
+                let mut trng = BoardTrng;
+                run(
+                    &mut storage,
+                    &mut radio,
+                    &mut rtc,
+                    &mut trng,
+                    &provisioned.keys,
+                    boot,
+                    &mut link,
+                    report.as_ref(),
+                )
+                .await
+            }
+            Err(error) => {
+                error!("transport radio failed error={error:?}; report buffered only");
+                buffer_only(&mut storage, report.as_ref())
+            }
+        }
+    };
+
+    // The sleep is measured from the wake start to now, the transport included. After a press
+    // the schedule restarts: a full period from now.
+    let elapsed = rtc.uptime_millis().saturating_sub(wake_start_ms);
+    let sleep_for = sleep_after(plan, sleep_ms(elapsed));
+    log_outcome(&outcome, sleep_for);
+    log_transport(&transport);
+    sleep(lpwr, &mut button, sleep_for)
 }

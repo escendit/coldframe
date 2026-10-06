@@ -524,3 +524,17 @@ source_spec: `spec-4-5-server-ingestion-and-acknowledgements.md`
 severity: low
 reason: Before the ingestion suites were put in a serial xUnit collection, full runs failed twice with "too many clients"; the sampled peak is now 87 to 88 of 100. CommitOrderTests alone opens 34 connections. Raising max_connections on the AppHost's PostgreSQL would remove the risk.
 status: open
+
+### DW-68: A Node that hears a probe reply on a channel next to the Hub's may store the wrong channel and keep choosing it at every re-scan.
+origin: spec-deferred 67da475712cb
+location: packages/rs/transport/src/transport.rs (find_hub)
+source_spec: `spec-4-4-esp-now-transport-from-node-to-hub.md`
+reason: find_hub stores the channel it probed on, not the Hub's own channel, and scans ascending. Whether an ESP32-S3 answers a probe heard one channel off is not known; a bench run at close range with a sniffer, or carrying the Hub's channel in ProbeReply, would settle it.
+status: open
+
+### DW-69: Hub main-task stack headroom fell to about 34 KiB with the relay state and ingest buffers and is not measured on hardware.
+origin: spec-deferred cd82032990b2
+location: apps/rs/hub/src/main.rs, packages/rs/uplink/src/uplink.rs (ingest)
+source_spec: `spec-4-4-esp-now-transport-from-node-to-hub.md`
+reason: The ingest request and response buffers and the batch copy live in the main task; only Part I of the transport checklist watches for a reset during ingest. A stack high-water log on a real board would settle it.
+status: open

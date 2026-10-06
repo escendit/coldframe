@@ -58,3 +58,22 @@ pub trait Flash {
     /// [`FlashError::Unaligned`], [`FlashError::OutOfBounds`] or [`FlashError::Storage`].
     fn erase(&mut self, offset: u32, length: u32) -> Result<(), FlashError>;
 }
+
+/// A borrowed region is a region, so code that opens one partition after another can lend each.
+impl<F: Flash + ?Sized> Flash for &mut F {
+    fn capacity(&self) -> usize {
+        (**self).capacity()
+    }
+
+    fn read(&mut self, offset: u32, buffer: &mut [u8]) -> Result<(), FlashError> {
+        (**self).read(offset, buffer)
+    }
+
+    fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), FlashError> {
+        (**self).write(offset, data)
+    }
+
+    fn erase(&mut self, offset: u32, length: u32) -> Result<(), FlashError> {
+        (**self).erase(offset, length)
+    }
+}

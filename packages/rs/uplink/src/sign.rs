@@ -1,4 +1,5 @@
-//! The `X-Coldframe-*` headers of a signed heartbeat (AD-12, `packages/crypto-spec`).
+//! The `X-Coldframe-*` headers of a signed Hub request (AD-12, `packages/crypto-spec`): a
+//! heartbeat, or an ingest of relayed frames.
 
 use coldframe_crypto::DeviceKeys;
 use coldframe_crypto::heartbeat::{Request, SIGNATURE_LENGTH};
@@ -67,18 +68,20 @@ impl Drop for HeartbeatHeaders {
     }
 }
 
-/// Signs `POST /device/heartbeat` with `body`, `timestamp_ms` and `nonce` under the Hub's
-/// `hub-auth/v1` key; returns the header values.
+/// Signs `method` `path` with `body`, `timestamp_ms` and `nonce` under the Hub's `hub-auth/v1`
+/// key; returns the header values.
 #[must_use]
-pub fn sign_heartbeat(
+pub fn sign_request(
     keys: &DeviceKeys,
+    method: &str,
+    path: &str,
     body: &[u8],
     timestamp_ms: u64,
     nonce: &[u8; HEARTBEAT_NONCE_LENGTH],
 ) -> HeartbeatHeaders {
     let request = Request {
-        method: HEARTBEAT_METHOD,
-        path: HEARTBEAT_PATH,
+        method,
+        path,
         body,
         timestamp_ms,
         nonce,
@@ -96,4 +99,23 @@ pub fn sign_heartbeat(
         nonce: nonce_hex,
         signature,
     }
+}
+
+/// Signs `POST /device/heartbeat` with `body`, `timestamp_ms` and `nonce` under the Hub's
+/// `hub-auth/v1` key; returns the header values.
+#[must_use]
+pub fn sign_heartbeat(
+    keys: &DeviceKeys,
+    body: &[u8],
+    timestamp_ms: u64,
+    nonce: &[u8; HEARTBEAT_NONCE_LENGTH],
+) -> HeartbeatHeaders {
+    sign_request(
+        keys,
+        HEARTBEAT_METHOD,
+        HEARTBEAT_PATH,
+        body,
+        timestamp_ms,
+        nonce,
+    )
 }

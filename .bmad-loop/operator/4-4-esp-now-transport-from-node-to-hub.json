@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "Flash the release Node image from apps/rs/node and the release Hub image from apps/rs/hub (erase 0x14000-0x1FFFF on a Node flashed before this story, as Part A of docs/bench/node-transport-checklist.md says), then run Parts A to F and I of docs/bench/node-transport-checklist.md on the bench: first contact, in-window and late acknowledgements, an hour with the Hub powered off and the backlog returning to 1, a router channel change, power cuts with no repeated counter, clock sync, and Hub heap and stack headroom during ingest.",
+    "Run Part G of docs/bench/node-transport-checklist.md in the garden: place the Node at the farthest Lot, confirm it reports reliably there (NFR-11), and record the wake duration with the radio on.",
+    "Run Part H of docs/bench/node-transport-checklist.md and Part F of docs/bench/node-setup-checklist.md, then copy the results into the Result tables and into the pending rows of _bmad-output/specs/spec-coldframe/device-hardware.md.",
+    "Decide whether the Hub keeping up to 8 sealed downlinks per Node (instead of the single latest one AD-9 names) is acceptable, or whether a kept-alive ingest connection or cumulative Server acknowledgements should replace it; see the Spec Change Log of this spec."
+  ],
+  "parked_at": "2026-10-06",
+  "run_id": "20261006-184441-7b21",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-4-4-esp-now-transport-from-node-to-hub.md",
+  "story_key": "4-4-esp-now-transport-from-node-to-hub"
+}
