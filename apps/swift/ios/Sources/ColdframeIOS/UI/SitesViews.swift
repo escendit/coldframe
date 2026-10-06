@@ -271,7 +271,6 @@
           onAddNode: onAddNode, onOpenDevices: onOpenDevices, now: now, timeZone: timeZone
         )
         .navigationTitle(lot.name)
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear { lotDetailActions.open(lot.id, lot.name) }
         .onDisappear { lotDetailActions.close() }
       }
