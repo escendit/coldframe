@@ -231,6 +231,9 @@ public sealed class DeviceIngestRequestTests
 
         // Every grain was asked, in request order, and the failure stayed with its frame.
         Assert.Equal([first.DeviceId.ToString(), failing.DeviceId.ToString(), third.DeviceId.ToString()], grains.Asked);
+
+        // A Hub that hangs up cannot cancel a frame: no grain call carries a token that can be cancelled.
+        Assert.Equal([false, false, false], grains.Cancellable);
         Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         var answered = body.RootElement.GetProperty("results").EnumerateArray().ToList();
         Assert.Equal(["stored", "retry", "stored"], answered.Select(result => result.GetProperty("status").GetString()));
@@ -331,11 +334,12 @@ public sealed class DeviceIngestRequestTests
     }
 
     // A Node grain that answers stored with its own Device ID as the "downlink", or throws.
-    private sealed class StubDeviceGrain(string deviceId, bool fails, List<string> asked) : IDeviceGrain
+    private sealed class StubDeviceGrain(string deviceId, bool fails, List<string> asked, List<bool> cancellable) : IDeviceGrain
     {
         public Task<DeviceIngestResult> Ingest(DeviceIngest request, CancellationToken cancellationToken = default)
         {
             asked.Add(deviceId);
+            cancellable.Add(cancellationToken.CanBeCanceled);
             return fails
                 ? throw new TimeoutException("The grain did not answer.")
                 : Task.FromResult(new DeviceIngestResult(DeviceIngestStatus.Stored, Convert.FromHexString(deviceId)));
@@ -354,9 +358,11 @@ public sealed class DeviceIngestRequestTests
     {
         public List<string> Asked { get; } = [];
 
+        public List<bool> Cancellable { get; } = [];
+
         public TGrainInterface GetGrain<TGrainInterface>(string primaryKey, string? grainClassNamePrefix = null)
             where TGrainInterface : IGrainWithStringKey =>
-            (TGrainInterface)(object)new StubDeviceGrain(primaryKey, primaryKey == failingDeviceId, Asked);
+            (TGrainInterface)(object)new StubDeviceGrain(primaryKey, primaryKey == failingDeviceId, Asked, Cancellable);
 
         public TGrainInterface GetGrain<TGrainInterface>(Guid primaryKey, string? grainClassNamePrefix = null)
             where TGrainInterface : IGrainWithGuidKey => throw new NotSupportedException();

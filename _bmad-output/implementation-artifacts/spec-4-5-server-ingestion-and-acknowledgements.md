@@ -5,7 +5,7 @@ created: '2026-10-06'
 baseline_revision: '2f8e0b6b223b86240e886991b072f3e621224767'
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/apps/cs/README.md'
@@ -200,6 +200,54 @@ deferred:
   - `[false]` `[reject]` (intent) `packages/rs/crypto/src/spec.rs` changed — it is the crypto-spec generator's output; the freshness check fails without it.
   - `[low]` `[reject]` (intent) The crash test restarts the silo after the grain call returned, not during it — the stored state is the same in both cases (commit durable, answer lost), which is what the resend depends on.
 
+### 2026-10-06 — Follow-up review pass
+- verdicts: 44 findings — high 0, medium 4, low 26, false 14, maybe-false 0
+- findings:
+  - `[low]` `[patch]` (blind) `retry` is answered after a successful commit when the relay Hub cannot be journaled, yet four texts say nothing was stored — the behaviour is the intent's ("Failure to persist gives `retry`") and stays; the texts were corrected: the `DeviceIngestStatus.Retry` doc, the OpenAPI `retry` and `ingest-unavailable` descriptions, the 503 detail and `apps/cs/README.md`; client schema regenerated.
+  - `[medium]` `[defer]` (blind) A Node with a fast clock never recovers from `rejected_time` — carried: already in `deferred` (DW-64) for an architecture decision.
+  - `[low]` `[reject]` (blind) `measured_at` has no lower bound, so stray months become partitions — carried: the intent sets only the future bound. The new partition-count angle needs an enrolled Node that reports many distinct past months; one broken clock gives one month.
+  - `[false]` `[reject]` (blind) The Pause gate ignores `EndsAt` — carried: nothing raises `DevicePaused` yet; how a Pause ends is Epic 8's design.
+  - `[false]` `[reject]` (blind) No Site check between the relay Hub and the Node — carried: the epic states "any enrolled Hub may relay any Node".
+  - `[low]` `[reject]` (blind) The replay guard only detects a higher stored mark — real only with two live activations of one Node grain, which Orleans prevents outside a split cluster. The downlink counter is reserved in SQL, so no counter repeats, and a frame accepted twice is a `duplicate`. An exact compare would change the store's contract for that case.
+  - `[low]` `[reject]` (blind) The envelope limits do not fit together — carried. New points checked: a relayed ESP-NOW frame is about 340 base64 characters, so a real frame never reaches 1024 and `MaxReadings` 64 is only an upper sanity bound.
+  - `[low]` `[reject]` (blind) An authentic frame that breaks the contract is `rejected_auth` and is not logged — the status is the intent's (Tampered row). It needs firmware newer than the Server, which AD-23 rules out; a log line or counter per status is not asked for anywhere.
+  - `[false]` `[reject]` (blind) `reading_keys` has no retention — carried: Readings are kept indefinitely by requirement, so their keys are too.
+  - `[low]` `[reject]` (blind) Nothing enforces that `advance-replay` ran once with the Server stopped — a second run only adds the margins again (more refused frames, no loss); a marker table or a membership check is new surface for an operator step the runbook already orders.
+  - `[low]` `[patch]` (blind) The runbook's "no Reading is lost" does not show its arithmetic — `docs/operations/restore.md` now says the gap is at most 64 frames, about 16 h at one frame per 15-minute wake, against the 24 h buffer.
+  - `[low]` `[reject]` (blind) Ingestion has no rate limit and ignores client aborts — the abort half is carried (a commit is never abandoned). Only an enrolled Hub with a valid signature reaches the frame loop, and no requirement names a limit; the heartbeat endpoint has none either.
+  - `[low]` `[reject]` (blind) No test for a `partitions` run during ingestion, or for a counter at the 2^64 cap — the cap half is carried (unreachable with margins capped at 4294967296). The partition move locks only the default partition inside one transaction; a concurrency test would need timing control the fixtures do not have.
+  - `[low]` `[reject]` (edge) Replay upsert should compare the exact loaded window — same claim as the blind finding above.
+  - `[low]` `[patch]` (edge) A failed relay journal write answers `retry` although rows are stored — same root as the first row; texts corrected. The proposed fall-through (acknowledge anyway) contradicts the intent's Relay change row and was not applied.
+  - `[false]` `[reject]` (edge) A throwing Hub grain answers 500 instead of 503 — carried: nothing was processed, and AD-9 asks for a 5xx.
+  - `[low]` `[reject]` (edge) Up to 32 sequential, uncancelled grain calls — carried: intended, a commit is never abandoned.
+  - `[low]` `[reject]` (edge) No floor on `measured_at` — carried, see the blind finding.
+  - `[low]` `[reject]` (edge) No cap on the months one `partitions` run creates — needs many distinct past months in the default partition, see the blind finding; a cap would make the job fail instead of sorting the rows.
+  - `[low]` `[reject]` (edge) `LOCK TABLE … ACCESS EXCLUSIVE` has no lock timeout — nothing reads the default partition yet (the history API is Story 4.8), and inserts into monthly partitions do not take that lock; a timeout guards a state not shown to occur.
+  - `[false]` `[reject]` (edge) `IsPaused` ignores `EndsAt` — carried.
+  - `[low]` `[reject]` (edge) The chart accepts `partitions.monthsAhead` above 120 — carried: the job exits 2 and says why.
+  - `[false]` `[reject]` (edge) The job no longer takes configuration from arguments — carried: deployed services are configured by environment variables only.
+  - `[medium]` `[patch]` (gap) A failed relay journal write after a committed frame has no test — carried: the row of the first pass; the untested half is in `deferred` (DW-65) because the fixture cannot fail a journal append.
+  - `[low]` `[patch]` (gap) Nothing checks that a Hub hanging up cannot cancel a frame — `ANodeGrainThatThrowsIsRetryForItsFrameOnly` now records `CanBeCanceled` for every grain call and asserts it is false. The grain-to-store half was not added: it needs a store hook that observes the token.
+  - `[low]` `[reject]` (gap, other) `ReplayWindow.Advance` has no production caller — carried.
+  - `[low]` `[reject]` (gap, other) Chart and job disagree on the upper bound of `monthsAhead` — carried, see the edge finding.
+  - `[low]` `[reject]` (gap, other) `NoPlannedOperationIsMappedYet` passes vacuously — carried.
+  - `[medium]` `[patch]` (intent) Several matrix rows are proven at the grain, not through HTTP — carried: patched in the first pass as far as the AppHost allows (no fault injection, no clock control).
+  - `[medium]` `[patch]` (intent) No real `retry` crosses HTTP — carried: same row as above.
+  - `[low]` `[reject]` (intent) The failure half of Restore is proven in two places — "no partial change" on `AdvanceReplayAsync`, exit 1 at the process for an unreachable database; a mid-run failure cannot be injected into the process.
+  - `[low]` `[reject]` (intent) "Apps stopped" is not enforced by the command — same claim as the blind finding on `advance-replay`.
+  - `[low]` `[reject]` (intent) Month not prepared is proven in two halves — the move reads rows from the default partition whatever inserted them; joining the halves adds an AppHost test for no new behaviour.
+  - `[low]` `[patch]` (intent) `retry` after a committed frame contradicts the contract text — same root as the first row; texts corrected.
+  - `[false]` `[reject]` (intent) The relay change is outside the one transaction — the intent's transaction lists keys, rows, report, replay window and downlink counter; the relay Hub is a journal event (AD-18).
+  - `[false]` `[reject]` (intent) Undecodable plaintext consumes the counter — the intent's order puts the replay window before the decode, so the counter is consumed by design.
+  - `[low]` `[reject]` (intent) A frame string over 1024 characters is a 400 for the whole envelope — the OpenAPI schema sets `maxLength`, so the envelope is schema-invalid; a real frame is about 340 characters.
+  - `[false]` `[reject]` (intent) Status precedence (a bad envelope under a forged signature answers 400) — the intent sets no precedence, and no frame is processed in either case.
+  - `[false]` `[reject]` (intent) The Pause end date is not evaluated — carried.
+  - `[low]` `[reject]` (intent) Second advance implementation — carried.
+  - `[false]` `[reject]` (intent) Additions the intent does not name (margin options, the stale-window guard, the `check-compat.sh` exemption, the CronJob, Hub fixtures) — each implements a task of this spec or a patch of the first pass; none harms a caller.
+  - `[false]` `[reject]` (intent) Test seams in `DeviceIngestionStore` — virtual members used by the TestCluster fixture; no caller is named that would diverge.
+  - `[false]` `[reject]` (intent) `packages/rs/crypto/src/spec.rs` changed — carried: generator output.
+  - `[false]` `[reject]` (intent) `sprint-status.yaml` is modified in the working tree — not in the diff; the orchestrator owns that file.
+
 ## Design Notes
 
 **Node frame (plaintext of an uplink `SealedEnvelope`).** One frame is one wake report, so `measured_at` is shared.
@@ -243,48 +291,30 @@ message NodeFrame {
 
 Status: done
 
-**Summary.** `POST /device/ingest` is implemented end to end on the Server. A Hub posts a JSON envelope of base64 sealed Node frames; each Node's Device grain opens the seal, checks the 64-entry replay window, stores Readings and the device report exactly once, and seals an `ack/v1` downlink only after the PostgreSQL commit. The story also defines the wire contracts Story 4.4 will build against (Node frame, acknowledged `reading_seq` ranges, envelope and per-frame statuses, Sensor ID rule), adds partition maintenance and the post-restore `advance-replay` command to the migration job, and rewrites restore step 5.
+**Summary.** This was a follow-up review of Story 4.5, which merged as PR #36. `POST /device/ingest` stores sealed Node frames exactly once and acknowledges them only after the PostgreSQL commit; the first pass's summary of that change still holds. The second review found no defect in behaviour. It corrected texts that had become wrong after the first pass moved the relay-Hub event behind the commit, stated the arithmetic behind a runbook claim, and added one missing assertion.
 
-**Files changed.**
-- `packages/proto/coldframe/device/v1/envelope.proto` -- `NodeFrame`, `Reading`, `Quantity`, `ChargeStatus`, `ReadingSeqRange`, `Downlink.acked_readings`.
-- `packages/crypto-spec/*`, generated `CryptoSpec` in C#, Kotlin and Rust, `tests/ts/crypto-spec` -- Sensor ID rule, Node-frame and Downlink-with-ranges vectors.
-- `packages/openapi/*`, `packages/ts/api-client/src/schema.ts` -- the ingest envelope, per-frame statuses, 400/401/503, six golden Hub fixtures.
-- `packages/proto/check-compat.sh` -- operations planned in the baseline are not compared.
-- `packages/cs/crypto/Frames.cs`, `SensorIds.cs` -- a replay window that can be stored and reloaded; UUIDv5 Sensor IDs.
-- `packages/cs/contracts/Devices/*` -- `AuthenticateRelay`, `Ingest`, `DeviceRelayChanged`, `DevicePaused`, `DeviceResumed`.
-- `apps/cs/server/Devices/*` -- `DeviceGrain.Ingest`, `DeviceIngestionStore`, `NodeFrameReader`, Pause and relay state.
-- `apps/cs/server/Edge/*` -- the endpoint, envelope validation, `ingest-unavailable` problem.
-- `apps/cs/server/Dockerfile`, `Coldframe.Server.csproj` -- the Server now builds the protocol project.
-- `apps/cs/migrations/*` -- tables `readings`, `device_reports`, `reading_keys`, `device_replay`; commands `partitions` and `advance-replay`.
-- `deploy/charts/server/*`, `deploy/charts/smoke.sh` -- daily partition CronJob, `stopped` value, restore step 5 in the smoke.
-- `docs/operations/restore.md`, `apps/cs/README.md`, package and chart READMEs -- operator and developer documentation.
-- `tests/cs/*` -- simulator helpers; `IngestTests` (AppHost), `IngestGrainTests` (TestCluster), `ReadingsMaintenanceTests`, unit tests for the request, the frame reader and the job commands; guards updated.
+**Files changed in this pass.**
+- `packages/cs/contracts/Devices/DeviceGrains.cs` -- the `Retry` doc no longer says "Nothing changed".
+- `packages/openapi/coldframe.openapi.json`, `packages/ts/api-client/src/schema.ts` -- `retry` and `ingest-unavailable` say the frame is not acknowledged, not that nothing was stored.
+- `apps/cs/server/Edge/EdgeApi.cs` -- the 503 detail reads "Nothing was acknowledged. Send the frames again."
+- `apps/cs/README.md` -- names the one `retry` that leaves rows behind.
+- `docs/operations/restore.md` -- the uplink margin row gives the gap: at most 64 frames, about 16 h, against the 24 h buffer.
+- `tests/cs/server.tests/Edge/DeviceIngestRequestTests.cs` -- asserts that no grain call from the Edge carries a cancellable token.
 
-**Review.** 45 findings from four layers: 19 patched rows (12 fixes in 12 entries), 1 deferred, 25 rejected. Three more items are in `deferred`: the untested half of one patched gap finding and two risks the implementation surfaced. Patched entries by verdict: high 0, medium 5, low 7. Every rejected finding and its reason is in the Review Triage Log above.
+**Review.** 44 findings from four layers: 5 patched rows (3 fixes in 3 entries), 0 newly deferred, 39 rejected or carried. 21 rows repeat findings of the first pass and keep its verdicts; two more repeat them in part. Patched entries by verdict: high 0, medium 0, low 3. Every rejected finding and its reason is in the Review Triage Log above.
 
-**Follow-up review: recommended.** More than one medium entry was patched, and the patches were verified by tests but not reviewed: the guard that refuses a stale replay window, the move of the relay-change event to after the commit, and the sweep of past months out of the default partition.
+**Follow-up review: not recommended.** This pass patched no high finding; the work has converged.
 
 **Verification (final tree).**
 - `dotnet restore --locked-mode && dotnet build --no-restore -warnaserror` -- 0 warnings, 0 errors.
 - `dotnet format --verify-no-changes --no-restore` -- no changes.
-- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build` -- 644 passed, 0 failed, 0 skipped.
-- `packages/proto/check-compat.sh --self-test` and `--base <merge-base>` -- pass.
-- crypto-spec and openapi `check`, `pnpm -r test` -- pass.
+- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build` -- 644 passed, 0 failed.
+- `packages/proto/check-compat.sh --self-test` and `--base <merge-base>` -- pass (buf 1.73.0 and oasdiff 1.32.1 from `install-tools.sh`); the OpenAPI text change is not breaking.
+- crypto-spec and openapi `check`, `pnpm -r test` -- pass; the api-client generator leaves `schema.ts` unchanged.
 - `cargo test --workspace`, `./gradlew :core:jvmTest` -- pass.
-- `helm lint --strict` and `helm unittest` on the server chart -- 33 passed.
-- Matrix audit: every row of the I/O matrix has a passing test.
-
-**Decisions made by this run.**
-- Each Reading carries its quantity, so the Sensor ID is computable before Specifications exist (Story 4.6).
-- Exactly-once uses the unpartitioned `reading_keys` table; the device report is keyed by a `report_seq` from the `reading_seq` counter.
-- Replay state lives in `device_replay`, not in the journal.
-- Restore margins: uplink +64, downlink +1,048,576.
-- Frames are standard padded base64, at most 1024 characters, 32 per envelope, 16 KiB per body.
-- The server chart has a `stopped` value so a Fleet redeploy can keep the Server down until restore step 5 has run.
 
 **Residual risks.**
-- `deploy/charts/smoke.sh` now runs `advance-replay` as a one-off Job; it was only syntax-checked locally and first runs in CI.
-- The partition CronJob fires at 03:17 UTC; a run during the smoke's restore window would fail and could trip its stack check.
-- Story 4.4 is not implemented, so no firmware has exercised these contracts; the Rust side has the Sensor ID constants but no derivation.
-- Pause has no producer and no expiry handling until Epic 8.
-- The four `deferred` items above.
+- When the relay Hub cannot be journaled, the frame is committed and answered `retry`. That path still has no test (DW-65).
+- The replay upsert refuses only a lower in-memory mark. Two live activations of one Node grain could accept the same counter once each; the result is a `duplicate`, and no downlink counter repeats.
+- The 16 h figure in the runbook assumes one frame per 15-minute wake. Story 4.4's firmware sets the real cadence.
+- The risks listed by the first pass (smoke step first run in CI, CronJob timing, no firmware yet, Pause without a producer) are unchanged.

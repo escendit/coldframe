@@ -294,7 +294,7 @@ export type components = {
             frames: components["schemas"]["SealedFrame"][];
         };
         /**
-         * @description stored: at least one Reading or the device report of the frame was new and is committed. duplicate: everything in the frame was stored before; it is acknowledged again. rejected_auth: the frame is not a SealedEnvelope of a supported protocol_version, does not open with the Node's seal/v1 key, or its plaintext is not a valid Node frame. rejected_replay: the frame's counter is below the Node's 64-entry replay window or was seen, as when the same sealed bytes arrive twice or after a database restore; the Node keeps its Readings and resends them freshly sealed under a higher counter. rejected_time: a synced measured_at is more than 5 min after the Server clock. unknown_device: the Device ID is not an enrolled Node. retry: the Server could not commit the frame and stored nothing of it; the Node keeps its Readings and resends them, freshly sealed under a new counter (the same sealed bytes may be rejected_replay).
+         * @description stored: at least one Reading or the device report of the frame was new and is committed. duplicate: everything in the frame was stored before; it is acknowledged again. rejected_auth: the frame is not a SealedEnvelope of a supported protocol_version, does not open with the Node's seal/v1 key, or its plaintext is not a valid Node frame. rejected_replay: the frame's counter is below the Node's 64-entry replay window or was seen, as when the same sealed bytes arrive twice or after a database restore; the Node keeps its Readings and resends them freshly sealed under a higher counter. rejected_time: a synced measured_at is more than 5 min after the Server clock. unknown_device: the Device ID is not an enrolled Node. retry: the Server could not finish the frame and does not acknowledge it; the Node keeps its Readings and resends them, freshly sealed under a new counter (the same sealed bytes may be rejected_replay).
          * @enum {string}
          */
         IngestFrameStatus: "stored" | "duplicate" | "rejected_auth" | "rejected_replay" | "rejected_time" | "unknown_device" | "retry";
@@ -509,7 +509,7 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
-        /** @description urn:coldframe:problem:ingest-unavailable: the envelope parsed, but the Server could not commit any of its frames (every frame would be retry). Nothing was stored or acknowledged; the Nodes keep their Readings and resend. */
+        /** @description urn:coldframe:problem:ingest-unavailable: the envelope parsed, but the Server could not commit any of its frames (every frame would be retry). Nothing was acknowledged; the Nodes keep their Readings and resend. */
         IngestUnavailable: {
             headers: {
                 [name: string]: unknown;
