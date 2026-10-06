@@ -454,3 +454,41 @@ source_spec: `spec-4-3-add-a-node-from-my-phone.md`
 severity: medium
 reason: UX-DR67 and UJ-1 step 6 show the Node's Sensors with "needs calibration" and a Calibrate action, and State Patterns adds "Home garden is paused, so 7C19 starts paused" with Resume Site. Sensors exist only after the first Readings (Stories 4.4 to 4.6), Calibrate arrives in Epic 5 and Pause in Epic 8. Until then the outcome says "Its Sensors appear with its first Readings." and offers Done.
 status: open
+
+### DW-59: On iOS the Devices header now has two ghost actions and no handling for the largest text sizes; whether the heading and both buttons fit is unknown.
+origin: spec-deferred 294575244e1d
+location: apps/swift/ios/Sources/ColdframeIOS/UI/DevicesViews.swift (toolbar)
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+reason: DevicesViews.swift adds a second .primaryAction toolbar button. Android stacks the two from font scale 1.5; the iOS Devices tests are presentation-only and RenderTests only assert that an image renders. Settle it by rendering the Devices tab for an Owner at .accessibility5 on a Mac or iPhone.
+status: open
+
+### DW-60: On iOS, Add a Node opened from "Hub is online" may lose keep-awake if the Hub flow's onDisappear runs after the Node flow's onAppear.
+origin: spec-deferred 1a3d37bc233c
+location: apps/swift/ios/Sources/ColdframeIOS/UI/HubSetupViews.swift (SetupFlowEffects)
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+reason: SetupFlowEffects sets isIdleTimerDisabled in onAppear and clears it in onDisappear; the root swaps AddHubFlowView for AddNodeFlowView in one update. SwiftUI's ordering of the two callbacks decides it. Settle it on an iPhone: open Add a Node from the Hub outcome and watch whether the screen dims and locks.
+status: open
+
+### DW-61: No test joins the Hub outcome's Add a Node action to an open Node flow through the platform wiring.
+origin: spec-deferred 086143815222
+location: packages/kt/core/src/androidMain/.../signin/AndroidSignIn.kt; packages/kt/core/src/iosMain/.../signin/IosSignIn.kt; packages/kt/core/src/commonMain/.../sites/SitesWiring.kt
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: medium
+reason: HubSetupEngineTest passes its own onAddNode lambda; the join is onAddNode = { nodeSetup.open(it) } in AndroidSignIn.kt and IosSignIn.kt, forwarded by SitesWiring.hubSetup, and every hop defaults to {}. Dropping the argument compiles and Add a Node closes to the Garden as before this story, with every test green. Same shape as DW-54.
+status: open
+
+### DW-62: The iOS entry points of Add a Node (Devices action, no-Node tile) are only checked by render tests that assert an image exists.
+origin: spec-deferred 5b13a24ea572
+location: apps/swift/ios/Sources/ColdframeIOS/UI/{Screens,DevicesViews,SiteSettingsViews}.swift
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: medium
+reason: LotGrid's Button, the Devices toolbar item and the root's onAddNode: nodeSetupActions.open each default to a no-op closure; no Swift test passes or observes onAddNode. Removing the root's argument compiles and both entry points do nothing. Taps are covered on Android only. Needs a view-interaction harness or the tap decision in Linux-compiled code.
+status: open
+
+### DW-63: The app-target wiring of Add a Node (MainActivity, ColdframeApp, CoreNodeSetupService, canAddNode in CoreLotsService and CoreDevicesService) can be dropped or mis-mapped without a test failing.
+origin: spec-deferred a388e9f8f485
+location: apps/kt/android/.../MainActivity.kt; apps/swift/ios/App/{ColdframeApp,CoreNodeSetupService,CoreLotsService,CoreDevicesService}.swift
+source_spec: `spec-4-3-add-a-node-from-my-phone.md`
+severity: medium
+reason: ColdframeRoot, ColdframeRootView, ShellModel and the Lots and Devices presentations default the new parameters to closed, none or false. Deleting MainActivity's two nodeSetup lines, or canAddNode: snapshot.canAddNode in CoreLotsService, keeps every check green. CoreNodeSetupService maps 43 snapshot fields by hand and apps/swift/ios/App has no tests. Extends DW-54.
+status: open

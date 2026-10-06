@@ -251,5 +251,33 @@
     "alias": "device.assigned",
     "schemaVersion": 1,
     "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", "assignedAt": "2026-09-30T08:00:01Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 3,
+    "alias": "device.relay-changed",
+    "schemaVersion": 1,
+    "payload": { "hubId": "92064422c012f481", "changedAt": "2026-09-30T08:15:02.125Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 4,
+    "alias": "device.paused",
+    "schemaVersion": 1,
+    "payload": { "source": "Site", "endsAt": "2026-10-07T00:00:00Z", "pausedAt": "2026-09-30T09:00:00Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 5,
+    "alias": "device.paused",
+    "schemaVersion": 1,
+    "payload": { "source": "Device", "pausedAt": "2026-09-30T09:30:00Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 6,
+    "alias": "device.resumed",
+    "schemaVersion": 1,
+    "payload": { "source": "Site", "resumedAt": "2026-09-30T10:00:00Z" }
   }
 ]

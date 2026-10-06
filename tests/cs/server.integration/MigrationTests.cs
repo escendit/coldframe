@@ -1,6 +1,7 @@
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
+using Coldframe.Migrations;
 using Coldframe.Server.IntegrationTests.Journal;
 using Npgsql;
 
@@ -33,6 +34,12 @@ public sealed class MigrationTests(AppHostFixture fixture)
         "identity_memberships",
         "lots",
         "devices",
+        "readings",
+        "readings_default",
+        "device_reports",
+        "device_reports_default",
+        "reading_keys",
+        "device_replay",
     ];
 
     [Fact]
@@ -118,6 +125,63 @@ public sealed class MigrationTests(AppHostFixture fixture)
 
         Assert.False(JournalDatabase.Migrate(database.ConnectionString), "A second run found pending migrations.");
         Assert.Equal(versions, await database.ScalarAsync<long>("SELECT COUNT(*) FROM versions"));
+    }
+
+    [Fact]
+    public async Task AfterTheMigrationJobThePartitionsReachAtLeastTwoMonthsAheadWithADefault()
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(AppHostFixture.ResourceTimeout);
+
+        await fixture.WaitForHealthyAsync(ServerResource, timeout.Token);
+        var connectionString = await GetConnectionStringAsync(timeout.Token);
+        var now = TimeProvider.System.GetUtcNow().UtcDateTime;
+
+        foreach (var table in ReadingsMaintenance.PartitionedTables)
+        {
+            var partitions = await ReadPartitionsAsync(connectionString, table, timeout.Token);
+
+            Assert.Equal("DEFAULT", partitions[$"{table}_default"]);
+            foreach (var offset in new[] { 0, 1, 2 })
+            {
+                var month = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(offset);
+                var next = month.AddMonths(1);
+                Assert.Equal(
+                    $"FOR VALUES FROM ('{month:yyyy-MM-dd} 00:00:00+00') TO ('{next:yyyy-MM-dd} 00:00:00+00')",
+                    partitions[ReadingsMaintenance.PartitionName(table, month.Year, month.Month)]);
+            }
+        }
+    }
+
+    // Each partition of a table with its bound, as PostgreSQL prints it in UTC.
+    internal static async Task<Dictionary<string, string>> ReadPartitionsAsync(string connectionString, string table, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(connectionString) { Pooling = false }.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using (var utc = new NpgsqlCommand("SET TIME ZONE 'UTC'", connection))
+        {
+            await utc.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT child.relname, pg_get_expr(child.relpartbound, child.oid)
+            FROM pg_inherits
+            JOIN pg_class AS parent ON parent.oid = pg_inherits.inhparent
+            JOIN pg_class AS child ON child.oid = pg_inherits.inhrelid
+            WHERE parent.relname = @table
+            """,
+            connection);
+        command.Parameters.AddWithValue("table", table);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var partitions = new Dictionary<string, string>(StringComparer.Ordinal);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            partitions.Add(reader.GetString(0), reader.GetString(1));
+        }
+
+        return partitions;
     }
 
     private async Task<string> GetConnectionStringAsync(CancellationToken cancellationToken) =>

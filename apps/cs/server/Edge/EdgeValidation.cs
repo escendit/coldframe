@@ -36,6 +36,21 @@ public static class EdgeValidation
     /// </summary>
     public const long HeartbeatProtocolVersion = 1;
 
+    /// <summary>
+    /// The largest ingest body read, in bytes.
+    /// </summary>
+    public const int MaxIngestBodyLength = 16 * 1024;
+
+    /// <summary>
+    /// The most frames one ingest envelope may carry.
+    /// </summary>
+    public const int MaxIngestFrames = 32;
+
+    /// <summary>
+    /// The longest frame of an ingest envelope, in base64 characters.
+    /// </summary>
+    public const int MaxIngestFrameLength = 1024;
+
     private const int SignatureHexLength = 64;
 
     private const int MaxTimestampDigits = 19;
@@ -229,6 +244,82 @@ public static class EdgeValidation
             return null;
         }
     }
+
+    /// <summary>
+    /// Parses an ingest envelope (AD-9): a JSON object whose <c>frames</c> is an array of at most
+    /// <see cref="MaxIngestFrames"/> strings of at most <see cref="MaxIngestFrameLength"/> characters each.
+    /// Other properties are ignored (additive changes, AD-10). Returns <see langword="null"/> for anything
+    /// else. What a frame holds is not looked at here: a frame that is not base64 is that frame's failure.
+    /// </summary>
+    public static IReadOnlyList<string>? ParseIngestBody(ReadOnlyMemory<byte> body)
+    {
+        try
+        {
+            // The whole body is one JSON value: trailing content is malformed.
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("frames", out var frames)
+                || frames.ValueKind != JsonValueKind.Array
+                || frames.GetArrayLength() > MaxIngestFrames)
+            {
+                return null;
+            }
+
+            var parsed = new List<string>(frames.GetArrayLength());
+            foreach (var frame in frames.EnumerateArray())
+            {
+                if (frame.ValueKind != JsonValueKind.String || frame.GetString() is not { Length: <= MaxIngestFrameLength } text)
+                {
+                    return null;
+                }
+
+                parsed.Add(text);
+            }
+
+            return parsed;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            // A string that is not valid text, such as a lone surrogate escape: no envelope either.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Decodes standard base64 with padding (RFC 4648 section 4) and nothing else: no whitespace, no
+    /// base64url. Returns <see langword="null"/> for anything else.
+    /// </summary>
+    public static byte[]? DecodeBase64(string? text)
+    {
+        if (text is null || text.Length % 4 != 0 || text.Any(static character => !char.IsAsciiLetterOrDigit(character) && character is not ('+' or '/' or '=')))
+        {
+            return null;
+        }
+
+        var bytes = new byte[text.Length / 4 * 3];
+        return Convert.TryFromBase64String(text, bytes, out var written) ? bytes[..written] : null;
+    }
+
+    /// <summary>
+    /// The contract's name of a frame status (<c>IngestFrameStatus</c>), such as <c>rejected_auth</c>.
+    /// </summary>
+    public static string IngestStatusName(DeviceIngestStatus status) => status switch
+    {
+        DeviceIngestStatus.Stored => "stored",
+        DeviceIngestStatus.Duplicate => "duplicate",
+        DeviceIngestStatus.RejectedAuth => "rejected_auth",
+        DeviceIngestStatus.RejectedReplay => "rejected_replay",
+        DeviceIngestStatus.RejectedTime => "rejected_time",
+        DeviceIngestStatus.UnknownDevice => "unknown_device",
+        DeviceIngestStatus.Retry => "retry",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown frame status."),
+    };
 
     private static string? Single(IHeaderDictionary headers, string name) =>
         headers.TryGetValue(name, out var values) && values.Count == 1 ? values[0] : null;

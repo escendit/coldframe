@@ -16,11 +16,13 @@ import {
   hkdfExtract,
   hmacSha256,
   hpkeSealBase,
+  sensorId,
   setupAad,
   setupKeys,
   setupNonce,
   sha256,
   unhex,
+  uuidV5,
   x25519,
   x25519PublicKey,
 } from './reference.ts';
@@ -79,6 +81,12 @@ export const ANCHORS = {
     aad: '436f756e742d30',
     ct: '1c5250d8034ec2b784ba2cfd69dbdb8af406cfe3ff938e131f0def8c8b60b4db21993c62ce81883d2dd1b51a28',
   },
+  rfc9562AppendixA4: {
+    source: 'RFC 9562 Appendix A.4 (UUIDv5, SHA-1, DNS namespace)',
+    namespace: '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+    name: 'www.example.com',
+    uuid: '2ed6657d-e927-568b-95e1-2665a8aea6a2',
+  },
 } as const;
 
 /** Fails unless the reference implementation reproduces every RFC anchor. */
@@ -106,6 +114,8 @@ export function verifyAnchors(spec: CryptoSpec): void {
   expect('RFC 9180 key', hex(sealed.key), p.key);
   expect('RFC 9180 base_nonce', hex(sealed.baseNonce), p.baseNonce);
   expect('RFC 9180 ct', hex(sealed.ciphertext), p.ct);
+  const u = ANCHORS.rfc9562AppendixA4;
+  expect('RFC 9562 UUIDv5', uuidV5(u.namespace, u.name), u.uuid);
   if (failures.length > 0) {
     throw new Error(`The reference implementation does not reproduce the RFC anchors:\n${failures.join('\n')}`);
   }
@@ -124,17 +134,105 @@ function varint(value: bigint): Buffer {
   return Buffer.from(bytes);
 }
 
-/** `coldframe.device.v1.Downlink` with varint fields 1..3 set, as Protobuf encodes it. */
-function encodeDownlink(protocolVersion: number, ackedCounter: bigint, serverTimeMs: bigint): Buffer {
+/** A Protobuf field key: the field number and its wire type (0 varint, 2 length-delimited). */
+const key = (field: number, wireType: 0 | 2): Buffer => varint(BigInt((field << 3) | wireType));
+
+/** A varint field; proto3 leaves a zero out unless the field tracks presence. */
+function varintField(field: number, value: bigint, always = false): Buffer {
+  return value === 0n && !always ? Buffer.alloc(0) : Buffer.concat([key(field, 0), varint(value)]);
+}
+
+/** A length-delimited field (bytes or an embedded message). */
+function bytesField(field: number, value: Uint8Array, always = false): Buffer {
+  return value.length === 0 && !always ? Buffer.alloc(0) : Buffer.concat([key(field, 2), varint(BigInt(value.length)), value]);
+}
+
+/** ZigZag, as `sint64` encodes a signed value. */
+const zigzag = (value: bigint): bigint => BigInt.asUintN(64, (value << 1n) ^ (value >> 63n));
+
+interface SeqRange {
+  first: bigint;
+  last: bigint;
+}
+
+/** `coldframe.device.v1.Downlink`, as Protobuf encodes it (fields in number order, no commands). */
+function encodeDownlink(protocolVersion: number, ackedCounter: bigint, serverTimeMs: bigint, ackedReadings: SeqRange[] = []): Buffer {
   return Buffer.concat([
-    Buffer.from([0x08]),
-    varint(BigInt(protocolVersion)),
-    Buffer.from([0x10]),
-    varint(ackedCounter),
-    Buffer.from([0x18]),
-    varint(serverTimeMs),
+    varintField(1, BigInt(protocolVersion)),
+    varintField(2, ackedCounter),
+    varintField(3, serverTimeMs),
+    ...ackedReadings.map(({ first, last }) => bytesField(5, Buffer.concat([varintField(1, first), varintField(2, last)]), true)),
   ]);
 }
+
+/** The Protobuf `Quantity` and `ChargeStatus` numbers of envelope.proto. */
+const QUANTITY_NUMBERS = { soil_moisture: 1n, air_temperature: 2n, relative_humidity: 3n, gas_resistance: 4n } as const;
+const CHARGE_NUMBERS = { unspecified: 0n, charging: 1n, not_charging: 2n } as const;
+
+interface NodeReading {
+  slot: number;
+  readingSeq: bigint;
+  quantity: keyof typeof QUANTITY_NUMBERS;
+  value: bigint;
+}
+
+interface NodeFrameFields {
+  protocolVersion: number;
+  specHash: string;
+  bootId: bigint;
+  uptimeMs: bigint;
+  measuredAtMs: bigint;
+  reportSeq: bigint;
+  readings: NodeReading[];
+  batteryPercent: number;
+  charging: keyof typeof CHARGE_NUMBERS;
+}
+
+/** `coldframe.device.v1.NodeFrame` with a synced time, as Protobuf encodes it (fields in number order). */
+function encodeNodeFrame(frame: NodeFrameFields): Buffer {
+  return Buffer.concat([
+    varintField(1, BigInt(frame.protocolVersion)),
+    bytesField(2, unhex(frame.specHash)),
+    varintField(3, frame.bootId),
+    varintField(4, frame.uptimeMs),
+    varintField(5, BigInt.asUintN(64, frame.measuredAtMs), true),
+    varintField(7, frame.reportSeq),
+    ...frame.readings.map((reading) =>
+      bytesField(
+        8,
+        Buffer.concat([
+          varintField(1, BigInt(reading.slot)),
+          varintField(2, reading.readingSeq),
+          varintField(3, QUANTITY_NUMBERS[reading.quantity]),
+          varintField(4, zigzag(reading.value)),
+        ]),
+        true,
+      ),
+    ),
+    varintField(9, BigInt(frame.batteryPercent), true),
+    varintField(10, CHARGE_NUMBERS[frame.charging]),
+  ]);
+}
+
+/** The Node frame of the vectors: one wake with four Readings, a negative temperature among them. */
+const NODE_FRAME: NodeFrameFields = {
+  protocolVersion: 1,
+  specHash: '',
+  bootId: 3n,
+  uptimeMs: 912345n,
+  measuredAtMs: 1790000000000n,
+  reportSeq: 104n,
+  readings: [
+    { slot: 0, readingSeq: 100n, quantity: 'soil_moisture', value: 1873n },
+    { slot: 1, readingSeq: 101n, quantity: 'air_temperature', value: -2500n },
+    { slot: 2, readingSeq: 102n, quantity: 'relative_humidity', value: 64250n },
+    { slot: 3, readingSeq: 103n, quantity: 'gas_resistance', value: 48211n },
+  ],
+  batteryPercent: 87,
+  charging: 'charging',
+};
+
+const NODE_FRAME_ACK = { ackedCounter: 42n, serverTimeMs: 1790000000321n, ackedReadings: [{ first: 100n, last: 104n }] };
 
 const ROOT_A = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ROOT_B = 'ffeeddccbbaa998877665544332211000f1e2d3c4b5a69788796a5b4c3d2e1f0';
@@ -170,7 +268,45 @@ export function buildVectors(spec: CryptoSpec): Record<string, unknown> {
       counter: 7n,
       plaintext: encodeDownlink(spec.protocolMajor, 1n, 1790000000000n),
     },
-  ].map(({ name, rootKey, purpose, counter, plaintext }) => {
+    {
+      name: 'node frame with four readings',
+      rootKey: ROOT_A,
+      purpose: 'seal',
+      counter: NODE_FRAME_ACK.ackedCounter,
+      plaintext: encodeNodeFrame({ ...NODE_FRAME, protocolVersion: spec.protocolMajor }),
+      message: {
+        type: 'NodeFrame',
+        protocolVersion: spec.protocolMajor,
+        specHash: NODE_FRAME.specHash,
+        bootId: NODE_FRAME.bootId.toString(),
+        uptimeMs: NODE_FRAME.uptimeMs.toString(),
+        measuredAtMs: NODE_FRAME.measuredAtMs.toString(),
+        reportSeq: NODE_FRAME.reportSeq.toString(),
+        readings: NODE_FRAME.readings.map(({ slot, readingSeq, quantity, value }) => ({
+          slot,
+          readingSeq: readingSeq.toString(),
+          quantity,
+          value: value.toString(),
+        })),
+        batteryPercent: NODE_FRAME.batteryPercent,
+        charging: NODE_FRAME.charging,
+      },
+    },
+    {
+      name: 'downlink acknowledging the readings of the node frame',
+      rootKey: ROOT_A,
+      purpose: 'ack',
+      counter: 8n,
+      plaintext: encodeDownlink(spec.protocolMajor, NODE_FRAME_ACK.ackedCounter, NODE_FRAME_ACK.serverTimeMs, NODE_FRAME_ACK.ackedReadings),
+      message: {
+        type: 'Downlink',
+        protocolVersion: spec.protocolMajor,
+        ackedCounter: NODE_FRAME_ACK.ackedCounter.toString(),
+        serverTimeMs: NODE_FRAME_ACK.serverTimeMs.toString(),
+        ackedReadings: NODE_FRAME_ACK.ackedReadings.map(({ first, last }) => ({ first: first.toString(), last: last.toString() })),
+      },
+    },
+  ].map(({ name, rootKey, purpose, counter, plaintext, message }) => {
     const keys = deriveDeviceKeys(spec, unhex(rootKey));
     const key = purpose === 'seal' ? keys.sealKey : keys.ackKey;
     const nonce = frameNonce(spec, keys.deviceId, counter);
@@ -186,6 +322,8 @@ export function buildVectors(spec: CryptoSpec): Record<string, unknown> {
       nonce: hex(nonce),
       aad: hex(aad),
       ciphertext: hex(aeadSeal(key, nonce, aad, plaintext)),
+      // Only the frames whose plaintext is a Protobuf message of envelope.proto name its fields.
+      ...(message === undefined ? {} : { message }),
     };
   });
 
@@ -341,6 +479,27 @@ export function buildVectors(spec: CryptoSpec): Record<string, unknown> {
     };
   });
 
+  const namespace = uuidV5(spec.sensorId.urlNamespace, spec.sensorId.namespaceName);
+  if (namespace !== spec.sensorId.namespace) {
+    throw new Error(`sensorId.namespace must be ${namespace}, the UUIDv5 of its namespaceName in the URL namespace`);
+  }
+  const sensorIds = [
+    { name: 'soil moisture in slot 0', rootKey: ROOT_A, slot: 0, quantity: spec.sensorId.quantities.soilMoisture },
+    { name: 'gas resistance in slot 3 of another device', rootKey: ROOT_B, slot: 3, quantity: spec.sensorId.quantities.gasResistance },
+  ].map(({ name, rootKey, slot, quantity }) => {
+    const keys = deriveDeviceKeys(spec, unhex(rootKey));
+    return {
+      name,
+      rootKey,
+      deviceId: hex(keys.deviceId),
+      slot,
+      quantity,
+      namespace,
+      uuidName: `${hex(keys.deviceId)}:${String(slot)}:${quantity}`,
+      sensorId: sensorId(spec, keys.deviceId, slot, quantity),
+    };
+  });
+
   return {
     $comment: VECTORS_COMMENT,
     protocolMajor: spec.protocolMajor,
@@ -350,6 +509,7 @@ export function buildVectors(spec: CryptoSpec): Record<string, unknown> {
     enrolment,
     setup,
     heartbeat,
+    sensorId: sensorIds,
     anchors: ANCHORS,
   };
 }

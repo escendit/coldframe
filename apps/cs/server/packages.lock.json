@@ -743,6 +743,12 @@
           "BouncyCastle.Cryptography": "[2.7.0, )"
         }
       },
+      "coldframe.protocol": {
+        "type": "Project",
+        "dependencies": {
+          "Google.Protobuf": "[3.36.2, )"
+        }
+      },
       "BouncyCastle.Cryptography": {
         "type": "CentralTransitive",
         "requested": "[2.7.0, )",

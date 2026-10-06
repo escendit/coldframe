@@ -1,5 +1,5 @@
 {
-  "$comment": "The normative Device crypto contract (AD-12, AD-17, AD-25). Every label, size and header name here is generated into Rust, C# and Kotlin by scripts/generate.ts; no language types one by hand. Changing a value is a wire break: bump the label version instead.",
+  "$comment": "The normative Device crypto contract (AD-12, AD-17, AD-19, AD-25). Every label, size and header name here is generated into Rust, C# and Kotlin by scripts/generate.ts; no language types one by hand. Changing a value is a wire break: bump the label version instead.",
   "protocolMajor": 1,
   "keyHierarchy": {
     "rootKeyLength": 32,
@@ -94,5 +94,22 @@
     },
     "nonceLength": 16,
     "maxSkewMs": 300000
+  },
+  "sensorId": {
+    "algorithm": "UUIDv5 (RFC 9562, SHA-1)",
+    "construction": "sensorId = UUIDv5(namespace, name), name = UTF-8 of nameFormat; namespace = UUIDv5(urlNamespace, namespaceName)",
+    "urlNamespace": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+    "namespaceName": "https://github.com/escendit/coldframe/sensor",
+    "namespace": "5f496f62-2f32-5456-8b2a-ebe01228c999",
+    "nameFormat": "{deviceIdHex}:{slot}:{quantity}",
+    "name": "deviceIdHex is the Device ID as 16 lowercase hex digits, slot the decimal slot without leading zeros, quantity one of the tokens below",
+    "quantities": {
+      "soilMoisture": "soil_moisture",
+      "airTemperature": "air_temperature",
+      "relativeHumidity": "relative_humidity",
+      "gasResistance": "gas_resistance"
+    },
+    "deviceReport": "00000000-0000-0000-0000-000000000000",
+    "deviceReportUse": "the nil UUID stands in for the Sensor in the key of a device report (AD-9)"
   }
 }

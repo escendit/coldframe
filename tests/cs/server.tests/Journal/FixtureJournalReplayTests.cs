@@ -88,6 +88,14 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", node.LotId);
         Assert.Null(device.LotId);
 
+        // Relayed by the Hub; paused by its Site and by itself, then the Site resumed: still paused.
+        Assert.Equal("92064422c012f481", node.LastRelayHubId);
+        Assert.True(node.IsPaused);
+        Assert.Equal([DevicePauseSource.Device], node.PausedBy.Keys);
+        Assert.Null(node.PausedBy[DevicePauseSource.Device]);
+        Assert.False(device.IsPaused);
+        Assert.Null(device.LastRelayHubId);
+
         // Created, renamed, claimed and released by a Node, then removed: the tombstone keeps name and Site.
         var removed = Assert.IsType<LotState>(states["lot/0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e01"]);
         Assert.Equal(LotLifecycle.Removed, removed.Lifecycle);

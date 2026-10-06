@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "With a dev-mode Node from the Story 4.2 bench (docs/bench/node-setup-checklist.md) and the Android app signed in as an Owner against the real Server, long-press the Node's setup button, run Add a Node from Devices, pick a free Lot and confirm the outcome reads '<Lot> has a Node' and the Lot's Garden tile is no longer 'no Node'.",
+    "Repeat the Add a Node run on an iPhone, once from a 'no Node' tile (the Lot must be preselected on step 4) and once from Add a Node on 'Hub is online'; in the second run confirm the screen stays awake through the flow.",
+    "On both phones, walk the error cases with a real Node: Bluetooth off, a wrong setup code, waiting more than 3 minutes before entering the code (expect '<ID> stopped listening'), and a second Node put on a Lot that got its Node meanwhile (expect the Lot-taken notice and a retry with another Lot without pressing the button again).",
+    "Run the Android flow with TalkBack at font scale 2 and the iOS flow with VoiceOver at the largest Dynamic Type size; confirm the candidate, wrong-code, Lot-taken and outcome announcements are spoken once, and that the Devices header shows 'Add a Hub' and 'Add a Node' without clipping the heading."
+  ],
+  "parked_at": "2026-10-06",
+  "run_id": "20261006-094832-c557",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-4-3-add-a-node-from-my-phone.md",
+  "story_key": "4-3-add-a-node-from-my-phone"
+}

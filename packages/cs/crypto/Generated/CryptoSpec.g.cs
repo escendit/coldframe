@@ -276,4 +276,45 @@ public static class CryptoSpec
     /// Largest accepted difference between the request time and the Server clock, in ms.
     /// </summary>
     public const long HeartbeatMaxSkewMs = 300000L;
+
+    // Sensor identity (AD-19)
+
+    /// <summary>
+    /// UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace,
+    /// "https://github.com/escendit/coldframe/sensor"): `sensorId = UUIDv5(namespace, name), name = UTF-8
+    /// of nameFormat; namespace = UUIDv5(urlNamespace, namespaceName)`.
+    /// </summary>
+    public const string SensorIdNamespace = "5f496f62-2f32-5456-8b2a-ebe01228c999";
+
+    /// <summary>
+    /// The UUIDv5 name of a Sensor: deviceIdHex is the Device ID as 16 lowercase hex digits, slot the
+    /// decimal slot without leading zeros, quantity one of the tokens below.
+    /// </summary>
+    public const string SensorIdNameFormat = "{deviceIdHex}:{slot}:{quantity}";
+
+    /// <summary>
+    /// Quantity token of soil moisture.
+    /// </summary>
+    public const string SensorQuantitySoilMoisture = "soil_moisture";
+
+    /// <summary>
+    /// Quantity token of air temperature.
+    /// </summary>
+    public const string SensorQuantityAirTemperature = "air_temperature";
+
+    /// <summary>
+    /// Quantity token of relative humidity.
+    /// </summary>
+    public const string SensorQuantityRelativeHumidity = "relative_humidity";
+
+    /// <summary>
+    /// Quantity token of raw gas resistance.
+    /// </summary>
+    public const string SensorQuantityGasResistance = "gas_resistance";
+
+    /// <summary>
+    /// Stands in for the Sensor ID where a device report is keyed: the nil UUID stands in for the Sensor in
+    /// the key of a device report (AD-9).
+    /// </summary>
+    public const string DeviceReportSensorId = "00000000-0000-0000-0000-000000000000";
 }

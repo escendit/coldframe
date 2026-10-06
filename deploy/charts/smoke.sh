@@ -33,7 +33,8 @@
 #    backup must have completed. The database release is uninstalled (cluster and volumes gone)
 #    and installed again in recovery mode, archiving to a new folder. The restored cluster must
 #    hold both markers and the same row count in every table of the four databases, and archive
-#    WAL again; with the apps scaled back, the checks of step 5 must pass.
+#    WAL again; advance-replay runs as a one-off Job (restore.md step 5); with the apps scaled
+#    back, the checks of step 5 must pass.
 #
 # Needs k3d, kubectl, helm, jq, curl, sha256sum, python3 with PyYAML and docker (or Podman through
 # DOCKER_HOST). On failure the pods, events, CloudNativePG and cert-manager objects and logs
@@ -578,6 +579,17 @@ before: ${before}
 after:  ${after}"
 echo "ok: every table of the four databases has the same row count after the restore"
 wait_archived "the restored cluster archives to coldframe-db-restored"
+
+# Step 5 of the runbook, before any app starts: advance every Device's replay window (AD-17), as a
+# one-off Job made from the partition CronJob.
+kubectl "${ns[@]}" create job advance-replay --from=cronjob/server-partitions --dry-run=client -o json \
+  | jq '.spec.backoffLimit = 0 | .spec.template.spec.containers[0].args = ["advance-replay"]' \
+  | kubectl "${ns[@]}" apply -f -
+kubectl "${ns[@]}" wait job/advance-replay --for=condition=Complete --timeout=300s \
+  || fail "the advance-replay Job did not complete: $(kubectl "${ns[@]}" logs job/advance-replay --tail=20 2>&1)"
+kubectl "${ns[@]}" logs job/advance-replay | grep -q "Advanced the replay state" \
+  || fail "the advance-replay Job did not report what it advanced"
+echo "ok: advance-replay ran on the restored database before the apps started"
 
 for app in temporal keycloak server web; do
   kubectl "${ns[@]}" scale "deployment/${app}" --replicas=1

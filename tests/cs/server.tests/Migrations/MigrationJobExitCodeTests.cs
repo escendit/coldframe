@@ -28,18 +28,49 @@ public sealed class MigrationJobExitCodeTests
             await RunJobAsync("Host=127.0.0.1;Port=1;Database=coldframe;Username=coldframe;Password=unused;Timeout=5"));
     }
 
-    private static async Task<int> RunJobAsync(string? connectionString)
+    [Theory]
+    [InlineData("migrate")]
+    [InlineData("partitions", "--months-ahead", "1")]
+    [InlineData("partitions", "--months-ahead")]
+    [InlineData("partitions", "--weeks-ahead", "3")]
+    [InlineData("advance-replay", "--uplink-margin", "0")]
+    [InlineData("advance-replay", "extra")]
+    public async Task WithArgumentsItDoesNotKnowTheJobExitsWithTwoBeforeItTouchesAnything(params string[] arguments)
+    {
+        // Even with a database it could not reach: the arguments are refused first.
+        Assert.Equal(
+            2,
+            await RunJobAsync("Host=127.0.0.1;Port=1;Database=coldframe;Username=coldframe;Password=unused;Timeout=5", arguments));
+        Assert.Equal(2, await RunJobAsync(connectionString: null, arguments));
+    }
+
+    [Theory]
+    [InlineData("partitions")]
+    [InlineData("advance-replay")]
+    public async Task AKnownCommandWithAnUnreachableDatabaseExitsWithOne(string command)
+    {
+        Assert.Equal(
+            1,
+            await RunJobAsync("Host=127.0.0.1;Port=1;Database=coldframe;Username=coldframe;Password=unused;Timeout=5", command));
+    }
+
+    private static async Task<int> RunJobAsync(string? connectionString, params string[] arguments)
     {
         // The job is built next to the tests, because this project references it.
         var job = typeof(MigrationRunnerRegistration).Assembly.Location;
 
         var start = new ProcessStartInfo("dotnet")
         {
-            ArgumentList = { job },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        start.ArgumentList.Add(job);
+        foreach (var argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
         start.Environment.Remove(ConnectionStringVariable);
         start.Environment["DOTNET_ENVIRONMENT"] = "Production";
         start.Environment.Remove("OTEL_EXPORTER_OTLP_ENDPOINT");

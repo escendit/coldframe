@@ -218,3 +218,33 @@ export function heartbeatCanonical(
 ): string {
   return [method, path, hex(sha256(body)), timestampMs.toString(), hex(nonce)].join(spec.heartbeat.separator);
 }
+
+/** A UUID's 16 bytes from its canonical text form. */
+export function uuidBytes(text: string): Buffer {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(text)) {
+    throw new Error(`not a canonical lowercase UUID: ${text}`);
+  }
+  return unhex(text.replaceAll('-', ''));
+}
+
+/** RFC 9562 UUIDv5: SHA-1 over the namespace bytes and the UTF-8 name, in canonical lowercase text. */
+export function uuidV5(namespace: string, name: string): string {
+  const digest = createHash('sha1')
+    .update(uuidBytes(namespace))
+    .update(utf8(name))
+    .digest()
+    .subarray(0, 16);
+  digest[6] = ((digest[6] ?? 0) & 0x0f) | 0x50;
+  digest[8] = ((digest[8] ?? 0) & 0x3f) | 0x80;
+  const text = digest.toString('hex');
+  return `${text.slice(0, 8)}-${text.slice(8, 12)}-${text.slice(12, 16)}-${text.slice(16, 20)}-${text.slice(20)}`;
+}
+
+/** The Sensor ID of a Device's slot and quantity token (AD-19). */
+export function sensorId(spec: CryptoSpec, deviceId: Uint8Array, slot: number, quantity: string): string {
+  const name = spec.sensorId.nameFormat
+    .replace('{deviceIdHex}', hex(deviceId))
+    .replace('{slot}', String(slot))
+    .replace('{quantity}', quantity);
+  return uuidV5(spec.sensorId.namespace, name);
+}

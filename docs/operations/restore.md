@@ -12,7 +12,8 @@ The CI smoke install ([`deploy/charts/smoke.sh`](../../deploy/charts/smoke.sh)) 
 this runbook on every pull request: with the apps stopped, it writes a marker before a base
 backup and one after it, uninstalls the release, waits as in step 3, installs in recovery mode
 into a new folder as in step 4, and checks both markers, the row count of every table, WAL
-archiving and the Server's health. It does not run the optional steps 2 and 5, nor restart NATS.
+archiving and the Server's health, and it runs step 5 before the apps start. It does not run the
+optional step 2, nor restart NATS.
 
 The commands name the CloudNativePG cluster as `clusters.postgresql.cnpg.io`: with Fleet
 installed, a bare `cluster` means Fleet's `clusters.fleet.cattle.io`.
@@ -128,14 +129,45 @@ NS=coldframe
 
    The four databases are listed and every Database object is applied (`APPLIED true`).
 
-5. **Advance every Device's replay window** by a safety margin before any Device reconnects
-   (AD-17). The restored cluster has lost the writes after the recovery point, including the
-   latest replay counters of the Devices; without this step a Device's next messages could be
-   accepted twice, or a replayed old message accepted once. **Required.** The command arrives with
-   Device support (Story 4.5); until then there are no Devices (they come with Epic 4) and the step
-   is a no-op.
+5. **Advance every Device's replay window** by a safety margin, with the apps still stopped and
+   before any Device reconnects (AD-15, AD-17). The restored cluster has lost the writes after the
+   recovery point, including the latest replay counters of the Devices; without this step a
+   replayed old frame could be accepted once more, and the Server could seal a new downlink under
+   a counter it had already used. **Required, and exactly once per restore**: every run adds the
+   margins again.
 
-6. **Start the apps**, NATS included: its JetStream store is disposable (AD-5), and hints kept
+   The command is `advance-replay` of the migration job. Run it as a one-off Job made from the
+   partition CronJob, which carries the same image, security context and database Secret:
+
+   ```sh
+   kubectl -n "$NS" create job advance-replay --from=cronjob/server-partitions --dry-run=client -o json \
+     | jq '.spec.backoffLimit = 0 | .spec.template.spec.containers[0].args = ["advance-replay"]' \
+     | kubectl -n "$NS" apply -f -
+   kubectl -n "$NS" wait job/advance-replay --for=condition=Complete --timeout=5m
+   kubectl -n "$NS" logs job/advance-replay | grep "Advanced the replay state"
+   ```
+
+   `backoffLimit` is 0 so that Kubernetes never runs the command a second time by itself. The log
+   line names how many Devices changed. The Job fails (and `wait` times out; read
+   `kubectl -n "$NS" logs job/advance-replay`) when the database cannot be reached or the command
+   is mistyped; a failed run changes nothing, because all Devices change in one transaction.
+   Delete the Job (`kubectl -n "$NS" delete job advance-replay`) before you run it again.
+
+   What it changes, in the table `device_replay`:
+
+   | What | Margin | Effect on a Node |
+   | --- | --- | --- |
+   | Uplink high-water mark of every Device, with its 64-entry window marked fully seen | `--uplink-margin`, default `64` (the size of the window) | The Server answers `rejected_replay` to every frame whose counter is at or below the restored mark + 64. A Node lost at most the frames it sent after the recovery point; it gets no acknowledgement for the next ones, keeps its Readings, and resends them under higher counters until one passes the mark. Its buffer holds 24 h of Readings, far more than this gap, so no Reading is lost. |
+   | Downlink counter of every Device | `--downlink-margin`, default `1048576` | Every acknowledgement after the restore is sealed under a counter the Server never used before. A Node receives at most a few acknowledgements per wake, so about a million is far above what one Node can have received between the last backup and the restore. The Node accepts a counter that jumps ahead. |
+
+   An enrolled Device that had never sent a frame gets the same state, so its first 64 counters
+   are refused too. Raise a margin only when more than the default could have been used after the
+   recovery point: `…args = ["advance-replay", "--uplink-margin", "256"]`. A margin above
+   4294967296 is refused. A Reading the Node
+   resends although the restored database already holds it is a `duplicate`: it is acknowledged
+   and adds no row.
+
+6. **Start the apps**, only after step 5 has completed, NATS included: its JetStream store is disposable (AD-5), and hints kept
    from before the restore may refer to positions the database no longer has.
 
    ```sh
@@ -194,11 +226,27 @@ Under Fleet, run the steps with the GitRepo paused, so that Fleet does not reins
 --type=merge -p '{"spec":{"paused":true}}'` before step 1. Instead of the `helm install` of step 4,
 apply the ConfigMap with the recovery values above, then unpause the GitRepo and force a redeploy
 (`-p '{"spec":{"paused":false,"forceSyncGeneration":<a new number>}}'`); Fleet installs the
-`database` release in recovery mode, and the waits of step 4 apply unchanged. The redeploy also
-brings the apps back as soon as their bundles' dependencies are Ready, so step 6 happens by itself
-(scale any app still at 0 replicas); while step 5 is a no-op (no Devices before Epic 4) that order
-is safe. The chart smoke tests the steps with Helm; the Fleet smoke
-([`deploy/fleet/smoke.sh`](../../deploy/fleet/smoke.sh)) does not run this restore.
+`database` release in recovery mode, and the waits of step 4 apply unchanged.
+
+**The Server must not start before step 5.** The redeploy brings every bundle back as soon as its
+dependencies are Ready, and a Server that serves a Hub before step 5 has run may accept a replayed
+frame or seal a downlink under a used counter. So keep it stopped across the redeploy: together
+with the recovery values, put `stopped: true` under the `server` key of the ConfigMap:
+
+```yaml
+  server: |
+    identity:
+      authority: https://auth.<domain>/realms/coldframe
+    stopped: true
+```
+
+The `server` bundle then installs with 0 replicas. Its migration Job still runs (it does not
+touch the replay state), and its CronJob `server-partitions` exists, which step 5 starts from. Run
+step 5 once the waits of step 4 have passed and the `server` bundle is Ready. Then remove
+`stopped: true`, apply the ConfigMap and force a redeploy again: that is step 6 for the Server.
+The other apps came back with the first redeploy (scale any still at 0 replicas). The chart smoke
+tests the steps with Helm; the Fleet smoke ([`deploy/fleet/smoke.sh`](../../deploy/fleet/smoke.sh))
+does not run this restore.
 
 The old folder (`coldframe-db`) is no longer written or covered by the retention policy, which
 only prunes the folder the running cluster archives to. Delete it from the bucket once the

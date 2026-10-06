@@ -1,0 +1,58 @@
+{{/*
+The partition CronJob (AD-22): once a day it runs the migrations image with the `partitions`
+command, which creates the monthly partitions of the Readings and device-report tables for the
+current month and the months ahead, so they stay at least two months ahead without an upgrade.
+The migration Job does the same on every install and upgrade. A run that fails changes nothing;
+rows of a month without a partition wait in the default partition until the next run moves them.
+*/}}
+{{- if lt (int .Values.partitions.monthsAhead) 2 }}
+{{- fail (printf "partitions.monthsAhead (%d) must be at least 2 (AD-22)" (int .Values.partitions.monthsAhead)) }}
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "server.fullname" . }}-partitions
+  labels:
+    {{- include "server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: partitions
+spec:
+  schedule: {{ .Values.partitions.schedule | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "server.labels" . | nindent 8 }}
+        app.kubernetes.io/component: partitions
+    spec:
+      backoffLimit: {{ int .Values.partitions.backoffLimit }}
+      activeDeadlineSeconds: {{ int .Values.partitions.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "server.labels" . | nindent 12 }}
+            app.kubernetes.io/component: partitions
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- include "server.podSecurityContext" . | nindent 12 }}
+          containers:
+            - name: partitions
+              image: {{ include "server.image" (list . .Values.migrations.image) | quote }}
+              imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
+              args:
+                - partitions
+                - --months-ahead
+                - {{ int .Values.partitions.monthsAhead | quote }}
+              securityContext:
+                {{- include "server.containerSecurityContext" . | nindent 16 }}
+              env:
+                {{- include "server.databaseEnv" . | nindent 16 }}
+              {{- with .Values.partitions.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
