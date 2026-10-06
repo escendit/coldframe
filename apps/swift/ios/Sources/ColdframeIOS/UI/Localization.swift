@@ -42,3 +42,16 @@
     }
   }
 #endif
+
+#if canImport(SwiftUI)
+  import Foundation
+
+  extension CopyContext {
+    /// Copy from the String Catalog, with times told against `now` in `timeZone`.
+    public static func catalogue(
+      now: Date = Date(), timeZone: TimeZone = .current, locale: Locale = .current
+    ) -> CopyContext {
+      CopyContext(now: now, timeZone: timeZone, locale: locale, resolve: { $0.string })
+    }
+  }
+#endif

@@ -17,9 +17,11 @@ const locals = { session: { identity: { authenticated: true, accessTokenRaw: 'ac
 
 const siteId = '0192a000-0000-7000-8000-00000000000a';
 const home: Site = { id: siteId, name: 'Home', role: 'Owner' };
-const tomatoes: Lot = { id: '0192a000-0000-7000-8000-000000000011', name: 'Tomatoes', status: 'noNode' };
-const beans: Lot = { id: '0192a000-0000-7000-8000-000000000012', name: 'Beans', status: 'noNode' };
-const peppers: Lot = { id: '0192a000-0000-7000-8000-000000000013', name: 'Peppers', status: 'unknown' };
+const statusSince = '2026-10-06T07:05:00.000Z';
+const now = new Date('2026-10-06T07:17:00.000Z');
+const tomatoes: Lot = { id: '0192a000-0000-7000-8000-000000000011', name: 'Tomatoes', status: 'noNode', statusSince };
+const beans: Lot = { id: '0192a000-0000-7000-8000-000000000012', name: 'Beans', status: 'noNode', statusSince };
+const peppers: Lot = { id: '0192a000-0000-7000-8000-000000000013', name: 'Peppers', status: 'unknown', statusSince, unknownCause: 'node' };
 
 function text(html: string): string {
   return html
@@ -311,27 +313,28 @@ describe('Site settings surface', () => {
 });
 
 function garden(lots: readonly Lot[], lotsNotice: 'unreachable' | 'certificate' | 'unavailable' | null = null): string {
-  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [home], currentSite: home, sitesNotice: null, lots, lotsNotice };
+  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [home], currentSite: home, sitesNotice: null, sitesStale: null, lots, lotsNotice, staleSince: null, loadedAt: now.toISOString(), timeZone: 'UTC' };
   return render(GardenPage, { props: { data, params: {} } as never }).body;
 }
 
 describe('Lot tiles on Garden', () => {
   test('UX-DR18 a no-Node tile: name, add icon, a large +, foot add a Node, dotted and transparent, one accessible element', () => {
-    const { body } = render(LotTiles, { props: { lots: [tomatoes] } });
+    const { body } = render(LotTiles, { props: { lots: [tomatoes], now, timeZone: 'UTC' } });
     expect(body).toMatch(/<div class="cf-lot-tile cf-lot-tile--no-node[^"]*" role="img" aria-label="Tomatoes, no Node, add a Node"/u);
     expect(body).toContain('data-icon="add"');
     expect(text(body)).toMatch(/Tomatoes No Node \+ add a Node/u);
     expect(body).not.toMatch(/<a |<button/u);
   });
 
-  test('UX-DR18 any other status shows only the Lot name, with no status claim', () => {
-    const { body } = render(LotTiles, { props: { lots: [peppers] } });
-    expect(text(body)).toBe('Peppers');
-    expect(body).not.toContain('data-icon');
-    expect(body).toContain('aria-label="Peppers"');
+  test('UX-DR18 a Lot whose Node has not reported is unknown, never fine: hatched, help, how long, no Readings yet', () => {
+    const { body } = render(LotTiles, { props: { lots: [peppers], now, timeZone: 'UTC' } });
+    expect(text(body)).toBe('Peppers Silent · unknown 12 min no Readings yet');
+    expect(body).toContain('data-icon="help"');
+    expect(body).toContain('aria-label="Peppers, unknown, Node silent for 12 minutes, no Readings yet"');
+    expect(text(body)).not.toMatch(/\bOK\b/u);
   });
 
-  test('UX-DR20 tiles keep the Server order and are not tappable in Story 1.9', () => {
+  test('UX-DR20 tiles keep the Server order and are not tappable', () => {
     const body = garden([peppers, tomatoes, beans]);
     expect([...body.matchAll(/<li class="cf-lot-grid__cell[^"]*" data-lot="([^"]+)"/gu)].map((match) => match[1])).toEqual([peppers.id, tomatoes.id, beans.id]);
     const grid = body.slice(body.indexOf('cf-lot-grid'));

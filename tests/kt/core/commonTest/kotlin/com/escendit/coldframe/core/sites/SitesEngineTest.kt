@@ -25,6 +25,7 @@ class FakeSitesApi : SitesApi {
     val created = mutableListOf<Pair<String, String>>()
     var lists = 0
     var createGate: CompletableDeferred<Unit>? = null
+    var listGate: CompletableDeferred<Unit>? = null
     val renamed = mutableListOf<Pair<String, String>>()
     var renameFailure: ApiFailure? = null
 
@@ -42,6 +43,7 @@ class FakeSitesApi : SitesApi {
 
     override suspend fun listSites(): ApiResult<SiteListDto> {
         lists++
+        listGate?.await()
         listFailure?.let { return ApiResult.Failed(it) }
         return ApiResult.Ok(SiteListDto(sites.toList()))
     }
@@ -565,5 +567,205 @@ class SitesEngineTest {
 
             assertEquals(ApiResult.Failed(ApiFailure.Unexpected), engine.renameSite("Home garden"))
             assertTrue(api.renamed.isEmpty())
+        }
+
+    // Story 4.7: the last good Sites, so a cold start without the Server has a current Site
+
+    /** A new process on the same device; the earlier engine stays behind, as in no real app. */
+    private fun TestScope.restart(): SitesEngine {
+        signIn.value = SignInState.Restoring
+        runCurrent()
+        return signedIn()
+    }
+
+    @Test
+    fun uxDr80ATransportFailureOnLoadIsTriedOnceMore() =
+        runTest {
+            api.sites += home
+            api.listFailure = ApiFailure.Unreachable
+
+            val engine = signedIn()
+
+            assertEquals(SitesState.Failed(SitesNotice.Unreachable), engine.state.value)
+            assertEquals(2, api.lists)
+        }
+
+    @Test
+    fun createSiteOpenedOverTheKeptSitesStaysOpenWhenTheServersSitesLand() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            signedIn()
+            signIn.value = SignInState.Restoring
+            runCurrent()
+            val gate = CompletableDeferred<Unit>()
+            api.listGate = gate
+
+            val engine = SitesEngine(api, choices, backgroundScope, signIn)
+            signIn.value = SignInState.SignedIn("Simon")
+            runCurrent()
+            engine.newSite()
+            engine.setName("Allotment 2")
+            assertTrue(assertIs<SitesState.Ready>(engine.state.value).fromCache)
+
+            gate.complete(Unit)
+            runCurrent()
+
+            val live = assertIs<SitesState.Ready>(engine.state.value)
+            assertFalse(live.fromCache)
+            assertEquals("Allotment 2", live.creating?.name)
+        }
+
+    @Test
+    fun aSitesReadInFlightAcrossTheSignOutStoresNothing() =
+        runTest {
+            api.sites += listOf(home)
+            val engine = signedIn()
+            val gate = CompletableDeferred<Unit>()
+            api.listGate = gate
+            signIn.value = SignInState.Restoring
+            runCurrent()
+            signIn.value = SignInState.SignedIn("Simon")
+            runCurrent()
+            assertEquals(2, api.lists)
+
+            signIn.value = SignInState.SignedOut(null)
+            runCurrent()
+            gate.complete(Unit)
+            runCurrent()
+
+            assertEquals(SitesState.Idle, engine.state.value)
+            assertFalse(settings.hasKey("sites.lastGood"))
+        }
+
+    @Test
+    fun uxDr80AColdStartShowsTheKeptSitesAtOnceThenTheServers() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            signedIn().select("b")
+            val gate = CompletableDeferred<Unit>()
+            val slow =
+                object : SitesApi by api {
+                    override suspend fun listSites(): ApiResult<SiteListDto> {
+                        gate.await()
+                        return api.listSites()
+                    }
+                }
+            signIn.value = SignInState.Restoring
+            runCurrent()
+
+            val engine = SitesEngine(slow, choices, backgroundScope, signIn)
+            signIn.value = SignInState.SignedIn("Simon")
+            runCurrent()
+
+            val kept = assertIs<SitesState.Ready>(engine.state.value)
+            assertTrue(kept.fromCache)
+            assertEquals(listOf("Home", "Allotment"), kept.sites.map { it.name })
+            assertEquals("b", kept.current.id)
+
+            api.sites[1] = allotment.copy(name = "Plot 12")
+            gate.complete(Unit)
+            runCurrent()
+
+            val live = assertIs<SitesState.Ready>(engine.state.value)
+            assertFalse(live.fromCache)
+            assertEquals("Plot 12", live.current.name)
+        }
+
+    @Test
+    fun uxDr80WithoutTheServerTheKeptSitesStayCurrent() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            signedIn()
+            api.listFailure = ApiFailure.Unreachable
+
+            val engine = restart()
+
+            val kept = assertIs<SitesState.Ready>(engine.state.value)
+            assertTrue(kept.fromCache)
+            assertEquals("a", kept.current.id)
+            assertEquals(SiteRole.Owner, kept.current.role)
+
+            // The switcher still works on the kept list, and the next read makes it live.
+            engine.select("b")
+            api.listFailure = null
+            engine.load()
+            runCurrent()
+            val live = assertIs<SitesState.Ready>(engine.state.value)
+            assertFalse(live.fromCache)
+            assertEquals("b", live.current.id)
+        }
+
+    @Test
+    fun uxDr80AServerErrorAlsoKeepsTheKeptSites() =
+        runTest {
+            api.sites += home
+            signedIn()
+
+            for (failure in listOf(ApiFailure.Unexpected, ApiFailure.IdentityProviderUnavailable)) {
+                api.listFailure = failure
+                assertTrue(assertIs<SitesState.Ready>(restart().state.value).fromCache, failure.name)
+            }
+        }
+
+    @Test
+    fun aCertificateFailureShowsItsNoticeEvenWithKeptSites() =
+        runTest {
+            api.sites += home
+            signedIn()
+            api.listFailure = ApiFailure.Certificate
+
+            val engine = restart()
+
+            assertEquals(SitesState.Failed(SitesNotice.Certificate), engine.state.value)
+        }
+
+    @Test
+    fun aCertificateFailureOnLoadIsNotTriedAgain() =
+        runTest {
+            api.listFailure = ApiFailure.Certificate
+
+            signedIn()
+
+            assertEquals(1, api.lists)
+        }
+
+    @Test
+    fun signingOutClearsTheKeptSites() =
+        runTest {
+            api.sites += home
+            signedIn()
+            assertTrue(settings.hasKey("sites.lastGood"))
+
+            signIn.value = SignInState.SignedOut(null)
+            runCurrent()
+            assertFalse(settings.hasKey("sites.lastGood"))
+
+            api.listFailure = ApiFailure.Unreachable
+            assertEquals(SitesState.Failed(SitesNotice.Unreachable), signedIn().state.value)
+        }
+
+    @Test
+    fun a401OnLoadClearsTheKeptSites() =
+        runTest {
+            api.sites += home
+            signedIn()
+            api.listFailure = ApiFailure.Unauthorized
+
+            val engine = restart()
+
+            assertEquals(SitesState.Idle, engine.state.value)
+            assertFalse(settings.hasKey("sites.lastGood"))
+        }
+
+    @Test
+    fun keptSitesThatCannotBeReadOrAreEmptyCountAsNone() =
+        runTest {
+            api.listFailure = ApiFailure.Unreachable
+            settings.putString("sites.lastGood", "{not json")
+            assertEquals(SitesState.Failed(SitesNotice.Unreachable), signedIn().state.value)
+            assertFalse(settings.hasKey("sites.lastGood"))
+
+            settings.putString("sites.lastGood", """{"sites":[]}""")
+            assertEquals(SitesState.Failed(SitesNotice.Unreachable), restart().state.value)
         }
 }

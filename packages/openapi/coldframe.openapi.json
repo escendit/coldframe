@@ -501,15 +501,89 @@
         "description": "Computed by the Server (AD-14); clients never compute it.",
         "enum": ["needsWater", "needsCalibration", "unknown", "ok", "paused", "noNode"]
       },
+      "LotUnknownCause": {
+        "type": "string",
+        "description": "Why an unknown Lot cannot be read (AD-14): its Node is silent, or the Hub that relays it is.",
+        "enum": ["node", "hub"]
+      },
+      "LotPauseSource": {
+        "type": "string",
+        "description": "Where a Pause of the Lot's Node comes from (AD-8).",
+        "enum": ["device", "site"]
+      },
       "Lot": {
         "type": "object",
-        "required": ["id", "name", "status"],
+        "description": "A Lot with its Server-computed status (AD-14). Clients render these fields and never derive them.",
+        "required": ["id", "name", "status", "statusSince"],
         "properties": {
           "id": { "type": "string", "format": "uuid", "description": "The Lot ID, a UUIDv7." },
           "name": { "type": "string", "description": "The Lot name. Not unique." },
           "status": { "$ref": "#/components/schemas/LotStatus" },
+          "statusSince": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the Lot got its current status, ISO-8601 UTC with Z. It does not move while the status stays the same."
+          },
+          "lastReadingAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The newest measured_at of the Readings of the Lot's Node since it was put in the Lot, ISO-8601 UTC with Z; absent without a Node or before its first Reading."
+          },
+          "unknownCause": {
+            "allOf": [{ "$ref": "#/components/schemas/LotUnknownCause" }],
+            "description": "Present only when status is unknown."
+          },
+          "pausedBy": {
+            "type": "array",
+            "description": "The Pause sources of the Lot's Node, device before site. Present and non-empty only when status is paused.",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/components/schemas/LotPauseSource" }
+          },
+          "pausedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the Pause ends, ISO-8601 UTC with Z: the latest end of its sources. Absent when status is not paused or any source has no end."
+          },
+          "moisturePercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "The calibrated soil moisture of the Lot's newest Reading, in percent. Absent without a Calibration; the Server sends it from Epic 5 on."
+          },
+          "lowThresholdPercent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "The low Threshold of the Lot's soil-moisture Sensor, in percent. Absent without one; the Server sends it from Epic 6 on."
+          },
           "removed": { "type": "boolean", "description": "Present and true only for a removed Lot." }
-        }
+        },
+        "examples": [
+          { "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", "name": "Potatoes", "status": "noNode", "statusSince": "2026-10-06T07:02:00.000Z" },
+          {
+            "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e03",
+            "name": "Peppers",
+            "status": "needsCalibration",
+            "statusSince": "2026-10-06T07:02:00.000Z",
+            "lastReadingAt": "2026-10-06T07:17:00.000Z"
+          },
+          {
+            "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04",
+            "name": "Beans",
+            "status": "unknown",
+            "statusSince": "2026-10-06T01:05:00.000Z",
+            "unknownCause": "node"
+          },
+          {
+            "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05",
+            "name": "Strawberries",
+            "status": "paused",
+            "statusSince": "2026-10-01T09:00:00.000Z",
+            "pausedBy": ["device", "site"],
+            "pausedUntil": "2026-11-01T00:00:00.000Z"
+          }
+        ]
       },
       "LotList": {
         "type": "object",

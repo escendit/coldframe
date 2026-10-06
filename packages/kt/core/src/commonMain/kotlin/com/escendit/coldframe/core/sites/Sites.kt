@@ -115,10 +115,15 @@ public sealed interface SitesState {
     /**
      * The tab shell on [current]. [sites] are in the Server's order and never re-sorted.
      * [creating] is the Create Site form opened from "New Site", shown over the shell.
+     *
+     * [fromCache] is true while [sites] are the last good list kept on this device: on a cold
+     * start until the first read lands, and for as long as the Server does not answer. The Sites
+     * surfaces have no stale mode of their own; the overview's is [com.escendit.coldframe.core.lots.LotsState.stale].
      */
     public data class Ready(
         val sites: List<SiteSummary>,
         val current: SiteSummary,
         val creating: CreateSiteForm?,
+        val fromCache: Boolean = false,
     ) : SitesState
 }

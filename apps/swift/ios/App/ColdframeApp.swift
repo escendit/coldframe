@@ -2,7 +2,7 @@ import ColdframeIOS
 import SwiftUI
 
 /// The iOS app: the SwiftUI shell over the shared Kotlin core. The session resumes on start and
-/// on every return to the foreground.
+/// on every return to the foreground, and the Site overview reads its Lots again.
 @main
 struct ColdframeApp: App {
   @StateObject private var model: ShellModel = {
@@ -36,7 +36,11 @@ struct ColdframeApp: App {
         nodeSetupActions: model.nodeSetupActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
-        if phase == .active { model.signIn.resume() }
+        if phase == .active {
+          model.signIn.resume()
+          // The overview reads its Lots again every time the app comes to the front.
+          model.lotsService?.refresh()
+        }
       }
     }
   }

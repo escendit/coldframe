@@ -54,10 +54,13 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.canAddHub
 import com.escendit.coldframe.core.devices.canAddNode
+import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import java.time.Instant
 
 /** The four mobile tabs (UX-DR57), in order. */
@@ -83,7 +86,9 @@ enum class Tab(
  * menu's "Site settings" opens Site settings.
  *
  * [tabState] is the selected tab. The root hoists it, so closing a flow that replaced the shell
- * (Add a Hub, Add a Node) returns to the tab it was opened from. [now] is the clock last-seen times are told against.
+ * (Add a Hub, Add a Node) returns to the tab it was opened from. [now] is the clock last-seen times,
+ * the stale age and the Lots' durations are told against; [lotsEvents] are the core's stale-mode
+ * events, which the Garden announces.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +107,7 @@ fun AppShell(
     devicesActions: DevicesActions = DevicesActions.None,
     tabState: MutableState<Tab> = rememberSaveable { mutableStateOf(Tab.Garden) },
     now: () -> Instant = Instant::now,
+    lotsEvents: Flow<LotsEvent> = emptyFlow(),
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -243,6 +249,8 @@ fun AppShell(
                     lotsActions = lotsActions,
                     onAddHub = onAddHub,
                     onAddNode = onAddNode,
+                    now = now,
+                    events = lotsEvents,
                 )
             } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)

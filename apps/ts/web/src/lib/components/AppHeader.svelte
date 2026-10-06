@@ -14,9 +14,11 @@
     sites?: readonly Site[];
     currentSite?: Site | null;
     currentPath?: string;
+    /** Stale mode: every Site menu item is disabled with "Needs your Server". */
+    stale?: boolean;
   }
 
-  let { user, menuOpen, onmenu, sites = [], currentSite = null, currentPath = '' }: Props = $props();
+  let { user, menuOpen, onmenu, sites = [], currentSite = null, currentPath = '', stale = false }: Props = $props();
 </script>
 
 <header class="cf-app-header">
@@ -28,7 +30,7 @@
     <SiteTabs {sites} {currentSite} {currentPath} />
     {#if currentSite !== null && currentPath !== '/sites/new'}
       <!-- The Site menu belongs to the current Site tab (UX-DR22); a tablist may hold only tabs, so it follows it. -->
-      <SiteMenu siteName={currentSite.name} items={siteMenuItems(currentSite.role)} />
+      <SiteMenu siteName={currentSite.name} items={siteMenuItems(currentSite.role, { stale })} />
     {/if}
   </div>
   <span class="cf-app-header__spacer"></span>

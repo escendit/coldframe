@@ -40,6 +40,8 @@ public sealed class MigrationTests(AppHostFixture fixture)
         "device_reports_default",
         "reading_keys",
         "device_replay",
+        "lot_status_devices",
+        "lot_status_sensors",
     ];
 
     [Fact]
@@ -109,6 +111,47 @@ public sealed class MigrationTests(AppHostFixture fixture)
         var active = (long)(await command.ExecuteScalarAsync(timeout.Token))!;
 
         Assert.True(active >= 1, "No silo is active in orleansmembershiptable.");
+    }
+
+    [Fact]
+    public async Task TheLotStatusMigrationEmptiesLotsAndDropsTheirCheckpointSoTheProjectorRebuildsThem()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var database = new JournalDatabase(fixture);
+
+        // A database from before Story 4.7, with a projected Lot and the projector's checkpoint.
+        await database.InitializeAsync(upTo: 20261006150000);
+        await database.ExecuteAsync(
+            """
+            INSERT INTO lots (lot_id, site_id, name, status, claimed_by, created_at, removed_at)
+            VALUES ('0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02', 'site-1', 'Tomatoes', 'unknown', '7c19', now(), NULL);
+            INSERT INTO projection_checkpoints (projector, position, updated_at) VALUES ('lots', 42, now()), ('devices', 42, now());
+            """);
+
+        Assert.True(JournalDatabase.Migrate(database.ConnectionString), "The Lot status migration was not pending.");
+
+        Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM lots"));
+        Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector = 'lots'"));
+        Assert.Equal(42L, await database.ScalarAsync<long>("SELECT position FROM projection_checkpoints WHERE projector = 'devices'"));
+
+        var tables = await ReadTablesAsync(database.ConnectionString, cancellationToken);
+        Assert.Contains("lot_status_devices", tables);
+        Assert.Contains("lot_status_sensors", tables);
+
+        var columns = new List<string>();
+        await using (var command = database.DataSource.CreateCommand(
+            "SELECT column_name || ' ' || is_nullable FROM information_schema.columns WHERE table_name = 'lots' ORDER BY column_name"))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                columns.Add(reader.GetString(0));
+            }
+        }
+
+        Assert.Subset(
+            columns.ToHashSet(StringComparer.Ordinal),
+            new HashSet<string>(["status_since NO", "claimed_at YES", "unknown_cause YES", "paused_by YES", "paused_until YES"], StringComparer.Ordinal));
     }
 
     [Fact]

@@ -3,7 +3,8 @@ import type { Site, SitesData } from '$lib/sites';
 import type { DisplayUser } from '$lib/user';
 import { oidcRoutes, signinUrl } from './auth-handle';
 import { guardShell } from './guard';
-import { listSites, type SitesDependencies } from './sites';
+import { forget, isTransportFailure, readThrough, remember, sitesKey, userKeyOf, type LastGoodDependencies, type ReadOutcome } from './last-good';
+import { listSites } from './sites';
 import { getConfig } from './runtime';
 
 /** The Site this browser shows. First-party, httpOnly; holds a Site ID only. */
@@ -13,6 +14,9 @@ export const siteCookieName = 'cf_site';
 export const timeZoneCookieName = 'cf_time_zone';
 
 export const createSitePath = '/sites/new';
+
+/** The Site overview: the only page of the shell with stale mode (UX-DR79). */
+export const gardenPath = '/garden';
 
 const oneYearSeconds = 60 * 60 * 24 * 365;
 
@@ -45,23 +49,46 @@ export function pickCurrentSite(sites: readonly Site[], chosen: string | undefin
 }
 
 /**
+ * The caller's Sites. On the Site overview a read that fails twice falls back to the last good
+ * Sites; every other page reads once and keeps its notice, but a success is kept from any page.
+ */
+async function readSites(locals: Locals, overview: boolean, dependencies: LastGoodDependencies): Promise<ReadOutcome<readonly Site[]>> {
+  const user = userKeyOf(locals);
+  const key = user === null ? null : sitesKey(user);
+  if (overview) {
+    return readThrough(key, () => listSites(locals, dependencies), dependencies);
+  }
+  const result = await listSites(locals, dependencies);
+  if ('ok' in result) {
+    remember(key, result.ok, dependencies);
+    return { ok: result.ok, fetchedAt: '', stale: false };
+  }
+  if (!isTransportFailure(result.error) && result.error !== 'certificate') {
+    forget(key, dependencies);
+  }
+  return result;
+}
+
+/**
  * Loads the shell: the guard, then the caller's Sites from the Server. No Membership → Create
- * Site. `?site=` switches the current Site for this browser and is dropped from the URL.
+ * Site. `?site=` switches the current Site for this browser and is dropped from the URL. On the
+ * Site overview, Sites the Server could not be asked for come from the last good answer, with
+ * `sitesStale` saying when that was.
  */
 export async function loadShell(
   locals: Locals,
   url: URL,
   cookies: Cookies,
-  dependencies: SitesDependencies = {},
+  dependencies: LastGoodDependencies = {},
 ): Promise<{ user: DisplayUser } & SitesData> {
   const { user } = guardShell(locals, url);
-  const result = await listSites(locals, dependencies);
+  const result = await readSites(locals, url.pathname === gardenPath, dependencies);
   if ('error' in result) {
     if (result.error === 'unauthorized') {
       signedOutRedirect();
     }
     const sitesNotice = result.error === 'unreachable' || result.error === 'certificate' ? result.error : 'unavailable';
-    return { user, sites: [], currentSite: null, sitesNotice };
+    return { user, sites: [], currentSite: null, sitesNotice, sitesStale: null };
   }
   const sites = result.ok;
   const onCreateSite = url.pathname === createSitePath;
@@ -79,5 +106,5 @@ export async function loadShell(
     redirect(303, `${target.pathname}${target.search}`);
   }
 
-  return { user, sites, currentSite: pickCurrentSite(sites, cookies.get(siteCookieName)), sitesNotice: null };
+  return { user, sites, currentSite: pickCurrentSite(sites, cookies.get(siteCookieName)), sitesNotice: null, sitesStale: result.stale ? result.fetchedAt : null };
 }

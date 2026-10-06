@@ -24,12 +24,35 @@ func pluralForms() throws {
 @Test("UX-DR130 no exclamation marks, emoji, successfully, OK, fine or all good")
 func voiceRules() throws {
   let banned = try NSRegularExpression(
-    pattern: #"!|successfully|\bOK\b|\bokay\b|\bfine\b|all good"#, options: .caseInsensitive)
+    pattern: #"!|successfully|\bokay\b|\bfine\b|all good"#, options: .caseInsensitive)
+  let ok = try NSRegularExpression(pattern: #"\bOK\b"#, options: .caseInsensitive)
+  let okKeys = Set(L10n.namesOkStatus.map(\.rawValue))
   for (key, value) in try Catalogue.entries() {
     let range = NSRange(value.startIndex..., in: value)
     #expect(banned.firstMatch(in: value, range: range) == nil, "\(key)")
+    if !okKeys.contains(key) {
+      #expect(ok.firstMatch(in: value, range: range) == nil, "\(key)")
+    }
     #expect(!value.unicodeScalars.contains { $0.properties.isEmojiPresentation }, "\(key)")
   }
+}
+
+@Test("UX-DR130 OK names the ok status only: its tile label, its stale and spoken forms, its count")
+func okNamesTheStatusOnly() throws {
+  let entries = try Catalogue.entries()
+  let ok = try NSRegularExpression(pattern: #"\bOK\b"#, options: .caseInsensitive)
+  let written = entries.filter { _, value in
+    ok.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil
+  }
+
+  #expect(
+    Set(written.keys) == [
+      "lot_tile_label_ok", "lot_tile_was_ok", "lot_tile_spoken_ok", "lot_tile_spoken_was_ok",
+      "garden_count_ok",
+    ])
+  #expect(Set(written.keys) == Set(L10n.namesOkStatus.map(\.rawValue)))
+  // Always the status name, at the end of the entry and in capitals.
+  #expect(written.values.allSatisfy { $0.hasSuffix("OK") })
 }
 
 @Test("UX-DR130 uppercase comes from style, never from the string")
@@ -37,12 +60,15 @@ func noUppercaseCopy() throws {
   let shouting = try NSRegularExpression(pattern: #"\b\p{Lu}{2,}\b"#)
   // Acronyms are words, not style: the Hub's LED (UX-DR94) and its Device ID.
   let acronyms: Set<String> = ["LED", "ID"]
+  // "OK" is a word written in capitals, allowed only where the test above allows it.
+  let okKeys = Set(L10n.namesOkStatus.map(\.rawValue))
   for (key, value) in try Catalogue.entries() {
+    let allowed = okKeys.contains(key) ? acronyms.union(["OK"]) : acronyms
     let range = NSRange(value.startIndex..., in: value)
     let found = shouting.matches(in: value, range: range).compactMap {
       Range($0.range, in: value).map { String(value[$0]) }
     }
-    #expect(found.allSatisfy { acronyms.contains($0) }, "\(key)")
+    #expect(found.allSatisfy { allowed.contains($0) }, "\(key)")
   }
 }
 
@@ -70,4 +96,32 @@ func phoneCopy() throws {
   let entries = try Catalogue.entries()
   #expect(entries["appearance_theme_helper"] == "Applies at once and only on this phone.")
   #expect(entries["settings_sign_out_question"] == "Sign out of Coldframe on this phone?")
+}
+
+/// The UX-DRs of the stories whose acceptance asks for a test named after each one. A test
+/// covers an ID when its name starts with it, alone or in a run of IDs.
+private let coveredUxDrs: [String: [Int]] = [
+  "4.7 Lot status and the Site overview": [
+    12, 17, 18, 19, 20, 24, 77, 79, 80, 97, 98, 99, 106, 107, 112, 128, 129,
+  ]
+]
+
+@Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
+func uxDrCoverage() throws {
+  let name = try NSRegularExpression(pattern: #"@Test\(\s*"((?:UX-DR\d+ )+)"#)
+  var named: Set<Int> = []
+  for file in Repo.swiftSources("tests/swift/ios") {
+    let text = try String(contentsOf: file, encoding: .utf8)
+    for match in name.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+      guard let ids = Range(match.range(at: 1), in: text) else { continue }
+      for id in text[ids].split(separator: " ") {
+        if let number = Int(id.dropFirst("UX-DR".count)) { named.insert(number) }
+      }
+    }
+  }
+  for (story, ids) in coveredUxDrs {
+    for id in ids {
+      #expect(named.contains(id), "UX-DR\(id) of story \(story) has no test named after it")
+    }
+  }
 }

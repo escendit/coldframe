@@ -41,20 +41,26 @@ public class AndroidSignIn private constructor(
 
     private val api = SitesWiring.api(config, OkHttp.create(), engine)
 
+    /** Per-device choices and the last good Lots; not the token store. */
+    private val settings =
+        SharedPreferencesSettings(
+            context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE),
+        )
+
     /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
     public val sites: SitesEngine =
         SitesWiring.engine(
             api = api,
             signIn = engine,
-            settings =
-                SharedPreferencesSettings(
-                    context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE),
-                ),
+            settings = settings,
             scope = scope,
         )
 
-    /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
-    public val lots: LotsEngine = SitesWiring.lots(api, sites, scope)
+    /**
+     * The Lots of the current Site and Site settings; reloads whenever the current Site changes.
+     * The shell calls `refresh` on pull-to-refresh and whenever the overview comes to the front.
+     */
+    public val lots: LotsEngine = SitesWiring.lots(api, sites, settings, scope)
 
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
     public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)
@@ -74,7 +80,7 @@ public class AndroidSignIn private constructor(
     }
 
     public companion object {
-        /** Per-device choices: the current Site and the chosen time zone (not the token store). */
+        /** Per-device choices (current Site, chosen time zone) and the last good Lots per Site. */
         private const val PREFERENCES = "com.escendit.coldframe.sites"
 
         public fun create(

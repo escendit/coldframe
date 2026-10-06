@@ -33,13 +33,26 @@ public data class RenameRequestDto(
     val name: String,
 )
 
-/** `Lot`: [status] is a `LotStatus` value computed by the Server (AD-14); [removed] only on a removed Lot. */
+/**
+ * `Lot`: [status] is a `LotStatus` value computed by the Server (AD-14), with the fields that
+ * support it. Timestamps are ISO-8601 UTC. [unknownCause] (`node` or `hub`) comes only with
+ * `unknown`; [pausedBy] (`device`, `site`) and [pausedUntil] only with `paused`. The contract
+ * requires [statusSince]; it is tolerated missing so that a Server one release behind still
+ * lists its Lots. [removed] only on a removed Lot.
+ */
 @Serializable
 public data class LotDto(
     val id: String,
     val name: String,
     val status: String,
     val removed: Boolean? = null,
+    val statusSince: String? = null,
+    val lastReadingAt: String? = null,
+    val unknownCause: String? = null,
+    val pausedBy: List<String>? = null,
+    val pausedUntil: String? = null,
+    val moisturePercent: Double? = null,
+    val lowThresholdPercent: Double? = null,
 )
 
 /** `LotList`: the Site's live Lots in the Server's order. */

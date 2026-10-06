@@ -274,14 +274,20 @@ public sealed class LotsTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixtur
 }
 
 /// <summary>
-/// A Lot as the Edge API answers it; <see cref="Removed"/> is null when the field is absent.
+/// What the Lot endpoints of Story 1.9 answer about a Lot; <see cref="Removed"/> is null when the field is
+/// absent. The status fields of Story 4.7 are checked as they are read and compared in <c>LotStatusTests</c>.
 /// </summary>
 internal sealed record LotBody(string Id, string Name, string Status, bool? Removed)
 {
     public static LotBody Of(System.Text.Json.JsonElement lot)
     {
         var names = lot.EnumerateObject().Select(property => property.Name).ToList();
-        Assert.Subset(new HashSet<string>(["id", "name", "status", "removed"], StringComparer.Ordinal), names.ToHashSet(StringComparer.Ordinal));
+        string[] known = ["id", "name", "status", "statusSince", "lastReadingAt", "unknownCause", "pausedBy", "pausedUntil", "removed"];
+        Assert.Subset(new HashSet<string>(known, StringComparer.Ordinal), names.ToHashSet(StringComparer.Ordinal));
+
+        // Every Lot says since when it has its status, in UTC (Story 4.7); LotStatusTests checks the values.
+        Assert.True(DateTimeOffset.TryParse(lot.GetProperty("statusSince").GetString(), System.Globalization.CultureInfo.InvariantCulture, out _));
+        Assert.Equal(lot.GetProperty("status").GetString() == "unknown", lot.TryGetProperty("unknownCause", out _));
 
         return new LotBody(
             lot.GetProperty("id").GetString()!,

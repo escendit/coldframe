@@ -431,11 +431,175 @@
       newLotName: "", newLotNameError: nil, createWorking: false,
       renamingLotId: nil, renameDraft: "", renameError: nil, renameWorking: false,
       removingLotId: nil, removingLotName: nil, removeWorking: false,
-      actionNotice: nil, actionNoticeSubject: nil, canAddNode: true)
+      actionNotice: nil, actionNoticeSubject: nil,
+      lotVariants: ["noNode", "unknown"], lotLabels: ["noNode", "silent"],
+      lotValues: ["plus", "none"], lotFoots: ["addNode", "noReadingsYet"],
+      lotSpokens: ["noNode", "nodeSilent"], lotOpensAddNode: [true, false])
+    #expect(lots.tiles.first?.isTappable == true)
     #expect(
       renders(
         NavigationStack { GardenView(presentation: emptyGarden, lots: lots, actions: .none) },
         dark: dark))
+  }
+
+  /// The Site overview at a fixed clock, so the times it writes do not depend on the machine.
+  @MainActor
+  private func overview(_ lots: LotsPresentation) -> some View {
+    NavigationStack {
+      GardenView(
+        presentation: emptyGarden, lots: lots, actions: .none,
+        now: { Overview.context.now }, timeZone: Overview.context.timeZone)
+    }
+  }
+
+  /// The same at the default text size: two columns, the value at the bottom of the tile.
+  @MainActor
+  private func rendersAtDefaultSize<Content: View>(_ view: Content, dark: Bool) -> Bool {
+    let renderer = ImageRenderer(
+      content:
+        view
+        .environment(\.palette, ColdframePalette(isDark: dark))
+        .environment(\.colorScheme, dark ? .dark : .light)
+        .environment(\.dynamicTypeSize, .large)
+        .frame(width: 390, height: 2400))
+    return renderer.cgImage != nil
+  }
+
+  @Test(
+    "UX-DR18 UX-DR17 every Lot tile variant renders in two columns and in one",
+    arguments: [false, true])
+  @MainActor
+  func lotTileVariantsRender(dark: Bool) {
+    let lots = Overview.lots()
+    #expect(Set(lots.tiles.map(\.variant)).count == 6)
+    #expect(rendersAtDefaultSize(overview(lots), dark: dark))
+    // Accessibility 5: one column, the value directly under the status label.
+    #expect(renders(overview(lots), dark: dark))
+  }
+
+  @Test(
+    "UX-DR18 UX-DR99 each Lot tile variant renders on its own",
+    arguments: [false, true])
+  @MainActor
+  func eachLotTileVariantRenders(dark: Bool) {
+    for lot in Overview.everyLot {
+      let tile = Overview.tile(lot)
+      for valueFollowsLabel in [false, true] {
+        #expect(
+          renders(
+            LotTile(
+              tile: tile, context: .catalogue(), valueFollowsLabel: valueFollowsLabel),
+            dark: dark),
+          "\(lot.name)")
+      }
+    }
+  }
+
+  @Test(
+    "UX-DR19 UX-DR24 UX-DR79 the stale overview renders: stale header and stale tiles",
+    arguments: [false, true])
+  @MainActor
+  func staleOverviewRenders(dark: Bool) {
+    let lots = Overview.staleLots()
+    #expect(lots.tiles.allSatisfy { $0.isStale })
+    #expect(rendersAtDefaultSize(overview(lots), dark: dark))
+    #expect(renders(overview(lots), dark: dark))
+    for lot in Overview.everyLot {
+      #expect(
+        renders(
+          LotTile(tile: Overview.staleTile(lot), context: .catalogue(), valueFollowsLabel: false),
+          dark: dark),
+        "\(lot.name)")
+    }
+  }
+
+  @Test(
+    "UX-DR19 UX-DR80 the loading overview renders skeleton tiles",
+    arguments: [false, true])
+  @MainActor
+  func loadingOverviewRenders(dark: Bool) {
+    #expect(rendersAtDefaultSize(overview(Overview.loading), dark: dark))
+    #expect(renders(overview(Overview.loading), dark: dark))
+    #expect(renders(LotSkeletonTile(), dark: dark))
+  }
+
+  @Test(
+    "UX-DR21 UX-DR129 the summary header renders every headline, the paused one in paused ink",
+    arguments: [false, true])
+  @MainActor
+  func summaryHeaderRenders(dark: Bool) {
+    let headlines: [LotsPresentation] = [
+      Overview.lots(),
+      Overview.lots(headline: "cantBeRead", headlineCount: 4, headlineLotName: nil),
+      Overview.lots(
+        headline: "paused", headlineCount: 0, headlineLotName: nil,
+        headlinePausedUntil: String(Overview.novemberMs), headlinePausedInk: true),
+      Overview.lots(headline: "nothingNeedsWater", headlineCount: 0, headlineLotName: nil),
+    ]
+    for lots in headlines {
+      #expect(renders(overview(lots), dark: dark))
+    }
+  }
+
+  @Test("UX-DR12 the hatch and its plate render", arguments: [false, true])
+  @MainActor
+  func hatchRenders(dark: Bool) {
+    let palette = ColdframePalette(isDark: dark)
+    #expect(
+      renders(
+        L10n.lotTileFootUncalibrated.text.plate(true, palette).padding()
+          .background { Hatch(palette: palette) },
+        dark: dark))
+  }
+
+  @Test("UX-DR98 UX-DR125 tile copy resolves through the String Catalog as the Linux tests read it")
+  func tileCopyResolves() {
+    let context = CopyContext.catalogue(
+      now: Overview.context.now, timeZone: Overview.context.timeZone,
+      locale: Overview.context.locale)
+    #expect(Overview.tile(Overview.needsCalibration).footText(context) == "no % until calibrated")
+    #expect(Overview.tile(Overview.pausedUntil).valueText(context) == "—")
+    #expect(
+      Overview.tile(Overview.needsCalibration).spokenText(context)
+        == "Carrots, needs Calibration, no percentage until calibrated")
+    #expect(
+      Overview.tile(Overview.pausedBySite).spokenText(context) == "Leeks, paused with the Site")
+    #expect(L10n.gardenCountNeedsCalibration.string(1) == "1 needs Calibration")
+    #expect(L10n.gardenCountNeedsCalibration.string(2) == "2 need Calibration")
+    #expect(L10n.durationSpokenHours.string(1) == "1 hour")
+    #expect(L10n.durationSpokenHours.string(6) == "6 hours")
+  }
+
+  @MainActor
+  private final class LotsSpy: LotsService {
+    var calls: [String] = []
+    func observe(_ onChange: @escaping @MainActor (LotsPresentation) -> Void) {}
+    func observeEvents(_ onEvent: @escaping @MainActor (LotsEventPresentation) -> Void) {}
+    func load() { calls.append("load") }
+    func refresh() { calls.append("refresh") }
+    func tick() { calls.append("tick") }
+    func setSiteName(_ name: String) {}
+    func renameSite() {}
+    func setNewLotName(_ name: String) {}
+    func createLot() {}
+    func startRename(lotId: String) {}
+    func setRename(_ name: String) {}
+    func rename() {}
+    func cancelRename() {}
+    func askRemove(lotId: String) {}
+    func confirmRemove() {}
+    func cancelRemove() {}
+  }
+
+  @Test("UX-DR112 pull-to-refresh and the minute tick reach the Lots service")
+  @MainActor
+  func lotsActionsForward() {
+    let spy = LotsSpy()
+    let actions = LotsActions(service: spy)
+    actions.refresh()
+    actions.tick()
+    actions.load()
+    #expect(spy.calls == ["refresh", "tick", "load"])
   }
 
   private func devicesReady(canAddHub: Bool, hubs: Bool = true) -> DevicesPresentation {

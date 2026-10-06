@@ -131,6 +131,96 @@
   <string name="lot_tile_add_node">add a Node</string>
   <string name="lot_tile_description_no_node">%1$s, no Node, add a Node</string>
 
+  <!-- Story 4.7: Lot status and the Site overview. -->
+  <string name="list_comma">%1$s, %2$s</string>
+  <string name="list_dot">%1$s · %2$s</string>
+  <string name="soil_approx">~%1$s</string>
+  <plurals name="duration_spoken_minutes">
+    <item quantity="one">%1$d minute</item>
+    <item quantity="other">%1$d minutes</item>
+  </plurals>
+  <plurals name="duration_spoken_hours">
+    <item quantity="one">%1$d hour</item>
+    <item quantity="other">%1$d hours</item>
+  </plurals>
+  <plurals name="duration_spoken_days">
+    <item quantity="one">%1$d day</item>
+    <item quantity="other">%1$d days</item>
+  </plurals>
+
+  <string name="garden_loading">Loading %1$s</string>
+  <string name="garden_headline_lot_needs_water">%1$s needs water</string>
+  <plurals name="garden_headline_cant_read">
+    <item quantity="one">%1$d Lot can\'t be read</item>
+    <item quantity="other">%1$d Lots can\'t be read</item>
+  </plurals>
+  <string name="garden_headline_paused_until">Paused until %1$s</string>
+  <string name="garden_headline_paused">Paused</string>
+  <string name="garden_headline_nothing">Nothing needs water</string>
+  <plurals name="garden_count_needs_calibration">
+    <item quantity="one">%1$d needs Calibration</item>
+    <item quantity="other">%1$d need Calibration</item>
+  </plurals>
+  <string name="garden_count_unknown">%1$d unknown</string>
+  <string name="garden_count_ok">%1$d OK</string>
+  <string name="garden_count_paused">%1$d paused</string>
+  <string name="garden_count_no_node">%1$d without Node</string>
+
+  <string name="lot_tile_label_needs_water">Needs water</string>
+  <string name="lot_tile_label_ok">OK</string>
+  <string name="lot_tile_label_unknown_node">Silent · unknown</string>
+  <string name="lot_tile_label_unknown_hub">Hub silent · unknown</string>
+  <string name="lot_tile_label_needs_calibration">Needs Calibration</string>
+  <string name="lot_tile_label_paused">Paused</string>
+  <string name="lot_tile_label_paused_by_site">Paused by Site</string>
+  <string name="lot_tile_was_needs_water">Was needs water</string>
+  <string name="lot_tile_was_ok">Was OK</string>
+  <string name="lot_tile_was_unknown_node">Was silent · unknown</string>
+  <string name="lot_tile_was_unknown_hub">Was Hub silent · unknown</string>
+  <string name="lot_tile_was_needs_calibration">Was needs Calibration</string>
+  <string name="lot_tile_was_paused">Was paused</string>
+  <string name="lot_tile_was_paused_by_site">Was paused by Site</string>
+  <string name="lot_tile_was_no_node">Was no Node</string>
+  <string name="lot_tile_value_raw">raw</string>
+  <string name="lot_tile_value_paused">—</string>
+  <string name="lot_tile_foot_low">low %1$s</string>
+  <string name="lot_tile_foot_was">was %1$s at %2$s</string>
+  <string name="lot_tile_foot_last_reading">last Reading %1$s</string>
+  <string name="lot_tile_foot_no_readings">no Readings yet</string>
+  <string name="lot_tile_foot_uncalibrated" formatted="false">no % until calibrated</string>
+  <string name="lot_tile_foot_until">until %1$s</string>
+  <string name="lot_tile_foot_paused">paused</string>
+  <string name="lot_tile_as_of">as of %1$s</string>
+  <string name="lot_tile_spoken_needs_water">needs water</string>
+  <string name="lot_tile_spoken_ok">OK</string>
+  <string name="lot_tile_spoken_unknown">unknown</string>
+  <string name="lot_tile_spoken_needs_calibration">needs Calibration</string>
+  <string name="lot_tile_spoken_uncalibrated">no percentage until calibrated</string>
+  <string name="lot_tile_spoken_percent">about %1$d percent</string>
+  <string name="lot_tile_spoken_low">low %1$d percent</string>
+  <string name="lot_tile_spoken_reading">Reading %1$s</string>
+  <string name="lot_tile_spoken_node_silent">Node silent for %1$s</string>
+  <string name="lot_tile_spoken_hub_silent">Hub silent for %1$s</string>
+  <string name="lot_tile_spoken_last_percent">last about %1$d percent at %2$s</string>
+  <string name="lot_tile_spoken_last_reading">last Reading %1$s</string>
+  <string name="lot_tile_spoken_no_readings">no Readings yet</string>
+  <string name="lot_tile_spoken_paused">paused</string>
+  <string name="lot_tile_spoken_paused_until">paused until %1$s</string>
+  <string name="lot_tile_spoken_paused_site">paused with the Site</string>
+  <string name="lot_tile_spoken_not_live">not live</string>
+  <string name="lot_tile_spoken_was_needs_water">was needs water</string>
+  <string name="lot_tile_spoken_was_ok">was OK</string>
+  <string name="lot_tile_spoken_was_unknown">was unknown</string>
+  <string name="lot_tile_spoken_was_needs_calibration">was needs Calibration</string>
+  <string name="lot_tile_spoken_was_paused">was paused</string>
+  <string name="lot_tile_spoken_was_no_node">was no Node</string>
+
+  <string name="stale_title">%1$s · can\'t reach your Server</string>
+  <string name="stale_age">%1$s old</string>
+  <string name="stale_detail">Last data %1$s. You may be away from home, or the Server is down. Nothing below is live.</string>
+  <string name="stale_entered">Can\'t reach your Server. Showing data from %1$s.</string>
+  <string name="stale_left">Live again.</string>
+
   <string name="site_settings_title">Site settings</string>
   <string name="site_settings_site_name">Site name</string>
   <string name="site_settings_site_name_helper">Up to 100 characters.</string>

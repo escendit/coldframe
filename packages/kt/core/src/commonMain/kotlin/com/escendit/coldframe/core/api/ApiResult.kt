@@ -37,6 +37,15 @@ public enum class ApiFailure {
 
     /** Any other answer, including a 5xx other than 503. */
     Unexpected,
+    ;
+
+    /**
+     * Whether a read that failed this way may be answered from the last good data in stale mode:
+     * no answer, a 5xx, or an answer that is not the expected one. A 403 or 404 is an answer about
+     * the caller, a 401 ends the session, and a certificate failure is never served stale.
+     */
+    public val transport: Boolean
+        get() = this == Unreachable || this == Unexpected || this == IdentityProviderUnavailable
 }
 
 /** A Server call's outcome as a value; the API never throws for HTTP or I/O failures. */

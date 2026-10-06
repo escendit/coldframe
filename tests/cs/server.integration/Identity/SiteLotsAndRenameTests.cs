@@ -96,8 +96,8 @@ public sealed class SiteLotsAndRenameTests(IdentityCluster identity) : IClassFix
             ["site.created", "site.membership-granted", "site.lot-creation-requested", "site.lot-creation-completed", "site.lot-creation-requested", "site.lot-creation-completed"],
             await identity.AliasesAsync($"site/{siteId}"));
         Assert.Equal(
-            [new LotView(lot.Id, "Tomatoes", "noNode", false), new LotView(otherCaller.Lot.Id, "Beans", "noNode", false)],
-            await identity.Lots.ListLotsAsync(siteId, Ct));
+            [(lot.Id, "Tomatoes", "noNode", false), (otherCaller.Lot.Id, "Beans", "noNode", false)],
+            (await identity.Lots.ListLotsAsync(siteId, Ct)).Select(Row));
     }
 
     [Fact]
@@ -162,13 +162,18 @@ public sealed class SiteLotsAndRenameTests(IdentityCluster identity) : IClassFix
         Assert.Equal(new LotResult(LotOutcome.Found, new LotSummary(freeId, siteId, "Herbs", null, true)), described);
 
         // The removal caught the projection up; the claimed Lot is listed, the removed one only resolvable.
-        Assert.Equal([new LotView(claimedId, "Beans", "unknown", false)], await identity.Lots.ListLotsAsync(siteId, Ct));
-        Assert.Equal(new LotView(freeId, "Herbs", "noNode", true), await identity.Lots.FindLotAsync(siteId, freeId, Ct));
+        var listed = Assert.Single(await identity.Lots.ListLotsAsync(siteId, Ct));
+        Assert.Equal((claimedId, "Beans", "unknown", false), Row(listed));
+        Assert.Equal("node", listed.UnknownCause);
+        Assert.Equal((freeId, "Herbs", "noNode", true), Row((await identity.Lots.FindLotAsync(siteId, freeId, Ct))!));
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static string NewUserId() => Guid.NewGuid().ToString();
+
+    // What Story 1.9 projects of a Lot; its status fields (Story 4.7) are covered by LotStatusTests.
+    private static (string LotId, string Name, string Status, bool Removed) Row(LotView lot) => (lot.LotId, lot.Name, lot.Status, lot.Removed);
 
     private async Task<(string UserId, string SiteId)> CreateSiteAsync()
     {

@@ -15,10 +15,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
@@ -26,6 +22,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.components.dashedBorder
+import com.escendit.coldframe.android.ui.components.hatched
+import com.escendit.coldframe.android.ui.components.plate
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
@@ -36,7 +34,8 @@ import com.escendit.coldframe.designtokens.Typography
 /**
  * Wi-Fi network row (UX-DR42): SSID left, security right in `meta-mono`; selected = 2 dp
  * `primary-text` border plus a checkmark. A WPA3-only or other unsupported network is hatched
- * with a dashed border, cannot be selected and says why inline.
+ * (the shared hatch and plate of `ui/components/Hatch.kt`) with a dashed border, cannot be
+ * selected and says why inline.
  */
 @Composable
 fun WifiNetworkRowView(
@@ -116,25 +115,3 @@ fun WifiNetworkRowView(
         }
     }
 }
-
-/** Text on a hatched row sits on a solid plate, so the lines never cross it. */
-private fun Modifier.plate(
-    on: Boolean,
-    ground: Color,
-): Modifier = if (on) background(ground).padding(horizontal = Spacing.STEP_1.dp) else this
-
-/** 135° hatch: 1.5 dp lines every 8 dp on [ground] (DESIGN.md Shapes, unknown). */
-fun Modifier.hatched(
-    ground: Color,
-    line: Color,
-): Modifier =
-    clipToBounds().drawBehind {
-        drawRect(ground)
-        val step = 8.dp.toPx()
-        val stroke = 1.5.dp.toPx()
-        var x = -size.height
-        while (x < size.width) {
-            drawLine(line, Offset(x, size.height), Offset(x + size.height, 0f), stroke)
-            x += step
-        }
-    }

@@ -78,14 +78,12 @@ every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachabl
   checked (1 to 100 characters after trimming) before any request. The time zone is proposed from
   the browser and, once confirmed or picked, stored only in the httpOnly cookie `cf_time_zone`; it is
   never sent to the Server (AD-11), so the request body stays `{name}`.
-- **Garden** shows the Site summary header, "No Readings yet" and the four first-run step tiles
-  without actions, with the note that adding a Hub or Node needs the mobile app (Members see the
-  read-only note instead). The Site menu sits after the Site tabs and holds only Site settings until
-  the Pause story turns Pause/Resume on (`siteMenuItems` in [`src/lib/site-menu.ts`](src/lib/site-menu.ts)).
-  Below the first-run tiles, the Site's Lots show as tiles in the Server's order
-  ([`LotTiles.svelte`](src/lib/components/LotTiles.svelte)): a *no Node* tile has the dotted border,
-  `add`, "+" and "add a Node"; other statuses show the name only until their variants arrive. Tiles
-  are not tappable yet.
+- **Garden** shows the Site summary header, the four first-run step tiles without actions with the
+  note that adding a Hub or Node needs the mobile app (Members see the read-only note instead), and
+  below them the Site's Lots as tiles. The Site menu sits after the Site tabs and holds only Site
+  settings until the Pause story turns Pause/Resume on (`siteMenuItems` in
+  [`src/lib/site-menu.ts`](src/lib/site-menu.ts)). See [Lot status](#lot-status) and
+  [Stale mode](#stale-mode).
 - **Site settings** (`/settings/site`, first row of the Settings index and the Site menu item).
   [`src/lib/server/site-settings.ts`](src/lib/server/site-settings.ts) loads the current Site's Lots
   ([`src/lib/server/lots.ts`](src/lib/server/lots.ts)) and runs the named actions `renameSite`
@@ -94,6 +92,75 @@ every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachabl
   `Idempotency-Key` per attempt (kept after a 503 or network failure, replaced after a 422 or
   success). Remove asks in a Modal naming the Lot. A 403 says the change is not allowed on the
   Site; a 409 says to move or unassign the Node first.
+
+## Lot status
+
+The Server computes each Lot's status, its order and `statusSince` (AD-14). The web app only
+renders them: nothing here computes or re-sorts a status. It counts statuses for the headline and
+tells durations from the Server's timestamps and the browser's clock.
+
+- **Tiles.** [`src/lib/lot-tiles.ts`](src/lib/lot-tiles.ts) turns a `Lot` into a tile model (icon,
+  label, value, foot line, spoken label, soil level and low tick), and
+  [`LotTiles.svelte`](src/lib/components/LotTiles.svelte) draws it. A status string the client does
+  not know renders as `unknown`.
+
+  | Status | Shape and icon | Value | Foot |
+  | --- | --- | --- | --- |
+  | `needsWater` | solid orange, soil level, low tick, `rain-drop` | `~20` | Reading time · low Threshold |
+  | `ok` | neutral fill, soil level, 1 px solid, `checkmark--outline` | `~35` | the parts the Server sent |
+  | `unknown` | hatch, 1 px dashed, `help`; "Silent" or "Hub silent" from `unknownCause` | silence since `lastReadingAt` (Node) or `statusSince` (Hub, or no Reading) | what it last read, or "no Readings yet" |
+  | `needsCalibration` | hatch, 2 px dashed yellow, `tools` | `raw` | "no % until calibrated" |
+  | `paused` | flat purple fill, 2 px solid, `pause--outline`; "Paused by Site" when `pausedBy` has `site` | `—` | "until ‹date›" or "paused" |
+  | `noNode` | empty, 1 px dotted, `add` | `+` | "add a Node" |
+
+  Soil moisture is `~` and the nearest 5; an uncalibrated Lot never shows a percentage. Each tile is
+  one accessibility element with the whole label ("Tomatoes, needs water, about 20 percent, low 30
+  percent, Reading 7:02 AM"). Tiles are not tappable yet. The grid has 1 column below 400 px of its
+  own width, then 2, 3 (from 672 px) and 4 (from 1056 px); in one column the value sits directly
+  under the status label.
+- **Hatch.** [`Hatch.svelte`](src/lib/components/Hatch.svelte) is the reusable hatch fill: an inline
+  SVG pattern coloured by the hatch tokens (CSS gradients are kept for the Sign-in surface). With
+  `plate` its children sit on a solid plate of the hatch ground.
+- **Headline.** [`src/lib/garden.ts`](src/lib/garden.ts) picks the first that applies: no Lot has a
+  Node → "No Readings yet"; any needs water → "Tomatoes needs water" or "2 Lots need water"; any
+  unknown or needing calibration → "2 Lots can't be read"; every Lot with a Node paused by the Site →
+  "Paused until ‹date›" (when they share one end) or "Paused", in the paused ink; otherwise "Nothing
+  needs water". The subline counts the other statuses in the Server's order.
+- **Refetch on focus.** Garden loads again when its tab gets focus or becomes visible. There is no
+  polling and no SignalR yet.
+
+## Stale mode
+
+When the Server cannot be reached, the Site overview shows the last good data and says how old it
+is. The browser never calls the Server, so that data is kept in the web app's process
+([`src/lib/server/last-good.ts`](src/lib/server/last-good.ts)): the Sites per user and the Lots per
+user and Site, at most 500 entries (least recently used first out), in memory only. Like the
+sessions, it is lost on a restart and not shared between replicas; without it the existing
+unreachable notice shows.
+
+- **Entering.** A Sites or Lots read that fails for transport reasons (no answer, a 5xx, or an
+  answer outside the contract) is retried once. When the retry fails too, the last good value is
+  served with the time it was read. When the Sites already came from the last good answer, the
+  Lots are not asked for again. A 401 signs out, and a 403 or 404 drops what was kept. An untrusted
+  certificate keeps its own notice and is never retried.
+- **What it shows.** The stale header replaces the summary header ("Home garden · can't reach your
+  Server", the age, "Last data 7:02 AM. …"); every tile is the stale variant ("Was needs water",
+  "as of 7:02 AM", outline only, `cloud--offline`); the Site menu items are disabled with "Needs
+  your Server". Both times are the last successful read. The age ticks once a minute in the browser,
+  the only timer in the app, and is never announced.
+- **Leaving.** The next load that succeeds is live again. Loads happen on navigation and on focus;
+  nothing retries in the background.
+- **The web app itself out of reach.** A laptop away from home cannot reach the web app at all, and
+  loading the page again would replace the overview with an error page. So on focus the page first
+  asks for `/_app/version.json` (a static file; nothing is read from the Server), once more after a
+  network error. When both fail it does not load again: the shown Lots stay as stale, "as of" the
+  last successful load (or the time the data was already stale from), announced like any entry,
+  with the Site menu disabled. The next focus that reaches the web app loads again and leaves stale
+  mode. The decision is `onFocusDecision` in [`src/lib/garden.ts`](src/lib/garden.ts).
+- **Announcements.** Entering ("Can't reach your Server. Showing data from 7:02 AM.") and leaving
+  ("Live again.") are announced politely, once per change.
+- **Only the overview.** Devices, Site settings and the other pages have no stale mode: they read
+  once and show their notice.
 
 ## Copy
 
@@ -112,7 +179,10 @@ Unit tests are in [`tests/ts/web`](../../../tests/ts/web), end-to-end tests in
 
 The e2e fake IdP doubles as an in-memory Server (`GET /sites`, `POST /sites`, `PATCH /sites/{id}`
 and the Lot routes; `POST /control/sites` resets or seeds the Sites, one Site by default, and can
-seed a Lot as holding a Node). `specs/site-settings.spec.ts` renames the Site, creates, renames and
+seed a Lot as holding a Node or with a whole status; `POST /control/reads` makes the Sites and Lots
+reads drop the connection after they succeeded). `specs/lot-status.spec.ts` seeds one Lot per tile
+variant and compares screenshots of the live and the stale overview in light and dark at 1, 2, 3 and
+4 columns, with axe; the stale ones have the time of the run replaced before they are compared. `specs/site-settings.spec.ts` renames the Site, creates, renames and
 removes Lots, checks the 409 copy and the Member view, with screenshots. `specs/garden.spec.ts` signs in with no Site,
 creates "Home" and checks the empty Garden in light and dark at 200 % zoom, with axe and committed
 screenshots (Linux Chromium) under `specs/garden.spec.ts-snapshots/`. Run the e2e tests with

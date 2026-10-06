@@ -219,6 +219,50 @@ export type components = {
          * @enum {string}
          */
         LotStatus: "needsWater" | "needsCalibration" | "unknown" | "ok" | "paused" | "noNode";
+        /**
+         * @description Why an unknown Lot cannot be read (AD-14): its Node is silent, or the Hub that relays it is.
+         * @enum {string}
+         */
+        LotUnknownCause: "node" | "hub";
+        /**
+         * @description Where a Pause of the Lot's Node comes from (AD-8).
+         * @enum {string}
+         */
+        LotPauseSource: "device" | "site";
+        /**
+         * @description A Lot with its Server-computed status (AD-14). Clients render these fields and never derive them.
+         * @example {
+         *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02",
+         *       "name": "Potatoes",
+         *       "status": "noNode",
+         *       "statusSince": "2026-10-06T07:02:00.000Z"
+         *     }
+         * @example {
+         *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e03",
+         *       "name": "Peppers",
+         *       "status": "needsCalibration",
+         *       "statusSince": "2026-10-06T07:02:00.000Z",
+         *       "lastReadingAt": "2026-10-06T07:17:00.000Z"
+         *     }
+         * @example {
+         *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04",
+         *       "name": "Beans",
+         *       "status": "unknown",
+         *       "statusSince": "2026-10-06T01:05:00.000Z",
+         *       "unknownCause": "node"
+         *     }
+         * @example {
+         *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05",
+         *       "name": "Strawberries",
+         *       "status": "paused",
+         *       "statusSince": "2026-10-01T09:00:00.000Z",
+         *       "pausedBy": [
+         *         "device",
+         *         "site"
+         *       ],
+         *       "pausedUntil": "2026-11-01T00:00:00.000Z"
+         *     }
+         */
         Lot: {
             /**
              * Format: uuid
@@ -228,6 +272,29 @@ export type components = {
             /** @description The Lot name. Not unique. */
             name: string;
             status: components["schemas"]["LotStatus"];
+            /**
+             * Format: date-time
+             * @description When the Lot got its current status, ISO-8601 UTC with Z. It does not move while the status stays the same.
+             */
+            statusSince: string;
+            /**
+             * Format: date-time
+             * @description The newest measured_at of the Readings of the Lot's Node since it was put in the Lot, ISO-8601 UTC with Z; absent without a Node or before its first Reading.
+             */
+            lastReadingAt?: string;
+            /** @description Present only when status is unknown. */
+            unknownCause?: components["schemas"]["LotUnknownCause"];
+            /** @description The Pause sources of the Lot's Node, device before site. Present and non-empty only when status is paused. */
+            pausedBy?: components["schemas"]["LotPauseSource"][];
+            /**
+             * Format: date-time
+             * @description When the Pause ends, ISO-8601 UTC with Z: the latest end of its sources. Absent when status is not paused or any source has no end.
+             */
+            pausedUntil?: string;
+            /** @description The calibrated soil moisture of the Lot's newest Reading, in percent. Absent without a Calibration; the Server sends it from Epic 5 on. */
+            moisturePercent?: number;
+            /** @description The low Threshold of the Lot's soil-moisture Sensor, in percent. Absent without one; the Server sends it from Epic 6 on. */
+            lowThresholdPercent?: number;
             /** @description Present and true only for a removed Lot. */
             removed?: boolean;
         };
