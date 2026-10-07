@@ -317,8 +317,8 @@ func devicesMovePickerDisablesOccupiedLots() throws {
 
   // An unassigned Node has no current Lot: both occupied Lots have a Node.
   let spare = try #require(presentation.nodes.last)
-  let choices = presentation.moveChoices(for: spare, selected: nil)
-  #expect(choices.map(\.isSelectable) == [false, false, true])
+  let spareChoices = presentation.moveChoices(for: spare, selected: nil)
+  #expect(spareChoices.map(\.isSelectable) == [false, false, true])
 }
 
 @Test("UX-DR31 the Node being moved is working and a refused move says why under that Node only")
