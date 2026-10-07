@@ -104,6 +104,17 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             HttpStatusCode.NotFound,
             DeviceNotFoundAsync);
 
+        // A Sensor no Site has declared: an allowed caller passes the access rule and meets 404 sensor-not-found,
+        // which tells it apart from the 403 of a caller below Administrator and the 404 of a missing Site.
+        _samples["POST /sites/{siteId}/sensors/{sensorId}/calibration"] = new(
+            async (server, siteId, cancellationToken) =>
+                await server.PostAsJsonAsync(
+                    new Uri($"/sites/{siteId}/sensors/{Guid.NewGuid()}/calibration", UriKind.Relative),
+                    new { dry = new { readingSeq = 1 } },
+                    cancellationToken),
+            HttpStatusCode.NotFound,
+            SensorNotFoundAsync);
+
         // Each call gets a fresh Lot of the Site it targets, so a removal never meets a removed Lot.
         _samples["GET /sites/{siteId}/lots/{lotId}"] = new(
             async (server, siteId, cancellationToken) =>
@@ -255,6 +266,13 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
         var type = body.RootElement.GetProperty("type").GetString();
         return type == "urn:coldframe:problem:device-not-found" ? null : $"problem {type}, expected device-not-found";
+    }
+
+    private static async Task<string?> SensorNotFoundAsync(HttpResponseMessage response, SiteRole role, CancellationToken cancellationToken)
+    {
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+        var type = body.RootElement.GetProperty("type").GetString();
+        return type == "urn:coldframe:problem:sensor-not-found" ? null : $"problem {type}, expected sensor-not-found";
     }
 
     private Task<string> SeedLotAsync(string siteId, CancellationToken cancellationToken) =>

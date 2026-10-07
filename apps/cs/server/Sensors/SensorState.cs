@@ -5,7 +5,9 @@ namespace Coldframe.Server.Sensors;
 /// <summary>
 /// The state of the Sensor grain: the Node and slot it belongs to, the Specification in force, and each
 /// Threshold side as <c>Default | Override(value) | Cleared</c> (AD-19). A side stores only its kind and an
-/// override's value; a side in <see cref="ThresholdKind.Default"/> reads the Specification's default.
+/// override's value; a side in <see cref="ThresholdKind.Default"/> reads the Specification's default. It also
+/// holds the Calibration in force, the reference point kept while the other one is missing, and which
+/// Calibration the Device grain acknowledged (Story 5.1).
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.sensor-state")]
@@ -40,6 +42,40 @@ public sealed class SensorState
     /// </summary>
     [Id(4)]
     public ThresholdSetting High { get; private set; } = ThresholdSetting.Default;
+
+    /// <summary>
+    /// The Calibration in force, or <see langword="null"/> while the Sensor is uncalibrated.
+    /// </summary>
+    [Id(5)]
+    public SensorCalibration? Calibration { get; private set; }
+
+    /// <summary>
+    /// The raw value of a dry point kept while the wet one is missing.
+    /// </summary>
+    [Id(6)]
+    public long? PendingDryRaw { get; private set; }
+
+    /// <summary>
+    /// The raw value of a wet point kept while the dry one is missing.
+    /// </summary>
+    [Id(7)]
+    public long? PendingWetRaw { get; private set; }
+
+    /// <summary>
+    /// The newest Calibration the Device grain acknowledged, or <see langword="null"/> before the first.
+    /// </summary>
+    [Id(8)]
+    public Guid? DeliveredCalibrationId { get; private set; }
+
+    /// <summary>
+    /// Whether the Sensor has a Calibration in force.
+    /// </summary>
+    public bool Calibrated => Calibration is not null;
+
+    /// <summary>
+    /// Whether the Calibration in force still has to reach the Device grain.
+    /// </summary>
+    public bool DeliveryPending => Calibration is { } calibration && DeliveredCalibrationId != calibration.Id;
 
     /// <summary>
     /// Whether the Sensor was declared.
@@ -77,6 +113,40 @@ public sealed class SensorState
         ArgumentNullException.ThrowIfNull(@event);
         Low = Stored(@event.Low);
         High = Stored(@event.High);
+    }
+
+    public void Apply(SensorCalibrationPointRecorded @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // The Calibration in force is not touched: a recalibration only replaces it when its second point is in.
+        if (@event.Point == CalibrationPoint.Dry)
+        {
+            PendingDryRaw = @event.RawValue;
+        }
+        else
+        {
+            PendingWetRaw = @event.RawValue;
+        }
+    }
+
+    public void Apply(SensorCalibrated @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        Calibration = new SensorCalibration(@event.CalibrationId, (Calibration?.Revision ?? 0) + 1, @event.DryRaw, @event.WetRaw, @event.CalibratedAt);
+        PendingDryRaw = null;
+        PendingWetRaw = null;
+    }
+
+    public void Apply(SensorCalibrationDelivered @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // Only the newest Calibration counts as delivered: an acknowledgement of an older one is history.
+        if (Calibration?.Id == @event.CalibrationId)
+        {
+            DeliveredCalibrationId = @event.CalibrationId;
+        }
     }
 
     // Only an override has a value of its own.

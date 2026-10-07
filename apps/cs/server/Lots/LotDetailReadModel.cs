@@ -1,6 +1,7 @@
 using System.Buffers.Text;
 using System.Globalization;
 using System.Text;
+using Coldframe.Server.Sensors;
 using Npgsql;
 
 namespace Coldframe.Server.Lots;
@@ -19,7 +20,8 @@ public sealed record LotClaim(string NodeId, DateTimeOffset ClaimedAt);
 /// <param name="Quantity">The quantity token: <c>soil_moisture</c>, <c>air_temperature</c>, <c>relative_humidity</c> or <c>gas_resistance</c>.</param>
 /// <param name="RawValue">The stored value: raw count, milli-°C, milli-% or Ω.</param>
 /// <param name="MeasuredAt">When the Reading was taken.</param>
-public sealed record StoredReading(int Slot, string Quantity, long RawValue, DateTimeOffset MeasuredAt);
+/// <param name="Calibration">The points of the Calibration the Reading was stored with, or <see langword="null"/> without one.</param>
+public sealed record StoredReading(int Slot, string Quantity, long RawValue, DateTimeOffset MeasuredAt, CalibrationPoints? Calibration = null);
 
 /// <summary>
 /// A Node's newest device report.
@@ -49,10 +51,11 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
 
     private const string LatestSql =
         """
-        SELECT DISTINCT ON (slot, quantity) slot, quantity, raw_value, measured_at
-        FROM readings
-        WHERE device_id = @device_id AND measured_at >= @since
-        ORDER BY slot, quantity, measured_at DESC
+        SELECT DISTINCT ON (r.slot, r.quantity) r.slot, r.quantity, r.raw_value, r.measured_at, c.dry_raw, c.wet_raw
+        FROM readings r
+        LEFT JOIN calibrations c ON c.calibration_id = r.calibration_id
+        WHERE r.device_id = @device_id AND r.measured_at >= @since
+        ORDER BY r.slot, r.quantity, r.measured_at DESC
         """;
 
     private const string ReportSql =
@@ -119,7 +122,12 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            readings.Add(new StoredReading(reader.GetInt32(0), reader.GetString(1), reader.GetInt64(2), reader.GetFieldValue<DateTimeOffset>(3)));
+            // A Reading stored with a Calibration whose points are not projected yet reads as raw until they are.
+            var calibration = await reader.IsDBNullAsync(4, cancellationToken).ConfigureAwait(false)
+                ? null
+                : new CalibrationPoints(reader.GetInt64(4), reader.GetInt64(5));
+
+            readings.Add(new StoredReading(reader.GetInt32(0), reader.GetString(1), reader.GetInt64(2), reader.GetFieldValue<DateTimeOffset>(3), calibration));
         }
 
         return readings;

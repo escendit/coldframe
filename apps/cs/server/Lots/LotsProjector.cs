@@ -10,28 +10,30 @@ namespace Coldframe.Server.Lots;
 
 /// <summary>
 /// Projects Lots into <c>lots</c>, the read model of Garden and Site settings, with the Server's status of
-/// every Lot (AD-14). It is the only writer of that table and of its two support tables,
-/// <c>lot_status_devices</c> and <c>lot_status_sensors</c>.
+/// every Lot (AD-14). It is the only writer of that table and of its three support tables,
+/// <c>lot_status_devices</c>, <c>lot_status_sensors</c> and <c>calibrations</c> (the points of every
+/// Calibration, from which a Reading's percentage is derived).
 /// </summary>
 /// <remarks>
 /// <para>
 /// It reads three kinds of streams. Lot events create, rename, claim, release and remove the row. Device
 /// events (<c>device.paused</c>, <c>device.resumed</c>, <c>device.specifications-declared</c>) and Sensor
-/// events (<c>sensor.declared</c>, <c>sensor.specification-changed</c>) fill the support tables. After every
+/// events (<c>sensor.declared</c>, <c>sensor.specification-changed</c>, <c>sensor.calibrated</c>) fill the
+/// support tables. After every
 /// event that can change a status, the Lots it touches are evaluated again through
 /// <see cref="LotStatusRule"/>, the only place that decides a status.
 /// </para>
 /// <para>
 /// <c>status_since</c> moves only when the status changes, to the time of the event that changed it: the
 /// journal's recorded time for a Lot event, the event's own time otherwise. Applying an event again
-/// therefore changes nothing, and deleting the three tables and the checkpoint rebuilds them from position 0.
+/// therefore changes nothing, and deleting the four tables' rows and the checkpoint rebuilds them from position 0.
 /// </para>
 /// <para>
 /// Two inputs of the rule have no producer yet. No Silent Alert exists before Epic 7, so the only silence
 /// the projector knows is a Node that has declared no Sensor: it has never reported, and its Lot is
 /// <c>unknown</c> with cause <c>node</c>. No Threshold Alert exists before Epic 6, so the open low-side
-/// Alert is always absent. No Calibration exists before Epic 5, so every declared <c>calibration: true</c>
-/// soil-moisture Sensor is uncalibrated.
+/// Alert is always absent. A declared <c>calibration: true</c> soil-moisture Sensor is uncalibrated until its
+/// <c>sensor.calibrated</c> event is projected (Story 5.1).
 /// </para>
 /// </remarks>
 public sealed class LotsProjector : IProjector
@@ -97,6 +99,21 @@ public sealed class LotsProjector : IProjector
         SET device_id = EXCLUDED.device_id, quantity = EXCLUDED.quantity, calibration = EXCLUDED.calibration
         """;
 
+    // A Calibration's points by its ID; an event applied again changes nothing.
+    private const string CalibrationSql =
+        """
+        INSERT INTO calibrations (calibration_id, sensor_id, dry_raw, wet_raw, calibrated_at)
+        VALUES (@calibration_id, @sensor_id, @dry_raw, @wet_raw, @calibrated_at)
+        ON CONFLICT (calibration_id) DO NOTHING
+        """;
+
+    private const string CalibratedSensorSql =
+        """
+        UPDATE lot_status_sensors SET calibrated = true
+        WHERE sensor_id = @sensor_id
+        RETURNING device_id
+        """;
+
     private const string ChangeSensorSql =
         """
         UPDATE lot_status_sensors SET quantity = @quantity, calibration = @calibration
@@ -116,7 +133,7 @@ public sealed class LotsProjector : IProjector
                d.site_paused_until,
                EXISTS (
                    SELECT 1 FROM lot_status_sensors s
-                   WHERE s.sensor_id = ANY (d.sensor_ids) AND s.quantity = @soil_moisture AND s.calibration)
+                   WHERE s.sensor_id = ANY (d.sensor_ids) AND s.quantity = @soil_moisture AND s.calibration AND NOT s.calibrated)
         FROM lots l
         LEFT JOIN lot_status_devices d ON d.device_id = l.claimed_by
         WHERE
@@ -297,6 +314,24 @@ public sealed class LotsProjector : IProjector
                     command.Parameters.AddWithValue("sensor_id", sensorId);
                     command.Parameters.AddWithValue("quantity", changed.Specification.Quantity);
                     command.Parameters.AddWithValue("calibration", changed.Specification.Calibration);
+                    deviceId = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+                }
+
+                break;
+            case SensorCalibrated calibrated:
+                at = calibrated.CalibratedAt;
+                await ExecuteAsync(
+                    transaction,
+                    CalibrationSql,
+                    cancellationToken,
+                    ("calibration_id", calibrated.CalibrationId),
+                    ("sensor_id", sensorId),
+                    ("dry_raw", calibrated.DryRaw),
+                    ("wet_raw", calibrated.WetRaw),
+                    ("calibrated_at", calibrated.CalibratedAt.ToUniversalTime())).ConfigureAwait(false);
+                await using (var command = new NpgsqlCommand(CalibratedSensorSql, transaction.Connection, transaction))
+                {
+                    command.Parameters.AddWithValue("sensor_id", sensorId);
                     deviceId = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
                 }
 

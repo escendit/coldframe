@@ -5,7 +5,8 @@ namespace Coldframe.Server.Devices;
 /// <summary>
 /// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, a Node's Lot, when
 /// it was last seen, its Pause sources (AD-8), a Node's last relay Hub (AD-18), and the hash and Sensors of
-/// the last Specification set the Server accepted from a Node (AD-19). The replay window and the
+/// the last Specification set the Server accepted from a Node (AD-19), and the Calibration in force per Sensor
+/// as the Sensor grain set it (Story 5.1). The replay window and the
 /// downlink counter are not journaled: they live in <c>device_replay</c> and commit with the Readings (AD-9).
 /// </summary>
 [GenerateSerializer]
@@ -20,6 +21,9 @@ public sealed class DeviceState
 
     [Id(11)]
     private List<string> _pendingReleases = [];
+
+    [Id(12)]
+    private Dictionary<Guid, CalibrationInForce> _calibrations = [];
 
     /// <summary>
     /// The Site the Device is enrolled on, or <see langword="null"/> before enrolment.
@@ -101,6 +105,22 @@ public sealed class DeviceState
     public IReadOnlyList<DeclaredSensor> Sensors => _sensors;
 
     /// <summary>
+    /// The Calibration ID in force for a Sensor (Story 5.1), or <see langword="null"/> while it has none. A cache
+    /// the Sensor grain fills: the Device grain stamps it on the Sensor's Readings and never validates it.
+    /// </summary>
+    /// <param name="sensorId">The Sensor ID.</param>
+    public Guid? CalibrationOf(Guid sensorId) =>
+        _calibrations.TryGetValue(sensorId, out var held) ? held.CalibrationId : null;
+
+    /// <summary>
+    /// Whether the cache holds the Sensor's Calibration of <paramref name="revision"/> or a newer one.
+    /// </summary>
+    /// <param name="sensorId">The Sensor ID.</param>
+    /// <param name="revision">The revision to look for.</param>
+    public bool HoldsCalibration(Guid sensorId, int revision) =>
+        _calibrations.TryGetValue(sensorId, out var held) && held.Revision >= revision;
+
+    /// <summary>
     /// Whether <paramref name="specHash"/> is the Node's known hash. An empty hash is never known.
     /// </summary>
     public bool Knows(ReadOnlySpan<byte> specHash) =>
@@ -177,6 +197,17 @@ public sealed class DeviceState
         _sensors = [.. @event.Sensors];
     }
 
+    public void Apply(DeviceCalibrationSet @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // Idempotent by revision: a redelivery, or one that arrives late, never replaces a newer Calibration.
+        if (!HoldsCalibration(@event.SensorId, @event.Revision))
+        {
+            _calibrations[@event.SensorId] = new CalibrationInForce(@event.CalibrationId, @event.Revision);
+        }
+    }
+
     private void QueueRelease(string lotId)
     {
         if (!_pendingReleases.Contains(lotId, StringComparer.Ordinal))
@@ -185,3 +216,14 @@ public sealed class DeviceState
         }
     }
 }
+
+/// <summary>
+/// The Calibration the Device grain stamps on a Sensor's Readings (Story 5.1).
+/// </summary>
+/// <param name="CalibrationId">The Calibration ID in force.</param>
+/// <param name="Revision">The Sensor's Calibration count when it was set.</param>
+[GenerateSerializer]
+[Alias("coldframe.calibration-in-force")]
+public sealed record CalibrationInForce(
+    [property: Id(0)] Guid CalibrationId,
+    [property: Id(1)] int Revision);

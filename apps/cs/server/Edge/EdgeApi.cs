@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
@@ -150,6 +151,43 @@ public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? 
 /// </summary>
 /// <param name="LotId">The Lot of the Site to move the Node to.</param>
 public sealed record MoveDeviceRequest(string? LotId);
+
+/// <summary>
+/// One reference point in the body of <c>POST /sites/{siteId}/sensors/{sensorId}/calibration</c>.
+/// </summary>
+/// <param name="ReadingSeq">The <c>reading_seq</c> of a stored Reading of the Sensor.</param>
+public sealed record CalibrationPointRequest(ulong? ReadingSeq);
+
+/// <summary>
+/// The body of <c>POST /sites/{siteId}/sensors/{sensorId}/calibration</c>: at least one point.
+/// </summary>
+/// <param name="Dry">The dry point (the probe in dry soil).</param>
+/// <param name="Wet">The wet point (the probe in water).</param>
+public sealed record CalibrateSensorRequest(CalibrationPointRequest? Dry, CalibrationPointRequest? Wet);
+
+/// <summary>
+/// A reference point of a Calibration as the Edge API returns it.
+/// </summary>
+/// <param name="RawValue">The raw value of the stored Reading the point was taken from.</param>
+public sealed record CalibrationPointResponse(long RawValue);
+
+/// <summary>
+/// The body of <c>POST /sites/{siteId}/sensors/{sensorId}/calibration</c>'s 200: where the Sensor's Calibration
+/// stands after the call.
+/// </summary>
+/// <param name="Calibrated">Whether a Calibration is in force.</param>
+/// <param name="CalibrationId">The Calibration ID in force; omitted while the Sensor is uncalibrated.</param>
+/// <param name="Dry">The dry point of the Calibration in force.</param>
+/// <param name="Wet">The wet point of the Calibration in force.</param>
+/// <param name="PendingDry">A dry point kept while the wet one is missing.</param>
+/// <param name="PendingWet">A wet point kept while the dry one is missing.</param>
+public sealed record CalibrationResponse(
+    bool Calibrated,
+    string? CalibrationId = null,
+    CalibrationPointResponse? Dry = null,
+    CalibrationPointResponse? Wet = null,
+    CalibrationPointResponse? PendingDry = null,
+    CalibrationPointResponse? PendingWet = null);
 
 /// <summary>
 /// A Device as the Edge API returns it.
@@ -314,6 +352,10 @@ public static partial class EdgeApi
 
         endpoints.MapPost("/sites/{siteId}/devices/{deviceId}/unassign", UnassignDeviceAsync)
             .WithName("unassignDevice")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapPost("/sites/{siteId}/sensors/{sensorId}/calibration", CalibrateSensorAsync)
+            .WithName("calibrateSensor")
             .RequireSiteRole(SiteRole.Administrator);
 
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
@@ -561,7 +603,7 @@ public static partial class EdgeApi
     {
         foreach (var reading in readings)
         {
-            if (SensorConversion.Convert(reading.Quantity, reading.RawValue) is { } converted)
+            if (SensorConversion.Convert(reading.Quantity, reading.RawValue, reading.Calibration) is { } converted)
             {
                 yield return new SensorReadingResponse(reading.Quantity, converted.Value, converted.Unit, ToServerTime(reading.MeasuredAt));
             }
@@ -1301,6 +1343,106 @@ public static partial class EdgeApi
         };
     }
 
+    private static async Task<IResult> CalibrateSensorAsync(
+        string siteId,
+        string sensorId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<CalibrateSensorRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (request is not { } body
+            || (body.Dry is null && body.Wet is null)
+            || (body.Dry is not null && body.Dry.ReadingSeq is null)
+            || (body.Wet is not null && body.Wet.ReadingSeq is null))
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Calibration request is not valid.",
+                "Send a JSON body with dry and/or wet, each {readingSeq}, the reading_seq of a stored Reading of the Sensor.");
+        }
+
+        if (!Guid.TryParse(sensorId, out var id))
+        {
+            return SensorNotFound();
+        }
+
+        // The Sensor must be a Sensor of a Node of this Site: another Site's Sensor is not disclosed.
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var sensor = grains.GetGrain<ISensorGrain>(id.ToString("D"));
+        var snapshot = await sensor.Describe(httpContext.RequestAborted).ConfigureAwait(false);
+        var device = snapshot is null
+            ? null
+            : await grains.GetGrain<IDeviceGrain>(snapshot.DeviceId).Describe(httpContext.RequestAborted).ConfigureAwait(false);
+
+        if (device is not { Kind: DeviceKind.Node } node || !string.Equals(node.SiteId, canonical, StringComparison.Ordinal))
+        {
+            return SensorNotFound();
+        }
+
+        var result = await sensor
+            .Calibrate(
+                new CalibrateSensor(
+                    body.Dry is { ReadingSeq: { } dry } ? new CalibrationPointRef(dry) : null,
+                    body.Wet is { ReadingSeq: { } wet } ? new CalibrationPointRef(wet) : null),
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    /// <summary>
+    /// Maps the Sensor grain's answer to a Calibration to the HTTP response: 200 with where the Calibration
+    /// stands, 400 <c>validation</c> for a Sensor that cannot be calibrated, a Reading it has not stored, or
+    /// indistinct points, or 503 <c>calibration-not-delivered</c> while the Device has not acknowledged it.
+    /// </summary>
+    internal static IResult ToHttpResult(SensorCalibrationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Outcome switch
+        {
+            SensorCalibrationOutcome.Calibrated or SensorCalibrationOutcome.PointRecorded => TypedResults.Ok(ToCalibrationResponse(result)),
+            SensorCalibrationOutcome.NotCalibratable => EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Sensor cannot be calibrated.",
+                "Only a Sensor whose Specification calls for Calibration, such as soil moisture, is calibrated. Nothing changed."),
+            SensorCalibrationOutcome.NoPoint => EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Calibration request names no point.",
+                "Send dry and/or wet. Nothing changed."),
+            SensorCalibrationOutcome.UnknownReading => EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Sensor has no such Reading.",
+                "Name the reading_seq of a Reading the Server stored for this Sensor. Nothing changed."),
+            SensorCalibrationOutcome.IndistinctPoints => EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The dry and wet points are too close to tell apart.",
+                $"Choose Readings whose raw values are at least {SensorCalibrationLimits.MinimumSpan} apart. Nothing changed."),
+            SensorCalibrationOutcome.NotDelivered => EdgeProblems.Result(
+                StatusCodes.Status503ServiceUnavailable,
+                EdgeProblems.CalibrationNotDelivered,
+                "The Calibration is saved but not in force yet.",
+                "The Server keeps trying. Send the same request again to see whether it is in force."),
+            _ => throw new InvalidOperationException($"Unexpected Calibration outcome {result.Outcome}."),
+        };
+    }
+
+    private static CalibrationResponse ToCalibrationResponse(SensorCalibrationResult result) =>
+        new(
+            result.Calibration is not null,
+            result.Calibration?.Id.ToString("D"),
+            result.Calibration is { } calibration ? new CalibrationPointResponse(calibration.DryRaw) : null,
+            result.Calibration is { } current ? new CalibrationPointResponse(current.WetRaw) : null,
+            result.PendingDryRaw is { } pendingDry ? new CalibrationPointResponse(pendingDry) : null,
+            result.PendingWetRaw is { } pendingWet ? new CalibrationPointResponse(pendingWet) : null);
+
     private static IResult NotSealedToThisServer() =>
         EdgeProblems.Result(
             StatusCodes.Status400BadRequest,
@@ -1373,6 +1515,9 @@ public static partial class EdgeApi
 
     private static IResult DeviceNotFound() =>
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.DeviceNotFound, "The Site has no such Node.");
+
+    private static IResult SensorNotFound() =>
+        EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.SensorNotFound, "The Site has no such Sensor.");
 
     private static IResult LotNotFound() =>
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.LotNotFound, "The Site has no such Lot.");

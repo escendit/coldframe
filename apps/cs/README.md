@@ -123,6 +123,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
 | `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online}]}`; `online` is computed when the Server answers |
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
+| `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Saves the dry and/or wet point of a Sensor's Calibration (Story 5.1, see [Calibration](#calibration)): 200 with where the Calibration stands |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 | `POST /device/ingest` | `Device` | A Hub relays sealed Node frames: `Device(hubId).AuthenticateRelay(…)`, then `Device(nodeId).Ingest(…)` per frame; 200 `{results: [{status, downlink?}]}` |
 
@@ -318,7 +319,9 @@ earlier boot, it is the receive time.
 
 A Sensor ID is `UUIDv5(namespace, "{deviceIdHex}:{slot}:{quantity}")` from
 [`packages/crypto-spec`](../../packages/crypto-spec) (`Coldframe.Crypto.SensorIds`); `slot` is the
-Sensor's index in the Node's Specification set. `calibration_id` is `NULL` until Epic 5. Pause has no
+Sensor's index in the Node's Specification set. `calibration_id` is the Calibration in force for the
+Sensor when the Reading is stored (the Device grain's cache, see [Calibration](#calibration)), `NULL` for a Sensor
+without one. Pause has no
 API yet: `device.paused` and `device.resumed` exist as events and state only (Epic 8).
 
 Tests drive ingestion through the Device simulator only (`SimulatedDevice.Wake`, `SealFrame`,
@@ -361,6 +364,9 @@ A paused or unassigned Node declares too; only Readings pass the Pause gate.
 | `sensor.declared` `{deviceId, slot, specification, declaredAt}` | The first declaration. Both Thresholds follow the Specification's defaults |
 | `sensor.specification-changed` `{specification, changedAt}` | A declaration with another Specification for the same slot and quantity. The same Specification journals nothing |
 | `sensor.thresholds-changed` `{low, high, changedAt}` | Never yet: Thresholds have no API until Story 5.3. Tests seed it |
+| `sensor.calibration-point-recorded` `{point, readingSeq, rawValue, recordedAt}` | One point (`Dry` or `Wet`) of a Calibration was saved and the other is missing ([Calibration](#calibration)) |
+| `sensor.calibrated` `{calibrationId, dryRaw, wetRaw, calibratedAt}` | Both points are known and distinct: the new Calibration in force |
+| `sensor.calibration-delivered` `{calibrationId, deliveredAt}` | The Device grain acknowledged the Calibration as in force |
 
 A `specification` is `{quantity, unit, rangeMin, rangeMax, calibration, defaultLow?, defaultHigh?}`;
 the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
@@ -381,6 +387,45 @@ the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
 The simulator plays the Node: `SimulatedDevice.Specifications` (four Sensors matching
 `DefaultReadings`, settable), `SpecHash`, and `Wake`, which attaches the set once after `OpenDownlink`
 saw `specifications_unknown` (`attachSpecifications` attaches or withholds it explicitly).
+
+### Calibration
+
+`POST /sites/{siteId}/sensors/{sensorId}/calibration` (Story 5.1; Administrator and up, no Bluetooth) takes
+`{dry?: {readingSeq}, wet?: {readingSeq}}`: each point names a Reading the Server already stored for the Sensor,
+and its raw value is read from the `readings` table, never sent. The Sensor grain is the only validator and the
+only writer of a Calibration (AD-9); the Device grain only caches which Calibration ID to stamp.
+
+1. The handler asks the Sensor grain for its Device and the Device grain for its Site: a Sensor that is unknown,
+   was never declared or belongs to a Node of another Site is 404 `sensor-not-found`. A body without a point, or
+   with a `readingSeq` that is no non-negative integer, is 400 `validation`.
+2. `SensorGrain.Calibrate` refuses (400 `validation`, nothing journaled) a Sensor whose Specification has no
+   `calibration: true`, a `readingSeq` with no stored Reading of this Sensor, and two points that are
+   indistinct: equal, or closer than `SensorCalibrationLimits.MinimumSpan` (16 raw counts). Either orientation
+   of the raw values is a Calibration; the dry point reads 0 %, the wet one 100 %.
+3. One point (the other missing) journals `sensor.calibration-point-recorded` and answers 200 with
+   `calibrated: false` and the `pendingDry` or `pendingWet` point; the Sensor stays as calibrated as it was, also
+   while a Calibration is in force and the Sensor is recalibrated. A point of the same kind replaces the kept one,
+   and the points may come in either order, also across a silo restart.
+4. Two points (in the request, or one kept) journal `sensor.calibrated` with a new Calibration ID (UUIDv7 from the
+   `TimeProvider`) and both raw values, clear the kept points, and catch the lots projector up: the
+   `calibrations` table has its points and the Lot leaves *needs calibration* before the call returns.
+5. Only then the Sensor grain calls `IDeviceGrain.SetCalibration` (Sensor ID, Calibration ID, revision), which
+   journals `device.calibration-set` and returns once it is persisted; the Sensor then journals
+   `sensor.calibration-delivered` and the call answers 200 `{calibrated: true, calibrationId, dry, wet}`. The
+   revision is the Sensor's Calibration count: the Device keeps the highest, so a redelivery, or one that arrives
+   late, changes nothing.
+6. When the Device call fails the event stays: the call answers 503 `calibration-not-delivered`, and the Sensor
+   grain delivers the persisted Calibration again from its state, on a 5 s grain timer while it is active, by the
+   `deliver-calibration` reminder, and on activation, until the Device acknowledges. The same request again
+   (the pair already in force, nothing kept) creates no new Calibration; it finishes the delivery and answers 200.
+
+A Reading is stored with the Calibration in force for its Sensor at that moment (`DeviceGrain.Ingest` stamps
+`calibration_id`; no Calibration means `NULL`), so recalibration only affects later Readings and history keeps its
+own. The percentage is derived, never stored: `CalibrationMath.Percent` is linear between the points of the
+Reading's Calibration, clamped to 0 to 100 and rounded to the nearest 5 (a half rounds up), and the Lot detail's
+`sensors` shows a soil-moisture Reading that has a Calibration as `%`. A Reading stored before the first
+Calibration stays `raw`, so a percentage appears with the next Reading, never before. The history endpoint is
+unchanged: it still reports soil moisture raw. Threshold percentages never change on recalibration.
 
 ### Moving and unassigning a Node
 
@@ -458,19 +503,21 @@ the Lots it touches through the rule again:
 | `device.paused`, `device.resumed` | The Device's Pause sources and their ends in `lot_status_devices`; its Lot is evaluated |
 | `device.specifications-declared` | The Sensor IDs of the Device's accepted set in `lot_status_devices`; its Lot is evaluated |
 | `sensor.declared`, `sensor.specification-changed` | The Sensor's Device, quantity and `calibration` flag in `lot_status_sensors`; the Lot of its Device is evaluated |
+| `sensor.calibrated` | The Calibration's points in `calibrations` (by Calibration ID) and `lot_status_sensors.calibrated`; the Lot of its Device is evaluated |
 
 `status_since` moves only when the status changes, to the time of the event that changed it: the
 journal's `recorded_at` for a Lot event (Lot events carry no time), the event's own time otherwise.
 Applying an event again therefore changes nothing. A Sensor is declared before its Device's set
 (`sensor.declared` precedes `device.specifications-declared` in the journal); until the set names the
-Sensor, the Lot keeps its status. To rebuild, delete the three tables' rows and the `lots` checkpoint;
+Sensor, the Lot keeps its status. To rebuild, delete the rows of the four tables (`lots`, `lot_status_devices`, `lot_status_sensors`,
+`calibrations`) and the `lots` checkpoint;
 the migration that added the status columns does exactly that, so Lots from before it get their
 status and its time from the journal when the Server starts.
 
 **Live and fixture-only inputs.** Three inputs are live in Epic 4: the Node on the Lot, the Pause
 sources (journaled only by tests until Epic 8 adds the commands), and the uncalibrated soil Sensor.
-No Calibration exists before Epic 5, so every declared `calibration: true` soil-moisture Sensor counts
-as uncalibrated. The other two have no producer yet:
+A declared `calibration: true` soil-moisture Sensor counts as uncalibrated until its `sensor.calibrated` is
+projected (Story 5.1). The other two have no producer yet:
 
 - **Silence.** No Silent Alert exists before Epic 7. The only silence the projector knows is a Node
   that has declared no Sensor: it has never reported, so its Lot is `unknown` with `unknownCause: node`
@@ -494,8 +541,9 @@ screen shows; the list never does. While the Lot holds a Node (`lots.claimed_by`
 (`server/Lots/LotDetailReadModel.cs`) adds, straight from `readings` and `device_reports`:
 
 - `sensors`: the newest Reading of every `(slot, quantity)` of the Node with `measured_at >= claimed_at`
-  (`DISTINCT ON`), in slot order, converted by `SensorConversion`: soil moisture stays the raw count
-  (`unit: raw`, never a percentage before Epic 5), temperature milli-°C to `°C`, humidity milli-% to `%`,
+  (`DISTINCT ON`), in slot order, converted by `SensorConversion`: soil moisture is the raw count
+  (`unit: raw`) unless the Reading was stored with a Calibration, then the percentage of that Calibration rounded
+  to the nearest 5 (`unit: %`, see [Calibration](#calibration)), temperature milli-°C to `°C`, humidity milli-% to `%`,
   gas resistance Ω to `kΩ`. Clients only format (whole numbers, 3 significant digits for kΩ).
 - `node`: `deviceId`, and from the Node's newest `device_reports` row `batteryPercent`, `charging`
   (`charging` or `notCharging`; the stored `unknown` and a null battery are omitted) and `lastSeenAt` (the

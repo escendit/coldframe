@@ -125,6 +125,18 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal((new ThresholdSetting(ThresholdKind.Override, 40), new ThresholdSetting(ThresholdKind.Cleared)), (soil.Low, soil.High));
         Assert.Equal((40L, (long?)null), (soil.EffectiveLow, soil.EffectiveHigh));
 
+        // Calibrated (its dry point kept first), delivered to the Device, then recalibrated: a wet point kept, and
+        // the second Calibration in force (revision 2) and not delivered yet.
+        Assert.Equal(
+            new SensorCalibration(Guid.Parse("0192f3a4-9000-7000-8000-000000000002"), 2, 3100, 1100, new DateTimeOffset(2026, 10, 7, 12, 1, 0, TimeSpan.Zero)),
+            soil.Calibration);
+        Assert.Equal(Guid.Parse("0192f3a4-9000-7000-8000-000000000001"), soil.DeliveredCalibrationId);
+        Assert.True(soil.DeliveryPending);
+        Assert.Equal(((long?)null, (long?)null), (soil.PendingDryRaw, soil.PendingWetRaw));
+
+        // The Node caches the first Calibration of the soil Sensor.
+        Assert.Equal(Guid.Parse("0192f3a4-9000-7000-8000-000000000001"), node.CalibrationOf(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394")));
+
         // Only watched: no defaults, so both sides follow a default that is absent.
         var air = Assert.IsType<SensorState>(states["sensor/e62a2dbe-b439-5906-a842-35abfb36458a"]);
         Assert.Equal(new SensorSpecification("air_temperature", SensorUnit.MilliDegreeCelsius, -40_000, 85_000, false), air.Specification);
