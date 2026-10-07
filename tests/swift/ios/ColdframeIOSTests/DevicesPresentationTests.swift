@@ -45,8 +45,8 @@ private let tomatoes = NodeFixture(
   id: "7c19aa01bb02cc03", lot: "Tomatoes", lotId: "lot-t", battery: "62", charging: "charging",
   lastSeen: "1791270120000")
 private let beans = NodeFixture(
-  id: "1b2c3d4e5f607182", lot: "Beans", lotId: "lot-b", battery: "14", low: true, charging: "notCharging",
-  lastSeen: "1791248700000")
+  id: "1b2c3d4e5f607182", lot: "Beans", lotId: "lot-b", battery: "14", low: true,
+  charging: "notCharging", lastSeen: "1791248700000")
 private let unassigned = NodeFixture(id: "0a0b0c0d0e0f1011")
 
 /// 2026-10-06 07:04 UTC, two minutes after the Hub was seen.
@@ -291,7 +291,8 @@ func devicesManageNodesFollowsTheCoresRoleRule() {
   #expect(admin.canManageNodes)
   #expect(admin.nodes.map(\.canUnassign) == [true, false])
   #expect(!member.canManageNodes)
-  #expect(devices(surface: "failed", notice: "unreachable", canManageNodes: true).canManageNodes == false)
+  let failed = devices(surface: "failed", notice: "unreachable", canManageNodes: true)
+  #expect(failed.canManageNodes == false)
   #expect(devices(siteId: nil, canManageNodes: true).canManageNodes == false)
 }
 
@@ -316,7 +317,8 @@ func devicesMovePickerDisablesOccupiedLots() throws {
 
   // An unassigned Node has no current Lot: both occupied Lots have a Node.
   let spare = try #require(presentation.nodes.last)
-  #expect(presentation.moveChoices(for: spare, selected: nil).map(\.isSelectable) == [false, false, true])
+  let choices = presentation.moveChoices(for: spare, selected: nil)
+  #expect(choices.map(\.isSelectable) == [false, false, true])
 }
 
 @Test("UX-DR31 the Node being moved is working and a refused move says why under that Node only")
@@ -325,7 +327,9 @@ func devicesActionStateBelongsToOneNode() throws {
   #expect(working.nodes.map(\.isWorking) == [true, false])
 
   let refused = devices(
-    nodes: [tomatoes, beans], canManageNodes: true, failedNodeId: beans.id, actionNotice: "lotTaken")
+    nodes: [tomatoes, beans], canManageNodes: true, failedNodeId: beans.id,
+    actionNotice: "lotTaken"
+  )
   #expect(refused.nodes.map(\.actionNotice) == [nil, .lotTaken])
   #expect(NodeActionNoticeKind.lotTaken.message == .devicesActionLotTaken)
   #expect(NodeActionNoticeKind.forbidden.message == .devicesActionForbidden)
@@ -339,7 +343,10 @@ func devicesUnassignCopy() throws {
   let entries = try Catalogue.entries()
 
   #expect(entries["devices_unassign_question"] == "Unassign Node %@?")
-  #expect(entries["devices_unassign_detail"] == "%@ will have no Node. Its Readings stay in Coldframe.")
+  #expect(
+    entries["devices_unassign_detail"]
+      == "%@ will have no Node. Its Readings stay in Coldframe."
+  )
   #expect(entries["devices_unassign"] == "Unassign")
   #expect(entries["devices_move"] == "Move")
   #expect(entries["devices_current_lot"] == "Current Lot")

@@ -189,15 +189,19 @@
     /// One element per row for VoiceOver: the ID, the Lot, then last seen, battery and charging. The
     /// actions below it are also custom accessibility actions of that element (UX-DR31).
     private func nodeRow(_ node: NodeRowPresentation, shownAt: Date) -> some View {
-      VStack(alignment: .leading, spacing: Spacing.step2) {
+      let unassignLabel = node.canUnassign ? L10n.devicesUnassignDescription.string(node.id) : nil
+      return VStack(alignment: .leading, spacing: Spacing.step2) {
         nodeSummary(node, shownAt: shownAt)
           .accessibilityElement(children: .combine)
-          .modifier(NodeActionsAccessibility(
-            enabled: presentation.canManageNodes,
-            moveLabel: L10n.devicesMoveDescription.string(node.id),
-            unassignLabel: node.canUnassign ? L10n.devicesUnassignDescription.string(node.id) : nil,
-            onMove: { open(node) },
-            onUnassign: { unassigning = node }))
+          .modifier(
+            NodeActionsAccessibility(
+              enabled: presentation.canManageNodes,
+              moveLabel: L10n.devicesMoveDescription.string(node.id),
+              unassignLabel: unassignLabel,
+              onMove: { open(node) },
+              onUnassign: { unassigning = node }
+            )
+          )
         // Administrators and Owners only, hidden for a Member (UX-DR31); no Bluetooth is needed.
         if presentation.canManageNodes {
           HStack(spacing: Spacing.step4) {
