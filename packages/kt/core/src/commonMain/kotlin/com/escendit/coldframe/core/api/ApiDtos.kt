@@ -72,7 +72,8 @@ public data class NodeStatusDto(
 /**
  * `SensorReading`: the newest Reading of a Sensor, converted by the Server. [quantity] is
  * `soil_moisture`, `air_temperature`, `relative_humidity` or `gas_resistance`; [unit] is `raw`,
- * `°C`, `%` or `kΩ`.
+ * `°C`, `%` or `kΩ`. [sensorId] names the Sensor for Calibration; [calibratable] is true when its
+ * Specification says `calibration: true`.
  */
 @Serializable
 public data class SensorReadingDto(
@@ -80,6 +81,8 @@ public data class SensorReadingDto(
     val value: Double,
     val unit: String,
     val measuredAt: String,
+    val sensorId: String? = null,
+    val calibratable: Boolean? = null,
 )
 
 /** `LotHistoryDay`: one UTC day (`yyyy-MM-dd`) with Readings. */
@@ -168,6 +171,60 @@ public data class DeviceListItemDto(
 @Serializable
 public data class DeviceListDto(
     val devices: List<DeviceListItemDto>,
+)
+
+/** `CalibrationValue`: the raw value of a stored Reading a Calibration point was taken from. */
+@Serializable
+public data class CalibrationValueDto(
+    val rawValue: Long,
+)
+
+/** `CalibrationReading`: a recent stored Reading of a Sensor; [readingSeq] is what a Calibration point names. */
+@Serializable
+public data class CalibrationReadingDto(
+    val readingSeq: Long,
+    val rawValue: Long,
+    val measuredAt: String,
+)
+
+/**
+ * `CalibrationState` (`getSensorCalibration`): where the Sensor's Calibration stands and its recent
+ * stored [readings], newest first. [dry] and [wet] are the Calibration in force; [pendingDry] and
+ * [pendingWet] a point the Server kept while its partner is missing.
+ */
+@Serializable
+public data class CalibrationStateDto(
+    val calibrated: Boolean,
+    val readings: List<CalibrationReadingDto> = emptyList(),
+    val calibrationId: String? = null,
+    val dry: CalibrationValueDto? = null,
+    val wet: CalibrationValueDto? = null,
+    val pendingDry: CalibrationValueDto? = null,
+    val pendingWet: CalibrationValueDto? = null,
+)
+
+/** `Calibration` (`calibrateSensor` 200): the same as [CalibrationStateDto] without the Readings. */
+@Serializable
+public data class CalibrationDto(
+    val calibrated: Boolean,
+    val calibrationId: String? = null,
+    val dry: CalibrationValueDto? = null,
+    val wet: CalibrationValueDto? = null,
+    val pendingDry: CalibrationValueDto? = null,
+    val pendingWet: CalibrationValueDto? = null,
+)
+
+/** `CalibrationPoint`: the `reading_seq` of a stored Reading of the Sensor. */
+@Serializable
+public data class CalibrationPointDto(
+    val readingSeq: Long,
+)
+
+/** `CalibrateSensorRequest`: a dry and/or a wet point; the absent one is left out of the body. */
+@Serializable
+public data class CalibrateSensorRequestDto(
+    val dry: CalibrationPointDto? = null,
+    val wet: CalibrationPointDto? = null,
 )
 
 /** `ProblemDetails` (RFC 9457). */

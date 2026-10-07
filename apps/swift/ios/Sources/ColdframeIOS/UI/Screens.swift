@@ -69,6 +69,7 @@
     let lotsActions: LotsActions
     let onAddHub: () -> Void
     let onAddNode: (String?) -> Void
+    let onCalibrate: (String, String) -> Void
     let devices: DevicesPresentation
     let devicesActions: DevicesActions
     let lotDetail: LotDetailPresentation
@@ -85,6 +86,7 @@
       sitesActions: SitesActions = .none, lots: LotsPresentation = .waiting,
       lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
       onAddNode: @escaping (String?) -> Void = { _ in },
+      onCalibrate: @escaping (String, String) -> Void = { _, _ in },
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       selection: Binding<AppTab>? = nil
@@ -103,6 +105,7 @@
       self.lotsActions = lotsActions
       self.onAddHub = onAddHub
       self.onAddNode = onAddNode
+      self.onCalibrate = onCalibrate
     }
 
     public var body: some View {
@@ -140,8 +143,8 @@
         if let garden {
           GardenView(
             presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
-            onAddHub: onAddHub, onAddNode: { onAddNode($0) }, lotDetail: lotDetail,
-            lotDetailActions: lotDetailActions, onOpenDevices: { selection.wrappedValue = .devices }
+            onAddHub: onAddHub, onAddNode: { onAddNode($0) }, onCalibrate: onCalibrate,
+            lotDetail: lotDetail, lotDetailActions: lotDetailActions, onOpenDevices: { selection.wrappedValue = .devices }
           )
         } else {
           palette.background.ignoresSafeArea()
@@ -275,6 +278,8 @@
     let devicesActions: DevicesActions
     let lotDetail: LotDetailPresentation
     let lotDetailActions: LotDetailActions
+    let calibrate: CalibratePresentation
+    let calibrateActions: CalibrateActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
@@ -289,8 +294,11 @@
       onSelectTheme: @escaping (ThemePreference) -> Void,
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       nodeSetup: NodeSetupPresentation = .closed, nodeSetupActions: NodeSetupActions = .none,
-      lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none
+      lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
+      calibrate: CalibratePresentation = .idle, calibrateActions: CalibrateActions = .none
     ) {
+      self.calibrate = calibrate
+      self.calibrateActions = calibrateActions
       self.lotDetail = lotDetail
       self.lotDetailActions = lotDetailActions
       self.devices = devices
@@ -340,6 +348,9 @@
         SitesFailedView(notice: notice, onTryAgain: sitesActions.load)
       case .createSite(let form):
         CreateSiteView(presentation: form, actions: sitesActions)
+      case .garden(let garden, _) where calibrate.isOpen:
+        CalibrateView(
+          presentation: calibrate, siteName: garden.siteName, actions: calibrateActions)
       case .garden(_, _) where hubSetup.isOpen:
         AddHubFlowView(presentation: hubSetup, actions: hubSetupActions)
       case .garden(_, _) where nodeSetup.isOpen:
@@ -348,7 +359,8 @@
         AppTabView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
           sitesActions: sitesActions, lots: lots, lotsActions: lotsActions,
-          onAddHub: hubSetupActions.open, onAddNode: nodeSetupActions.open, devices: devices,
+          onAddHub: hubSetupActions.open, onAddNode: nodeSetupActions.open,
+          onCalibrate: calibrateActions.open, devices: devices,
           devicesActions: devicesActions, lotDetail: lotDetail,
           lotDetailActions: lotDetailActions, selection: $tab
         )
@@ -376,6 +388,7 @@
     @Published public private(set) var devices = DevicesPresentation.waiting
     @Published public private(set) var nodeSetup = NodeSetupPresentation.closed
     @Published public private(set) var lotDetail = LotDetailPresentation.idle
+    @Published public private(set) var calibrate = CalibratePresentation.idle
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -384,13 +397,15 @@
     public let devicesService: DevicesService?
     public let nodeSetupService: NodeSetupService?
     public let lotDetailService: LotDetailService?
+    public let calibrateService: CalibrateService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
       lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
       devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
-      lotDetail: LotDetailService? = nil
+      lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil
     ) {
+      self.calibrateService = calibrate
       self.lotDetailService = lotDetail
       self.devicesService = devices
       self.nodeSetupService = nodeSetup
@@ -417,6 +432,7 @@
       hubSetup?.observe { [weak self] in self?.hubSetup = $0 }
       devices?.observe { [weak self] in self?.devices = $0 }
       nodeSetup?.observe { [weak self] in self?.nodeSetup = $0 }
+      calibrate?.observe { [weak self] in self?.calibrate = $0 }
     }
 
     private static func announce(_ event: LotsEventPresentation) {
@@ -433,6 +449,11 @@
     /// The Lot detail actions for the views; nothing happens without a service.
     public var lotDetailActions: LotDetailActions {
       lotDetailService.map(LotDetailActions.init(service:)) ?? .none
+    }
+
+    /// The Calibrate actions for the views; nothing happens without a service.
+    public var calibrateActions: CalibrateActions {
+      calibrateService.map(CalibrateActions.init(service:)) ?? .none
     }
 
     /// The Add a Hub actions for the views; nothing happens without a service.

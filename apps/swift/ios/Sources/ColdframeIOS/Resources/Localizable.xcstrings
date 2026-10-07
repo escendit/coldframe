@@ -56,6 +56,380 @@
         }
       }
     },
+    "calibrate_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibrate"
+          }
+        }
+      }
+    },
+    "calibrate_action_for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibrate %1$@"
+          }
+        }
+      }
+    },
+    "calibrate_announce_dry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Reading %1$@, raw %2$@. Record dry is available."
+          }
+        }
+      }
+    },
+    "calibrate_announce_percent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reads about %2$@ percent."
+          }
+        }
+      }
+    },
+    "calibrate_announce_wet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Reading %1$@, raw %2$@. Record wet is available."
+          }
+        }
+      }
+    },
+    "calibrate_confirm_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "% appears with the next Reading"
+          }
+        }
+      }
+    },
+    "calibrate_confirm_points": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dry raw %1$@, wet raw %2$@."
+          }
+        }
+      }
+    },
+    "calibrate_confirm_reads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ reads ~%2$@ %%"
+          }
+        }
+      }
+    },
+    "calibrate_fresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Reading %1$@, raw %2$@."
+          }
+        }
+      }
+    },
+    "calibrate_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Short-press the Node's setup button to send a Reading now."
+          }
+        }
+      }
+    },
+    "calibrate_intro_dry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put the probe in dry soil."
+          }
+        }
+      }
+    },
+    "calibrate_intro_wet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put the probe in water."
+          }
+        }
+      }
+    },
+    "calibrate_last": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Reading: raw %1$@ at %2$@"
+          }
+        }
+      }
+    },
+    "calibrate_no_sensor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Lot has no Sensor that can be calibrated yet. Try again after its Node has sent a Reading."
+          }
+        }
+      }
+    },
+    "calibrate_none_yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Reading yet."
+          }
+        }
+      }
+    },
+    "calibrate_notice_forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't calibrate on %1$@. Nothing was changed. Ask an Owner or Administrator."
+          }
+        }
+      }
+    },
+    "calibrate_notice_indistinct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dry and wet Readings are too close together. Nothing was saved. Choose a drier dry Reading and a wetter wet Reading."
+          }
+        }
+      }
+    },
+    "calibrate_notice_not_delivered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Calibration is saved but the Node has not confirmed it yet. It is sent again until it does. Nothing is lost. Record the point again to check."
+          }
+        }
+      }
+    },
+    "calibrate_notice_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no such Lot or Sensor any more. Nothing was changed."
+          }
+        }
+      }
+    },
+    "calibrate_notice_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong and nothing was changed. Try again."
+          }
+        }
+      }
+    },
+    "calibrate_notice_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Server, so nothing was saved. Check that this phone is on your home Wi-Fi and try again."
+          }
+        }
+      }
+    },
+    "calibrate_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Node is paused. Readings resume after the Pause ends, so there is nothing to wait for now."
+          }
+        }
+      }
+    },
+    "calibrate_paused_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Site is paused. Readings resume after the Pause ends."
+          }
+        }
+      }
+    },
+    "calibrate_recent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Readings"
+          }
+        }
+      }
+    },
+    "calibrate_recent_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recent Readings."
+          }
+        }
+      }
+    },
+    "calibrate_recent_item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, raw %2$@"
+          }
+        }
+      }
+    },
+    "calibrate_record_dry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record dry"
+          }
+        }
+      }
+    },
+    "calibrate_record_wet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record wet"
+          }
+        }
+      }
+    },
+    "calibrate_recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving"
+          }
+        }
+      }
+    },
+    "calibrate_step_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibration saved"
+          }
+        }
+      }
+    },
+    "calibrate_step_dry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 1 of 2: dry"
+          }
+        }
+      }
+    },
+    "calibrate_step_wet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 2 of 2: wet"
+          }
+        }
+      }
+    },
+    "calibrate_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibrate %1$@"
+          }
+        }
+      }
+    },
+    "calibrate_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the next Reading"
+          }
+        }
+      }
+    },
     "count_lots_need_water": {
       "extractionState": "manual",
       "localizations": {

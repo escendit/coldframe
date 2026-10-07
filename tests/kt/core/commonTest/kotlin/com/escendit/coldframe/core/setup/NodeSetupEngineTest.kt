@@ -161,11 +161,14 @@ class NodeSetupEngineTest {
             sites = sites,
             scope = backgroundScope,
             onAssigned = { assigned++ },
+            onCalibrate = { lotId, name -> calibrations += lotId to name },
             newKey = { "key-${++keys}" },
         )
     }
 
     private fun HttpRequestData.text(): String = (body as OutgoingContent.ByteArrayContent).bytes().decodeToString()
+
+    private val calibrations = mutableListOf<Pair<String, String>>()
 
     private val NodeSetupEngine.now: NodeSetupState get() = state.value
 
@@ -347,6 +350,9 @@ class NodeSetupEngineTest {
             assertEquals(NodeOutcomeKind.Assigned, outcome.kind)
             assertTrue(outcome.success)
             assertEquals(NodeOutcomeAction.Done, outcome.primary)
+            // Story 5.2: an Administrator or Owner who added the Node may go on to Calibrate it.
+            assertEquals(NodeOutcomeAction.Calibrate, outcome.secondary)
+            assertEquals("lot-tomatoes", outcome.calibrateLotId)
             assertEquals(NodeSetupStep.Outcome, engine.now.step)
             assertEquals(5, engine.now.step.number)
             assertEquals("Tomatoes", engine.now.lotName)
@@ -359,6 +365,36 @@ class NodeSetupEngineTest {
 
             engine.outcomeAction(NodeOutcomeAction.Done)
             assertFalse(engine.now.open)
+            assertTrue(calibrations.isEmpty())
+        }
+
+    @Test
+    fun story52TheCalibrateActionClosesTheFlowAndOpensCalibrateForTheLotThatGotTheNode() =
+        runTest {
+            val node = FakeNode()
+            val radio = radioFor(node)
+            val engine = engine(radio)
+            engine.open()
+            runCurrent()
+            engine.continueFromPress()
+            runCurrent()
+            advert(radio)
+            engine.select("peripheral-1")
+            engine.continueFromScan()
+            engine.setCode("n4d3-c0de")
+            engine.submitCode()
+            runCurrent()
+            engine.continueFromCode()
+            runCurrent()
+            engine.chooseLot("lot-tomatoes")
+            engine.assign()
+            runCurrent()
+            assertEquals(NodeOutcomeAction.Calibrate, engine.now.outcome?.secondary)
+
+            engine.outcomeAction(NodeOutcomeAction.Calibrate)
+
+            assertFalse(engine.now.open)
+            assertEquals(listOf("lot-tomatoes" to "Tomatoes"), calibrations)
         }
 
     @Test

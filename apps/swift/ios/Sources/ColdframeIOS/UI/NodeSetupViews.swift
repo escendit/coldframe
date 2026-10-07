@@ -103,7 +103,11 @@
             isSuccess: outcome.isSuccess, eyebrow: outcome.eyebrow?.string,
             title: outcome.title.string, detail: outcome.body.string, help: nil,
             primary: outcome.primary.label, onPrimary: { actions.outcomeAction(outcome.primary) },
-            secondary: nil, onSecondary: {}, titleFocused: $titleFocused)
+            secondary: outcome.secondary?.label,
+            onSecondary: {
+              if let secondary = outcome.secondary { actions.outcomeAction(secondary) }
+            },
+            titleFocused: $titleFocused)
         } else {
           SetupFlowShellView(
             backLabel: presentation.backLabel, onBack: actions.back,

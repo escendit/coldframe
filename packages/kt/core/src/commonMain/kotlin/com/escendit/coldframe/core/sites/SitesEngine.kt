@@ -374,6 +374,7 @@ public class SitesEngine(
                 ApiFailure.LotClaimed,
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
+                ApiFailure.CalibrationNotDelivered,
                 ApiFailure.Unexpected,
                 -> SitesNotice.Unexpected
             }

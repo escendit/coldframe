@@ -3,6 +3,7 @@ package com.escendit.coldframe.core.lots
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.sites.SiteMenu
 import com.escendit.coldframe.core.sites.SiteMenuItem
+import com.escendit.coldframe.core.sites.SiteRole
 import kotlin.math.roundToInt
 
 /*
@@ -319,6 +320,8 @@ public data class LotTile(
     val pausedUntilEpochMs: Long? = null,
     val asOfEpochMs: Long? = null,
     val opensAddNode: Boolean = false,
+    /** A live *needs calibration* tile, for Administrators and Owners: the tile's Calibrate control. */
+    val opensCalibrate: Boolean = false,
 ) {
     public companion object {
         /**
@@ -331,6 +334,7 @@ public data class LotTile(
             fetchedAtEpochMs: Long,
             nowEpochMs: Long,
             canAddNode: Boolean,
+            canCalibrate: Boolean = false,
         ): LotTile {
             val pausedBySite = lot.status == LotStatus.Paused && LotPauseSource.Site in lot.pausedBy
             val label = labelOf(lot, pausedBySite)
@@ -379,6 +383,7 @@ public data class LotTile(
                         value = LotTileValue.Raw,
                         foot = LotTileFoot.NoPercentUntilCalibrated,
                         spoken = LotTileSpoken.NeedsCalibration,
+                        opensCalibrate = canCalibrate,
                     )
                 }
 
@@ -528,6 +533,7 @@ public data class LotsOverview(
             nowEpochMs: Long,
         ): LotsOverview {
             val canAddNode = DevicesState.canAddNode(ready.site.role)
+            val canCalibrate = ready.site.role >= SiteRole.Administrator
             return LotsOverview(
                 stale = ready.stale,
                 fetchedAtEpochMs = ready.fetchedAtEpochMs,
@@ -537,7 +543,7 @@ public data class LotsOverview(
                 counts = LotCounts.of(ready.lots),
                 tiles =
                     ready.lots.map {
-                        LotTile.of(it, ready.stale, ready.fetchedAtEpochMs, nowEpochMs, canAddNode)
+                        LotTile.of(it, ready.stale, ready.fetchedAtEpochMs, nowEpochMs, canAddNode, canCalibrate)
                     },
                 menu = ready.siteMenu(),
             )

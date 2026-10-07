@@ -46,6 +46,8 @@ public data class NodeSetupSnapshot(
     val lotsRetryable: Boolean,
     val outcome: String?,
     val outcomePrimary: String?,
+    /** `calibrate` on a success the caller may calibrate, else null (Story 5.2). */
+    val outcomeSecondary: String?,
     val stoppedStep: Int,
     val confirmingLeave: Boolean,
     val announcementId: Int,
@@ -64,7 +66,7 @@ public data class NodeSetupSnapshot(
 
 private fun Enum<*>.key(): String = name.replaceFirstChar { it.lowercase() }
 
-/** The [NodeOutcomeAction] of an `outcomePrimary` key, or null for an unknown one. */
+/** The [NodeOutcomeAction] of an `outcomePrimary` or `outcomeSecondary` key, or null for an unknown one. */
 internal fun nodeOutcomeActionOf(key: String): NodeOutcomeAction? =
     NodeOutcomeAction.entries.firstOrNull { it.key() == key }
 
@@ -111,6 +113,7 @@ public fun snapshotOf(state: NodeSetupState): NodeSetupSnapshot {
         lotsRetryable = state.lots.retryable,
         outcome = outcome?.kind?.key(),
         outcomePrimary = outcome?.primary?.key(),
+        outcomeSecondary = outcome?.secondary?.key(),
         stoppedStep = outcome?.stoppedStep ?: 0,
         confirmingLeave = state.confirmingLeave,
         announcementId = announcement?.id ?: 0,

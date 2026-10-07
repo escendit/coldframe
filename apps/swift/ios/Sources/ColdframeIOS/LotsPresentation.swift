@@ -299,13 +299,17 @@ public struct LotTilePresentation: Equatable, Sendable, Identifiable {
   /// The one tap target a tile has: a live *no Node* tile starts Add a Node, for
   /// Administrators and Owners, as the core decided.
   public let opensAddNode: Bool
+  /// A live *needs calibration* tile has a Calibrate control beside it, for Administrators and
+  /// Owners, as the core decided. The tile itself still opens Lot detail.
+  public let opensCalibrate: Bool
 
   public init(
     id: String, name: String, status: LotStatusKind, variant: LotTileVariantKind,
     label: LotTileLabelKind, value: LotTileValueKind = .none, foot: LotTileFootKind = .none,
     spoken: LotTileSpokenKind, soilPercent: Int? = nil, lowPercent: Int? = nil,
     readingAt: Date? = nil, duration: LotDurationPresentation? = nil, pausedBySite: Bool = false,
-    pausedUntil: Date? = nil, asOf: Date? = nil, opensAddNode: Bool = false
+    pausedUntil: Date? = nil, asOf: Date? = nil, opensAddNode: Bool = false,
+    opensCalibrate: Bool = false
   ) {
     self.id = id
     self.name = name
@@ -323,6 +327,7 @@ public struct LotTilePresentation: Equatable, Sendable, Identifiable {
     self.pausedUntil = pausedUntil
     self.asOf = asOf
     self.opensAddNode = opensAddNode
+    self.opensCalibrate = opensCalibrate
   }
 
   public var isStale: Bool { variant == .stale }
@@ -909,7 +914,8 @@ public struct LotsPresentation: Equatable, Sendable {
     lotLowPercents: [String] = [], lotReadingAts: [String] = [],
     lotDurationValues: [String] = [], lotDurationUnits: [String] = [],
     lotPausedBySite: [Bool] = [], lotPausedUntils: [String] = [],
-    lotOpensAddNode: [Bool] = [], menuItems: [String] = [], menuEnabled: Bool = true
+    lotOpensAddNode: [Bool] = [], lotOpensCalibrate: [Bool] = [], menuItems: [String] = [],
+    menuEnabled: Bool = true
   ) {
     switch surface {
     case "loading":
@@ -952,7 +958,8 @@ public struct LotsPresentation: Equatable, Sendable {
           pausedBySite: Self.entry(lotPausedBySite, index) ?? false,
           pausedUntil: Self.entry(lotPausedUntils, index).flatMap(Self.date(text:)),
           asOf: variant == .stale ? fetchedAt : nil,
-          opensAddNode: Self.entry(lotOpensAddNode, index) ?? false)
+          opensAddNode: Self.entry(lotOpensAddNode, index) ?? false,
+          opensCalibrate: Self.entry(lotOpensCalibrate, index) ?? false)
       }
       let role = role.flatMap(SiteRoleKind.init(rawValue:)) ?? .member
       let notice = actionNotice.map { LotsActionNoticeKind(rawValue: $0) ?? .unexpected }

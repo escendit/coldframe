@@ -49,6 +49,24 @@ public sealed class LotDetailTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
     }
 
     [Fact]
+    public async Task EachSensorCarriesItsSensorIdAndIsCalibratableOnlyWhenADeclaredSpecificationSaysSo()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, member) = await SeedSiteAsync(cancellationToken);
+        var (lotId, node, claimedAt) = await SeedLotWithNodeAsync(siteId, cancellationToken);
+        await StoreWakeAsync(node, claimedAt.AddMinutes(1), 640, 20_000, 55_000, 150_000, cancellationToken);
+
+        using var lot = await GetLotAsync(member, siteId, lotId, cancellationToken);
+
+        // The seeded Sensors were declared by no Node, so none has a Specification that calls for Calibration.
+        foreach (var sensor in lot.RootElement.GetProperty("sensors").EnumerateArray())
+        {
+            Assert.True(Guid.TryParse(sensor.GetProperty("sensorId").GetString(), out _));
+            Assert.False(sensor.GetProperty("calibratable").GetBoolean());
+        }
+    }
+
+    [Fact]
     public async Task TheListNeverCarriesTheNodeOrSensors()
     {
         var cancellationToken = TestContext.Current.CancellationToken;

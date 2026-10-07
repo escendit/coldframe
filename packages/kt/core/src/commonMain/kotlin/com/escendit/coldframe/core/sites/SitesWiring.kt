@@ -1,6 +1,8 @@
 package com.escendit.coldframe.core.sites
 
 import com.escendit.coldframe.core.api.ColdframeApi
+import com.escendit.coldframe.core.calibrate.CalibrateApi
+import com.escendit.coldframe.core.calibrate.CalibrateEngine
 import com.escendit.coldframe.core.devices.DevicesApi
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotDetailApi
@@ -60,6 +62,13 @@ public object SitesWiring {
         scope: CoroutineScope,
     ): LotDetailEngine = LotDetailEngine(api = api, sites = sites, settings = settings, scope = scope)
 
+    /** Calibrate of one Lot's soil Sensor, following the current Site of [sites]. */
+    public fun calibrate(
+        api: CalibrateApi,
+        sites: SitesEngine,
+        scope: CoroutineScope,
+    ): CalibrateEngine = CalibrateEngine(api = api, sites = sites, scope = scope)
+
     /** The Devices engine, following the current Site of [sites]. */
     public fun devices(
         api: DevicesApi,
@@ -90,7 +99,8 @@ public object SitesWiring {
 
     /**
      * Add a Node over [radio], on one Site of [sites]. Once a Node is assigned, [lots] and
-     * [devices] read their lists again, so the Lot's tile is no longer *no Node*.
+     * [devices] read their lists again, so the Lot's tile is no longer *no Node*. The success
+     * outcome's Calibrate action opens [calibrate] on the Lot that got the Node.
      */
     public fun nodeSetup(
         api: EnrolmentApi,
@@ -100,6 +110,7 @@ public object SitesWiring {
         lots: LotsEngine,
         devices: DevicesEngine,
         scope: CoroutineScope,
+        calibrate: CalibrateEngine? = null,
     ): NodeSetupEngine =
         NodeSetupEngine(
             radio = radio,
@@ -111,6 +122,7 @@ public object SitesWiring {
                 lots.load()
                 devices.load()
             },
+            onCalibrate = { lotId, lotName -> calibrate?.open(lotId, lotName) },
         )
 
     /** The API client, authorised by [signIn]; a 401 ends the session. */

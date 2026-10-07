@@ -230,6 +230,7 @@
     let onTryAgain: () -> Void
     let onAddNode: (String) -> Void
     let onOpenLot: (String, String) -> Void
+    let onCalibrate: (String, String) -> Void
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -259,18 +260,27 @@
               let tileView = LotTile(
                 tile: tile, context: context,
                 valueFollowsLabel: LotTilePresentation.valueFollowsLabel(columns: columns))
-              Button {
-                if tile.opensAddNode {
-                  onAddNode(tile.id)
-                } else {
-                  onOpenLot(tile.id, tile.name)
+              VStack(alignment: .leading, spacing: 0) {
+                Button {
+                  if tile.opensAddNode {
+                    onAddNode(tile.id)
+                  } else {
+                    onOpenLot(tile.id, tile.name)
+                  }
+                } label: {
+                  // The tile is transparent: the whole of it takes the tap.
+                  tileView.contentShape(Rectangle())
                 }
-              } label: {
-                // The tile is transparent: the whole of it takes the tap.
-                tileView.contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(.isButton)
+                // A *needs calibration* tile has a sibling Calibrate control for Administrators
+                // and Owners; Members never get it, as the core decided.
+                if tile.opensCalibrate {
+                  CalibrateLinkButton(
+                    text: L10n.calibrateActionFor.string(tile.name),
+                    action: { onCalibrate(tile.id, tile.name) })
+                }
               }
-              .buttonStyle(.plain)
-              .accessibilityAddTraits(.isButton)
             }
           }
         }

@@ -168,12 +168,16 @@ public enum NodeOutcomeActionKind: String, CaseIterable, Sendable {
   case done
   case startOver
   case close
+  /// Opens Calibrate for the Lot that got the Node; the success outcome's second action, for
+  /// Administrators and Owners (Story 5.2).
+  case calibrate
 
   public var label: L10n {
     switch self {
     case .done: .addNodeDone
     case .startOver: .addNodeStartOver
     case .close: .addNodeClose
+    case .calibrate: .calibrateAction
     }
   }
 }
@@ -186,6 +190,8 @@ public struct NodeOutcomePresentation: Equatable, Sendable {
   public let title: Copy
   public let body: Copy
   public let primary: NodeOutcomeActionKind
+  /// Calibrate, beside Done, on a success the core says may calibrate; nil otherwise.
+  public let secondary: NodeOutcomeActionKind?
   public let stoppedStep: Int
 
   public var isSuccess: Bool { kind.isSuccess }
@@ -303,7 +309,7 @@ public struct NodeSetupPresentation: Equatable, Sendable {
     codeAccepted: false, deviceId: nil, siteName: "", lotsLoaded: false, lotIds: [], lotNames: [],
     lotSelectable: [], selectedLotId: nil, lotName: nil, newLotOpen: false, newLotName: "",
     newLotError: nil, creatingLot: false, assigning: false, lotNotice: nil, lotNoticeLot: nil,
-    lotsRetryable: false, outcome: nil, outcomePrimary: nil, stoppedStep: 0,
+    lotsRetryable: false, outcome: nil, outcomePrimary: nil, outcomeSecondary: nil, stoppedStep: 0,
     confirmingLeave: false, announcementId: 0, announcementKind: nil,
     announcementAssertive: false, announcementNode: nil, announcementLot: nil,
     announcementSignal: nil, announcementOutcome: nil)
@@ -318,7 +324,8 @@ public struct NodeSetupPresentation: Equatable, Sendable {
     lotSelectable: [Bool], selectedLotId: String?, lotName: String?, newLotOpen: Bool,
     newLotName: String, newLotError: String?, creatingLot: Bool, assigning: Bool,
     lotNotice: String?, lotNoticeLot: String?, lotsRetryable: Bool, outcome: String?,
-    outcomePrimary: String?, stoppedStep: Int, confirmingLeave: Bool, announcementId: Int,
+    outcomePrimary: String?, outcomeSecondary: String? = nil, stoppedStep: Int,
+    confirmingLeave: Bool, announcementId: Int,
     announcementKind: String?, announcementAssertive: Bool, announcementNode: String?,
     announcementLot: String?, announcementSignal: String?, announcementOutcome: String?
   ) {
@@ -377,6 +384,10 @@ public struct NodeSetupPresentation: Equatable, Sendable {
         kind: kind, title: copy.title, body: copy.body,
         primary: outcomePrimary.flatMap(NodeOutcomeActionKind.init(rawValue:))
           ?? Self.primary(of: kind),
+        secondary: kind.isSuccess
+          ? outcomeSecondary.flatMap(NodeOutcomeActionKind.init(rawValue:)).flatMap {
+            $0 == .calibrate ? $0 : nil
+          } : nil,
         stoppedStep: stoppedStep)
     } else {
       self.outcome = nil

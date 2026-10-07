@@ -37,6 +37,7 @@ final class CoreNodeSetupService: NodeSetupService {
             assigning: snapshot.assigning, lotNotice: snapshot.lotNotice,
             lotNoticeLot: snapshot.lotNoticeLot, lotsRetryable: snapshot.lotsRetryable,
             outcome: snapshot.outcome, outcomePrimary: snapshot.outcomePrimary,
+            outcomeSecondary: snapshot.outcomeSecondary,
             stoppedStep: Int(snapshot.stoppedStep), confirmingLeave: snapshot.confirmingLeave,
             announcementId: Int(snapshot.announcementId),
             announcementKind: snapshot.announcementKind,

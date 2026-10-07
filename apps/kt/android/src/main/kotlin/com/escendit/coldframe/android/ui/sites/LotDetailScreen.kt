@@ -117,6 +117,7 @@ fun LotDetailScreen(
     zone: ZoneId = ZoneId.systemDefault(),
     events: Flow<LotsEvent> = emptyFlow(),
     onAddNode: (lotId: String) -> Unit = {},
+    onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
     onOpenDevices: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
@@ -158,6 +159,7 @@ fun LotDetailScreen(
                             overviewCopy = overviewCopy,
                             actions = actions,
                             onAddNode = onAddNode,
+                            onCalibrate = onCalibrate,
                             onOpenDevices = onOpenDevices,
                         )
                     }
@@ -227,6 +229,7 @@ private fun ReadyDetail(
     overviewCopy: OverviewCopy,
     actions: LotDetailActions,
     onAddNode: (lotId: String) -> Unit,
+    onCalibrate: (lotId: String, name: String) -> Unit,
     onOpenDevices: () -> Unit,
 ) {
     val oneColumn = LocalDensity.current.fontScale >= ONE_COLUMN_FONT_SCALE
@@ -238,6 +241,14 @@ private fun ReadyDetail(
         )
     }
     Hero(detail.hero, copy, overviewCopy)
+    // Calibrate is the core's answer: Admin+ on a live Lot with a calibratable Sensor; hidden, never disabled.
+    if (detail.canCalibrate) {
+        ColdframeButton(
+            label = stringResource(R.string.calibrate_action),
+            onClick = { onCalibrate(state.lot.id, state.lot.name) },
+            variant = ButtonVariant.Secondary,
+        )
+    }
     if (detail.noNode) {
         NoNode(detail, state.lot.id, onAddNode)
         return

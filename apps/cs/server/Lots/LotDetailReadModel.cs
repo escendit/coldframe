@@ -21,7 +21,8 @@ public sealed record LotClaim(string NodeId, DateTimeOffset ClaimedAt);
 /// <param name="RawValue">The stored value: raw count, milli-°C, milli-% or Ω.</param>
 /// <param name="MeasuredAt">When the Reading was taken.</param>
 /// <param name="Calibration">The points of the Calibration the Reading was stored with, or <see langword="null"/> without one.</param>
-public sealed record StoredReading(int Slot, string Quantity, long RawValue, DateTimeOffset MeasuredAt, CalibrationPoints? Calibration = null);
+/// <param name="SensorId">The Sensor ID the Reading carries.</param>
+public sealed record StoredReading(int Slot, string Quantity, long RawValue, DateTimeOffset MeasuredAt, CalibrationPoints? Calibration = null, Guid? SensorId = null);
 
 /// <summary>
 /// A Node's newest device report.
@@ -51,7 +52,7 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
 
     private const string LatestSql =
         """
-        SELECT DISTINCT ON (r.slot, r.quantity) r.slot, r.quantity, r.raw_value, r.measured_at, c.dry_raw, c.wet_raw
+        SELECT DISTINCT ON (r.slot, r.quantity) r.slot, r.quantity, r.raw_value, r.measured_at, c.dry_raw, c.wet_raw, r.sensor_id
         FROM readings r
         LEFT JOIN calibrations c ON c.calibration_id = r.calibration_id
         WHERE r.device_id = @device_id AND r.measured_at >= @since
@@ -127,7 +128,7 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
                 ? null
                 : new CalibrationPoints(reader.GetInt64(4), reader.GetInt64(5));
 
-            readings.Add(new StoredReading(reader.GetInt32(0), reader.GetString(1), reader.GetInt64(2), reader.GetFieldValue<DateTimeOffset>(3), calibration));
+            readings.Add(new StoredReading(reader.GetInt32(0), reader.GetString(1), reader.GetInt64(2), reader.GetFieldValue<DateTimeOffset>(3), calibration, reader.GetGuid(6)));
         }
 
         return readings;

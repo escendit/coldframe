@@ -290,4 +290,30 @@ class OpenApiContractTest {
             assertTrue("urn:coldframe:problem:$slug" in types, slug)
         }
     }
+
+    @Test
+    fun story52TheCalibrationOperationsExistForAdministratorsWithTheirProblems() {
+        val read = operation("/sites/{siteId}/sensors/{sensorId}/calibration", "get")
+        val write = operation("/sites/{siteId}/sensors/{sensorId}/calibration", "post")
+        assertEquals("getSensorCalibration", read["operationId"]!!.jsonPrimitive.content)
+        assertEquals("calibrateSensor", write["operationId"]!!.jsonPrimitive.content)
+        for (operation in listOf(read, write)) {
+            assertEquals("Administrator", operation["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+            assertEquals(listOf("siteId", "sensorId"), parameterNames(operation))
+        }
+        assertNotNull(read["responses"]!!.jsonObject["403"])
+        assertNotNull(write["responses"]!!.jsonObject["503"])
+        assertTrue("urn:coldframe:problem:calibration-not-delivered" == ColdframeApi.PROBLEM_CALIBRATION_NOT_DELIVERED)
+    }
+
+    @Test
+    fun story52TheCalibrationDtosMirrorTheContract() {
+        assertMirrors("CalibrationState", CalibrationStateDto.serializer().descriptor)
+        assertMirrors("Calibration", CalibrationDto.serializer().descriptor)
+        assertMirrors("CalibrationValue", CalibrationValueDto.serializer().descriptor)
+        assertMirrors("CalibrationReading", CalibrationReadingDto.serializer().descriptor)
+        assertMirrors("CalibrationPoint", CalibrationPointDto.serializer().descriptor)
+        assertMirrors("CalibrateSensorRequest", CalibrateSensorRequestDto.serializer().descriptor)
+        assertMirrors("SensorReading", SensorReadingDto.serializer().descriptor)
+    }
 }

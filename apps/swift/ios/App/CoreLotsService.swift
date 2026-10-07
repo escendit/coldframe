@@ -80,6 +80,7 @@ final class CoreLotsService: LotsService {
       lotPausedBySite: snapshot.lotPausedBySite.map { $0.boolValue },
       lotPausedUntils: snapshot.lotPausedUntils,
       lotOpensAddNode: snapshot.lotOpensAddNode.map { $0.boolValue },
+      lotOpensCalibrate: snapshot.lotOpensCalibrate.map { $0.boolValue },
       menuItems: snapshot.menuItems, menuEnabled: snapshot.menuEnabled)
   }
 

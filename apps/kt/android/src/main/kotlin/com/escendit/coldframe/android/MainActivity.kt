@@ -10,6 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.escendit.coldframe.android.ui.calibrate.CalibrateActions
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.setup.NodeSetupActions
@@ -35,6 +36,8 @@ class MainActivity : ComponentActivity() {
         val lotsActions = LotsActions.of(lots)
         val lotDetail = app.signIn.lotDetail
         val lotDetailActions = LotDetailActions.of(lotDetail)
+        val calibrate = app.signIn.calibrate
+        val calibrateActions = CalibrateActions.of(calibrate)
         val devices = app.signIn.devices
         val devicesActions = DevicesActions.of(devices)
         val hubSetup = app.signIn.hubSetup
@@ -47,6 +50,7 @@ class MainActivity : ComponentActivity() {
             val sitesState by sites.state.collectAsStateWithLifecycle()
             val lotsState by lots.state.collectAsStateWithLifecycle()
             val lotDetailState by lotDetail.state.collectAsStateWithLifecycle()
+            val calibrateState by calibrate.state.collectAsStateWithLifecycle()
             val devicesState by devices.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val nodeSetupState by nodeSetup.state.collectAsStateWithLifecycle()
@@ -84,6 +88,8 @@ class MainActivity : ComponentActivity() {
                 lotDetail = lotDetailState,
                 lotDetailActions = lotDetailActions,
                 lotDetailEvents = lotDetail.events,
+                calibrate = calibrateState,
+                calibrateActions = calibrateActions,
                 // Reload on start: a no-op until a Site is current, else the Lots are read again.
                 onForeground = {
                     engine.resume()

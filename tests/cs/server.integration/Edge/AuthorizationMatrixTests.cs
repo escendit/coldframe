@@ -114,6 +114,11 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
                     cancellationToken),
             HttpStatusCode.NotFound,
             SensorNotFoundAsync);
+        _samples["GET /sites/{siteId}/sensors/{sensorId}/calibration"] = new(
+            (server, siteId, cancellationToken) =>
+                server.GetAsync(new Uri($"/sites/{siteId}/sensors/{Guid.NewGuid()}/calibration", UriKind.Relative), cancellationToken),
+            HttpStatusCode.NotFound,
+            SensorNotFoundAsync);
 
         // Each call gets a fresh Lot of the Site it targets, so a removal never meets a removed Lot.
         _samples["GET /sites/{siteId}/lots/{lotId}"] = new(

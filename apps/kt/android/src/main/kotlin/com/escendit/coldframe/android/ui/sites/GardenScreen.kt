@@ -101,6 +101,7 @@ fun GardenScreen(
     onAddHub: () -> Unit = {},
     onAddNode: (lotId: String) -> Unit = {},
     onOpenLot: (lotId: String, name: String) -> Unit = { _, _ -> },
+    onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
     now: () -> Instant = Instant::now,
     zone: ZoneId = ZoneId.systemDefault(),
     events: Flow<LotsEvent> = emptyFlow(),
@@ -190,7 +191,13 @@ fun GardenScreen(
                 is LotsState.Ready -> {
                     // Which tile starts Add a Node is the core's answer (`opensAddNode`).
                     if (overview != null && overview.tiles.isNotEmpty()) {
-                        LotTiles(overview.tiles, copy, onAddNode = onAddNode, onOpenLot = onOpenLot)
+                        LotTiles(
+                            overview.tiles,
+                            copy,
+                            onAddNode = onAddNode,
+                            onOpenLot = onOpenLot,
+                            onCalibrate = onCalibrate,
+                        )
                     }
                 }
 

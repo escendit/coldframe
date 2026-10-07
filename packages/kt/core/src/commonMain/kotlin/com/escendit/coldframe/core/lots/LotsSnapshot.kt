@@ -32,7 +32,7 @@ import com.escendit.coldframe.core.devices.DevicesState
  *   `needsCalibration`, `pausedUntil`, `pausedWithSite`, `paused`, `noNode`, `stale`) and their
  *   parts [lotSoilPercents], [lotLowPercents], [lotReadingAts], [lotDurationSinces],
  *   [lotDurationValues] with [lotDurationUnits] (`minutes`, `hours`, `days`, or empty),
- *   [lotPausedBySite], [lotPausedUntils] and [lotOpensAddNode]. A stale tile's "as of" is
+ *   [lotPausedBySite], [lotPausedUntils], [lotOpensAddNode] and [lotOpensCalibrate]. A stale tile's "as of" is
  *   [fetchedAtEpochMs].
  * - Site menu: [menuItems] (`siteSettings`, …) and [menuEnabled], false in stale mode ("Needs
  *   your Server"). Use these instead of the Sites snapshot's menu while `ready`.
@@ -95,6 +95,8 @@ public data class LotsSnapshot(
     val lotPausedBySite: List<Boolean>,
     val lotPausedUntils: List<String>,
     val lotOpensAddNode: List<Boolean>,
+    /** Per tile: the tile's Calibrate control shows (a live *needs calibration* tile, Admin+). */
+    val lotOpensCalibrate: List<Boolean>,
     val menuItems: List<String>,
     val menuEnabled: Boolean,
 )
@@ -202,6 +204,7 @@ public fun snapshotOf(
         lotPausedBySite = tiles.map { it.pausedBySite },
         lotPausedUntils = tiles.map { it.pausedUntilEpochMs.text() },
         lotOpensAddNode = tiles.map { it.opensAddNode },
+        lotOpensCalibrate = tiles.map { it.opensCalibrate },
         menuItems = menu.map { it.action.key() },
         menuEnabled = menu.all { it.enabled },
     )

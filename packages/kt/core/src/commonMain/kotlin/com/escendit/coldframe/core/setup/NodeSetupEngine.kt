@@ -61,6 +61,7 @@ public class NodeSetupEngine(
     private val sites: StateFlow<SitesState>,
     private val scope: CoroutineScope,
     private val onAssigned: () -> Unit = {},
+    private val onCalibrate: (lotId: String, lotName: String) -> Unit = { _, _ -> },
     private val newKey: () -> String = SitesEngine::randomKey,
     private val newSession: () -> SetupSession = { SetupSession() },
 ) {
@@ -134,6 +135,13 @@ public class NodeSetupEngine(
                 sites.first { it !is SitesState.Ready }
                 if (mutableState.value.open) close()
             }
+    }
+
+    // The Role on the flow's Site; adding a Node already needs Administrator, so a success may calibrate.
+    private fun canCalibrate(): Boolean {
+        val ready = sites.value as? SitesState.Ready ?: return false
+        val role = ready.sites.firstOrNull { it.id == mutableState.value.siteId }?.role ?: return false
+        return role >= SiteRole.Administrator
     }
 
     /** Closes the flow, disconnects and forgets the sealed key. */
@@ -687,7 +695,12 @@ public class NodeSetupEngine(
                         it.copy(
                             step = NodeSetupStep.Outcome,
                             lots = it.lots.copy(assigning = false),
-                            outcome = NodeOutcome(NodeOutcomeKind.Assigned, NodeSetupStep.Outcome.number),
+                            outcome =
+                                NodeOutcome(
+                                    NodeOutcomeKind.Assigned,
+                                    NodeSetupStep.Outcome.number,
+                                    calibrateLotId = lot.id.takeIf { canCalibrate() },
+                                ),
                             announcement =
                                 announcement(NodeAnnouncementKind.Assigned, node = it.nodeId, lot = lot.name),
                         )
@@ -774,10 +787,22 @@ public class NodeSetupEngine(
     /** Runs the outcome screen's action. */
     public fun outcomeAction(action: NodeOutcomeAction) {
         val outcome = mutableState.value.outcome ?: return
-        if (action != outcome.primary) return
+        if (action != outcome.primary && action != outcome.secondary) return
         when (action) {
-            NodeOutcomeAction.Done, NodeOutcomeAction.Close -> close()
-            NodeOutcomeAction.StartOver -> startOver()
+            NodeOutcomeAction.Done, NodeOutcomeAction.Close -> {
+                close()
+            }
+
+            NodeOutcomeAction.StartOver -> {
+                startOver()
+            }
+
+            NodeOutcomeAction.Calibrate -> {
+                val lotId = outcome.calibrateLotId ?: return
+                val name = mutableState.value.lotName.orEmpty()
+                close()
+                onCalibrate(lotId, name)
+            }
         }
     }
 

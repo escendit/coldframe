@@ -26,6 +26,9 @@ public enum class ApiFailure {
     /** 409 `device-assigned`: the Node is assigned to another Lot; nothing changed. */
     DeviceAssigned,
 
+    /** 503 `calibration-not-delivered`: the Calibration is saved but the Node's Device has not acknowledged it yet. */
+    CalibrationNotDelivered,
+
     /** 401, or no session: the engine signs out with the SignedOut notice. */
     Unauthorized,
 

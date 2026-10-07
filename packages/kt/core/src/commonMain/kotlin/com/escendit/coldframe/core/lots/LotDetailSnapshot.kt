@@ -62,6 +62,8 @@ public data class LotDetailSnapshot(
     val heroDurationUnit: String,
     val noNode: Boolean,
     val canAddNode: Boolean,
+    /** Calibrate shows on Lot detail: Admin+ on a live Lot with a calibratable Sensor. */
+    val canCalibrate: Boolean,
     val hasSensors: Boolean,
     val sensorQuantities: List<String>,
     val sensorNumbers: List<String>,
@@ -172,6 +174,7 @@ public fun snapshotOf(
                 .orEmpty(),
         noNode = detail?.noNode == true,
         canAddNode = site?.let { DevicesState.canAddNode(it.role) } == true,
+        canCalibrate = detail?.canCalibrate == true,
         hasSensors = detail?.sensors != null,
         sensorQuantities = detail?.sensors?.map { it.quantity.camel() }.orEmpty(),
         sensorNumbers = detail?.sensors?.map { it.number }.orEmpty(),

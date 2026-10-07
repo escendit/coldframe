@@ -13,9 +13,11 @@
     timeZone: string;
     /** Stale mode: when the Lots were last read; every tile is then drawn stale (UX-DR19). */
     staleSince?: Date | null;
+    /** Owners and Administrators: a needs-calibration tile gets a Calibrate link beside it. Hidden for a Member. */
+    canCalibrate?: boolean;
   }
 
-  let { lots, now, timeZone, staleSince = null }: Props = $props();
+  let { lots, now, timeZone, staleSince = null, canCalibrate = false }: Props = $props();
 
   const tiles = $derived(lots.map((lot) => lotTile(lot, { now, locale, timeZone, staleSince })));
 
@@ -73,6 +75,9 @@
             </div>
           {/if}
         </a>
+        {#if canCalibrate && tile.variant === 'needsCalibration'}
+          <a class="cf-lot-grid__calibrate" href="/garden/{tile.id}/calibrate" aria-label={t('calibrate.actionFor', { name: tile.name })}>{t('calibrate.action')}</a>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -113,6 +118,17 @@
 
   .cf-lot-grid__cell {
     display: grid;
+    align-content: start;
+    gap: var(--cf-spacing-3);
+  }
+
+  .cf-lot-grid__calibrate {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--cf-color-primary-text);
+    font-family: var(--cf-type-body-font-family);
+    font-size: var(--cf-type-body-font-size);
   }
 
   /* At least 1 : 0.82, growing in height with its content; never clipped. */

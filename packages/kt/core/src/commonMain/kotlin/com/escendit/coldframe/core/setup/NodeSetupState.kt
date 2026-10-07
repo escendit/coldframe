@@ -154,14 +154,26 @@ public enum class NodeOutcomeAction {
 
     /** Closes the flow. */
     Close,
+
+    /** Closes the flow and opens Calibrate for the Lot that got the Node (Administrator and up, Story 5.2). */
+    Calibrate,
 }
 
-/** An outcome and the step it stopped on ([stoppedStep], 3 or 4; 5 for the success). */
+/**
+ * An outcome and the step it stopped on ([stoppedStep], 3 or 4; 5 for the success). [calibrateLotId]
+ * is the Lot of a success the caller may calibrate (Administrator and up): it adds [secondary], the
+ * Calibrate action, beside the primary one.
+ */
 public data class NodeOutcome(
     val kind: NodeOutcomeKind,
     val stoppedStep: Int,
+    val calibrateLotId: String? = null,
 ) {
     val success: Boolean get() = kind == NodeOutcomeKind.Assigned
+
+    /** Only the success offers a second action: Calibrate, hidden unless the Role may calibrate. */
+    val secondary: NodeOutcomeAction?
+        get() = if (success && calibrateLotId != null) NodeOutcomeAction.Calibrate else null
 
     val primary: NodeOutcomeAction
         get() =

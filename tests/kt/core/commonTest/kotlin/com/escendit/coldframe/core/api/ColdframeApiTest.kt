@@ -496,4 +496,95 @@ class ColdframeApiTest {
                 assertEquals(ApiResult.Failed(failure), api().unassignDevice("a", "7c19aa01b2d4e6f8"), type)
             }
         }
+
+    @Test
+    fun story52GetSensorCalibrationReadsTheKeptPointAndTheRecentReadings() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"calibrated":false,"pendingDry":{"rawValue":3000},"readings":[{"readingSeq":8,"rawValue":612,"measuredAt":"2026-10-07T07:17:00.000Z"}]}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result = api().getSensorCalibration("a", "s-1")
+
+            assertEquals(
+                ApiResult.Ok(
+                    CalibrationStateDto(
+                        calibrated = false,
+                        readings = listOf(CalibrationReadingDto(8, 612, "2026-10-07T07:17:00.000Z")),
+                        pendingDry = CalibrationValueDto(3000),
+                    ),
+                ),
+                result,
+            )
+            val sent = requests.single()
+            assertEquals(HttpMethod.Get, sent.method)
+            assertEquals("https://server.example/sites/a/sensors/s-1/calibration", sent.url.toString())
+            assertEquals("Bearer access-1", sent.headers[HttpHeaders.Authorization])
+        }
+
+    @Test
+    fun story52CalibrateSensorPostsOnlyThePointItIsGiven() =
+        runTest {
+            answer = { respond("""{"calibrated":false,"pendingDry":{"rawValue":3000}}""", HttpStatusCode.OK, json) }
+
+            val result = api().calibrateSensor("a", "s-1", dryReadingSeq = 8, wetReadingSeq = null)
+
+            assertEquals(
+                ApiResult.Ok(CalibrationDto(calibrated = false, pendingDry = CalibrationValueDto(3000))),
+                result,
+            )
+            val sent = requests.single()
+            assertEquals(HttpMethod.Post, sent.method)
+            assertEquals("https://server.example/sites/a/sensors/s-1/calibration", sent.url.toString())
+            assertEquals("""{"dry":{"readingSeq":8}}""", sent.text())
+        }
+
+    @Test
+    fun story52CalibrationProblemsMapToTheirFailures() =
+        runTest {
+            val cases =
+                listOf(
+                    Triple(HttpStatusCode.BadRequest, "validation", ApiFailure.Validation),
+                    Triple(HttpStatusCode.Forbidden, "forbidden", ApiFailure.Forbidden),
+                    Triple(HttpStatusCode.NotFound, "sensor-not-found", ApiFailure.NotFound),
+                    Triple(
+                        HttpStatusCode.ServiceUnavailable,
+                        "calibration-not-delivered",
+                        ApiFailure.CalibrationNotDelivered,
+                    ),
+                    Triple(
+                        HttpStatusCode.ServiceUnavailable,
+                        "identity-provider-unavailable",
+                        ApiFailure.IdentityProviderUnavailable,
+                    ),
+                )
+            for ((status, type, failure) in cases) {
+                answer = { respond(problem(type), status, problem) }
+                assertEquals(ApiResult.Failed(failure), api().calibrateSensor("a", "s-1", 8, null), type)
+            }
+            assertEquals(false, ApiFailure.CalibrationNotDelivered.transport)
+        }
+
+    @Test
+    fun story52LotSensorsCarryTheSensorIdAndCalibratable() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"id":"t","name":"T","status":"needsCalibration","statusSince":"2026-10-06T07:02:00.000Z","sensors":[{"quantity":"soil_moisture","value":612,"unit":"raw","measuredAt":"2026-10-06T07:00:00.000Z","sensorId":"s-1","calibratable":true}]}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val lot = (api().getLot("a", "t") as ApiResult.Ok).value
+
+            assertEquals("s-1", lot.sensors!!.single().sensorId)
+            assertEquals(true, lot.sensors!!.single().calibratable)
+        }
 }

@@ -25,6 +25,7 @@ import com.escendit.coldframe.android.ui.sites.rememberOverviewCopy
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.calibrate.CalibrateState
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
 import com.escendit.coldframe.core.lots.CreateLotForm
@@ -123,6 +124,7 @@ class SnapshotTest {
         hubSetup: HubSetupState = HubSetupState.CLOSED,
         devices: DevicesState? = null,
         nodeSetup: NodeSetupState = NodeSetupState.CLOSED,
+        calibrate: CalibrateState = CalibrateState.Idle,
     ) {
         compose.setContent {
             AtFontScale(2f) {
@@ -139,6 +141,7 @@ class SnapshotTest {
                     devices = devices ?: DevicesState.Idle,
                     now = { devicesNow },
                     nodeSetup = nodeSetup,
+                    calibrate = calibrate,
                 )
             }
         }
@@ -780,4 +783,150 @@ class SnapshotTest {
         /** Lot detail in one column at font scale 2. */
         const val HUGE = "w411dp-h3600dp-mdpi"
     }
+
+    // Calibrate (Story 5.2): every step, the resume path and the paused explanation, light and dark, font scale 2.
+
+    @Test
+    fun `UX-DR66 Calibrate dry waiting, light, font scale 2`() =
+        snapshot(
+            "calibrate-dry-waiting-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.dry,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate dry waiting, dark, font scale 2`() =
+        snapshot(
+            "calibrate-dry-waiting-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.dry,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate dry fresh, light, font scale 2`() =
+        snapshot(
+            "calibrate-dry-fresh-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.dryFresh,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate dry fresh, dark, font scale 2`() =
+        snapshot(
+            "calibrate-dry-fresh-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.dryFresh,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate wet resumed, light, font scale 2`() =
+        snapshot(
+            "calibrate-wet-resumed-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.wetResumed,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate wet resumed, dark, font scale 2`() =
+        snapshot(
+            "calibrate-wet-resumed-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.wetResumed,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate wet fresh, light, font scale 2`() =
+        snapshot(
+            "calibrate-wet-fresh-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.wetFresh,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate wet fresh, dark, font scale 2`() =
+        snapshot(
+            "calibrate-wet-fresh-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.wetFresh,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate confirm pending, light, font scale 2`() =
+        snapshot(
+            "calibrate-confirm-pending-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.confirmPending,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate confirm pending, dark, font scale 2`() =
+        snapshot(
+            "calibrate-confirm-pending-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.confirmPending,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate confirm percent, light, font scale 2`() =
+        snapshot(
+            "calibrate-confirm-percent-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.confirmPercent,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate confirm percent, dark, font scale 2`() =
+        snapshot(
+            "calibrate-confirm-percent-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.confirmPercent,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate paused, light, font scale 2`() =
+        snapshot(
+            "calibrate-paused-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.paused,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate paused, dark, font scale 2`() =
+        snapshot(
+            "calibrate-paused-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.paused,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate indistinct, light, font scale 2`() =
+        snapshot(
+            "calibrate-indistinct-light",
+            readySites(),
+            ThemePreference.Light,
+            calibrate = CalibrateStates.indistinct,
+        )
+
+    @Test
+    fun `UX-DR66 Calibrate indistinct, dark, font scale 2`() =
+        snapshot(
+            "calibrate-indistinct-dark",
+            readySites(),
+            ThemePreference.Dark,
+            calibrate = CalibrateStates.indistinct,
+        )
 }

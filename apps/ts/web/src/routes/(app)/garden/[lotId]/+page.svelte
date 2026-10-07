@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import HistoryChart from '$lib/components/HistoryChart.svelte';
+  import Button from '$lib/components/Button.svelte';
   import Hatch from '$lib/components/Hatch.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
@@ -8,6 +9,7 @@
   import StaleHeader from '$lib/components/StaleHeader.svelte';
   import { locale, t, type MessageKey } from '$lib/i18n';
   import { deviceCells, heroSpoken, historyChart, lotHero, pickerQuantities, quantityName, sensorCells, type SensorQuantity } from '$lib/lot-detail';
+  import { calibratableSensor } from '$lib/calibrate';
   import { hasRole } from '$lib/roles';
   import type { PageProps } from './$types';
 
@@ -44,6 +46,8 @@
     picked = value;
   }
   const hasNode = $derived(lot?.node !== undefined);
+  /** Calibrate: Owners and Administrators only, and only for a Sensor whose Specification calls for it. */
+  const canCalibrate = $derived(admin && lot !== null && calibratableSensor(lot) !== null);
 
   onMount(() => {
     browserTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -126,6 +130,9 @@
               {/each}
             </ul>
           {/if}
+          {#if canCalibrate}
+            <p class="cf-detail__calibrate"><Button label={t('calibrate.action')} variant="secondary" href="/garden/{lot.id}/calibrate" id="cf-detail-calibrate" /></p>
+          {/if}
         </section>
 
         <section aria-labelledby="cf-detail-history">
@@ -175,6 +182,10 @@
     align-items: center;
     min-height: 44px;
     color: var(--cf-color-primary-text);
+  }
+
+  .cf-detail__calibrate {
+    margin: var(--cf-spacing-5) 0 0;
   }
 
   .cf-detail__empty {
