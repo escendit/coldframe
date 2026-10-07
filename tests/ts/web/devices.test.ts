@@ -2,8 +2,9 @@ import { isRedirect } from '@sveltejs/kit';
 import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import DevicesPage from '../../../apps/ts/web/src/routes/(app)/devices/+page.svelte';
-import { devicesAccessOf, devicesNoticeOf, hubsOf, lastSeenText, nodesOf, statusOf, type DeviceListItem, type DevicesNotice } from '$lib/devices';
-import { listDevices, loadDevices } from '$lib/server/devices';
+import { devicesAccessOf, devicesNoticeOf, hubsOf, lastSeenText, lotChoicesOf, nodesOf, statusOf, type DeviceListItem, type DevicesNotice } from '$lib/devices';
+import type { Lot } from '$lib/lots';
+import { deviceAction, listDevices, loadDevices, moveDevice, unassignDevice } from '$lib/server/devices';
 import type { Role } from '$lib/roles';
 import type { Site } from '$lib/sites';
 import { FakeCookies, fakeServer, fetchFailed, jsonResponse, problemResponse } from './fakes.ts';
@@ -39,10 +40,17 @@ async function redirectOf(action: () => unknown): Promise<{ status: number; loca
   throw new Error('Expected a redirect.');
 }
 
-function page(role: Role, devices: readonly DeviceListItem[], devicesNotice: DevicesNotice | null = null, timeZone: string | null = 'UTC'): string {
+function page(
+  role: Role,
+  devices: readonly DeviceListItem[],
+  devicesNotice: DevicesNotice | null = null,
+  timeZone: string | null = 'UTC',
+  lots: readonly Lot[] = [],
+  form: unknown = null,
+): string {
   const site = { ...home, role };
-  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [site], currentSite: site, sitesNotice: null, devices, devicesNotice, loadedAt: now.toISOString(), timeZone };
-  return render(DevicesPage, { props: { data, params: {} } as never }).body;
+  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [site], currentSite: site, sitesNotice: null, devices, devicesNotice, lots, loadedAt: now.toISOString(), timeZone };
+  return render(DevicesPage, { props: { data, form, params: {} } as never }).body;
 }
 
 function row(body: string, id: string): string {
@@ -65,6 +73,7 @@ describe('The Devices list call (AD-14)', () => {
     expect(await loadDevices(locals, null, new FakeCookies(), { serverUrl, fetch: fake.fetch, now: () => now })).toEqual({
       devices: [],
       devicesNotice: null,
+      lots: [],
       loadedAt: '2026-10-06T07:04:00.000Z',
       timeZone: null,
     });
@@ -81,7 +90,7 @@ describe('The Devices list call (AD-14)', () => {
     const dependencies = { serverUrl, fetch: fake.fetch, now: () => now };
     const first = await loadDevices(locals, home, cookies, dependencies);
     const second = await loadDevices(locals, home, cookies, dependencies);
-    expect(first).toEqual({ devices: [online], devicesNotice: null, loadedAt: '2026-10-06T07:04:00.000Z', timeZone: 'Europe/Zurich' });
+    expect(first).toEqual({ devices: [online], devicesNotice: null, lots: [], loadedAt: '2026-10-06T07:04:00.000Z', timeZone: 'Europe/Zurich' });
     // The heartbeat stopped: the reload says offline, with the unchanged last-seen time.
     expect(second.devices).toEqual([{ ...online, online: false }]);
     expect(fake.seen).toHaveLength(2);
@@ -130,9 +139,9 @@ describe('Devices rows', () => {
   });
 
   test('UX-DR84 UX-DR85 the mobile app notice is for Owners and Administrators only', () => {
-    expect(devicesAccessOf('Owner')).toEqual({ mobileAppNotice: true });
-    expect(devicesAccessOf('Administrator')).toEqual({ mobileAppNotice: true });
-    expect(devicesAccessOf('Member')).toEqual({ mobileAppNotice: false });
+    expect(devicesAccessOf('Owner')).toEqual({ mobileAppNotice: true, canManageNodes: true });
+    expect(devicesAccessOf('Administrator')).toEqual({ mobileAppNotice: true, canManageNodes: true });
+    expect(devicesAccessOf('Member')).toEqual({ mobileAppNotice: false, canManageNodes: false });
   });
 });
 
@@ -225,5 +234,114 @@ describe('Devices surface', () => {
     const body = page('Member', [], 'certificate');
     expect(text(body)).toContain("Your Server's certificate isn't trusted");
     expect(body).not.toMatch(/<a\b/u);
+  });
+});
+
+const tomatoesLot: Lot = { id: 'l1', name: 'Tomatoes', status: 'ok', statusSince: '2026-10-06T07:00:00.000Z' };
+const peppersLot: Lot = { id: 'l2', name: 'Peppers', status: 'noNode', statusSince: '2026-10-06T07:00:00.000Z' };
+const herbsLot: Lot = { id: 'l3', name: 'Herbs', status: 'needsWater', statusSince: '2026-10-06T07:00:00.000Z' };
+const assigned: DeviceListItem = { id: '7c19000000000001', kind: 'node', lotId: 'l1', lotName: 'Tomatoes', online: false };
+const unassignedNode: DeviceListItem = { id: '7c19000000000002', kind: 'node', online: false };
+const lots = [tomatoesLot, peppersLot, herbsLot];
+
+describe('Move or unassign a Node (UX-DR31)', () => {
+  test('UX-DR31 an Administrator sees move and unassign on an assigned Node row; an unassigned Node only has move', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      const body = page(role, [assigned, unassignedNode], null, 'UTC', lots);
+      const assignedRow = text(row(body, assigned.id));
+      expect(assignedRow).toContain('Move');
+      expect(assignedRow).toContain('Unassign');
+      expect(row(body, assigned.id)).toContain('action="?/moveNode"');
+      const spare = text(row(body, unassignedNode.id));
+      expect(spare).toContain('Move');
+      expect(spare).not.toContain('Unassign');
+    }
+  });
+
+  test('UX-DR31 a Member sees neither move nor unassign, and no form, control or dialog', () => {
+    const body = page('Member', [assigned, unassignedNode], null, 'UTC', lots);
+    expect(text(body)).not.toMatch(/Move|Unassign/u);
+    expect(body).not.toMatch(/<(?:form|button|input|select|textarea|dialog|details|a)\b/u);
+  });
+
+  test('UX-DR31 unassign requires confirmation: a dialog names the Node and the button only opens it', () => {
+    const body = page('Administrator', [assigned], null, 'UTC', lots);
+    expect(body).toMatch(/<dialog[^>]*id="cf-unassign-node"|<dialog[^>]*aria-labelledby="cf-unassign-node-title"/u);
+    // The form that unassigns is submitted by the dialog's action, never by the row button.
+    expect(row(body, assigned.id)).not.toContain('action="?/unassignNode"');
+    expect(body).toContain('action="?/unassignNode"');
+    expect(body).toContain('Unassign Node');
+  });
+
+  test('UX-DR31 occupied Lots are not selectable and say "Has a Node"; the current Lot is marked and not selectable', () => {
+    const body = page('Administrator', [assigned], null, 'UTC', lots);
+    const choice = (id: string): string => new RegExp(`<label[^>]*data-lot="${id}"[\\s\\S]*?</label>`, 'u').exec(body)?.[0] ?? '';
+    expect(choice('l2')).not.toContain('disabled');
+    expect(text(choice('l2'))).toBe('Peppers');
+    expect(choice('l3')).toContain('disabled');
+    expect(text(choice('l3'))).toBe('Herbs Has a Node');
+    expect(choice('l1')).toContain('disabled');
+    expect(text(choice('l1'))).toBe('Tomatoes Current Lot');
+    expect(lotChoicesOf(lots, assigned)).toEqual([
+      { id: 'l1', name: 'Tomatoes', current: true, hasNode: false },
+      { id: 'l2', name: 'Peppers', current: false, hasNode: false },
+      { id: 'l3', name: 'Herbs', current: false, hasNode: true },
+    ]);
+    expect(lotChoicesOf(lots, unassignedNode).filter((lot) => lot.hasNode).map((lot) => lot.id)).toEqual(['l1', 'l3']);
+  });
+
+  test('UX-DR31 loading as an Administrator reads the Lots when there are Nodes; a Member or a Hub-only Site reads none', async () => {
+    const answer = (request: Request): Response => (new URL(request.url).pathname.endsWith('/devices') ? jsonResponse(200, { devices: [assigned] }) : jsonResponse(200, { lots }));
+    const admin = fakeServer(answer);
+    const loaded = await loadDevices(locals, { ...home, role: 'Administrator' }, new FakeCookies(), { serverUrl, fetch: admin.fetch, now: () => now });
+    expect(loaded.lots).toEqual(lots);
+    const member = fakeServer(answer);
+    expect((await loadDevices(locals, { ...home, role: 'Member' }, new FakeCookies(), { serverUrl, fetch: member.fetch })).lots).toEqual([]);
+    expect(member.seen.map((seen) => seen.path)).toEqual([`/sites/${siteId}/devices`]);
+    const hubsOnly = fakeServer(() => jsonResponse(200, { devices: [online] }));
+    expect((await loadDevices(locals, home, new FakeCookies(), { serverUrl, fetch: hubsOnly.fetch })).lots).toEqual([]);
+    expect(hubsOnly.seen).toHaveLength(1);
+  });
+
+  test('UX-DR31 move and unassign call the Server with the token and the Lot', async () => {
+    const fake = fakeServer(() => jsonResponse(200, { id: assigned.id, kind: 'node', siteId }));
+    expect(await moveDevice(locals, siteId, assigned.id, 'l2', { serverUrl, fetch: fake.fetch })).toEqual({ ok: { id: assigned.id, kind: 'node', siteId } });
+    await unassignDevice(locals, siteId, assigned.id, { serverUrl, fetch: fake.fetch });
+    expect(fake.seen).toEqual([
+      { method: 'POST', path: `/sites/${siteId}/devices/${assigned.id}/move`, authorization: 'Bearer access-token-1', key: null, body: '{"lotId":"l2"}' },
+      { method: 'POST', path: `/sites/${siteId}/devices/${assigned.id}/unassign`, authorization: 'Bearer access-token-1', key: null, body: '' },
+    ]);
+  });
+
+  test('UX-DR31 the actions answer done, or the Server\'s refusal as a notice for that Node', async () => {
+    const formOf = (fields: Record<string, string>): Request => {
+      const body = new URLSearchParams(fields);
+      return new Request('http://localhost/devices', { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+    };
+    const fields = { siteId, deviceId: assigned.id, lotId: 'l2' };
+    const done = fakeServer(() => jsonResponse(200, { id: assigned.id, kind: 'node', siteId }));
+    expect(await deviceAction('moveNode', locals, formOf(fields), { serverUrl, fetch: done.fetch })).toEqual({ action: 'moveNode', deviceId: assigned.id, done: true });
+    expect(await deviceAction('unassignNode', locals, formOf(fields), { serverUrl, fetch: done.fetch })).toEqual({ action: 'unassignNode', deviceId: assigned.id, done: true });
+
+    const refusals: [number, string, number][] = [
+      [409, 'lotClaimed', 409],
+      [403, 'forbidden', 403],
+      [404, 'notFound', 404],
+      [500, 'unexpected', 502],
+    ];
+    for (const [status, notice, failureStatus] of refusals) {
+      const fake = fakeServer(() => problemResponse(status, 'x'));
+      const result = (await deviceAction('moveNode', locals, formOf(fields), { serverUrl, fetch: fake.fetch })) as { status: number; data: unknown };
+      expect(result.status).toBe(failureStatus);
+      expect(result.data).toEqual({ action: 'moveNode', deviceId: assigned.id, notice });
+    }
+    const expired = await redirectOf(() => deviceAction('moveNode', locals, formOf(fields), { serverUrl, fetch: fakeServer(() => problemResponse(401, 'unauthorized')).fetch }));
+    expect(expired.location).toContain('/.oidc/signout');
+  });
+
+  test('UX-DR31 a refused move shows its reason beside that Node only', () => {
+    const body = page('Administrator', [assigned, unassignedNode], null, 'UTC', lots, { action: 'moveNode', deviceId: assigned.id, notice: 'lotClaimed' });
+    expect(text(row(body, assigned.id))).toContain('That Lot already has a Node. Choose another Lot.');
+    expect(text(row(body, unassignedNode.id))).not.toContain('That Lot already has a Node');
   });
 });

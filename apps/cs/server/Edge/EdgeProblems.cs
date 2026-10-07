@@ -33,6 +33,11 @@ public static class EdgeProblems
     public const string LotNotFound = "urn:coldframe:problem:lot-not-found";
 
     /// <summary>
+    /// 404: the Site has no such Node (unknown, a Hub, or of another Site).
+    /// </summary>
+    public const string DeviceNotFound = "urn:coldframe:problem:device-not-found";
+
+    /// <summary>
     /// 409: a Node is assigned to the Lot, so it cannot be removed or take another Node.
     /// </summary>
     public const string LotClaimed = "urn:coldframe:problem:lot-claimed";

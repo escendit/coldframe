@@ -22,6 +22,29 @@ public interface IDeviceGrain : IGrainWithStringKey
     Task<DeviceEnrolmentResult> Enrol(EnrolDevice request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Moves a Node to another Lot of its Site (Story 4.9, AD-18). In order: the new Lot is claimed
+    /// (<c>ILotGrain.Claim</c>), the Device journals <see cref="DeviceMoved"/> (or <see cref="DeviceAssigned"/>
+    /// for a Node on no Lot), and only then the old Lot is released, from persisted pending state that is
+    /// retried until it succeeds. A refusal changes nothing. The Node's current Lot answers
+    /// <see cref="DeviceAssignmentOutcome.Unchanged"/>.
+    /// </summary>
+    /// <param name="siteId">The canonical Site ID the caller reached the Node through.</param>
+    /// <param name="lotId">The canonical Lot ID to move to.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("move")]
+    Task<DeviceAssignmentResult> Move(string siteId, string lotId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Unassigns a Node from its Lot (Story 4.9, AD-18): the Device journals <see cref="DeviceUnassigned"/>,
+    /// then releases the Lot from persisted pending state that is retried until it succeeds. A Node on no Lot
+    /// answers <see cref="DeviceAssignmentOutcome.Unchanged"/>.
+    /// </summary>
+    /// <param name="siteId">The canonical Site ID the caller reached the Node through.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("unassign")]
+    Task<DeviceAssignmentResult> Unassign(string siteId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Verifies a Hub's signed heartbeat (AD-12, FR-13) and, when it holds, journals <see cref="DeviceSeen"/>.
     /// The grain verifies inside itself, so the plaintext <c>K_dev</c> never crosses a grain boundary: it
     /// unwraps <c>K_dev</c>, derives the <c>hub-auth/v1</c> key, checks the signature and zeroes both. It
@@ -301,4 +324,53 @@ public sealed record DeviceSummary(
 [Alias("coldframe.device-enrolment-result")]
 public sealed record DeviceEnrolmentResult(
     [property: Id(0)] DeviceEnrolmentOutcome Outcome,
+    [property: Id(1)] DeviceSummary? Device = null);
+
+/// <summary>
+/// How <see cref="IDeviceGrain.Move"/> or <see cref="IDeviceGrain.Unassign"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-assignment-outcome")]
+public enum DeviceAssignmentOutcome
+{
+    /// <summary>
+    /// The Node is on the requested Lot now (moved, or assigned when it was on none).
+    /// </summary>
+    Moved = 0,
+
+    /// <summary>
+    /// The Node is on no Lot now.
+    /// </summary>
+    Unassigned = 1,
+
+    /// <summary>
+    /// Nothing needed to change: the Node was on the requested Lot, or on none. Nothing was journaled.
+    /// </summary>
+    Unchanged = 2,
+
+    /// <summary>
+    /// The Device is not an enrolled Node of this Site. Nothing was journaled.
+    /// </summary>
+    NotFound = 3,
+
+    /// <summary>
+    /// The Lot is not on the Site: uncreated, removed, or of another Site. Nothing was journaled.
+    /// </summary>
+    LotNotFound = 4,
+
+    /// <summary>
+    /// Another Node holds the Lot. Nothing was journaled.
+    /// </summary>
+    LotOccupied = 5,
+}
+
+/// <summary>
+/// The result of <see cref="IDeviceGrain.Move"/> or <see cref="IDeviceGrain.Unassign"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+/// <param name="Device">The Node afterwards, unless <paramref name="Outcome"/> is a refusal.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-assignment-result")]
+public sealed record DeviceAssignmentResult(
+    [property: Id(0)] DeviceAssignmentOutcome Outcome,
     [property: Id(1)] DeviceSummary? Device = null);

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.IntegrationTests.Devices;
 using Coldframe.Server.Tests.Edge;
@@ -86,6 +87,22 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         _samples["POST /sites/{siteId}/devices"] = new(
             (server, siteId, cancellationToken) => EnrolmentTests.PostFreshDeviceAsync(_edge, server, siteId, cancellationToken),
             HttpStatusCode.Created);
+
+        // A Device no Site has enrolled: an allowed caller passes the access rule and meets 404 device-not-found,
+        // which tells it apart from the 403 of a caller below Administrator and the 404 of a missing Site.
+        _samples["POST /sites/{siteId}/devices/{deviceId}/move"] = new(
+            async (server, siteId, cancellationToken) =>
+                await server.PostAsJsonAsync(
+                    new Uri($"/sites/{siteId}/devices/{UnknownNodeId()}/move", UriKind.Relative),
+                    new { lotId = await SeedLotAsync(siteId, cancellationToken) },
+                    cancellationToken),
+            HttpStatusCode.NotFound,
+            DeviceNotFoundAsync);
+        _samples["POST /sites/{siteId}/devices/{deviceId}/unassign"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PostAsync(new Uri($"/sites/{siteId}/devices/{UnknownNodeId()}/unassign", UriKind.Relative), content: null, cancellationToken),
+            HttpStatusCode.NotFound,
+            DeviceNotFoundAsync);
 
         // Each call gets a fresh Lot of the Site it targets, so a removal never meets a removed Lot.
         _samples["GET /sites/{siteId}/lots/{lotId}"] = new(
@@ -229,6 +246,15 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             var type = operation.Rule.IsDevice ? DeviceUnauthorized : "urn:coldframe:problem:unauthorized";
             await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.Unauthorized, type, cancellationToken);
         }
+    }
+
+    private static string UnknownNodeId() => Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
+
+    private static async Task<string?> DeviceNotFoundAsync(HttpResponseMessage response, SiteRole role, CancellationToken cancellationToken)
+    {
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+        var type = body.RootElement.GetProperty("type").GetString();
+        return type == "urn:coldframe:problem:device-not-found" ? null : $"problem {type}, expected device-not-found";
     }
 
     private Task<string> SeedLotAsync(string siteId, CancellationToken cancellationToken) =>

@@ -65,6 +65,11 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     /// </summary>
     public SensorFaults SensorFaults => SiloServices.GetRequiredService<SensorFaults>();
 
+    /// <summary>
+    /// The silo's Lot call filter, which a test can make fail the releases of one Lot.
+    /// </summary>
+    public LotFaults LotFaults => SiloServices.GetRequiredService<LotFaults>();
+
     public DeviceKeyVault Vault => SiloServices.GetRequiredService<DeviceKeyVault>();
 
     public LotsReadModel Lots => SiloServices.GetRequiredService<LotsReadModel>();
@@ -172,6 +177,9 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
                 siloBuilder.Services.AddKeyedSingleton(clock, TimeProvider.System);
             }
 
+            // Reminders (a Device's pending Lot releases) need a service; in memory is enough for one silo.
+            siloBuilder.UseInMemoryReminderService();
+
             siloBuilder.Services.AddSingleton<CapturingLoggerProvider>();
             siloBuilder.Services.AddSingleton<ILoggerProvider>(provider => provider.GetRequiredService<CapturingLoggerProvider>());
 
@@ -191,6 +199,8 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             });
             siloBuilder.Services.AddSingleton<SensorFaults>();
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<SensorFaults>());
+            siloBuilder.Services.AddSingleton<LotFaults>();
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<LotFaults>());
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
             siloBuilder.Services.AddSingleton<IPhaseTwoOrganizations>(provider => provider.GetRequiredService<FakePhaseTwoOrganizations>());
@@ -279,6 +289,39 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
             && _failing.ContainsKey(context.TargetId.Key.ToString()!))
         {
             throw new InvalidOperationException("The test failed this declaration.");
+        }
+
+        return context.Invoke();
+    }
+}
+
+/// <summary>
+/// Passes every grain call on, except that a test can make <see cref="ILotGrain.Release"/> throw for chosen
+/// Lots, the way a Lot grain that cannot be reached does. Nothing reaches the grain then.
+/// </summary>
+public sealed class LotFaults : IIncomingGrainCallFilter
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Makes every release of <paramref name="lotId"/> fail until <see cref="Restore"/>.
+    /// </summary>
+    public void FailReleases(string lotId) => _failing[lotId] = true;
+
+    /// <summary>
+    /// Lets the releases of <paramref name="lotId"/> through again.
+    /// </summary>
+    public void Restore(string lotId) => _failing.TryRemove(lotId, out _);
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is ILotGrain
+            && string.Equals(context.MethodName, nameof(ILotGrain.Release), StringComparison.Ordinal)
+            && _failing.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            throw new InvalidOperationException("The test failed this release.");
         }
 
         return context.Invoke();

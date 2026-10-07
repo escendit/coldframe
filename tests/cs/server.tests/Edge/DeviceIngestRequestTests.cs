@@ -351,6 +351,10 @@ public sealed class DeviceIngestRequestTests
 
         public Task<DeviceRelayAuthenticationResult> AuthenticateRelay(DeviceRelayAuthentication request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<DeviceAssignmentResult> Move(string siteId, string lotId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<DeviceAssignmentResult> Unassign(string siteId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Only what the ingest handler uses: a Device grain by its string key.

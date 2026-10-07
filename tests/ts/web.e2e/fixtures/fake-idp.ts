@@ -116,6 +116,13 @@ export interface FakeDevice {
   readonly charging?: 'charging' | 'notCharging';
 }
 
+/** One move or unassign the fake Server accepted (Story 4.9). */
+export interface FakeDeviceAction {
+  readonly action: 'move' | 'unassign';
+  readonly deviceId: string;
+  readonly lotId?: string;
+}
+
 /** Seeded by default, so every spec that signs in still reaches Garden. */
 export const defaultSites: readonly FakeSite[] = [{ id: '0192a000-0000-7000-8000-000000000001', name: 'Home garden', role: 'Owner' }];
 
@@ -193,6 +200,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let lotPosts: FakeSitePost[] = [];
   const createdLots = new Map<string, FakeLot>();
   let devices: FakeDevice[] = [];
+  let deviceActions: FakeDeviceAction[] = [];
   /** Set to answer the Devices list with this status instead (a Server that is down). */
   let devicesStatus: number | null = null;
   /** Reads that drop the connection instead of answering. */
@@ -272,6 +280,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       sites = Array.isArray(body.sites) ? (body.sites as FakeSite[]) : [...defaultSites];
       lots = Array.isArray(body.lots) ? (body.lots as FakeLot[]) : [];
       devices = Array.isArray(body.devices) ? (body.devices as FakeDevice[]) : [];
+      deviceActions = [];
       devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
       failing = 'none';
       lotReads = 0;
@@ -283,7 +292,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       return;
     }
     if (path === '/control/sites') {
-      send(response, 200, { sites, posts, lots, lotPosts, lotReads });
+      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions });
       return;
     }
     if (path === '/control/reads' && request.method === 'POST') {
@@ -334,6 +343,69 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       created.set(key, site);
       sites = [...sites, site];
       send(response, 201, site, { location: `/sites/${site.id}` });
+      return;
+    }
+
+    // Story 4.9: move or unassign a Node (Administrator), in memory. The fake holds the Lot's occupancy the
+    // way the Server's Lot grain does: a Lot another Node holds is 409, and a Lot a Node leaves is free.
+    const nodeMatch = /^\/sites\/([^/]+)\/devices\/([^/]+)\/(move|unassign)$/u.exec(path);
+    if (nodeMatch !== null && request.method === 'POST') {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(nodeMatch[1] ?? '');
+      const deviceId = decodeURIComponent(nodeMatch[2] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      if (site.role === 'Member') {
+        problem(response, 403, 'forbidden');
+        return;
+      }
+      const node = devices.find((candidate) => candidate.id === deviceId && candidate.siteId === siteId && candidate.kind === 'node');
+      if (node === undefined) {
+        problem(response, 404, 'device-not-found');
+        return;
+      }
+      // A Lot's seeded status is dropped when its occupancy changes: the fake then derives it from `claimed`.
+      const without = <T extends object>(value: T, ...keys: string[]): T => Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key))) as T;
+      const free = (lotId: string | undefined): void => {
+        lots = lots.map((lot) => (lot.id === lotId ? { ...without(lot, 'status'), claimed: false } : lot));
+      };
+      let moved: FakeDevice = without(node, 'lotId', 'lotName');
+      let lotId: string | undefined;
+      if (nodeMatch[3] === 'move') {
+        const requested = (await readJson(request)).lotId;
+        const target = lots.find((lot) => lot.id === requested && lot.siteId === siteId && lot.removed !== true);
+        if (target === undefined) {
+          problem(response, 404, 'lot-not-found');
+          return;
+        }
+        if (node.lotId !== target.id) {
+          const holds = target.status !== undefined ? target.status !== 'noNode' : target.claimed === true;
+          if (holds) {
+            problem(response, 409, 'lot-claimed');
+            return;
+          }
+          lots = lots.map((lot) => (lot.id === target.id ? { ...without(lot, 'status'), claimed: true } : lot));
+          free(node.lotId);
+        }
+        lotId = target.id;
+        moved = { ...node, lotId: target.id, lotName: target.name };
+      } else {
+        free(node.lotId);
+      }
+      deviceActions.push({ action: nodeMatch[3] as 'move' | 'unassign', deviceId, ...(lotId === undefined ? {} : { lotId }) });
+      devices = devices.map((device) => (device.id === node.id ? moved : device));
+      send(response, 200, {
+        id: moved.id,
+        kind: 'node',
+        siteId,
+        ...(moved.lotId === undefined ? {} : { lotId: moved.lotId }),
+      });
       return;
     }
 

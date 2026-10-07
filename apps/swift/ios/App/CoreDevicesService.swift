@@ -25,10 +25,19 @@ final class CoreDevicesService: DevicesService {
             hubLastSeen: snapshot.hubLastSeen, nodeIds: snapshot.nodeIds,
             nodeLotNames: snapshot.nodeLotNames, nodeBatteries: snapshot.nodeBatteries,
             nodeBatteryLow: snapshot.nodeBatteryLow.map { $0.boolValue },
-            nodeCharging: snapshot.nodeCharging, nodeLastSeen: snapshot.nodeLastSeen))
+            nodeCharging: snapshot.nodeCharging, nodeLastSeen: snapshot.nodeLastSeen,
+            canManageNodes: snapshot.canManageNodes, nodeLotIds: snapshot.nodeLotIds,
+            lotIds: snapshot.lotIds, lotNames: snapshot.lotNames,
+            lotHasNode: snapshot.lotHasNode.map { $0.boolValue },
+            workingNodeId: snapshot.workingNodeId, failedNodeId: snapshot.failedNodeId,
+            actionNotice: snapshot.actionNotice))
       }
     }
   }
 
   func load() { core.load() }
+
+  func moveNode(_ nodeId: String, to lotId: String) { core.moveNode(nodeId: nodeId, lotId: lotId) }
+
+  func unassignNode(_ nodeId: String) { core.unassignNode(nodeId: nodeId) }
 }

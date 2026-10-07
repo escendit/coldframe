@@ -2,12 +2,16 @@ package com.escendit.coldframe.core.devices
 
 import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
+import com.escendit.coldframe.core.api.DeviceDto
 import com.escendit.coldframe.core.api.DeviceListDto
 import com.escendit.coldframe.core.api.DeviceListItemDto
+import com.escendit.coldframe.core.api.LotDto
+import com.escendit.coldframe.core.api.LotListDto
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
 import com.escendit.coldframe.core.sites.FakeSitesApi
+import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.CompletableDeferred
@@ -26,14 +30,67 @@ import kotlin.test.assertTrue
 class FakeDevicesApi : DevicesApi {
     val devices = mutableMapOf<String, List<DeviceListItemDto>>()
     val calls = mutableListOf<String>()
+    val lots = mutableMapOf<String, List<LotDto>>()
     var failure: ApiFailure? = null
     var gate: CompletableDeferred<Unit>? = null
+
+    /** The answer of the next move or unassign, or `null` to accept it as the Server would. */
+    var actionFailure: ApiFailure? = null
 
     override suspend fun listDevices(siteId: String): ApiResult<DeviceListDto> {
         calls += "list $siteId"
         val answer = failure?.let { ApiResult.Failed(it) } ?: ApiResult.Ok(DeviceListDto(devices[siteId].orEmpty()))
         gate?.await()
         return answer
+    }
+
+    override suspend fun listLots(siteId: String): ApiResult<LotListDto> {
+        calls += "lots $siteId"
+        return ApiResult.Ok(LotListDto(lots[siteId].orEmpty()))
+    }
+
+    override suspend fun moveDevice(
+        siteId: String,
+        deviceId: String,
+        lotId: String,
+    ): ApiResult<DeviceDto> {
+        calls += "move $siteId $deviceId $lotId"
+        actionFailure?.let { return ApiResult.Failed(it) }
+        // The Server's bookkeeping: the Node is on the Lot, the old Lot is free, the new one has a Node.
+        val node = devices[siteId].orEmpty().first { it.id == deviceId }
+        val target = lots[siteId].orEmpty().first { it.id == lotId }
+        devices[siteId] =
+            devices[siteId].orEmpty().map {
+                if (it.id ==
+                    deviceId
+                ) {
+                    it.copy(lotId = lotId, lotName = target.name)
+                } else {
+                    it
+                }
+            }
+        lots[siteId] =
+            lots[siteId].orEmpty().map {
+                when (it.id) {
+                    node.lotId -> it.copy(status = "noNode")
+                    lotId -> it.copy(status = "unknown")
+                    else -> it
+                }
+            }
+        return ApiResult.Ok(DeviceDto(deviceId, "node", siteId, lotId))
+    }
+
+    override suspend fun unassignDevice(
+        siteId: String,
+        deviceId: String,
+    ): ApiResult<DeviceDto> {
+        calls += "unassign $siteId $deviceId"
+        actionFailure?.let { return ApiResult.Failed(it) }
+        val node = devices[siteId].orEmpty().first { it.id == deviceId }
+        devices[siteId] =
+            devices[siteId].orEmpty().map { if (it.id == deviceId) it.copy(lotId = null, lotName = null) else it }
+        lots[siteId] = lots[siteId].orEmpty().map { if (it.id == node.lotId) it.copy(status = "noNode") else it }
+        return ApiResult.Ok(DeviceDto(deviceId, "node", siteId))
     }
 }
 
@@ -409,6 +466,7 @@ class DevicesEngineTest {
                     hubIds = listOf("1b00aa11bb22cc33", "3f2a9c0d1e4b5a67"),
                     hubStatuses = listOf("offline", "online"),
                     hubLastSeen = listOf("", "1791270120000"),
+                    canManageNodes = true,
                 ),
                 snapshot,
             )
@@ -427,5 +485,218 @@ class DevicesEngineTest {
             assertTrue(snapshot.noticeTryAgain)
             assertEquals(emptyList(), snapshot.hubIds)
             assertTrue(snapshot.canAddHub)
+        }
+
+    private fun node(
+        id: String,
+        lotId: String?,
+        lotName: String?,
+    ) = DeviceListItemDto(id, "node", false, lotId = lotId, lotName = lotName)
+
+    private fun seedGarden() {
+        api.devices["a"] =
+            listOf(
+                node("7c19000000000001", "l-peppers", "Peppers"),
+                node("7c19000000000002", "l-tomatoes", "Tomatoes"),
+                node("7c19000000000003", null, null),
+            )
+        api.lots["a"] =
+            listOf(
+                LotDto("l-peppers", "Peppers", "unknown"),
+                LotDto("l-tomatoes", "Tomatoes", "ok"),
+                LotDto("l-basil", "Basil", "noNode"),
+            )
+    }
+
+    @Test
+    fun uxDr31AnAdministratorOrOwnerCanManageNodesAndAMemberCannot() =
+        runTest {
+            seedGarden()
+            assertTrue(snapshotOf(devicesFor("Administrator").state.value).canManageNodes)
+            assertTrue(DevicesState.canManageNodes(SiteRole.Owner))
+            assertFalse(DevicesState.canManageNodes(SiteRole.Member))
+        }
+
+    @Test
+    fun uxDr31AMemberSeesNoMoveOrUnassignAndTheLotsAreNeverRead() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Member")
+
+            assertFalse(snapshotOf(devices.state.value).canManageNodes)
+            assertEquals(emptyList(), devices.ready().lots)
+            assertEquals(listOf("list a"), api.calls)
+
+            // Even a call straight at the engine does nothing for a Member.
+            devices.moveNode("7c19000000000001", "l-basil")
+            devices.unassignNode("7c19000000000001")
+            runCurrent()
+            assertEquals(listOf("list a"), api.calls)
+        }
+
+    @Test
+    fun uxDr31OccupiedLotsAreNotSelectableAndTheNodesOwnLotIsMarkedCurrent() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Administrator")
+            val ready = devices.ready()
+
+            assertEquals(listOf("list a", "lots a"), api.calls)
+            val peppers = ready.nodes.first { it.id == "7c19000000000001" }
+            assertEquals(
+                listOf(
+                    MoveLotChoice("l-peppers", "Peppers", hasNode = false, current = true),
+                    MoveLotChoice("l-tomatoes", "Tomatoes", hasNode = true, current = false),
+                    MoveLotChoice("l-basil", "Basil", hasNode = false, current = false),
+                ),
+                ready.choicesFor(peppers),
+            )
+            assertEquals(listOf(false, false, true), ready.choicesFor(peppers).map { it.selectable })
+
+            // An unassigned Node has no current Lot: Peppers and Tomatoes both have a Node.
+            val spare = ready.nodes.first { it.id == "7c19000000000003" }
+            assertEquals(listOf(false, false, true), ready.choicesFor(spare).map { it.selectable })
+        }
+
+    @Test
+    fun uxDr31MovingANodeSendsTheLotThenReadsTheServersAnswerAgain() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Administrator")
+
+            devices.moveNode("7c19000000000001", "l-basil")
+            runCurrent()
+
+            assertEquals(
+                listOf("list a", "lots a", "move a 7c19000000000001 l-basil", "list a", "lots a"),
+                api.calls,
+            )
+            val ready = devices.ready()
+            assertEquals("Basil", ready.nodes.first { it.id == "7c19000000000001" }.lotName)
+            assertNull(ready.workingNodeId)
+            assertNull(ready.failure)
+            // Peppers is free again; Basil has a Node.
+            assertEquals(false, ready.lots.first { it.id == "l-peppers" }.hasNode)
+            assertEquals(true, ready.lots.first { it.id == "l-basil" }.hasNode)
+        }
+
+    @Test
+    fun uxDr31AnOccupiedOrCurrentLotIsNeverSent() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Administrator")
+
+            devices.moveNode("7c19000000000001", "l-tomatoes")
+            devices.moveNode("7c19000000000001", "l-peppers")
+            devices.moveNode("7c19000000000001", "l-gone")
+            devices.moveNode("nope", "l-basil")
+            runCurrent()
+
+            assertEquals(listOf("list a", "lots a"), api.calls)
+            // The last Lot that could be chosen is reported, not dropped silently.
+            assertEquals(NodeActionFailure("7c19000000000001", NodeActionNotice.LotTaken), devices.ready().failure)
+        }
+
+    @Test
+    fun uxDr31ARefusedMoveShowsItsReasonForThatNodeAndChangesNothing() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Administrator")
+            val cases =
+                listOf(
+                    ApiFailure.LotClaimed to NodeActionNotice.LotTaken,
+                    ApiFailure.Forbidden to NodeActionNotice.Forbidden,
+                    ApiFailure.NotFound to NodeActionNotice.NotFound,
+                    ApiFailure.Unreachable to NodeActionNotice.Unreachable,
+                    ApiFailure.Certificate to NodeActionNotice.Certificate,
+                    ApiFailure.Unexpected to NodeActionNotice.Unexpected,
+                )
+
+            for ((failure, notice) in cases) {
+                api.actionFailure = failure
+                devices.moveNode("7c19000000000001", "l-basil")
+                runCurrent()
+
+                assertEquals(NodeActionFailure("7c19000000000001", notice), devices.ready().failure, failure.name)
+                assertNull(devices.ready().workingNodeId)
+                assertEquals(
+                    "Peppers",
+                    devices
+                        .ready()
+                        .nodes
+                        .first { it.id == "7c19000000000001" }
+                        .lotName,
+                )
+            }
+
+            api.actionFailure = ApiFailure.LotClaimed
+            devices.moveNode("7c19000000000001", "l-basil")
+            runCurrent()
+            val snapshot = snapshotOf(devices.state.value)
+            assertEquals("7c19000000000001", snapshot.failedNodeId)
+            assertEquals("lotTaken", snapshot.actionNotice)
+        }
+
+    @Test
+    fun uxDr31UnassigningANodeReadsTheListAgainAndAnUnassignedNodeHasNothingToUnassign() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Owner")
+
+            devices.unassignNode("7c19000000000003")
+            runCurrent()
+            assertEquals(listOf("list a", "lots a"), api.calls)
+
+            devices.unassignNode("7c19000000000002")
+            runCurrent()
+
+            assertEquals(listOf("list a", "lots a", "unassign a 7c19000000000002", "list a", "lots a"), api.calls)
+            val ready = devices.ready()
+            assertNull(ready.nodes.first { it.id == "7c19000000000002" }.lotId)
+            assertEquals(false, ready.lots.first { it.id == "l-tomatoes" }.hasNode)
+        }
+
+    @Test
+    fun uxDr31AMoveThatIsUnderWayBlocksAnotherAndTheSnapshotNamesTheNode() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Administrator")
+            api.actionFailure = null
+
+            devices.moveNode("7c19000000000001", "l-basil")
+            // Before the answer lands: the Node is working and a second action is ignored.
+            assertEquals("7c19000000000001", snapshotOf(devices.state.value).workingNodeId)
+            devices.unassignNode("7c19000000000002")
+            runCurrent()
+
+            assertEquals(listOf("list a", "lots a", "move a 7c19000000000001 l-basil", "list a", "lots a"), api.calls)
+            assertEquals("", snapshotOf(devices.state.value).workingNodeId)
+        }
+
+    @Test
+    fun uxDr31TheSnapshotCarriesTheLotPickerAsParallelListsForSwift() =
+        runTest {
+            seedGarden()
+
+            val snapshot = snapshotOf(devicesFor("Administrator").state.value)
+
+            assertEquals(listOf("l-peppers", "l-tomatoes", ""), snapshot.nodeLotIds)
+            assertEquals(listOf("l-peppers", "l-tomatoes", "l-basil"), snapshot.lotIds)
+            assertEquals(listOf("Peppers", "Tomatoes", "Basil"), snapshot.lotNames)
+            assertEquals(listOf(true, true, false), snapshot.lotHasNode)
+            assertTrue(snapshot.canManageNodes)
+        }
+
+    @Test
+    fun uxDr31A401OnAMoveEndsTheSessionLikeEveryOtherCall() =
+        runTest {
+            seedGarden()
+            val devices = devicesFor("Administrator")
+            api.actionFailure = ApiFailure.Unauthorized
+
+            devices.moveNode("7c19000000000001", "l-basil")
+            runCurrent()
+
+            assertIs<DevicesState.Idle>(devices.state.value)
         }
 }

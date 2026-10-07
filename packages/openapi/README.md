@@ -17,6 +17,8 @@ The REST contract, written before the code that serves it (AD-10):
 | `DELETE /sites/{siteId}/lots/{lotId}` | `Administrator` | Story 1.9 |
 | `GET /enrolment-key` | `Authenticated` | Story 3.3 (contract: Story 3.1) |
 | `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1); a Node's `lotId` since Story 4.2 |
+| `POST /sites/{siteId}/devices/{deviceId}/move` | `Administrator` | Story 4.9 |
+| `POST /sites/{siteId}/devices/{deviceId}/unassign` | `Administrator` | Story 4.9 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
@@ -44,7 +46,8 @@ is planned today.
   this Site), `validation` (400), `idempotency-key-missing` (400), `lot-claimed` (409, a Node is
   assigned to the Lot), `idempotency-key-reused` (422), `identity-provider-unavailable` (503),
   `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409),
-  `device-assigned` (409, the Node is in another Lot already), `ingest-unavailable` (503, no frame of an
+  `device-assigned` (409, the Node is in another Lot already), `device-not-found` (404, no such Node on this
+  Site: moving or unassigning an unknown Device, a Hub or a Device of another Site), `ingest-unavailable` (503, no frame of an
   ingest envelope could be committed). Enrolling a Node with a `lotId` answers
   `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
   when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an

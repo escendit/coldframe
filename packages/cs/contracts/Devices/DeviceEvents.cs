@@ -49,6 +49,52 @@ public sealed record DeviceAssigned(
     [property: Id(2)] DateTimeOffset AssignedAt);
 
 /// <summary>
+/// The Node was moved to another Lot, after the new Lot granted it the claim (<c>ILotGrain.Claim</c>, AD-18).
+/// The old Lot is released afterwards from the Device's persisted pending state, until it succeeds. Readings
+/// stay with the Node.
+/// </summary>
+/// <param name="SiteId">The Site of the Node and both Lots.</param>
+/// <param name="FromLotId">The Lot the Node leaves.</param>
+/// <param name="ToLotId">The Lot the Node is on from now on.</param>
+/// <param name="MovedAt">When the Server moved the Node.</param>
+[EventType("device.moved")]
+[GenerateSerializer]
+[Alias("coldframe.device-moved")]
+public sealed record DeviceMoved(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] string FromLotId,
+    [property: Id(2)] string ToLotId,
+    [property: Id(3)] DateTimeOffset MovedAt);
+
+/// <summary>
+/// The Node was unassigned from its Lot. The Lot is released afterwards from the Device's persisted pending
+/// state, until it succeeds. Later Readings are stored but not evaluated.
+/// </summary>
+/// <param name="SiteId">The Site of the Node and the Lot.</param>
+/// <param name="FromLotId">The Lot the Node leaves.</param>
+/// <param name="UnassignedAt">When the Server unassigned the Node.</param>
+[EventType("device.unassigned")]
+[GenerateSerializer]
+[Alias("coldframe.device-unassigned")]
+public sealed record DeviceUnassigned(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] string FromLotId,
+    [property: Id(2)] DateTimeOffset UnassignedAt);
+
+/// <summary>
+/// A Lot the Node left was released (<c>ILotGrain.Release</c> answered released or unchanged): it is no longer
+/// pending for release.
+/// </summary>
+/// <param name="LotId">The Lot that is free of this Node now.</param>
+/// <param name="ReleasedAt">When the Server saw the release succeed.</param>
+[EventType("device.lot-released")]
+[GenerateSerializer]
+[Alias("coldframe.device-lot-released")]
+public sealed record DeviceLotReleased(
+    [property: Id(0)] string LotId,
+    [property: Id(1)] DateTimeOffset ReleasedAt);
+
+/// <summary>
 /// The Device sent an authentic, new heartbeat (FR-13): its last-seen time. Every accepted heartbeat is
 /// journaled, so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read real events.
 /// </summary>

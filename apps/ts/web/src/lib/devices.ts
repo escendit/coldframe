@@ -1,4 +1,4 @@
-import type { DeviceListItem } from '@coldframe/api-client';
+import type { DeviceListItem, Lot } from '@coldframe/api-client';
 import { t, type MessageKey } from '$lib/i18n';
 import { formatNumber, formatWhen } from '$lib/i18n/format';
 import { hasRole, type Role } from '$lib/roles';
@@ -52,10 +52,57 @@ export interface DevicesAccess {
    * in place of the Add actions. Members get neither.
    */
   readonly mobileAppNotice: boolean;
+  /**
+   * Moving a Node to another Lot and unassigning it are for Owners and Administrators and need no
+   * BLE (UX-DR31). Members never see them: they are hidden, not disabled.
+   */
+  readonly canManageNodes: boolean;
 }
 
 export function devicesAccessOf(role: Role): DevicesAccess {
-  return { mobileAppNotice: hasRole(role, 'Administrator') };
+  const admin = hasRole(role, 'Administrator');
+  return { mobileAppNotice: admin, canManageNodes: admin };
+}
+
+/** A Lot in the move picker: a Lot that holds another Node cannot be chosen. */
+export interface LotChoice {
+  readonly id: string;
+  readonly name: string;
+  /** Another Node holds the Lot: shown disabled with "Has a Node". */
+  readonly hasNode: boolean;
+  /** The Node is on this Lot already: moving to it changes nothing. */
+  readonly current: boolean;
+}
+
+/**
+ * The Lots a Node can move to, in the Server's order. The Server's `noNode` status is the one fact
+ * that a Lot is free; the Node's own Lot is marked current. The Server still decides: a Lot taken
+ * meanwhile is refused with a 409.
+ */
+export function lotChoicesOf(lots: readonly Lot[], node: Pick<DeviceListItem, 'lotId'>): readonly LotChoice[] {
+  return lots.map((lot) => {
+    const current = lot.id === node.lotId;
+    return { id: lot.id, name: lot.name, current, hasNode: !current && lot.status !== 'noNode' };
+  });
+}
+
+export type DeviceAction = 'moveNode' | 'unassignNode';
+
+/** Why a move or unassign did not happen; each has its copy on the page. */
+export type DeviceActionNotice = 'forbidden' | 'lotClaimed' | 'notFound' | 'unexpected' | 'unreachable' | 'certificate';
+
+/** A move or unassign that did not happen. */
+export interface DeviceActionFailure {
+  readonly action: DeviceAction;
+  readonly deviceId: string;
+  readonly notice: DeviceActionNotice;
+}
+
+/** A move or unassign that did. */
+export interface DeviceActionSuccess {
+  readonly action: DeviceAction;
+  readonly deviceId: string;
+  readonly done: true;
 }
 
 /** The status word and icon of a row. `online` is the Server's; nothing here computes it. */

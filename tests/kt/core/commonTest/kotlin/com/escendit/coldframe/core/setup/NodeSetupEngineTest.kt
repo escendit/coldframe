@@ -418,7 +418,7 @@ class NodeSetupEngineTest {
             engine.continueFromCode()
             runCurrent()
             assertEquals("lot-tomatoes", engine.state.value.lots.selectedId)
-            val devicesReads = devicesApi.calls.size
+            val devicesReads = devicesApi.calls.count { it.startsWith("list ") }
             engine.assign()
             runCurrent()
 
@@ -429,7 +429,7 @@ class NodeSetupEngineTest {
             )
             val ready = assertIs<LotsState.Ready>(lots.state.value)
             assertEquals(LotStatus.NeedsCalibration, ready.lots.single().status)
-            assertEquals(devicesReads + 1, devicesApi.calls.size)
+            assertEquals(devicesReads + 1, devicesApi.calls.count { it.startsWith("list ") })
             assertIs<DevicesState.Ready>(devices.state.value)
         }
 

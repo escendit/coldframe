@@ -4221,6 +4221,182 @@
         }
       }
     },
+    "devices_move": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move"
+          }
+        }
+      }
+    },
+    "devices_move_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Node %@"
+          }
+        }
+      }
+    },
+    "devices_move_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Node %@"
+          }
+        }
+      }
+    },
+    "devices_move_choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a Lot for Node %@."
+          }
+        }
+      }
+    },
+    "devices_move_no_lots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a Lot in Site settings to move this Node."
+          }
+        }
+      }
+    },
+    "devices_current_lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Lot"
+          }
+        }
+      }
+    },
+    "devices_current_lot_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, current Lot"
+          }
+        }
+      }
+    },
+    "devices_unassign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unassign"
+          }
+        }
+      }
+    },
+    "devices_unassign_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unassign Node %@"
+          }
+        }
+      }
+    },
+    "devices_unassign_question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unassign Node %@?"
+          }
+        }
+      }
+    },
+    "devices_unassign_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ will have no Node. Its Readings stay in Coldframe."
+          }
+        }
+      }
+    },
+    "devices_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "devices_action_forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't change Nodes on this Site. Ask an Owner or Administrator."
+          }
+        }
+      }
+    },
+    "devices_action_lot_taken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Lot already has a Node. Choose another Lot."
+          }
+        }
+      }
+    },
+    "devices_action_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Node or Lot is gone. Pull to refresh."
+          }
+        }
+      }
+    },
+    "devices_action_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That didn't work. Try again."
+          }
+        }
+      }
+    },
     "devices_not_charging": {
       "extractionState": "manual",
       "localizations": {

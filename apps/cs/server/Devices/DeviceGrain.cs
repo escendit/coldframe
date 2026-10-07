@@ -44,8 +44,18 @@ namespace Coldframe.Server.Devices;
 /// </para>
 /// </remarks>
 [GrainType("device")]
-public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDeviceGrain
+public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDeviceGrain, IRemindable
 {
+    // Pending Lot releases (AD-18) are retried by a grain timer while the grain is active, and by a grain
+    // reminder, which survives a deactivation or a silo restart.
+    private const string ReleaseReminderName = "release-pending-lots";
+
+    private static readonly TimeSpan ReleaseTimerPeriod = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan ReleaseReminderPeriod = TimeSpan.FromMinutes(1);
+
+    private IGrainTimer? _releaseTimer;
+
     // The length of an HMAC-SHA256 signature.
     private const int SignatureLength = 32;
 
@@ -149,6 +159,238 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         return new DeviceEnrolmentResult(
             DeviceEnrolmentOutcome.Enrolled,
             new DeviceSummary(DeviceId, State.Kind, State.SiteId!, State.LotId));
+    }
+
+    /// <inheritdoc />
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        await base.OnActivateAsync(cancellationToken);
+
+        // A crash between a move and its release left the old Lot pending: keep releasing it. Not inline, so
+        // a Lot that cannot be reached never fails the activation.
+        if (State.PendingReleases.Count > 0)
+        {
+            await StartReleasingAsync();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceAssignmentResult> Move(string siteId, string lotId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lotId);
+
+        // Only a Node of this Site is moved; a Device of another Site is not disclosed.
+        if (!IsNodeOf(siteId))
+        {
+            return new DeviceAssignmentResult(DeviceAssignmentOutcome.NotFound);
+        }
+
+        if (string.Equals(State.LotId, lotId, StringComparison.Ordinal))
+        {
+            await ReleasePendingAsync();
+            return new DeviceAssignmentResult(DeviceAssignmentOutcome.Unchanged, Summary());
+        }
+
+        // 1. The Lot grain owns occupancy (AD-18): its claim is the only check. A refused claim changes nothing.
+        var claim = await GrainFactory
+            .GetGrain<ILotGrain>(lotId)
+            // Not cancelled by the caller: a claim the Lot journaled must reach the Device's journal too.
+            .Claim(siteId, DeviceId, CancellationToken.None);
+
+        switch (claim.Outcome)
+        {
+            case LotOutcome.NotFound or LotOutcome.AlreadyRemoved:
+                return new DeviceAssignmentResult(DeviceAssignmentOutcome.LotNotFound);
+            case LotOutcome.Claimed:
+                return new DeviceAssignmentResult(DeviceAssignmentOutcome.LotOccupied);
+            case LotOutcome.Held:
+                break;
+            default:
+                throw new InvalidOperationException($"Unexpected Lot claim outcome {claim.Outcome}.");
+        }
+
+        // 2. Only after the claim: the journal. A Node on no Lot is simply assigned.
+        if (State.LotId is { } from)
+        {
+            RaiseEvent(new DeviceMoved(siteId, from, lotId, Clock.GetUtcNow()));
+        }
+        else
+        {
+            RaiseEvent(new DeviceAssigned(siteId, lotId, Clock.GetUtcNow()));
+        }
+
+        // No compensating release: the log-consistency adaptor retries a conflicting write until it lands.
+        await ConfirmEvents();
+        await CatchUpDevicesAsync();
+
+        // 3. Last, the old Lot, from the pending state the event just persisted.
+        await ReleasePendingAsync();
+
+        return new DeviceAssignmentResult(DeviceAssignmentOutcome.Moved, Summary());
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceAssignmentResult> Unassign(string siteId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        if (!IsNodeOf(siteId))
+        {
+            return new DeviceAssignmentResult(DeviceAssignmentOutcome.NotFound);
+        }
+
+        if (State.LotId is not { } from)
+        {
+            await ReleasePendingAsync();
+            return new DeviceAssignmentResult(DeviceAssignmentOutcome.Unchanged, Summary());
+        }
+
+        RaiseEvent(new DeviceUnassigned(siteId, from, Clock.GetUtcNow()));
+        await ConfirmEvents();
+        await CatchUpDevicesAsync();
+        await ReleasePendingAsync();
+
+        return new DeviceAssignmentResult(DeviceAssignmentOutcome.Unassigned, Summary());
+    }
+
+    /// <inheritdoc />
+    public async Task ReceiveReminder(string reminderName, TickStatus status)
+    {
+        if (string.Equals(reminderName, ReleaseReminderName, StringComparison.Ordinal))
+        {
+            await ReleasePendingAsync();
+
+            // A stray reminder (its unregister failed earlier) finds nothing pending and removes itself.
+            if (State.PendingReleases.Count == 0)
+            {
+                await UnregisterReminderAsync();
+            }
+        }
+    }
+
+    // Read-your-writes for the Devices list. The events are journaled, so a failure here only delays the list.
+    private async Task CatchUpDevicesAsync()
+    {
+        try
+        {
+            await ServiceProvider.GetProjectionRunner<DevicesProjector>().CatchUpAsync(CancellationToken.None);
+        }
+#pragma warning disable CA1031 // The list follows on the next poll or hint.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogCatchUpFailed(Logger, DeviceId, exception);
+        }
+    }
+
+    private bool IsNodeOf(string siteId) =>
+        State.SiteId is { } current && string.Equals(current, siteId, StringComparison.Ordinal) && State.Kind == DeviceKind.Node;
+
+    private DeviceSummary Summary() => new(DeviceId, State.Kind, State.SiteId!, State.LotId);
+
+    // Releases every Lot the Node left, in order. A Lot that answers released or unchanged is done (journaled
+    // as DeviceLotReleased); one that throws stays pending and is tried again by the timer and the reminder.
+    // Never throws: the move or unassign it follows is already journaled.
+    private async Task ReleasePendingAsync()
+    {
+        if (State.PendingReleases.Count == 0 || State.SiteId is not { } siteId)
+        {
+            await StopReleasingAsync();
+            return;
+        }
+
+        foreach (var lotId in State.PendingReleases.ToList())
+        {
+            try
+            {
+                // A Lot the Node is on again is never released.
+                if (!string.Equals(State.LotId, lotId, StringComparison.Ordinal))
+                {
+                    await GrainFactory
+                        .GetGrain<ILotGrain>(lotId)
+                        // Not cancelled by the caller: the release is retried until it lands.
+                        .Release(siteId, DeviceId, CancellationToken.None);
+                }
+
+                RaiseEvent(new DeviceLotReleased(lotId, Clock.GetUtcNow()));
+                await ConfirmEvents();
+            }
+#pragma warning disable CA1031 // Whatever failed the release, it stays pending and is retried.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                LogReleaseFailed(Logger, DeviceId, lotId, exception);
+            }
+        }
+
+        if (State.PendingReleases.Count > 0)
+        {
+            await StartReleasingAsync();
+        }
+        else
+        {
+            await StopReleasingAsync();
+        }
+    }
+
+    // The timer and the reminder are created together, once; later ticks touch neither. Awaited in the
+    // grain turn, so a register and an unregister can never reorder.
+    private async Task StartReleasingAsync()
+    {
+        if (_releaseTimer is not null)
+        {
+            return;
+        }
+
+        _releaseTimer = this.RegisterGrainTimer(
+            ReleasePendingAsync,
+            new GrainTimerCreationOptions(ReleaseTimerPeriod, ReleaseTimerPeriod));
+
+        await RegisterReminderAsync();
+    }
+
+    private async Task RegisterReminderAsync()
+    {
+        try
+        {
+            await this.RegisterOrUpdateReminder(ReleaseReminderName, ReleaseReminderPeriod, ReleaseReminderPeriod);
+        }
+#pragma warning disable CA1031 // Without a reminder the timer and the next activation still retry.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogReleaseFailed(Logger, DeviceId, ReleaseReminderName, exception);
+        }
+    }
+
+    private async Task StopReleasingAsync()
+    {
+        if (_releaseTimer is null)
+        {
+            return;
+        }
+
+        _releaseTimer.Dispose();
+        _releaseTimer = null;
+        await UnregisterReminderAsync();
+    }
+
+    private async Task UnregisterReminderAsync()
+    {
+        try
+        {
+            if (await this.GetReminder(ReleaseReminderName) is { } reminder)
+            {
+                await this.UnregisterReminder(reminder);
+            }
+        }
+#pragma warning disable CA1031 // A stray reminder only finds nothing pending and unregisters itself next time.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogReleaseFailed(Logger, DeviceId, "reminder", exception);
+        }
     }
 
     /// <inheritdoc />
@@ -458,6 +700,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     // Never the set or anything in it: only the Device.
     [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Device {DeviceId} sent a Specification set that breaks the contract; it is ignored and asked for again.")]
     private static partial void LogInvalidSpecifications(ILogger logger, string deviceId);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Warning, Message = "Releasing Lot {LotId} for Device {DeviceId} failed; it stays pending and is retried.")]
+    private static partial void LogReleaseFailed(ILogger logger, string deviceId, string lotId, Exception exception);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "The Devices list could not be brought up to date after Device {DeviceId} changed Lot; it follows on the next poll.")]
+    private static partial void LogCatchUpFailed(ILogger logger, string deviceId, Exception exception);
 
     [LoggerMessage(EventId = 3, Level = LogLevel.Warning, Message = "The Specification set of Device {DeviceId} could not be declared; the frame is answered with retry.")]
     private static partial void LogDeclarationFailed(ILogger logger, string deviceId, Exception exception);

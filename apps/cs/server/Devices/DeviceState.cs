@@ -18,6 +18,9 @@ public sealed class DeviceState
     [Id(10)]
     private List<DeclaredSensor> _sensors = [];
 
+    [Id(11)]
+    private List<string> _pendingReleases = [];
+
     /// <summary>
     /// The Site the Device is enrolled on, or <see langword="null"/> before enrolment.
     /// </summary>
@@ -79,6 +82,13 @@ public sealed class DeviceState
     public string? LastRelayHubId { get; private set; }
 
     /// <summary>
+    /// The Lots the Node left whose release is not confirmed yet (AD-18), oldest first. Journaled state: a
+    /// crash between the move and the release still frees the old Lot, because the Device keeps releasing
+    /// them until each answers released or unchanged.
+    /// </summary>
+    public IReadOnlyList<string> PendingReleases => _pendingReleases;
+
+    /// <summary>
     /// The Node's known hash (AD-19): the <c>spec_hash</c> of the last Specification set the Server accepted
     /// from it, or <see langword="null"/> before the first.
     /// </summary>
@@ -109,6 +119,30 @@ public sealed class DeviceState
     {
         ArgumentNullException.ThrowIfNull(@event);
         LotId = @event.LotId;
+        _pendingReleases.Remove(@event.LotId);
+    }
+
+    public void Apply(DeviceMoved @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        LotId = @event.ToLotId;
+
+        // Moving back to a Lot still pending release makes it the Node's again: it must not be released.
+        _pendingReleases.Remove(@event.ToLotId);
+        QueueRelease(@event.FromLotId);
+    }
+
+    public void Apply(DeviceUnassigned @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        LotId = null;
+        QueueRelease(@event.FromLotId);
+    }
+
+    public void Apply(DeviceLotReleased @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pendingReleases.Remove(@event.LotId);
     }
 
     public void Apply(DeviceSeen @event)
@@ -141,5 +175,13 @@ public sealed class DeviceState
         ArgumentNullException.ThrowIfNull(@event);
         SpecHash = @event.SpecHash;
         _sensors = [.. @event.Sensors];
+    }
+
+    private void QueueRelease(string lotId)
+    {
+        if (!_pendingReleases.Contains(lotId, StringComparer.Ordinal))
+        {
+            _pendingReleases.Add(lotId);
+        }
     }
 }

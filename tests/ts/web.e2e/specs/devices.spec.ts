@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { FakeDevice } from '../fixtures/fake-idp.ts';
+import type { FakeDevice, FakeLot } from '../fixtures/fake-idp.ts';
 import { appUrl } from '../fixtures/ports.ts';
-import { axeClean, largestText, nothingClipped, resetSites, setMode, signInButton, useTheme } from './helpers.ts';
+import { axeClean, largestText, nothingClipped, resetSites, serverSites, setMode, signInButton, useTheme } from './helpers.ts';
 
 const themes = ['light', 'dark'] as const;
 const zone = 'Europe/Zurich';
@@ -46,6 +46,17 @@ async function signInTo(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/garden$/u);
 }
 
+const gardenLots: readonly FakeLot[] = [
+  { id: 'lot-1', siteId: homeId, name: 'Peppers', claimed: true },
+  { id: 'lot-2', siteId: homeId, name: 'Tomatoes', claimed: true },
+  { id: 'lot-3', siteId: homeId, name: 'Basil' },
+  { id: 'lot-4', siteId: homeId, name: 'Herbs', claimed: true },
+];
+
+function node(id: string, lotId?: string, lotName?: string): FakeDevice {
+  return { id, siteId: homeId, kind: 'node', online: false, ...(lotId === undefined ? {} : { lotId, lotName }) };
+}
+
 function row(page: Page, id: string) {
   return page.getByRole('list', { name: 'Hubs' }).getByRole('listitem').filter({ hasText: id });
 }
@@ -59,7 +70,7 @@ test.describe('Devices', () => {
     test(`UX-DR30 UX-DR65 UX-DR85 an Owner sees the Hubs, then the Nodes by Lot with battery, charging and last seen, and the mobile app notice (${theme}, largest text)`, async ({ page }) => {
       await resetSites(
         [home],
-        [],
+        gardenLots,
         [
           hub(hubId, true, '07:02'),
           hub(silentHubId, false, '06:40'),
@@ -112,7 +123,11 @@ test.describe('Devices', () => {
       await expect(rows.nth(0).locator('[data-icon="help"]')).toBeVisible();
 
       await expect(page.locator('#cf-devices-web-notice')).toHaveText('Adding a Hub or Node needs the Coldframe mobile app.');
-      await noControls(page);
+
+      // UX-DR31: an Owner may move every Node and unassign the ones on a Lot; the Hubs have no actions.
+      await expect(nodes.nth(0).getByRole('button', { name: 'Unassign' })).toBeVisible();
+      await expect(nodes.nth(2).getByRole('button', { name: 'Unassign' })).toHaveCount(0);
+      await expect(page.getByRole('list', { name: 'Hubs' }).locator('form, button, input, select, textarea, summary')).toHaveCount(0);
 
       await axeClean(page, `devices (${theme})`);
       await nothingClipped(page, `devices (${theme})`);
@@ -180,5 +195,54 @@ test.describe('Devices', () => {
     await resetSites([home], [], [hub(hubId, true, '07:02')]);
     await page.getByRole('link', { name: 'Try again' }).click();
     await expect(row(page, hubId)).toContainText('Online');
+  });
+
+  test('UX-DR31 an Administrator moves a Node: occupied Lots are not selectable, and the list shows the new Lot', async ({ page }) => {
+    await resetSites([{ ...home, role: 'Administrator' }], gardenLots, [node('7c19000000000001', 'lot-1', 'Peppers'), node('7c19000000000002', 'lot-2', 'Tomatoes')]);
+    await signInTo(page);
+    await page.goto('/devices');
+    const peppers = page.getByRole('list', { name: 'Nodes' }).getByRole('listitem').filter({ hasText: '7c19000000000001' });
+
+    await peppers.getByText('Move', { exact: true }).click();
+    // The Node's own Lot and a Lot another Node holds are disabled; "Has a Node" says why.
+    await expect(peppers.getByRole('radio', { name: /Tomatoes/u })).toBeDisabled();
+    await expect(peppers.getByRole('radio', { name: /Herbs/u })).toBeDisabled();
+    await expect(peppers.getByRole('radio', { name: /Peppers/u })).toBeDisabled();
+    await expect(peppers.getByText('Has a Node')).toHaveCount(2);
+    await peppers.getByRole('radio', { name: 'Basil' }).check();
+    await peppers.getByRole('button', { name: 'Move Node 7c19000000000001' }).click();
+
+    const moved = page.getByRole('list', { name: 'Nodes' }).getByRole('listitem').filter({ hasText: '7c19000000000001' });
+    await expect(moved.locator('.cf-devices__lot')).toHaveText('Basil');
+    expect((await serverSites()).deviceActions).toEqual([{ action: 'move', deviceId: '7c19000000000001', lotId: 'lot-3' }]);
+  });
+
+  test('UX-DR31 unassign asks first, naming the Node; Cancel changes nothing and Unassign does it', async ({ page }) => {
+    await resetSites([{ ...home, role: 'Administrator' }], gardenLots, [node('7c19000000000001', 'lot-1', 'Peppers')]);
+    await signInTo(page);
+    await page.goto('/devices');
+    const peppers = page.getByRole('list', { name: 'Nodes' }).getByRole('listitem').filter({ hasText: '7c19000000000001' });
+
+    await peppers.getByRole('button', { name: 'Unassign' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Unassign Node 7c19000000000001?' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    expect((await serverSites()).deviceActions).toEqual([]);
+
+    await peppers.getByRole('button', { name: 'Unassign' }).click();
+    await dialog.getByRole('button', { name: 'Unassign' }).click();
+    await expect(page.getByRole('list', { name: 'Nodes' }).getByRole('listitem').filter({ hasText: '7c19000000000001' }).locator('.cf-devices__lot')).toHaveText('Not in a Lot');
+    expect((await serverSites()).deviceActions).toEqual([{ action: 'unassign', deviceId: '7c19000000000001' }]);
+  });
+
+  test('UX-DR31 a Member sees neither move nor unassign', async ({ page }) => {
+    await resetSites([{ ...home, role: 'Member' }], gardenLots, [node('7c19000000000001', 'lot-1', 'Peppers')]);
+    await signInTo(page);
+    await page.goto('/devices');
+    await expect(page.getByRole('list', { name: 'Nodes' }).getByRole('listitem')).toContainText('Peppers');
+    await expect(page.getByText('Move', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Unassign' })).toHaveCount(0);
+    await noControls(page);
   });
 });

@@ -443,4 +443,57 @@ class ColdframeApiTest {
                 assertEquals(ApiResult.Failed(failure), api().enrolDevice("a", request, "key-1"), type)
             }
         }
+
+    @Test
+    fun uxDr31MoveDevicePostsTheLotToTheNodesMoveRoute() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"id":"7c19aa01b2d4e6f8","kind":"node","siteId":"a","lotId":"lot-2"}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result = api().moveDevice("a", "7c19aa01b2d4e6f8", "lot-2")
+
+            assertEquals(ApiResult.Ok(DeviceDto("7c19aa01b2d4e6f8", "node", "a", "lot-2")), result)
+            val sent = requests.single()
+            assertEquals(HttpMethod.Post, sent.method)
+            assertEquals("https://server.example/sites/a/devices/7c19aa01b2d4e6f8/move", sent.url.toString())
+            assertEquals("Bearer access-1", sent.headers[HttpHeaders.Authorization])
+            assertEquals("""{"lotId":"lot-2"}""", sent.text())
+        }
+
+    @Test
+    fun uxDr31UnassignDevicePostsToTheNodesUnassignRoute() =
+        runTest {
+            answer = { respond("""{"id":"7c19aa01b2d4e6f8","kind":"node","siteId":"a"}""", HttpStatusCode.OK, json) }
+
+            val result = api().unassignDevice("a", "7c19aa01b2d4e6f8")
+
+            assertEquals(ApiResult.Ok(DeviceDto("7c19aa01b2d4e6f8", "node", "a")), result)
+            val sent = requests.single()
+            assertEquals(HttpMethod.Post, sent.method)
+            assertEquals("https://server.example/sites/a/devices/7c19aa01b2d4e6f8/unassign", sent.url.toString())
+        }
+
+    @Test
+    fun uxDr31MoveAndUnassignProblemsMapToTheirFailures() =
+        runTest {
+            val cases =
+                listOf(
+                    Triple(HttpStatusCode.Conflict, "lot-claimed", ApiFailure.LotClaimed),
+                    Triple(HttpStatusCode.Forbidden, "forbidden", ApiFailure.Forbidden),
+                    Triple(HttpStatusCode.NotFound, "device-not-found", ApiFailure.NotFound),
+                    Triple(HttpStatusCode.NotFound, "lot-not-found", ApiFailure.NotFound),
+                    Triple(HttpStatusCode.InternalServerError, "internal", ApiFailure.Unexpected),
+                )
+            for ((status, type, failure) in cases) {
+                answer = { respond(problem(type), status, problem) }
+                assertEquals(ApiResult.Failed(failure), api().moveDevice("a", "7c19aa01b2d4e6f8", "lot-2"), type)
+                assertEquals(ApiResult.Failed(failure), api().unassignDevice("a", "7c19aa01b2d4e6f8"), type)
+            }
+        }
 }

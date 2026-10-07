@@ -146,6 +146,12 @@ public sealed record EnrolmentKeyResponse(string PublicKey, string Fingerprint);
 public sealed record EnrolDeviceRequest(string? DeviceId, string? Kind, string? Enc, string? Ciphertext, string? LotId = null);
 
 /// <summary>
+/// The body of <c>POST /sites/{siteId}/devices/{deviceId}/move</c>.
+/// </summary>
+/// <param name="LotId">The Lot of the Site to move the Node to.</param>
+public sealed record MoveDeviceRequest(string? LotId);
+
+/// <summary>
 /// A Device as the Edge API returns it.
 /// </summary>
 /// <param name="Id">The Device ID.</param>
@@ -300,6 +306,14 @@ public static partial class EdgeApi
 
         endpoints.MapPost("/sites/{siteId}/devices", EnrolDeviceAsync)
             .WithName("enrolDevice")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapPost("/sites/{siteId}/devices/{deviceId}/move", MoveDeviceAsync)
+            .WithName("moveDevice")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapPost("/sites/{siteId}/devices/{deviceId}/unassign", UnassignDeviceAsync)
+            .WithName("unassignDevice")
             .RequireSiteRole(SiteRole.Administrator);
 
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
@@ -1214,6 +1228,79 @@ public static partial class EdgeApi
         };
     }
 
+    private static async Task<IResult> MoveDeviceAsync(
+        string siteId,
+        string deviceId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<MoveDeviceRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (request?.LotId is not { } requested || CanonicalizeLotId(requested) is not { } lotId)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The move request is not valid.",
+                "Send a JSON body with lotId, the Lot ID (a UUID) to move the Node to.");
+        }
+
+        if (EdgeValidation.NormalizeDeviceId(deviceId) is not { } id)
+        {
+            return DeviceNotFound();
+        }
+
+        var result = await grains
+            .GetGrain<IDeviceGrain>(id.ToString())
+            .Move(SiteAccessHandler.Canonicalize(siteId)!, lotId, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    private static async Task<IResult> UnassignDeviceAsync(
+        string siteId,
+        string deviceId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        if (EdgeValidation.NormalizeDeviceId(deviceId) is not { } id)
+        {
+            return DeviceNotFound();
+        }
+
+        var result = await grains
+            .GetGrain<IDeviceGrain>(id.ToString())
+            .Unassign(SiteAccessHandler.Canonicalize(siteId)!, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    /// <summary>
+    /// Maps the Device grain's answer to a move or unassign to the HTTP response: 200 with the Node, 404
+    /// <c>device-not-found</c> or <c>lot-not-found</c>, or 409 <c>lot-claimed</c>.
+    /// </summary>
+    internal static IResult ToHttpResult(DeviceAssignmentResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result switch
+        {
+            { Outcome: DeviceAssignmentOutcome.Moved or DeviceAssignmentOutcome.Unassigned or DeviceAssignmentOutcome.Unchanged, Device: { } device } =>
+                TypedResults.Ok(new DeviceResponse(device.Id, EdgeValidation.DeviceKindName(device.Kind), device.SiteId, device.LotId)),
+            { Outcome: DeviceAssignmentOutcome.NotFound } => DeviceNotFound(),
+            { Outcome: DeviceAssignmentOutcome.LotNotFound } => LotNotFound(),
+            { Outcome: DeviceAssignmentOutcome.LotOccupied } => EdgeProblems.Result(
+                StatusCodes.Status409Conflict,
+                EdgeProblems.LotClaimed,
+                "This Lot already has a Node.",
+                "Nothing changed. Choose another Lot."),
+            _ => throw new InvalidOperationException($"Unexpected Device assignment result {result.Outcome}."),
+        };
+    }
+
     private static IResult NotSealedToThisServer() =>
         EdgeProblems.Result(
             StatusCodes.Status400BadRequest,
@@ -1283,6 +1370,9 @@ public static partial class EdgeApi
 
     private static IResult SiteNotFound() =>
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.SiteNotFound, "The Site does not exist.");
+
+    private static IResult DeviceNotFound() =>
+        EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.DeviceNotFound, "The Site has no such Node.");
 
     private static IResult LotNotFound() =>
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.LotNotFound, "The Site has no such Lot.");

@@ -168,6 +168,29 @@ public class ColdframeApi(
             }
         }) { it.body<DeviceDto>() }
 
+    /** `POST /sites/{siteId}/devices/{deviceId}/move` (`moveDevice`, Admin+): a Lot that has a Node is 409 `lot-claimed`. */
+    override suspend fun moveDevice(
+        siteId: String,
+        deviceId: String,
+        lotId: String,
+    ): ApiResult<DeviceDto> =
+        call({
+            http.post("$base/sites/${siteId.encoded()}/devices/${deviceId.encoded()}/move") {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(MoveDeviceRequestDto(lotId))
+            }
+        }) { it.body<DeviceDto>() }
+
+    /** `POST /sites/{siteId}/devices/{deviceId}/unassign` (`unassignDevice`, Admin+). */
+    override suspend fun unassignDevice(
+        siteId: String,
+        deviceId: String,
+    ): ApiResult<DeviceDto> =
+        call({ http.post("$base/sites/${siteId.encoded()}/devices/${deviceId.encoded()}/unassign") { it() } }) {
+            it.body<DeviceDto>()
+        }
+
     private fun lots(siteId: String): String = "$base/sites/${siteId.encoded()}/lots"
 
     private fun String.encoded(): String = encodeURLPathPart()

@@ -7,10 +7,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,6 +26,9 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesNotice
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
+import com.escendit.coldframe.core.devices.LotOption
+import com.escendit.coldframe.core.devices.NodeActionFailure
+import com.escendit.coldframe.core.devices.NodeActionNotice
 import com.escendit.coldframe.core.devices.NodeSummary
 import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.setup.HubSetupState
@@ -94,7 +102,12 @@ class DevicesScreenTest {
                         },
                     ),
                 devices = devices,
-                devicesActions = DevicesActions(load = { calls += "load" }),
+                devicesActions =
+                    DevicesActions(
+                        load = { calls += "load" },
+                        moveNode = { node, lot -> calls += "move $node $lot" },
+                        unassignNode = { calls += "unassign $it" },
+                    ),
                 nodeSetupActions = NodeSetupActions(open = { calls += "openNode $it" }),
                 now = { now },
             )
@@ -355,5 +368,116 @@ class DevicesScreenTest {
         compose.onAllNodesWithText("Hubs").assertCountEquals(0)
         compose.onAllNodesWithText("No Devices yet.").assertCountEquals(0)
         compose.onAllNodesWithText("Online").assertCountEquals(0)
+    }
+
+    private val garden =
+        listOf(
+            LotOption("lot-t", "Tomatoes", hasNode = true),
+            LotOption("lot-b", "Beans", hasNode = true),
+            LotOption("lot-basil", "Basil", hasNode = false),
+        )
+
+    private fun managing(
+        role: SiteRole,
+        failure: NodeActionFailure? = null,
+    ) = DevicesState.Ready(
+        homeSite(role),
+        listOf(online),
+        listOf(tomatoesNode, unassigned),
+        garden,
+        failure = failure,
+    )
+
+    @Test
+    fun `UX-DR31 an Administrator sees Move on every Node and Unassign on a Node in a Lot`() {
+        show(SiteRole.Administrator, managing(SiteRole.Administrator))
+
+        compose.onAllNodesWithText("MOVE").assertCountEquals(2)
+        compose.onAllNodesWithText("UNASSIGN").assertCountEquals(1)
+        compose.onNodeWithContentDescription("Move Node 7c19a1b2c3d4e5f6").assertExists()
+        compose.onNodeWithContentDescription("Unassign Node 7c19a1b2c3d4e5f6").assertExists()
+        compose.onNodeWithContentDescription("Unassign Node 7c19000000000003").assertDoesNotExist()
+    }
+
+    @Test
+    fun `UX-DR31 a Member sees neither Move nor Unassign, hidden and not disabled`() {
+        show(SiteRole.Member, managing(SiteRole.Member))
+
+        compose.onAllNodesWithText("MOVE").assertCountEquals(0)
+        compose.onAllNodesWithText("UNASSIGN").assertCountEquals(0)
+        // Nothing in the tab can be pressed: only the four tabs of the shell.
+        assertEquals(4, compose.allNodes().count { it.isClickable })
+    }
+
+    @Test
+    fun `UX-DR31 the actions are also custom accessibility actions of the Node row`() {
+        show(SiteRole.Owner, managing(SiteRole.Owner))
+
+        val row = compose.onNodeWithText("7c19a1b2c3d4e5f6").fetchSemanticsNode()
+        val labels = row.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label }
+        assertEquals(listOf("Move Node 7c19a1b2c3d4e5f6", "Unassign Node 7c19a1b2c3d4e5f6"), labels)
+
+        val spare = compose.onNodeWithText("7c19000000000003").fetchSemanticsNode()
+        assertEquals(
+            listOf("Move Node 7c19000000000003"),
+            spare.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label },
+        )
+    }
+
+    @Test
+    fun `UX-DR31 Unassign requires confirmation in a dialog naming the Node, and Cancel changes nothing`() {
+        show(SiteRole.Administrator, managing(SiteRole.Administrator))
+
+        compose.onNodeWithContentDescription("Unassign Node 7c19a1b2c3d4e5f6").performClick()
+
+        compose.onNodeWithText("Unassign Node 7c19a1b2c3d4e5f6?").assertExists()
+        compose.onNodeWithText("Tomatoes will have no Node. Its Readings stay in Coldframe.").assertExists()
+        assertFalse(calls.any { it.startsWith("unassign") })
+
+        compose.onNode(hasText("CANCEL", ignoreCase = true).and(hasAnyAncestor(isDialog()))).performClick()
+        compose.onAllNodesWithText("Unassign Node 7c19a1b2c3d4e5f6?").assertCountEquals(0)
+        assertFalse(calls.any { it.startsWith("unassign") })
+
+        compose.onNodeWithContentDescription("Unassign Node 7c19a1b2c3d4e5f6").performClick()
+        compose.onNode(hasText("UNASSIGN", ignoreCase = true).and(hasAnyAncestor(isDialog()))).performClick()
+
+        assertEquals(listOf("load", "unassign 7c19a1b2c3d4e5f6"), calls)
+    }
+
+    @Test
+    fun `UX-DR31 Lots with a Node are not selectable and say Has a Node, and only a free Lot can be moved to`() {
+        show(SiteRole.Administrator, managing(SiteRole.Administrator))
+
+        compose.onNodeWithContentDescription("Move Node 7c19a1b2c3d4e5f6").performClick()
+
+        val inDialog = hasAnyAncestor(isDialog())
+        compose.onNode(hasText("Choose a Lot for Node 7c19a1b2c3d4e5f6.").and(inDialog)).assertExists()
+        compose.onNodeWithContentDescription("Basil").assertExists()
+        compose.onNodeWithContentDescription("Beans, has a Node").assertIsNotEnabled()
+        // The Node's own Lot says so and cannot be picked either.
+        compose.onNodeWithContentDescription("Tomatoes, current Lot").assertIsNotEnabled()
+        compose.onNode(hasText("MOVE NODE 7C19A1B2C3D4E5F6", ignoreCase = true).and(inDialog)).assertIsNotEnabled()
+
+        compose.onNodeWithContentDescription("Beans, has a Node").performClick()
+        compose.onNode(hasText("MOVE NODE 7C19A1B2C3D4E5F6", ignoreCase = true).and(inDialog)).assertIsNotEnabled()
+
+        compose.onNodeWithContentDescription("Basil").performClick()
+        compose
+            .onNode(
+                hasText("MOVE NODE 7C19A1B2C3D4E5F6", ignoreCase = true).and(inDialog),
+            ).assertIsEnabled()
+            .performClick()
+
+        assertEquals(listOf("load", "move 7c19a1b2c3d4e5f6 lot-basil"), calls)
+    }
+
+    @Test
+    fun `UX-DR31 a refused move says why under that Node`() {
+        show(
+            SiteRole.Administrator,
+            managing(SiteRole.Administrator, NodeActionFailure("7c19a1b2c3d4e5f6", NodeActionNotice.LotTaken)),
+        )
+
+        compose.onNodeWithText("That Lot already has a Node. Choose another Lot.").assertExists()
     }
 }

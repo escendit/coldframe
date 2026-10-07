@@ -91,6 +91,12 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", node.LotId);
         Assert.Null(device.LotId);
 
+        // Assigned, moved (its old Lot released at once), then unassigned: on no Lot, and the unassigned Lot
+        // is still pending release.
+        var moved = Assert.IsType<DeviceState>(states["device/5a4b3c2d1e0f7c21"]);
+        Assert.Null(moved.LotId);
+        Assert.Equal(["0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04"], moved.PendingReleases);
+
         // Relayed by the Hub; paused by its Site and by itself, then the Site resumed: still paused.
         Assert.Equal("92064422c012f481", node.LastRelayHubId);
         Assert.True(node.IsPaused);

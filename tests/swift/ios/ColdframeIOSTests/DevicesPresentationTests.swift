@@ -8,20 +8,33 @@ private func devices(
   surface: String = "ready", notice: String? = nil, siteId: String? = "a",
   canAddHub: Bool = true, canAddNode: Bool = true,
   hubIds: [String] = ["3f2a9c0d1e4b5a67"], hubStatuses: [String] = ["online"],
-  hubLastSeen: [String] = ["1791270120000"], nodes: [NodeFixture] = []
+  hubLastSeen: [String] = ["1791270120000"], nodes: [NodeFixture] = [],
+  canManageNodes: Bool = false, lots: [LotFixture] = [], workingNodeId: String = "",
+  failedNodeId: String = "", actionNotice: String = ""
 ) -> DevicesPresentation {
   DevicesPresentation(
     surface: surface, notice: notice, siteId: siteId, canAddHub: canAddHub,
     canAddNode: canAddNode, hubIds: hubIds, hubStatuses: hubStatuses, hubLastSeen: hubLastSeen,
     nodeIds: nodes.map(\.id), nodeLotNames: nodes.map(\.lot), nodeBatteries: nodes.map(\.battery),
     nodeBatteryLow: nodes.map(\.low), nodeCharging: nodes.map(\.charging),
-    nodeLastSeen: nodes.map(\.lastSeen))
+    nodeLastSeen: nodes.map(\.lastSeen), canManageNodes: canManageNodes,
+    nodeLotIds: nodes.map(\.lotId), lotIds: lots.map(\.id), lotNames: lots.map(\.name),
+    lotHasNode: lots.map(\.hasNode), workingNodeId: workingNodeId, failedNodeId: failedNodeId,
+    actionNotice: actionNotice)
+}
+
+/// A Lot as the core flattens it into the `lot…` lists of `DevicesSnapshot`.
+private struct LotFixture {
+  var id: String
+  var name: String
+  var hasNode: Bool
 }
 
 /// A Node as the core flattens it into the `node…` lists of `DevicesSnapshot`.
 private struct NodeFixture {
   var id: String
   var lot = ""
+  var lotId = ""
   var battery = ""
   var low = false
   var charging = ""
@@ -29,10 +42,10 @@ private struct NodeFixture {
 }
 
 private let tomatoes = NodeFixture(
-  id: "7c19aa01bb02cc03", lot: "Tomatoes", battery: "62", charging: "charging",
+  id: "7c19aa01bb02cc03", lot: "Tomatoes", lotId: "lot-t", battery: "62", charging: "charging",
   lastSeen: "1791270120000")
 private let beans = NodeFixture(
-  id: "1b2c3d4e5f607182", lot: "Beans", battery: "14", low: true, charging: "notCharging",
+  id: "1b2c3d4e5f607182", lot: "Beans", lotId: "lot-b", battery: "14", low: true, charging: "notCharging",
   lastSeen: "1791248700000")
 private let unassigned = NodeFixture(id: "0a0b0c0d0e0f1011")
 
@@ -262,4 +275,73 @@ func devicesNodesEmptyAndFailed() {
   #expect(devices(surface: "failed", notice: "unreachable", nodes: [tomatoes]).nodes.isEmpty)
   #expect(devices(surface: "loading", nodes: [tomatoes]).nodes.isEmpty)
   #expect(devices(siteId: nil, nodes: [tomatoes]).nodes.isEmpty)
+}
+
+private let garden = [
+  LotFixture(id: "lot-t", name: "Tomatoes", hasNode: true),
+  LotFixture(id: "lot-b", name: "Beans", hasNode: true),
+  LotFixture(id: "lot-basil", name: "Basil", hasNode: false),
+]
+
+@Test("UX-DR31 an Administrator or Owner can move and unassign; a Member sees neither")
+func devicesManageNodesFollowsTheCoresRoleRule() {
+  let admin = devices(nodes: [tomatoes, unassigned], canManageNodes: true, lots: garden)
+  let member = devices(nodes: [tomatoes, unassigned], canManageNodes: false, lots: garden)
+
+  #expect(admin.canManageNodes)
+  #expect(admin.nodes.map(\.canUnassign) == [true, false])
+  #expect(!member.canManageNodes)
+  #expect(devices(surface: "failed", notice: "unreachable", canManageNodes: true).canManageNodes == false)
+  #expect(devices(siteId: nil, canManageNodes: true).canManageNodes == false)
+}
+
+@Test("UX-DR31 occupied Lots are not selectable and say Has a Node; the Node's own Lot says so too")
+func devicesMovePickerDisablesOccupiedLots() throws {
+  let presentation = devices(nodes: [tomatoes, unassigned], canManageNodes: true, lots: garden)
+  let node = try #require(presentation.nodes.first)
+
+  let choices = presentation.moveChoices(for: node, selected: "lot-basil")
+
+  #expect(choices.map(\.id) == ["lot-t", "lot-b", "lot-basil"])
+  #expect(choices.map(\.isSelectable) == [false, false, true])
+  #expect(choices.map(\.isSelected) == [false, false, true])
+  #expect(choices[0].reason == .devicesCurrentLot)
+  #expect(choices[0].description == Copy(.devicesCurrentLotDescription, .text("Tomatoes")))
+  #expect(choices[1].reason == .addNodeLotHasNode)
+  #expect(choices[1].description == Copy(.addNodeLotDescriptionHasNode, .text("Beans")))
+  #expect(choices[2].reason == nil)
+
+  // A Lot with a Node can never be shown as picked, even when it was picked before it was taken.
+  #expect(presentation.moveChoices(for: node, selected: "lot-b").allSatisfy { !$0.isSelected })
+
+  // An unassigned Node has no current Lot: both occupied Lots have a Node.
+  let spare = try #require(presentation.nodes.last)
+  #expect(presentation.moveChoices(for: spare, selected: nil).map(\.isSelectable) == [false, false, true])
+}
+
+@Test("UX-DR31 the Node being moved is working and a refused move says why under that Node only")
+func devicesActionStateBelongsToOneNode() throws {
+  let working = devices(nodes: [tomatoes, beans], canManageNodes: true, workingNodeId: tomatoes.id)
+  #expect(working.nodes.map(\.isWorking) == [true, false])
+
+  let refused = devices(
+    nodes: [tomatoes, beans], canManageNodes: true, failedNodeId: beans.id, actionNotice: "lotTaken")
+  #expect(refused.nodes.map(\.actionNotice) == [nil, .lotTaken])
+  #expect(NodeActionNoticeKind.lotTaken.message == .devicesActionLotTaken)
+  #expect(NodeActionNoticeKind.forbidden.message == .devicesActionForbidden)
+  #expect(NodeActionNoticeKind.notFound.message == .devicesActionNotFound)
+  #expect(NodeActionNoticeKind.unexpected.message == .devicesActionUnexpected)
+  #expect(NodeActionNoticeKind(rawValue: "") == nil)
+}
+
+@Test("UX-DR31 Unassign asks first, naming the Node; the copy is in the catalogue")
+func devicesUnassignCopy() throws {
+  let entries = try Catalogue.entries()
+
+  #expect(entries["devices_unassign_question"] == "Unassign Node %@?")
+  #expect(entries["devices_unassign_detail"] == "%@ will have no Node. Its Readings stay in Coldframe.")
+  #expect(entries["devices_unassign"] == "Unassign")
+  #expect(entries["devices_move"] == "Move")
+  #expect(entries["devices_current_lot"] == "Current Lot")
+  #expect(entries["add_node_lot_has_node"] == "Has a Node")
 }
