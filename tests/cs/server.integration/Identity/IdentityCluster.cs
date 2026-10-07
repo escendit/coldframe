@@ -70,6 +70,11 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     /// </summary>
     public LotFaults LotFaults => SiloServices.GetRequiredService<LotFaults>();
 
+    /// <summary>
+    /// The silo's Device call filter, which a test can make fail the Calibrations set on one Device.
+    /// </summary>
+    public DeviceFaults DeviceFaults => SiloServices.GetRequiredService<DeviceFaults>();
+
     public DeviceKeyVault Vault => SiloServices.GetRequiredService<DeviceKeyVault>();
 
     public LotsReadModel Lots => SiloServices.GetRequiredService<LotsReadModel>();
@@ -201,6 +206,8 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<SensorFaults>());
             siloBuilder.Services.AddSingleton<LotFaults>();
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<LotFaults>());
+            siloBuilder.Services.AddSingleton<DeviceFaults>();
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<DeviceFaults>());
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
             siloBuilder.Services.AddSingleton<IPhaseTwoOrganizations>(provider => provider.GetRequiredService<FakePhaseTwoOrganizations>());
@@ -322,6 +329,46 @@ public sealed class LotFaults : IIncomingGrainCallFilter
             && _failing.ContainsKey(context.TargetId.Key.ToString()!))
         {
             throw new InvalidOperationException("The test failed this release.");
+        }
+
+        return context.Invoke();
+    }
+}
+
+/// <summary>
+/// Passes every grain call on, except that a test can make <see cref="IDeviceGrain.SetCalibration"/> throw for
+/// chosen Devices, the way a Device grain that cannot be reached or cannot write its journal does. Nothing
+/// reaches the grain then.
+/// </summary>
+public sealed class DeviceFaults : IIncomingGrainCallFilter
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How many calls were failed.
+    /// </summary>
+    public int Failed { get; private set; }
+
+    /// <summary>
+    /// Makes every Calibration set on <paramref name="deviceId"/> fail until <see cref="Restore"/>.
+    /// </summary>
+    public void FailCalibrations(string deviceId) => _failing[deviceId] = true;
+
+    /// <summary>
+    /// Lets the Calibrations of <paramref name="deviceId"/> through again.
+    /// </summary>
+    public void Restore(string deviceId) => _failing.TryRemove(deviceId, out _);
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is IDeviceGrain
+            && string.Equals(context.MethodName, nameof(IDeviceGrain.SetCalibration), StringComparison.Ordinal)
+            && _failing.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            Failed++;
+            throw new InvalidOperationException("The test failed this Calibration.");
         }
 
         return context.Invoke();

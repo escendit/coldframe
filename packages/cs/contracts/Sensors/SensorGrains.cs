@@ -2,7 +2,8 @@ namespace Coldframe.Contracts.Sensors;
 
 /// <summary>
 /// A Sensor, keyed by its Sensor ID (AD-19): the UUIDv5 of its Device ID, slot and quantity, in the
-/// lowercase hyphenated form. The only writer of the Sensor's state: its Specification and its Thresholds.
+/// lowercase hyphenated form. The only writer of the Sensor's state: its Specification, its Thresholds and its
+/// Calibration.
 /// </summary>
 [Alias("coldframe.sensor")]
 public interface ISensorGrain : IGrainWithStringKey
@@ -31,6 +32,22 @@ public interface ISensorGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("describe")]
     Task<SensorSnapshot?> Describe(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves one or both reference points of the Sensor's Calibration (Story 5.1, AD-9). The Sensor grain is the
+    /// only validator and writer of a Calibration. Every point names a stored Reading of this Sensor by its
+    /// <c>reading_seq</c>. One point is kept (<see cref="SensorCalibrationPointRecorded"/>) until the other one
+    /// arrives, and the Sensor stays as calibrated as it was. Two points, new or pending, that are distinct
+    /// (see <see cref="SensorCalibrationLimits.MinimumSpan"/>) journal <see cref="SensorCalibrated"/> with a new
+    /// Calibration ID. Then the Calibration is set in force on the Device grain, and only when the Device
+    /// acknowledged it the answer is <see cref="SensorCalibrationOutcome.Calibrated"/>. When that call fails the
+    /// event stays journaled and is delivered again, on a timer and on activation, until the Device holds it; the
+    /// answer is <see cref="SensorCalibrationOutcome.NotDelivered"/> then. A refusal journals nothing.
+    /// </summary>
+    /// <param name="request">The points to save.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("calibrate")]
+    Task<SensorCalibrationResult> Calibrate(CalibrateSensor request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -185,6 +202,9 @@ public sealed record SensorDeclarationResult([property: Id(0)] SensorDeclaration
 /// <param name="Specification">The Specification in force.</param>
 /// <param name="Low">The low Threshold: its kind and effective value.</param>
 /// <param name="High">The high Threshold: its kind and effective value.</param>
+/// <param name="Calibration">The Calibration in force, or <see langword="null"/> while the Sensor is uncalibrated.</param>
+/// <param name="PendingDryRaw">The dry point kept while waiting for the wet one.</param>
+/// <param name="PendingWetRaw">The wet point kept while waiting for the dry one.</param>
 [GenerateSerializer]
 [Alias("coldframe.sensor-snapshot")]
 public sealed record SensorSnapshot(
@@ -193,4 +213,135 @@ public sealed record SensorSnapshot(
     [property: Id(2)] int Slot,
     [property: Id(3)] SensorSpecification Specification,
     [property: Id(4)] ThresholdSetting Low,
-    [property: Id(5)] ThresholdSetting High);
+    [property: Id(5)] ThresholdSetting High,
+    [property: Id(6)] SensorCalibration? Calibration = null,
+    [property: Id(7)] long? PendingDryRaw = null,
+    [property: Id(8)] long? PendingWetRaw = null);
+
+/// <summary>
+/// Which reference point of a Calibration.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.calibration-point")]
+public enum CalibrationPoint
+{
+    /// <summary>
+    /// The probe in dry soil: it reads 0 percent.
+    /// </summary>
+    Dry = 0,
+
+    /// <summary>
+    /// The probe in water: it reads 100 percent.
+    /// </summary>
+    Wet = 1,
+}
+
+/// <summary>
+/// The bounds of a Calibration (Story 5.1).
+/// </summary>
+public static class SensorCalibrationLimits
+{
+    /// <summary>
+    /// The smallest distance between the dry and the wet raw value: two points closer than this (or equal) are
+    /// indistinct and refused. A span this narrow could not tell dry from wet through the probe's noise.
+    /// </summary>
+    public const long MinimumSpan = 16;
+}
+
+/// <summary>
+/// One reference point of a Calibration, named by the stored Reading it comes from.
+/// </summary>
+/// <param name="ReadingSeq">The <c>reading_seq</c> of a stored Reading of the Sensor.</param>
+[GenerateSerializer]
+[Alias("coldframe.calibration-point-ref")]
+public sealed record CalibrationPointRef([property: Id(0)] ulong ReadingSeq);
+
+/// <summary>
+/// The points of a Calibration an Administrator saves; at least one is set.
+/// </summary>
+/// <param name="Dry">The dry point, or <see langword="null"/> to keep the one already held.</param>
+/// <param name="Wet">The wet point, or <see langword="null"/> to keep the one already held.</param>
+[GenerateSerializer]
+[Alias("coldframe.calibrate-sensor")]
+public sealed record CalibrateSensor(
+    [property: Id(0)] CalibrationPointRef? Dry = null,
+    [property: Id(1)] CalibrationPointRef? Wet = null);
+
+/// <summary>
+/// The Calibration in force: both raw values and the ID every Reading stored under it carries.
+/// </summary>
+/// <param name="Id">The Calibration ID.</param>
+/// <param name="Revision">1 for the first Calibration of the Sensor, then one more each time; only the highest is in force.</param>
+/// <param name="DryRaw">The raw value that reads 0 percent.</param>
+/// <param name="WetRaw">The raw value that reads 100 percent.</param>
+/// <param name="CalibratedAt">When it was saved.</param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-calibration")]
+public sealed record SensorCalibration(
+    [property: Id(0)] Guid Id,
+    [property: Id(1)] int Revision,
+    [property: Id(2)] long DryRaw,
+    [property: Id(3)] long WetRaw,
+    [property: Id(4)] DateTimeOffset CalibratedAt);
+
+/// <summary>
+/// How <see cref="ISensorGrain.Calibrate"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.sensor-calibration-outcome")]
+public enum SensorCalibrationOutcome
+{
+    /// <summary>
+    /// The Sensor is calibrated and the Device holds the Calibration.
+    /// </summary>
+    Calibrated = 0,
+
+    /// <summary>
+    /// One point was kept; the other one is still missing. The Sensor stays as calibrated as it was.
+    /// </summary>
+    PointRecorded = 1,
+
+    /// <summary>
+    /// The Sensor was never declared, or its Specification has no Calibration. Nothing was journaled.
+    /// </summary>
+    NotCalibratable = 2,
+
+    /// <summary>
+    /// The request names no point. Nothing was journaled.
+    /// </summary>
+    NoPoint = 3,
+
+    /// <summary>
+    /// A point names a <c>reading_seq</c> the Sensor has no stored Reading for. Nothing was journaled.
+    /// </summary>
+    UnknownReading = 4,
+
+    /// <summary>
+    /// The dry and the wet raw value are equal or closer than <see cref="SensorCalibrationLimits.MinimumSpan"/>.
+    /// Nothing was journaled.
+    /// </summary>
+    IndistinctPoints = 5,
+
+    /// <summary>
+    /// The Calibration is saved, but the Device did not acknowledge it yet; it is delivered again until it does.
+    /// </summary>
+    NotDelivered = 6,
+}
+
+/// <summary>
+/// The result of <see cref="ISensorGrain.Calibrate"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+/// <param name="Calibration">
+/// The Calibration saved or, for an unchanged request, the one in force; <see langword="null"/> when the Sensor
+/// has none or the call was refused.
+/// </param>
+/// <param name="PendingDryRaw">The dry point kept while waiting for the wet one.</param>
+/// <param name="PendingWetRaw">The wet point kept while waiting for the dry one.</param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-calibration-result")]
+public sealed record SensorCalibrationResult(
+    [property: Id(0)] SensorCalibrationOutcome Outcome,
+    [property: Id(1)] SensorCalibration? Calibration = null,
+    [property: Id(2)] long? PendingDryRaw = null,
+    [property: Id(3)] long? PendingWetRaw = null);

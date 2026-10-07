@@ -555,7 +555,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
             // 6. One transaction: Reading keys, Reading rows, the device report, the replay window and the
             // reserved downlink counter.
-            var committed = await CommitAsync(store, new FrameCommit(DeviceId, replay, ReserveDownlink: true, paused ? null : frame.Rows), window);
+            var committed = await CommitAsync(store, new FrameCommit(DeviceId, replay, ReserveDownlink: true, paused ? null : Stamped(frame.Rows)), window);
             if (committed?.DownlinkCounter is not { } downlinkCounter)
             {
                 return new DeviceIngestResult(DeviceIngestStatus.Retry);
@@ -638,7 +638,41 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         }
     }
 
+    /// <inheritdoc />
+    public Task<DeviceSummary?> Describe(CancellationToken cancellationToken = default) =>
+        Task.FromResult<DeviceSummary?>(State.SiteId is null ? null : Summary());
+
+    /// <inheritdoc />
+    public async Task SetCalibration(SetCalibration request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (State.SiteId is null || State.Kind != DeviceKind.Node)
+        {
+            throw new InvalidOperationException("Only an enrolled Node holds a Calibration.");
+        }
+
+        // A redelivery, or an older one arriving late: the cache already holds it.
+        if (State.HoldsCalibration(request.SensorId, request.Revision))
+        {
+            return;
+        }
+
+        RaiseEvent(new DeviceCalibrationSet(request.SensorId, request.CalibrationId, request.Revision, Clock.GetUtcNow()));
+        await ConfirmEvents();
+    }
+
     private ILogger Logger => ServiceProvider.GetRequiredService<ILogger<DeviceGrain>>();
+
+    // Stamps each Reading with the Calibration in force for its Sensor (Story 5.1): the Sensor grain set it, and
+    // only Readings stored from now on carry it. A Sensor without a Calibration stores none.
+    private FrameRows? Stamped(FrameRows? rows) =>
+        rows is null
+            ? null
+            : rows with
+            {
+                Readings = [.. rows.Readings.Select(reading => reading with { CalibrationId = State.CalibrationOf(reading.SensorId) })],
+            };
 
     // Commits a frame and, on success, adopts its replay window. A failed transaction stored nothing: the
     // in-memory window is dropped and read again for the next frame, so it always equals the stored one.

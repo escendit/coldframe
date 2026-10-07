@@ -18,7 +18,8 @@ public sealed record StoredReplay(ulong HighWater, ulong Seen);
 /// <param name="Slot">The Sensor slot.</param>
 /// <param name="Quantity">The quantity token.</param>
 /// <param name="RawValue">The raw value.</param>
-public sealed record ReadingWrite(Guid SensorId, ulong ReadingSeq, int Slot, string Quantity, long RawValue);
+/// <param name="CalibrationId">The Calibration in force for the Sensor when the Reading is stored, or <see langword="null"/> (Story 5.1).</param>
+public sealed record ReadingWrite(Guid SensorId, ulong ReadingSeq, int Slot, string Quantity, long RawValue, Guid? CalibrationId = null);
 
 /// <summary>
 /// The device report of a frame, ready to store.
@@ -99,9 +100,9 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
             device_id, sensor_id, reading_seq, measured_at, slot, quantity, raw_value, calibration_id,
             time_unsynced, boot_id, uptime_ms, received_at)
         SELECT @device_id, reading.sensor_id, reading.reading_seq, @measured_at, reading.slot, reading.quantity,
-            reading.raw_value, NULL, @time_unsynced, @boot_id, @uptime_ms, @received_at
-        FROM unnest(@sensor_ids, @reading_seqs, @slots, @quantities, @raw_values)
-            AS reading(sensor_id, reading_seq, slot, quantity, raw_value)
+            reading.raw_value, reading.calibration_id, @time_unsynced, @boot_id, @uptime_ms, @received_at
+        FROM unnest(@sensor_ids, @reading_seqs, @slots, @quantities, @raw_values, @calibration_ids)
+            AS reading(sensor_id, reading_seq, slot, quantity, raw_value, calibration_id)
         JOIN fresh USING (sensor_id, reading_seq)
         """;
 
@@ -179,6 +180,10 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
                     Value = rows.Readings.Select(reading => reading.Quantity).ToArray(),
                 });
                 readings.Parameters.AddWithValue("raw_values", rows.Readings.Select(reading => reading.RawValue).ToArray());
+                readings.Parameters.Add(new NpgsqlParameter("calibration_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+                {
+                    Value = rows.Readings.Select(reading => reading.CalibrationId).ToArray(),
+                });
                 newKeys += await readings.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 

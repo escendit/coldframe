@@ -19,6 +19,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1); a Node's `lotId` since Story 4.2 |
 | `POST /sites/{siteId}/devices/{deviceId}/move` | `Administrator` | Story 4.9 |
 | `POST /sites/{siteId}/devices/{deviceId}/unassign` | `Administrator` | Story 4.9 |
+| `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.1 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
@@ -48,7 +49,9 @@ is planned today.
   `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409),
   `device-assigned` (409, the Node is in another Lot already), `device-not-found` (404, no such Node on this
   Site: moving or unassigning an unknown Device, a Hub or a Device of another Site), `ingest-unavailable` (503, no frame of an
-  ingest envelope could be committed). Enrolling a Node with a `lotId` answers
+  ingest envelope could be committed), `sensor-not-found` (404, no such Sensor on a Node of this Site),
+  `calibration-not-delivered` (503, the Calibration is saved but the Node's Device grain has not acknowledged it
+  yet; the Server keeps delivering it). Enrolling a Node with a `lotId` answers
   `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
   when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an
   `x-extensible-enum`.
@@ -77,11 +80,20 @@ is planned today.
 - **Lot detail and history.** `GET /sites/{siteId}/lots/{lotId}` alone also carries `node` (the Node's
   `deviceId`, `batteryPercent`, `charging` and `lastSeenAt` from its newest device report) and
   `sensors` (the newest Reading per Sensor), both only while the Lot holds a Node. The Server converts
-  values: soil moisture stays the raw count (`unit: raw`, never a percentage before Calibration),
+  values: soil moisture is the raw count (`unit: raw`), or, for a Reading stored under a Calibration (Story 5.1),
+  a percentage rounded to the nearest 5 (`unit: %`),
   temperature is in `°C`, humidity in `%`, gas resistance in `kΩ`. `GET /sites/{siteId}/lots/{lotId}/history`
   returns one entry per UTC day with Readings (`low`, `high`, `readingCount`), ascending, paged by
   `from`/`to`, `limit` and an opaque `cursor`. Devices list items of Nodes add `lotName`,
   `batteryPercent` and `charging`.
+- **Calibration.** `POST /sites/{siteId}/sensors/{sensorId}/calibration` takes `{dry?: {readingSeq}, wet?:
+  {readingSeq}}`, each point naming a Reading the Server stored for the Sensor by its `reading_seq`; the raw value
+  comes from that Reading. One point is kept until the other arrives; two points at least 16 raw counts apart
+  (either orientation) save a Calibration with a new ID. It answers 200 `{calibrated, calibrationId?, dry?, wet?,
+  pendingDry?, pendingWet?}` once the Node's Device grain holds the Calibration, 400 `validation` for an
+  indistinct pair, a Reading the Sensor has not stored, or a Sensor without Calibration, 404 `sensor-not-found`,
+  403 for a Member, and 503 `calibration-not-delivered` while the Device has not acknowledged it. Only Readings
+  stored afterwards use the new Calibration.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

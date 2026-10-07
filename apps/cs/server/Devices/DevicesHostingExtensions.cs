@@ -1,4 +1,5 @@
 using Coldframe.Server.Journal;
+using Coldframe.Server.Sensors;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
@@ -25,6 +26,9 @@ public static class DevicesHostingExtensions
 
         // The ingestion tables, written only through the Device grain; a test host registers its own first.
         services.TryAddSingleton<DeviceIngestionStore>();
+
+        // The stored Readings a Sensor grain checks a Calibration's points against (Story 5.1).
+        services.TryAddSingleton<SensorReadings>();
         services.AddProjector<DevicesProjector>();
 
         return services

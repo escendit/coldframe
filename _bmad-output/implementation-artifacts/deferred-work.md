@@ -573,3 +573,19 @@ source_spec: `spec-4-8-lot-detail-with-history-and-device-status.md`
 severity: medium
 reason: Same limit as DW-71: the SwiftUI views and the `Int32`/`KotlinInt` mapping in CoreLotDetailService are unproven until the macOS `swift` and `ios` jobs run, and iOS render tests assert only that an image renders. On the web the chart's day axis uses the browser clock while the Server's days are UTC, so around midnight the last bar can differ by one day from the Server's.
 status: open
+
+### DW-75: The Server exposes no way for a client to learn a stored Reading's reading_seq, which the Calibration endpoint requires.
+origin: spec-deferred 0249033db860
+location: packages/openapi/coldframe.openapi.json
+source_spec: `spec-5-1-calibration-on-the-server.md`
+severity: medium
+reason: No OpenAPI surface lists Readings with reading_seq; the new tests read it from the readings table. Story 5.2 ("pick a recent stored Reading from the list") must add it.
+status: open
+
+### DW-76: SensorReadings.FindRawValueAsync looks up readings by sensor_id and reading_seq without a measured_at bound, so it visits every monthly partition.
+origin: spec-deferred 967503731841
+location: apps/cs/server/Sensors/SensorReadings.cs:13
+source_spec: `spec-5-1-calibration-on-the-server.md`
+severity: low
+reason: readings is partitioned by measured_at and only indexed on (sensor_id, measured_at); the lookup is rare (admin calibration) but grows with history. An index on (sensor_id, reading_seq) or a bounded time window would fix it.
+status: open

@@ -174,6 +174,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/sensors/{sensorId}/calibration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Calibrate a Sensor
+         * @description Administrator or Owner only; the reference points are chosen from Readings the Server already stored, never over Bluetooth. The body names a dry point (the probe in dry soil) and/or a wet point (in water), each by the reading_seq of a stored Reading of the Sensor; the Server reads the raw value from that Reading. Only a Sensor whose Specification calls for Calibration (calibration: true) can be calibrated. One point is kept until the other one arrives, in either order, and the Sensor stays as calibrated as it was. Two points that are distinct (their raw values at least 16 counts apart, in either orientation) save a Calibration with a new ID: it is two-point linear, a Reading's percentage is clamped to 0 to 100 and rounded to the nearest 5, and it applies to Readings stored from then on (stored Readings keep the Calibration they were stored with; Threshold percentages do not change). The Sensor grain journals the Calibration and sets it in force on the Node before this answers 200; when that fails the Calibration stays saved, the Server delivers it again until the Node's Device grain holds it, and the answer is 503 calibration-not-delivered. The Lot leaves needs-calibration once the Calibration is saved; its percentage appears with the next stored Reading. Sending the pair that is already in force again changes nothing. A refusal changes nothing.
+         */
+        post: operations["calibrateSensor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites/{siteId}/lots": {
         parameters: {
             query?: never;
@@ -368,7 +388,7 @@ export type components = {
          */
         SensorQuantity: "soil_moisture" | "air_temperature" | "relative_humidity" | "gas_resistance";
         /**
-         * @description The unit of a converted value: raw is the uncalibrated soil-moisture count (never a percentage before Calibration, Epic 5).
+         * @description The unit of a converted value: raw is the uncalibrated soil-moisture count; a soil-moisture Reading stored under a Calibration (Epic 5) is a percentage, rounded to the nearest 5.
          * @enum {string}
          */
         SensorUnit: "raw" | "°C" | "%" | "kΩ";
@@ -390,7 +410,7 @@ export type components = {
              */
             lastSeenAt?: string;
         };
-        /** @description The newest Reading of one Sensor, converted by the Server: soil moisture stays the raw count, temperature is in °C, humidity in %, gas resistance in kΩ. Clients only format it. */
+        /** @description The newest Reading of one Sensor, converted by the Server: soil moisture is the raw count, or a percentage rounded to the nearest 5 when the Reading was stored under a Calibration, temperature is in °C, humidity in %, gas resistance in kΩ. Clients only format it. */
         SensorReading: {
             quantity: components["schemas"]["SensorQuantity"];
             value: number;
@@ -576,6 +596,38 @@ export type components = {
             /** @description Lowercase hex SHA-256 of the raw public key. The app shows it to the user; the Device checks it against the key as an integrity check only, since it travels with the key. Authenticity comes from fetching this over TLS and the fingerprint the user sees. */
             fingerprint: string;
         };
+        CalibrationPoint: {
+            /**
+             * Format: uint64
+             * @description The reading_seq of a Reading the Server stored for this Sensor. The point's raw value is that Reading's.
+             */
+            readingSeq: number;
+        };
+        CalibrateSensorRequest: {
+            dry?: components["schemas"]["CalibrationPoint"];
+            wet?: components["schemas"]["CalibrationPoint"];
+        };
+        CalibrationValue: {
+            /**
+             * Format: int64
+             * @description The raw value of the stored Reading the point was taken from.
+             */
+            rawValue: number;
+        };
+        /** @description Where a Sensor's Calibration stands. dry and wet are the points of the Calibration in force; pendingDry and pendingWet are a point kept while its partner is missing (also while a Sensor in force is being recalibrated). */
+        Calibration: {
+            /** @description Whether a Calibration is in force. */
+            calibrated: boolean;
+            /**
+             * Format: uuid
+             * @description The ID of the Calibration in force, stamped on every Reading stored under it; absent while uncalibrated.
+             */
+            calibrationId?: string;
+            dry?: components["schemas"]["CalibrationValue"];
+            wet?: components["schemas"]["CalibrationValue"];
+            pendingDry?: components["schemas"]["CalibrationValue"];
+            pendingWet?: components["schemas"]["CalibrationValue"];
+        };
         MoveDeviceRequest: {
             /**
              * Format: uuid
@@ -760,6 +812,24 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
+        /** @description urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:sensor-not-found: the Site has no such Sensor (unknown, never declared, or of another Site). Nothing changed. */
+        SensorNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:calibration-not-delivered: the Calibration is saved, but the Node's Device grain has not acknowledged it yet. The Server delivers it again until it does; send the same request again to see whether it is in force. */
+        CalibrationNotDelivered: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
         /** @description urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. urn:coldframe:problem:lot-claimed: this Lot already has a Node. urn:coldframe:problem:device-assigned: the Node is in another Lot already; move it instead. Nothing was enrolled or assigned. */
         DeviceEnrolmentConflict: {
             headers: {
@@ -786,6 +856,8 @@ export type components = {
         IdempotencyKey: string;
         /** @description The Lot ID, a UUIDv7. */
         LotId: string;
+        /** @description The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form. */
+        SensorId: string;
         /** @description The Device ID, 16 lowercase hex digits. */
         DeviceId: components["schemas"]["DeviceId"];
         /** @description The calling Device's ID, 16 lowercase hex digits. */
@@ -1123,6 +1195,40 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["DeviceMoveNotFound"];
+        };
+    };
+    calibrateSensor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form. */
+                sensorId: components["parameters"]["SensorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalibrateSensorRequest"];
+            };
+        };
+        responses: {
+            /** @description The points are saved: the Calibration in force, and the point still waiting for its partner, if any. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Calibration"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SensorNotFound"];
+            503: components["responses"]["CalibrationNotDelivered"];
         };
     };
     listLots: {

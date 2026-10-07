@@ -38,6 +38,11 @@ public static class EdgeProblems
     public const string DeviceNotFound = "urn:coldframe:problem:device-not-found";
 
     /// <summary>
+    /// 404: the Site has no such Sensor (unknown, never declared, or of another Site).
+    /// </summary>
+    public const string SensorNotFound = "urn:coldframe:problem:sensor-not-found";
+
+    /// <summary>
     /// 409: a Node is assigned to the Lot, so it cannot be removed or take another Node.
     /// </summary>
     public const string LotClaimed = "urn:coldframe:problem:lot-claimed";
@@ -82,6 +87,11 @@ public static class EdgeProblems
     /// 503: the ingest envelope parsed, but no frame of it could be committed.
     /// </summary>
     public const string IngestUnavailable = "urn:coldframe:problem:ingest-unavailable";
+
+    /// <summary>
+    /// 503: the Calibration is saved, but the Device grain did not acknowledge it yet; it is delivered again.
+    /// </summary>
+    public const string CalibrationNotDelivered = "urn:coldframe:problem:calibration-not-delivered";
 
     /// <summary>
     /// Creates the Problem Details of a type.

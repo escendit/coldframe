@@ -81,7 +81,40 @@ public interface IDeviceGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("ingest")]
     Task<DeviceIngestResult> Ingest(DeviceIngest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the Device without its key, or <see langword="null"/> before it is enrolled. Read only.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("describe")]
+    Task<DeviceSummary?> Describe(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets a Sensor's Calibration in force on the Node (Story 5.1, AD-9). Only the Sensor grain calls it, once it
+    /// journaled <c>SensorCalibrated</c>: the Device grain only caches which Calibration ID to stamp on the
+    /// Sensor's later Readings and never validates a Calibration. It journals <see cref="DeviceCalibrationSet"/>
+    /// and returns when that is persisted. A Calibration whose revision is not above the one held, which is what a
+    /// redelivery is, journals nothing and returns as well.
+    /// </summary>
+    /// <param name="request">The Sensor and the Calibration in force.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <exception cref="InvalidOperationException">The Device is not an enrolled Node. Nothing is journaled.</exception>
+    [Alias("set-calibration")]
+    Task SetCalibration(SetCalibration request, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// The Calibration the Sensor grain sets in force on a Node's Device grain.
+/// </summary>
+/// <param name="SensorId">The Sensor ID.</param>
+/// <param name="CalibrationId">The Calibration ID to stamp on the Sensor's later Readings.</param>
+/// <param name="Revision">1 for the Sensor's first Calibration, then one more each time; the Device keeps the highest.</param>
+[GenerateSerializer]
+[Alias("coldframe.set-calibration")]
+public sealed record SetCalibration(
+    [property: Id(0)] Guid SensorId,
+    [property: Id(1)] Guid CalibrationId,
+    [property: Id(2)] int Revision);
 
 /// <summary>
 /// A Hub's signed ingest request as the Edge API hands it to the Hub's Device grain: parsed, not yet verified.
