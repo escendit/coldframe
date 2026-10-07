@@ -663,4 +663,117 @@
           theme: .system, onSelectTheme: { _ in }, onSignOut: {},
           devices: devicesReady(canAddHub: true), selection: .constant(.devices))))
   }
+
+  // MARK: - Lot detail and Nodes (Story 4.8)
+
+  @MainActor
+  private func lotDetailView(_ presentation: LotDetailPresentation) -> some View {
+    NavigationStack {
+      LotDetailView(
+        presentation: presentation, siteName: "Home garden",
+        now: { Overview.context.now }, timeZone: Overview.context.timeZone)
+    }
+  }
+
+  private let lotDetailStates: [(name: String, fixture: LotDetailFixture)] = [
+    ("live needs calibration", .needsCalibration), ("live needs water", .needsWater),
+    ("live ok", .ok), ("unknown node", .nodeSilent), ("unknown hub", .hubSilent),
+    ("paused until", .pausedUntil), ("paused by the Site", .pausedBySite),
+    ("no Node", .noNodeLot), ("stale", LotDetailFixture.needsWater.asStale),
+  ]
+
+  @Test(
+    "UX-DR63 UX-DR27 UX-DR28 UX-DR29 UX-DR32 Lot detail renders each state at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func lotDetailAtAccessibility5(dark: Bool) {
+    for state in lotDetailStates {
+      #expect(renders(lotDetailView(state.fixture.build()), dark: dark), "\(state.name)")
+    }
+  }
+
+  @Test(
+    "UX-DR63 UX-DR27 UX-DR28 UX-DR29 UX-DR32 Lot detail renders each state at the default text size",
+    arguments: [false, true])
+  @MainActor
+  func lotDetailAtDefaultSize(dark: Bool) {
+    for state in lotDetailStates {
+      #expect(
+        rendersAtDefaultSize(lotDetailView(state.fixture.build()), dark: dark), "\(state.name)")
+    }
+  }
+
+  @Test(
+    "UX-DR63 UX-DR79 Lot detail renders while loading and after a failed read",
+    arguments: [false, true])
+  @MainActor
+  func lotDetailLoadingAndFailed(dark: Bool) {
+    var loading = LotDetailFixture.ok
+    loading.surface = "loading"
+    #expect(renders(lotDetailView(loading.build()), dark: dark))
+    for notice in LotDetailNoticeKind.allCases {
+      var failed = LotDetailFixture.ok
+      failed.surface = "failed"
+      failed.notice = notice.rawValue
+      #expect(renders(lotDetailView(failed.build()), dark: dark), "\(notice)")
+    }
+  }
+
+  @Test(
+    "UX-DR32 UX-DR33 the History chart renders with its readout, for each quantity",
+    arguments: [false, true])
+  @MainActor
+  func historyChartRenders(dark: Bool) throws {
+    for quantity in SensorQuantityKind.allCases {
+      var detail = LotDetailFixture.needsCalibration
+      detail.chartQuantity = quantity.rawValue
+      detail.chartUnit = quantity == .soilMoisture ? "raw" : "celsius"
+      let chart = try #require(detail.build().chart)
+      #expect(
+        rendersAtDefaultSize(HistoryChartView(chart: chart, context: Overview.context), dark: dark),
+        "\(quantity)")
+    }
+  }
+
+  @Test(
+    "UX-DR30 Devices with Nodes renders at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func devicesWithNodesAtAccessibility5(dark: Bool) {
+    let presentation = DevicesPresentation(
+      surface: "ready", notice: nil, siteId: "a", canAddHub: true, canAddNode: true,
+      hubIds: ["3f2a9c0d1e4b5a67"], hubStatuses: ["online"], hubLastSeen: ["1791270120000"],
+      nodeIds: ["7c19aa01bb02cc03", "1b2c3d4e5f607182", "0a0b0c0d0e0f1011"],
+      nodeLotNames: ["Beans", "Tomatoes", ""], nodeBatteries: ["14", "62", ""],
+      nodeBatteryLow: [true, false, false], nodeCharging: ["notCharging", "charging", ""],
+      nodeLastSeen: ["1791248700000", "1791270120000", ""])
+    #expect(renders(devicesView(presentation), dark: dark))
+    #expect(rendersAtDefaultSize(devicesView(presentation), dark: dark))
+  }
+
+  @MainActor
+  private final class LotDetailSpy: LotDetailService {
+    var calls: [String] = []
+    func observe(_ onChange: @escaping @MainActor (LotDetailPresentation) -> Void) {}
+    func observeEvents(_ onEvent: @escaping @MainActor (LotsEventPresentation) -> Void) {}
+    func open(lotId: String, name: String) { calls.append("open \(lotId) \(name)") }
+    func close() { calls.append("close") }
+    func refresh() { calls.append("refresh") }
+    func tick() { calls.append("tick") }
+    func pick(_ quantity: SensorQuantityKind) { calls.append("pick \(quantity.rawValue)") }
+  }
+
+  @Test("UX-DR63 UX-DR33 opening, refreshing, ticking and picking reach the Lot detail service")
+  @MainActor
+  func lotDetailActionsForward() {
+    let spy = LotDetailSpy()
+    let actions = LotDetailActions(service: spy)
+    actions.open("p", "Peppers")
+    actions.refresh()
+    actions.tick()
+    actions.pick(.airTemperature)
+    actions.close()
+    #expect(
+      spy.calls == ["open p Peppers", "refresh", "tick", "pick airTemperature", "close"])
+  }
 #endif

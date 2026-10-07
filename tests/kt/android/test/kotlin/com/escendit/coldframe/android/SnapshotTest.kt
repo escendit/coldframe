@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.escendit.coldframe.android.ui.sites.LotDetailActions
+import com.escendit.coldframe.android.ui.sites.LotDetailScreen
 import com.escendit.coldframe.android.ui.sites.LotTiles
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.sites.rememberOverviewCopy
@@ -26,6 +28,7 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
 import com.escendit.coldframe.core.lots.CreateLotForm
+import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.LotSummary
 import com.escendit.coldframe.core.lots.LotsOverview
@@ -579,11 +582,202 @@ class SnapshotTest {
     fun `UX-DR19 UX-DR97 the other stale tiles in one column, dark, font scale 2`() =
         grid("lot-tiles-stale-large-b-dark", staleB, ThemePreference.Dark, fontScale = 2f, stale = true)
 
+    /** Lot detail whole, in one column at font scale 2 and with 3-up and 2-up cells at 1, on a window tall enough to hold it. */
+    private fun detail(
+        name: String,
+        state: LotDetailState,
+        theme: ThemePreference,
+        fontScale: Float,
+    ) {
+        compose.setContent {
+            AtFontScale(fontScale) {
+                ColdframeTheme(isDark = theme == ThemePreference.Dark) {
+                    LotDetailScreen(state = state, actions = LotDetailActions.None, now = { LotFixtures.now })
+                }
+            }
+        }
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    private val detailStates =
+        object {
+            val needsCalibration = LotDetailFixtures.ready(LotDetailFixtures.needsCalibration)
+            val needsWater = LotDetailFixtures.ready(LotDetailFixtures.needsWater)
+            val ok = LotDetailFixtures.ready(LotDetailFixtures.ok)
+            val unknown = LotDetailFixtures.ready(LotDetailFixtures.unknown)
+            val pausedBySite = LotDetailFixtures.ready(LotDetailFixtures.pausedBySite)
+            val noNode = LotDetailFixtures.ready(LotDetailFixtures.noNode)
+            val stale =
+                LotDetailFixtures.ready(
+                    LotDetailFixtures.needsCalibration,
+                    staleReason = StaleReason.Unreachable,
+                )
+        }
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR63 UX-DR27 UX-DR28 UX-DR29 UX-DR32 UX-DR33 UX-DR78 Calibration detail, light`() =
+        detail(
+            "lot-detail-needs-calibration-light",
+            detailStates.needsCalibration,
+            ThemePreference.Light,
+            fontScale = 1f,
+        )
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR63 UX-DR27 UX-DR28 UX-DR29 UX-DR32 UX-DR33 UX-DR78 Calibration detail, dark`() =
+        detail("lot-detail-needs-calibration-dark", detailStates.needsCalibration, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR63 UX-DR27 UX-DR28 UX-DR29 UX-DR32 UX-DR33 UX-DR78 Calibration detail, light, font scale 2`() =
+        detail(
+            "lot-detail-needs-calibration-large-light",
+            detailStates.needsCalibration,
+            ThemePreference.Light,
+            fontScale = 2f,
+        )
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR63 UX-DR27 UX-DR28 UX-DR29 UX-DR32 UX-DR33 UX-DR78 Calibration detail, dark, font scale 2`() =
+        detail(
+            "lot-detail-needs-calibration-large-dark",
+            detailStates.needsCalibration,
+            ThemePreference.Dark,
+            fontScale = 2f,
+        )
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR27 UX-DR63 Lot detail needing water, light`() =
+        detail("lot-detail-needs-water-light", detailStates.needsWater, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR27 UX-DR63 Lot detail needing water, dark`() =
+        detail("lot-detail-needs-water-dark", detailStates.needsWater, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR27 UX-DR63 Lot detail needing water, light, font scale 2`() =
+        detail("lot-detail-needs-water-large-light", detailStates.needsWater, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR27 UX-DR63 Lot detail needing water, dark, font scale 2`() =
+        detail("lot-detail-needs-water-large-dark", detailStates.needsWater, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR27 UX-DR63 Lot detail, OK, light`() =
+        detail("lot-detail-ok-light", detailStates.ok, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR27 UX-DR63 Lot detail, OK, dark`() =
+        detail("lot-detail-ok-dark", detailStates.ok, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR27 UX-DR63 Lot detail, OK, light, font scale 2`() =
+        detail("lot-detail-ok-large-light", detailStates.ok, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR27 UX-DR63 Lot detail, OK, dark, font scale 2`() =
+        detail("lot-detail-ok-large-dark", detailStates.ok, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR78 UX-DR63 Lot detail of a silent Node, light`() =
+        detail("lot-detail-unknown-light", detailStates.unknown, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR78 UX-DR63 Lot detail of a silent Node, dark`() =
+        detail("lot-detail-unknown-dark", detailStates.unknown, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR78 UX-DR63 Lot detail of a silent Node, light, font scale 2`() =
+        detail("lot-detail-unknown-large-light", detailStates.unknown, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR78 UX-DR63 Lot detail of a silent Node, dark, font scale 2`() =
+        detail("lot-detail-unknown-large-dark", detailStates.unknown, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR27 UX-DR78 UX-DR63 Lot detail paused by the Site, light`() =
+        detail("lot-detail-paused-light", detailStates.pausedBySite, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR27 UX-DR78 UX-DR63 Lot detail paused by the Site, dark`() =
+        detail("lot-detail-paused-dark", detailStates.pausedBySite, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR27 UX-DR78 UX-DR63 Lot detail paused by the Site, light, font scale 2`() =
+        detail("lot-detail-paused-large-light", detailStates.pausedBySite, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR27 UX-DR78 UX-DR63 Lot detail paused by the Site, dark, font scale 2`() =
+        detail("lot-detail-paused-large-dark", detailStates.pausedBySite, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR63 Lot detail without a Node, light`() =
+        detail("lot-detail-no-node-light", detailStates.noNode, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR63 Lot detail without a Node, dark`() =
+        detail("lot-detail-no-node-dark", detailStates.noNode, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR63 Lot detail without a Node, light, font scale 2`() =
+        detail("lot-detail-no-node-large-light", detailStates.noNode, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR63 Lot detail without a Node, dark, font scale 2`() =
+        detail("lot-detail-no-node-large-dark", detailStates.noNode, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR63 UX-DR24 Lot detail in stale mode, light`() =
+        detail("lot-detail-stale-light", detailStates.stale, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR63 UX-DR24 Lot detail in stale mode, dark`() =
+        detail("lot-detail-stale-dark", detailStates.stale, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR63 UX-DR24 Lot detail in stale mode, light, font scale 2`() =
+        detail("lot-detail-stale-large-light", detailStates.stale, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR63 UX-DR24 Lot detail in stale mode, dark, font scale 2`() =
+        detail("lot-detail-stale-large-dark", detailStates.stale, ThemePreference.Dark, fontScale = 2f)
+
     private companion object {
         /** A window that holds four one-column tiles, or ten in two columns. */
         const val TALL = "w411dp-h1700dp-mdpi"
 
         /** Five one-column tiles. */
         const val TALLER = "w411dp-h2100dp-mdpi"
+
+        /** Lot detail in one column at font scale 2. */
+        const val HUGE = "w411dp-h3600dp-mdpi"
     }
 }

@@ -67,6 +67,8 @@ public sealed record RenameLotRequest(string? Name);
 /// <param name="PausedBy"><c>device</c> and/or <c>site</c>; sent only for a <c>paused</c> Lot.</param>
 /// <param name="PausedUntil">When the Pause ends, ISO-8601 UTC; omitted when the Lot is not paused or the Pause has no end.</param>
 /// <param name="Removed"><see langword="true"/> for a removed Lot; omitted otherwise.</param>
+/// <param name="Node">The Lot's Node with its battery and last seen; sent only by <c>GET /sites/{siteId}/lots/{lotId}</c> while the Lot holds a Node.</param>
+/// <param name="Sensors">The newest Reading of each Sensor of the Node, converted; sent with <paramref name="Node"/>.</param>
 /// <remarks>
 /// The contract's <c>moisturePercent</c> and <c>lowThresholdPercent</c> are not here: nothing produces them
 /// before Calibration (Epic 5) and Threshold Alerts (Epic 6), so the Server never sends them.
@@ -80,7 +82,45 @@ public sealed record LotResponse(
     string? UnknownCause = null,
     IReadOnlyList<string>? PausedBy = null,
     string? PausedUntil = null,
-    bool? Removed = null);
+    bool? Removed = null,
+    NodeStatusResponse? Node = null,
+    IReadOnlyList<SensorReadingResponse>? Sensors = null);
+
+/// <summary>
+/// A Lot's Node as Lot detail returns it.
+/// </summary>
+/// <param name="DeviceId">The Node's Device ID.</param>
+/// <param name="BatteryPercent">The battery charge of the newest device report; omitted when unknown.</param>
+/// <param name="Charging"><c>charging</c> or <c>notCharging</c>; omitted when unknown.</param>
+/// <param name="LastSeenAt">The <c>measured_at</c> of the newest device report, ISO-8601 UTC; omitted without a report.</param>
+public sealed record NodeStatusResponse(string DeviceId, int? BatteryPercent = null, string? Charging = null, string? LastSeenAt = null);
+
+/// <summary>
+/// The newest Reading of one Sensor, converted by the Server.
+/// </summary>
+/// <param name="Quantity">The quantity token.</param>
+/// <param name="Value">The converted value.</param>
+/// <param name="Unit"><c>raw</c>, <c>°C</c>, <c>%</c> or <c>kΩ</c>.</param>
+/// <param name="MeasuredAt">When the Reading was taken, ISO-8601 UTC.</param>
+public sealed record SensorReadingResponse(string Quantity, double Value, string Unit, string MeasuredAt);
+
+/// <summary>
+/// One UTC day of a Lot's history.
+/// </summary>
+/// <param name="Day">The UTC date, <c>yyyy-MM-dd</c>.</param>
+/// <param name="Low">The day's lowest converted value.</param>
+/// <param name="High">The day's highest converted value.</param>
+/// <param name="ReadingCount">How many Readings the day has.</param>
+public sealed record LotHistoryDayResponse(string Day, double Low, double High, int ReadingCount);
+
+/// <summary>
+/// The body of <c>GET /sites/{siteId}/lots/{lotId}/history</c>.
+/// </summary>
+/// <param name="Quantity">The quantity read.</param>
+/// <param name="Unit">The unit of the values.</param>
+/// <param name="Days">The days with Readings, ascending.</param>
+/// <param name="NextCursor">Opaque; present only when more days follow.</param>
+public sealed record LotHistoryResponse(string Quantity, string Unit, IReadOnlyList<LotHistoryDayResponse> Days, string? NextCursor = null);
 
 /// <summary>
 /// The body of <c>GET /sites/{siteId}/lots</c>: the Site's live Lots in the Server's order.
@@ -121,13 +161,24 @@ public sealed record DeviceResponse(string Id, string Kind, string SiteId, strin
 /// <param name="Kind"><c>hub</c> or <c>node</c>.</param>
 /// <param name="Online">Whether the Device is online, computed when the Server answers; never stored.</param>
 /// <param name="LotId">The Lot a Node is on; omitted otherwise.</param>
-/// <param name="LastSeenAt">When the last heartbeat was accepted, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>; omitted before the first.</param>
-public sealed record DeviceListItemResponse(string Id, string Kind, bool Online, string? LotId = null, string? LastSeenAt = null);
+/// <param name="LastSeenAt">A Hub's last accepted heartbeat, or a Node's newest device report, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>; omitted before the first.</param>
+/// <param name="LotName">The name of the Lot a Node is on; omitted otherwise.</param>
+/// <param name="BatteryPercent">A Node's battery charge from its newest device report; omitted when unknown.</param>
+/// <param name="Charging">A Node's <c>charging</c> or <c>notCharging</c>; omitted when unknown.</param>
+public sealed record DeviceListItemResponse(
+    string Id,
+    string Kind,
+    bool Online,
+    string? LotId = null,
+    string? LastSeenAt = null,
+    string? LotName = null,
+    int? BatteryPercent = null,
+    string? Charging = null);
 
 /// <summary>
 /// The body of <c>GET /sites/{siteId}/devices</c>: every enrolled Device of the Site.
 /// </summary>
-/// <param name="Devices">The Devices, ordered by Device ID.</param>
+/// <param name="Devices">The Devices: Hubs by Device ID, then Nodes by Lot name (unassigned last) and Device ID.</param>
 public sealed record DeviceListResponse(IReadOnlyList<DeviceListItemResponse> Devices);
 
 /// <summary>
@@ -261,6 +312,10 @@ public static partial class EdgeApi
 
         endpoints.MapGet("/sites/{siteId}/lots/{lotId}", GetLotAsync)
             .WithName("getLot")
+            .RequireSiteRole(SiteRole.Member);
+
+        endpoints.MapGet("/sites/{siteId}/lots/{lotId}/history", GetLotHistoryAsync)
+            .WithName("getLotHistory")
             .RequireSiteRole(SiteRole.Member);
 
         endpoints.MapPatch("/sites/{siteId}/lots/{lotId}", RenameLotAsync)
@@ -453,15 +508,201 @@ public static partial class EdgeApi
         string siteId,
         string lotId,
         HttpContext httpContext,
-        [FromServices] LotsReadModel lots)
+        [FromServices] LotsReadModel lots,
+        [FromServices] LotDetailReadModel detail)
     {
+        var canonicalSite = SiteAccessHandler.Canonicalize(siteId)!;
         var canonicalLot = CanonicalizeLotId(lotId);
         var view = canonicalLot is null
             ? null
-            : await lots.FindLotAsync(SiteAccessHandler.Canonicalize(siteId)!, canonicalLot, httpContext.RequestAborted).ConfigureAwait(false);
+            : await lots.FindLotAsync(canonicalSite, canonicalLot, httpContext.RequestAborted).ConfigureAwait(false);
 
-        return view is null ? LotNotFound() : TypedResults.Ok(ToLotResponse(view));
+        if (view is null)
+        {
+            return LotNotFound();
+        }
+
+        var response = ToLotResponse(view);
+
+        if (await detail.FindClaimAsync(canonicalSite, canonicalLot!, httpContext.RequestAborted).ConfigureAwait(false) is not { } claim)
+        {
+            return TypedResults.Ok(response);
+        }
+
+        var readings = await detail.LatestReadingsAsync(claim.NodeId, claim.ClaimedAt, httpContext.RequestAborted).ConfigureAwait(false);
+        var report = await detail.LatestReportAsync(claim.NodeId, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return TypedResults.Ok(response with
+        {
+            Node = new NodeStatusResponse(
+                claim.NodeId,
+                report?.BatteryPercent,
+                ToChargeState(report?.Charging),
+                report is null ? null : ToServerTime(report.MeasuredAt)),
+            Sensors = [.. ToSensorReadings(readings)],
+        });
     }
+
+    private static IEnumerable<SensorReadingResponse> ToSensorReadings(IReadOnlyList<StoredReading> readings)
+    {
+        foreach (var reading in readings)
+        {
+            if (SensorConversion.Convert(reading.Quantity, reading.RawValue) is { } converted)
+            {
+                yield return new SensorReadingResponse(reading.Quantity, converted.Value, converted.Unit, ToServerTime(reading.MeasuredAt));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Maps a stored charger token to the contract's <c>ChargeState</c>; <see langword="null"/> when it is unknown or absent.
+    /// </summary>
+    internal static string? ToChargeState(string? stored) => stored switch
+    {
+        "charging" => "charging",
+        "not_charging" => "notCharging",
+        _ => null,
+    };
+
+    private const int DefaultHistoryLimit = 31;
+
+    private const int MaxHistoryLimit = 366;
+
+    private const int DefaultHistoryDays = 30;
+
+    private static readonly string[] HistoryTimeFormats =
+    [
+        "yyyy-MM-dd'T'HH:mm:ssK",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK",
+        "yyyy-MM-dd",
+    ];
+
+    private static async Task<IResult> GetLotHistoryAsync(
+        string siteId,
+        string lotId,
+        HttpContext httpContext,
+        [FromServices] LotsReadModel lots,
+        [FromServices] LotDetailReadModel detail,
+        [FromServices] TimeProvider timeProvider)
+    {
+        var canonicalSite = SiteAccessHandler.Canonicalize(siteId)!;
+        var canonicalLot = CanonicalizeLotId(lotId);
+        var view = canonicalLot is null
+            ? null
+            : await lots.FindLotAsync(canonicalSite, canonicalLot, httpContext.RequestAborted).ConfigureAwait(false);
+
+        if (view is null)
+        {
+            return LotNotFound();
+        }
+
+        var query = httpContext.Request.Query;
+        var now = timeProvider.GetUtcNow();
+
+        if (SingleValue(query, "quantity") is not { } quantity || !SensorConversion.Quantities.Contains(quantity)
+            || !TryReadTime(query, "from", out var from)
+            || !TryReadTime(query, "to", out var to, endOfDay: true)
+            || !TryReadLimit(query, out var limit)
+            || !TryReadCursor(query, out var after))
+        {
+            return InvalidHistoryQuery();
+        }
+
+        var end = to ?? now;
+        var start = from ?? end.AddDays(-DefaultHistoryDays);
+
+        if (start > end)
+        {
+            return InvalidHistoryQuery();
+        }
+
+        var unit = SensorConversion.Convert(quantity, 0)!.Value.Unit;
+        var claim = await detail.FindClaimAsync(canonicalSite, canonicalLot!, httpContext.RequestAborted).ConfigureAwait(false);
+
+        if (claim is null)
+        {
+            return TypedResults.Ok(new LotHistoryResponse(quantity, unit, []));
+        }
+
+        // Whole UTC days, so the first bar of the window is not a partial day; only Readings since the claim count.
+        var windowStart = new DateTimeOffset(start.UtcDateTime.Date, TimeSpan.Zero);
+        var since = windowStart > claim.ClaimedAt ? windowStart : claim.ClaimedAt;
+
+        var (days, hasMore) = await detail
+            .HistoryAsync(claim.NodeId, quantity, since, end, after, limit, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return TypedResults.Ok(new LotHistoryResponse(
+            quantity,
+            unit,
+            [.. days.Select(day => ToHistoryDay(quantity, day))],
+            hasMore ? LotDetailReadModel.EncodeCursor(days[^1].Day) : null));
+    }
+
+    private static LotHistoryDayResponse ToHistoryDay(string quantity, StoredDay day) =>
+        new(
+            day.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            SensorConversion.Convert(quantity, day.Low)!.Value.Value,
+            SensorConversion.Convert(quantity, day.High)!.Value.Value,
+            day.ReadingCount);
+
+    // One value, or null when the parameter is absent or repeated.
+    private static string? SingleValue(IQueryCollection query, string name) =>
+        query.TryGetValue(name, out var values) && values.Count == 1 ? values[0] : null;
+
+    private static bool TryReadTime(IQueryCollection query, string name, out DateTimeOffset? time, bool endOfDay = false)
+    {
+        time = null;
+
+        if (!query.TryGetValue(name, out var values))
+        {
+            return true;
+        }
+
+        if (values.Count != 1
+            || !DateTimeOffset.TryParseExact(values[0], HistoryTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+        {
+            return false;
+        }
+
+        // A date-only end names the whole UTC day: it ends one tick before the next midnight.
+        time = endOfDay && values[0]!.Length == 10 ? parsed.AddDays(1).AddTicks(-1) : parsed;
+        return true;
+    }
+
+    private static bool TryReadLimit(IQueryCollection query, out int limit)
+    {
+        limit = DefaultHistoryLimit;
+
+        if (!query.TryGetValue("limit", out var values))
+        {
+            return true;
+        }
+
+        return values.Count == 1
+            && int.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out limit)
+            && limit is >= 1 and <= MaxHistoryLimit;
+    }
+
+    private static bool TryReadCursor(IQueryCollection query, out DateOnly? after)
+    {
+        after = null;
+
+        if (!query.TryGetValue("cursor", out var values))
+        {
+            return true;
+        }
+
+        after = values.Count == 1 ? LotDetailReadModel.DecodeCursor(values[0]!) : null;
+        return after is not null;
+    }
+
+    private static IResult InvalidHistoryQuery() =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The history query is not valid.",
+            "Send quantity (soil_moisture, air_temperature, relative_humidity or gas_resistance); optionally from and to as ISO-8601 UTC times with from not after to, limit from 1 to 366, and the cursor of the previous page unchanged.");
 
     private static async Task<IResult> RenameLotAsync(
         string siteId,
@@ -840,7 +1081,10 @@ public static partial class EdgeApi
             view.Kind,
             DeviceLiveness.IsOnline(view.LastSeenAt, now),
             view.LotId,
-            view.LastSeenAt?.UtcDateTime.ToString(ServerTimeFormat, CultureInfo.InvariantCulture));
+            (view.Kind == "node" ? view.ReportedAt ?? view.LastSeenAt : view.LastSeenAt) is { } seen ? ToServerTime(seen) : null,
+            view.LotName,
+            view.BatteryPercent,
+            ToChargeState(view.Charging));
     }
 
     private static async Task<IResult> EnrolDeviceAsync(

@@ -79,7 +79,7 @@ async function prepare(page: Page, theme: 'light' | 'dark'): Promise<void> {
 }
 
 function tiles(page: Page) {
-  return page.getByRole('list', { name: 'Lots' }).getByRole('img');
+  return page.getByRole('list', { name: 'Lots' }).getByRole('link');
 }
 
 function tile(page: Page, name: string) {
@@ -152,7 +152,8 @@ test.describe('Lot status on the Site overview', () => {
       for (const [index, name] of liveNames.entries()) {
         await expect(tiles(page).nth(index)).toHaveAccessibleName(name);
       }
-      await expect(page.locator('main').locator('.cf-lot-grid').locator('a, button, [tabindex]')).toHaveCount(0);
+      await expect(page.locator('main').locator('.cf-lot-grid').locator('a')).toHaveCount(9);
+      await expect(page.locator('main').locator('.cf-lot-grid').locator('button, [tabindex]')).toHaveCount(0);
 
       await expect(tile(page, 'Tomatoes')).toHaveText(/Tomatoes\s*Needs water\s*~20\s*7:02 AM · low 30%/u);
       await expect(tile(page, 'Peppers')).toHaveText(/Peppers\s*Needs Calibration\s*raw\s*no % until calibrated/u);

@@ -100,6 +100,7 @@ fun GardenScreen(
     lotsActions: LotsActions = LotsActions.None,
     onAddHub: () -> Unit = {},
     onAddNode: (lotId: String) -> Unit = {},
+    onOpenLot: (lotId: String, name: String) -> Unit = { _, _ -> },
     now: () -> Instant = Instant::now,
     zone: ZoneId = ZoneId.systemDefault(),
     events: Flow<LotsEvent> = emptyFlow(),
@@ -189,7 +190,7 @@ fun GardenScreen(
                 is LotsState.Ready -> {
                     // Which tile starts Add a Node is the core's answer (`opensAddNode`).
                     if (overview != null && overview.tiles.isNotEmpty()) {
-                        LotTiles(overview.tiles, copy, onAddNode = onAddNode)
+                        LotTiles(overview.tiles, copy, onAddNode = onAddNode, onOpenLot = onOpenLot)
                     }
                 }
 
@@ -258,7 +259,7 @@ private fun RefreshBar(
  * that changes nothing.
  */
 @Composable
-private fun StaleAnnouncer(
+internal fun StaleAnnouncer(
     events: Flow<LotsEvent>,
     siteId: String,
     copy: OverviewCopy,

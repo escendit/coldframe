@@ -392,7 +392,7 @@ saw `specifications_unknown` (`attachSpecifications` attaches or withholds it ex
 | `device.enrolled` | Creates the row: `site_id`, `kind` (`hub` or `node`), `enrolled_at` |
 | `device.assigned` | Sets `lot_id` |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
-| `device.relay-changed` | Nothing (Story 4.8 and Epic 7 read it) |
+| `device.relay-changed` | Nothing (Epic 7 reads it) |
 | `device.paused`, `device.resumed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |
 
 `site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
@@ -468,6 +468,35 @@ Tests and client fixtures cover `needsWater` and `unknown` by Hub with seeded ro
 `ix_readings_device_id_measured_at`. It is absent without a Node or before its first Reading since it
 took the Lot. `moisturePercent` and `lowThresholdPercent` are in the contract for the clients'
 fixtures, but `LotResponse` has no such property: the Server sends them from Epics 5 and 6 on.
+
+### Lot detail and history
+
+`GET /sites/{siteId}/lots/{lotId}` (Story 4.8) is the one Lot read that also carries what the Lot detail
+screen shows; the list never does. While the Lot holds a Node (`lots.claimed_by`), `LotDetailReadModel`
+(`server/Lots/LotDetailReadModel.cs`) adds, straight from `readings` and `device_reports`:
+
+- `sensors`: the newest Reading of every `(slot, quantity)` of the Node with `measured_at >= claimed_at`
+  (`DISTINCT ON`), in slot order, converted by `SensorConversion`: soil moisture stays the raw count
+  (`unit: raw`, never a percentage before Epic 5), temperature milli-°C to `°C`, humidity milli-% to `%`,
+  gas resistance Ω to `kΩ`. Clients only format (whole numbers, 3 significant digits for kΩ).
+- `node`: `deviceId`, and from the Node's newest `device_reports` row `batteryPercent`, `charging`
+  (`charging` or `notCharging`; the stored `unknown` and a null battery are omitted) and `lastSeenAt` (the
+  report's `measured_at`). `devices.last_seen_at` is written from Hub heartbeats only, so it is not a Node's
+  last seen. A Node without a report has only its `deviceId`; one without Readings has `sensors: []`.
+
+`GET /sites/{siteId}/lots/{lotId}/history?quantity&from&to&cursor&limit` (`getLotHistory`, Member+) returns
+one entry per UTC day with Readings of the Lot's current Node since it claimed the Lot: `low`, `high`
+(converted like `sensors`) and `readingCount`, ascending; a day without Readings is absent. `to` defaults to
+now and `from` to `to` minus 30 days, rounded down to the start of its UTC day so the first bar is a whole
+day (a default read is at most 31 days, the default `limit`; `limit` is at most 366). Paging is keyset on the
+day: `nextCursor` is the opaque last day of the page (`LotDetailReadModel.EncodeCursor`), present only when
+more days follow. A bad `quantity`, `from`, `to`, `cursor` or `limit`, or `from` after `to`, is a 400
+`validation` problem; an unknown Lot is 404 `lot-not-found`. After a reassignment only the new Lot's Node
+Readings count, and the old Lot has none. Readings and device reports are never deleted (FR8).
+
+**Devices list.** `lotName`, `batteryPercent` and `charging` are added to Node items from `lots` and the
+Node's newest report; a Node's `lastSeenAt` is that report's time (the heartbeat time as a fallback). The
+order is Hubs by Device ID, then Nodes by Lot name (byte order, unassigned last) and Device ID; clients keep it.
 
 ### Add an endpoint
 

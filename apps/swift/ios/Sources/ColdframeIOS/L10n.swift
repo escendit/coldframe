@@ -374,11 +374,49 @@ public enum L10n: String, CaseIterable, Sendable {
   case durationSpokenMinutes = "duration_spoken_minutes"
   case durationSpokenHours = "duration_spoken_hours"
   case durationSpokenDays = "duration_spoken_days"
+  case devicesNodes = "devices_nodes"
+  case devicesNoLot = "devices_no_lot"
+  case devicesCharging = "devices_charging"
+  case devicesNotCharging = "devices_not_charging"
+  case lotDetailSince = "lot_detail_since"
+  case lotDetailReading = "lot_detail_reading"
+  case lotDetailNodeSilent = "lot_detail_node_silent"
+  case lotDetailHubSilent = "lot_detail_hub_silent"
+  case lotDetailPausedUntil = "lot_detail_paused_until"
+  case lotDetailPaused = "lot_detail_paused"
+  case lotDetailPausedWithSite = "lot_detail_paused_with_site"
+  case lotDetailResumeSite = "lot_detail_resume_site"
+  case lotDetailNoNode = "lot_detail_no_node"
+  case lotDetailNotFound = "lot_detail_not_found"
+  case lotDetailForbidden = "lot_detail_forbidden"
+  case lotDetailUnexpected = "lot_detail_unexpected"
+  case lotDetailSensors = "lot_detail_sensors"
+  case lotDetailNoReadings = "lot_detail_no_readings"
+  case lotDetailNode = "lot_detail_node"
+  case lotDetailBattery = "lot_detail_battery"
+  case lotDetailLastSeen = "lot_detail_last_seen"
+  case lotDetailEveryFifteen = "lot_detail_every_fifteen"
+  case lotDetailHistory = "lot_detail_history"
+  case lotDetailPicker = "lot_detail_picker"
+  case lotDetailQuantitySoilMoisture = "lot_detail_quantity_soil_moisture"
+  case lotDetailQuantityAirTemperature = "lot_detail_quantity_air_temperature"
+  case lotDetailQuantityRelativeHumidity = "lot_detail_quantity_relative_humidity"
+  case lotDetailQuantityGasResistance = "lot_detail_quantity_gas_resistance"
+  case lotDetailValueRaw = "lot_detail_value_raw"
+  case lotDetailValueCelsius = "lot_detail_value_celsius"
+  case lotDetailValuePercent = "lot_detail_value_percent"
+  case lotDetailValueKiloohm = "lot_detail_value_kiloohm"
+  case lotDetailChartReadoutLow = "lot_detail_chart_readout_low"
+  case lotDetailChartReadoutRange = "lot_detail_chart_readout_range"
+  case lotDetailChartNoReadings = "lot_detail_chart_no_readings"
+  case lotDetailChartSummaryEmpty = "lot_detail_chart_summary_empty"
+  case lotDetailChartUnavailable = "lot_detail_chart_unavailable"
+  case lotDetailChartSummary = "lot_detail_chart_summary"
 
   /// Keys whose catalogue entry has plural variations (UX-DR125).
   public static let plurals: Set<L10n> = [
     .countLotsNeedWater, .countOpenAlerts, .gardenHeadlineCantRead, .gardenCountNeedsCalibration,
-    .durationSpokenMinutes, .durationSpokenHours, .durationSpokenDays,
+    .durationSpokenMinutes, .durationSpokenHours, .durationSpokenDays, .lotDetailChartSummary,
   ]
 
   /// "OK" names the `ok` Lot status and is written nowhere else (UX-DR130): its tile label, its

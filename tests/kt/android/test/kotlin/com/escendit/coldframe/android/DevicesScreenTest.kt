@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasText
@@ -20,6 +21,8 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesNotice
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
+import com.escendit.coldframe.core.devices.NodeSummary
+import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SiteRole
@@ -119,6 +122,69 @@ class DevicesScreenTest {
             rows().single(),
         )
         compose.onAllNodesWithText("Nodes").assertCountEquals(0)
+    }
+
+    private val tomatoesNode =
+        NodeSummary("7c19a1b2c3d4e5f6", "lot-t", "Tomatoes", 62, false, ChargeState.Charging, seenAt)
+    private val flatNode =
+        NodeSummary("7c19000000000002", "lot-b", "Beans", 14, true, ChargeState.NotCharging, null)
+    private val unassigned = NodeSummary("7c19000000000003", null, null, null, false, null, null)
+
+    private fun withNodes(vararg nodes: NodeSummary) = DevicesState.Ready(homeSite(), listOf(online), nodes.toList())
+
+    @Test
+    fun `UX-DR30 a Nodes section follows Hubs with the Lot, last seen, battery and charging of each Node`() {
+        show(SiteRole.Owner, withNodes(tomatoesNode, flatNode))
+
+        compose.onNode(isHeading().and(hasText("Hubs"))).assertExists()
+        compose.onNode(isHeading().and(hasText("Nodes"))).assertExists()
+        val hubs =
+            compose
+                .onNode(isHeading().and(hasText("Hubs")))
+                .fetchSemanticsNode()
+                .positionInRoot.y
+        val nodes =
+            compose
+                .onNode(isHeading().and(hasText("Nodes")))
+                .fetchSemanticsNode()
+                .positionInRoot.y
+        assertTrue(hubs < nodes)
+        val spoken =
+            compose
+                .onAllNodes(hasText("7c19", substring = true))
+                .fetchSemanticsNodes()
+                .map { it.spokenLabel() }
+        assertTrue(
+            Regex(
+                """7c19a1b2c3d4e5f6 Tomatoes Last seen 7:02[\s\u202F]AM 62 % charging""",
+            ).matches(spoken[0]),
+            spoken[0],
+        )
+        assertEquals("7c19000000000002 Beans Not seen yet 14 % not charging", spoken[1])
+    }
+
+    @Test
+    fun `UX-DR30 Nodes keep the Server's order and an unassigned Node says it is not in a Lot`() {
+        show(SiteRole.Owner, withNodes(flatNode, tomatoesNode, unassigned))
+
+        val ids =
+            compose
+                .onAllNodes(hasText("7c19", substring = true))
+                .fetchSemanticsNodes()
+                .map { it.spokenLabel().substringBefore(' ') }
+        assertEquals(listOf("7c19000000000002", "7c19a1b2c3d4e5f6", "7c19000000000003"), ids)
+        compose.onNodeWithText("Not in a Lot").assertExists()
+    }
+
+    @Test
+    fun `UX-DR30 a Node without a report shows neither battery nor charging, and a Member sees the same rows`() {
+        show(SiteRole.Member, withNodes(unassigned))
+
+        assertEquals(
+            "7c19000000000003 Not in a Lot Not seen yet",
+            compose.onNodeWithText("7c19000000000003").fetchSemanticsNode().spokenLabel(),
+        )
+        compose.onAllNodesWithText("charging", substring = true).assertCountEquals(0)
     }
 
     @Test

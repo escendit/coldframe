@@ -309,16 +309,16 @@ describe('Lot tiles', () => {
     expect(read(`${webSrc}/lib/components/LotTiles.svelte`)).not.toMatch(/skeleton/iu);
   });
 
-  test('UX-DR20 tiles keep the Server order, carry the Server status and are not tappable', () => {
+  test('UX-DR20 tiles keep the Server order, carry the Server status and are links', () => {
     const shuffled = [potatoes, herbs, tomatoes, beans];
     const body = tiles(shuffled);
     expect([...body.matchAll(/<li class="cf-lot-grid__cell[^"]*" data-lot="([^"]+)" data-status="([^"]+)"/gu)].map((match) => [match[1], match[2]])).toEqual(shuffled.map((target) => [target.id, target.status]));
-    expect(body).not.toMatch(/<a |<button|tabindex/u);
+    expect(body).not.toMatch(/<button|tabindex/u);
   });
 
   test('UX-DR98 each tile is one accessibility element with the whole spoken label', () => {
     const body = tiles(all);
-    const labels = [...body.matchAll(/<div class="cf-lot-tile [^"]*" role="img" aria-label="([^"]+)"/gu)].map((match) => match[1]);
+    const labels = [...body.matchAll(/<a class="cf-lot-tile [^"]*" href="[^"]+" aria-label="([^"]+)"/gu)].map((match) => match[1]);
     expect(labels).toEqual([
       'Tomatoes, needs water, about 20 percent, low 30 percent, Reading 7:02 AM',
       'Peppers, needs Calibration, no percentage until calibrated',
@@ -329,7 +329,7 @@ describe('Lot tiles', () => {
       'Lettuce, paused with the Site',
       'Potatoes, no Node, add a Node',
     ]);
-    const staleLabels = [...tiles([tomatoes], stale.staleSince).matchAll(/role="img" aria-label="([^"]+)"/gu)].map((match) => match[1]);
+    const staleLabels = [...tiles([tomatoes], stale.staleSince).matchAll(/<a class="cf-lot-tile [^"]*" href="[^"]+" aria-label="([^"]+)"/gu)].map((match) => match[1]);
     expect(staleLabels).toEqual(['Tomatoes, was needs water, not live, as of 7:02 AM']);
   });
 

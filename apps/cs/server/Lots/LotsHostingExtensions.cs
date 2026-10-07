@@ -15,6 +15,7 @@ public static class LotsHostingExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddSingleton<LotsReadModel>();
+        services.AddSingleton<LotDetailReadModel>();
         services.AddProjector<LotsProjector>();
 
         return services;

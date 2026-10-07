@@ -72,7 +72,7 @@ async function readSites(locals: Locals, overview: boolean, dependencies: LastGo
 /**
  * Loads the shell: the guard, then the caller's Sites from the Server. No Membership → Create
  * Site. `?site=` switches the current Site for this browser and is dropped from the URL. On the
- * Site overview, Sites the Server could not be asked for come from the last good answer, with
+ * Site overview and Lot detail, Sites the Server could not be asked for come from the last good answer, with
  * `sitesStale` saying when that was.
  */
 export async function loadShell(
@@ -82,7 +82,7 @@ export async function loadShell(
   dependencies: LastGoodDependencies = {},
 ): Promise<{ user: DisplayUser } & SitesData> {
   const { user } = guardShell(locals, url);
-  const result = await readSites(locals, url.pathname === gardenPath, dependencies);
+  const result = await readSites(locals, url.pathname === gardenPath || url.pathname.startsWith(`${gardenPath}/`), dependencies);
   if ('error' in result) {
     if (result.error === 'unauthorized') {
       signedOutRedirect();

@@ -33,6 +33,8 @@ import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
+import com.escendit.coldframe.core.devices.NodeSummary
+import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 import java.time.Instant
@@ -41,7 +43,7 @@ import java.util.Locale
 import androidx.compose.ui.text.intl.Locale as ComposeLocale
 
 /**
- * The Devices tab (UX-DR30, UX-DR65): a "Hubs" section with one row per Hub, by Device ID. A row
+ * The Devices tab (UX-DR30, UX-DR65): a "Hubs" section with one row per Hub, by Device ID, then a "Nodes" section (Story 4.8). A row
  * shows the full Device ID in `meta-mono`, the status as a word with an icon, and when the Hub was
  * last seen. Whether a Hub is online is the Server's answer; nothing here computes it. A failed
  * load shows the notice and no rows. Add a Hub is the shell's header action.
@@ -66,7 +68,7 @@ fun DevicesScreen(
     ) {
         when (devices) {
             is DevicesState.Ready -> {
-                if (devices.hubs.isEmpty()) {
+                if (devices.hubs.isEmpty() && devices.nodes.isEmpty()) {
                     Text(
                         text = stringResource(R.string.devices_empty),
                         style = Typography.body.textStyle(),
@@ -74,7 +76,9 @@ fun DevicesScreen(
                     )
                 } else {
                     val locale = ComposeLocale.current.platformLocale
-                    Hubs(devices.hubs, remember(devices) { now() }, zone, locale)
+                    val clock = remember(devices) { now() }
+                    if (devices.hubs.isNotEmpty()) Hubs(devices.hubs, clock, zone, locale)
+                    if (devices.nodes.isNotEmpty()) Nodes(devices.nodes, clock, zone, locale)
                 }
             }
 
@@ -118,6 +122,104 @@ private fun Hubs(
         hubs.forEach { hub ->
             HubRow(hub, now, zone, locale)
             HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+        }
+    }
+}
+
+/**
+ * The "Nodes" section (UX-DR30), after Hubs, in the Server's order (Lot name, unassigned last): a
+ * row per Node with its Device ID in `meta-mono`, the Lot name in `body-lg`, and its last seen,
+ * battery and charging in `helper`. `battery--low` shows below 20 %. Nothing here sorts.
+ */
+@Composable
+private fun Nodes(
+    nodes: List<NodeSummary>,
+    now: Instant,
+    zone: ZoneId,
+    locale: Locale,
+) {
+    val colors = Coldframe.colors
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.devices_nodes),
+            style = Typography.section.textStyle(),
+            color = colors.textPrimary,
+            modifier = Modifier.padding(bottom = Spacing.STEP_4.dp).semantics { heading() },
+        )
+        HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+        nodes.forEach { node ->
+            NodeRow(node, now, zone, locale)
+            HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NodeRow(
+    node: NodeSummary,
+    now: Instant,
+    zone: ZoneId,
+    locale: Locale,
+) {
+    val colors = Coldframe.colors
+    val lastSeen =
+        node.lastSeenAtEpochMs?.let {
+            stringResource(R.string.devices_last_seen, Formats.whenText(Instant.ofEpochMilli(it), now, zone, locale))
+        } ?: stringResource(R.string.devices_not_seen)
+    val battery = node.batteryPercent?.let { stringResource(R.string.lot_detail_value_percent, it.toString()) }
+    val charging =
+        when (node.charging) {
+            ChargeState.Charging -> stringResource(R.string.devices_charging)
+            ChargeState.NotCharging -> stringResource(R.string.devices_not_charging)
+            null -> null
+        }
+    val iconSize =
+        with(LocalDensity.current) {
+            Typography.helper
+                .textStyle()
+                .fontSize
+                .toDp()
+        } + Spacing.STEP_2.dp
+    // One element per row for TalkBack: the ID, the Lot, then last seen, battery and charging.
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = Spacing.STEP_4.dp)
+                .semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
+    ) {
+        Text(text = node.id, style = Typography.metaMono.textStyle(), color = colors.textPrimary)
+        Text(
+            text = node.lotName ?: stringResource(R.string.devices_no_lot),
+            style = Typography.bodyLg.textStyle(),
+            color = colors.textPrimary,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_5.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
+        ) {
+            Text(text = lastSeen, style = Typography.helper.textStyle(), color = colors.textSecondary)
+            if (battery != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (node.batteryLow) {
+                        Icon(
+                            imageVector = ColdframeIcons.batteryLow,
+                            contentDescription = null,
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(iconSize),
+                        )
+                    }
+                    Text(text = battery, style = Typography.helper.textStyle(), color = colors.textSecondary)
+                }
+            }
+            if (charging != null) {
+                Text(text = charging, style = Typography.helper.textStyle(), color = colors.textSecondary)
+            }
         }
     }
 }

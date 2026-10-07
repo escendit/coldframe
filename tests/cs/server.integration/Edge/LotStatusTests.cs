@@ -99,12 +99,20 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         Assert.Equal(Format(declaredAt), lot.GetProperty("statusSince").GetString());
         Assert.Equal(Format(claimedAt.AddMinutes(17)), lot.GetProperty("lastReadingAt").GetString());
 
-        // The single Lot answers the same.
+        // The single Lot answers the same, plus its Node and Sensors (Story 4.8).
         using var server = edge.CreateServerClient(member.AccessToken);
         using var response = await server.GetAsync(new Uri($"/sites/{siteId}/lots/{lotId}", UriKind.Relative), cancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var single = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
-        Assert.Equal(lot.GetRawText(), single.RootElement.GetRawText());
+        Assert.Equal(
+            Names(lot).Concat(["node", "sensors"]).Order(StringComparer.Ordinal),
+            Names(single.RootElement));
+        foreach (var property in lot.EnumerateObject())
+        {
+            Assert.Equal(property.Value.GetRawText(), single.RootElement.GetProperty(property.Name).GetRawText());
+        }
+
+        Assert.Equal(node, single.RootElement.GetProperty("node").GetProperty("deviceId").GetString());
     }
 
     [Fact]

@@ -44,6 +44,8 @@ import com.escendit.coldframe.android.ui.settings.AppearanceScreen
 import com.escendit.coldframe.android.ui.settings.SettingsScreen
 import com.escendit.coldframe.android.ui.settings.SiteSettingsScreen
 import com.escendit.coldframe.android.ui.sites.GardenScreen
+import com.escendit.coldframe.android.ui.sites.LotDetailActions
+import com.escendit.coldframe.android.ui.sites.LotDetailScreen
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.ONE_COLUMN_FONT_SCALE
 import com.escendit.coldframe.android.ui.sites.SitesActions
@@ -54,6 +56,7 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.canAddHub
 import com.escendit.coldframe.core.devices.canAddNode
+import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.sites.SitesState
@@ -108,6 +111,9 @@ fun AppShell(
     tabState: MutableState<Tab> = rememberSaveable { mutableStateOf(Tab.Garden) },
     now: () -> Instant = Instant::now,
     lotsEvents: Flow<LotsEvent> = emptyFlow(),
+    lotDetail: LotDetailState = LotDetailState.Idle,
+    lotDetailActions: LotDetailActions = LotDetailActions.None,
+    lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -115,8 +121,11 @@ fun AppShell(
     var siteSettingsOpen by rememberSaveable { mutableStateOf(false) }
     val showingAppearance = tab == Tab.Settings && appearanceOpen
     val showingSiteSettings = tab == Tab.Settings && siteSettingsOpen && !appearanceOpen
-    val showingSub = showingAppearance || showingSiteSettings
+    // Lot detail is open while the core's detail state is not idle (it goes idle with the Site).
+    val showingLotDetail = tab == Tab.Garden && lotDetail !is LotDetailState.Idle
+    val showingSub = showingAppearance || showingSiteSettings || showingLotDetail
     val closeSub = {
+        if (showingLotDetail) lotDetailActions.close()
         appearanceOpen = false
         siteSettingsOpen = false
     }
@@ -212,7 +221,7 @@ fun AppShell(
                         NavigationBarItem(
                             selected = tab == item,
                             onClick = {
-                                if (tab == item && item == Tab.Settings) closeSub()
+                                if (tab == item && (item == Tab.Settings || item == Tab.Garden)) closeSub()
                                 tab = item
                             },
                             icon = { Icon(item.icon(), contentDescription = null, modifier = Modifier.size(24.dp)) },
@@ -236,6 +245,18 @@ fun AppShell(
             // Alerts carries its heading only until its story.
             if (tab == Tab.Devices) {
                 DevicesScreen(devices = devices, actions = devicesActions, now = now)
+            } else if (showingLotDetail) {
+                LotDetailScreen(
+                    state = lotDetail,
+                    actions = lotDetailActions,
+                    now = now,
+                    events = lotDetailEvents,
+                    onAddNode = onAddNode,
+                    onOpenDevices = {
+                        lotDetailActions.close()
+                        tab = Tab.Devices
+                    },
+                )
             } else if (tab == Tab.Garden) {
                 GardenScreen(
                     sites = sites,
@@ -249,6 +270,7 @@ fun AppShell(
                     lotsActions = lotsActions,
                     onAddHub = onAddHub,
                     onAddNode = onAddNode,
+                    onOpenLot = lotDetailActions.open,
                     now = now,
                     events = lotsEvents,
                 )

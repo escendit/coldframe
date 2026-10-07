@@ -22,7 +22,10 @@ final class CoreDevicesService: DevicesService {
             surface: snapshot.surface, notice: snapshot.notice, siteId: snapshot.siteId,
             canAddHub: snapshot.canAddHub, canAddNode: snapshot.canAddNode,
             hubIds: snapshot.hubIds, hubStatuses: snapshot.hubStatuses,
-            hubLastSeen: snapshot.hubLastSeen))
+            hubLastSeen: snapshot.hubLastSeen, nodeIds: snapshot.nodeIds,
+            nodeLotNames: snapshot.nodeLotNames, nodeBatteries: snapshot.nodeBatteries,
+            nodeBatteryLow: snapshot.nodeBatteryLow.map { $0.boolValue },
+            nodeCharging: snapshot.nodeCharging, nodeLastSeen: snapshot.nodeLastSeen))
       }
     }
   }

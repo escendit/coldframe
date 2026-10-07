@@ -157,10 +157,16 @@ class OverviewCopy(
     // A tile
 
     /** The status label in sentence case; a stale tile says "Was …". Uppercase comes from style. */
-    fun label(tile: LotTile): String {
-        val stale = tile.variant == LotTileVariant.Stale
+    fun label(tile: LotTile): String = label(tile.variant, tile.label)
+
+    /** The label of [label] in [variant]: the stale variant says "Was …". */
+    fun label(
+        variant: LotTileVariant,
+        label: LotTileLabel,
+    ): String {
+        val stale = variant == LotTileVariant.Stale
         return text(
-            when (tile.label) {
+            when (label) {
                 LotTileLabel.NeedsWater -> {
                     if (stale) R.string.lot_tile_was_needs_water else R.string.lot_tile_label_needs_water
                 }

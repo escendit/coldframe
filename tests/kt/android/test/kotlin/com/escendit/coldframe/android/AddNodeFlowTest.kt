@@ -239,8 +239,9 @@ class AddNodeFlowTest {
         compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").performScrollTo().performClick()
 
         assertEquals(listOf("open lot-t"), calls)
-        // A Lot that has a Node is not an entry point.
-        compose.onNodeWithContentDescription("Beans, OK").assertHasNoClickAction()
+        // A Lot that has a Node is not an entry point to Add a Node: its tile opens its Lot detail.
+        compose.onNodeWithContentDescription("Beans, OK").performScrollTo().performClick()
+        assertEquals(listOf("open lot-t"), calls)
     }
 
     @Test
@@ -259,12 +260,11 @@ class AddNodeFlowTest {
     }
 
     @Test
-    fun `UX-DR67 UX-DR84 a Member has no Add a Node action and the no-Node tile stays non-interactive`() {
+    fun `UX-DR67 UX-DR84 a Member has no Add a Node action and the no-Node tile never starts it`() {
         show(NodeSetupState.CLOSED, role = SiteRole.Member)
 
-        val tile = compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").fetchSemanticsNode()
-        assertFalse(tile.isClickable)
-        assertEquals(null, tile.role)
+        // The tile opens Lot detail for a Member; Add a Node is never started.
+        compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").performScrollTo().performClick()
 
         compose.onNodeWithText("Devices").performClick()
         compose.onAllNodesWithText("ADD A NODE").assertCountEquals(0)

@@ -103,6 +103,8 @@ class OpenApiContractTest {
 
     private fun parameterNames(operation: JsonObject): List<String> =
         (operation["parameters"] as JsonArray).map { parameter ->
+            val inline = parameter.jsonObject["name"]?.jsonPrimitive?.content
+            if (inline != null) return@map inline
             val reference = parameter.jsonObject["\$ref"]!!.jsonPrimitive.content
             contract["components"]!!
                 .jsonObject["parameters"]!!
@@ -166,7 +168,7 @@ class OpenApiContractTest {
             item["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(),
         )
         assertEquals(
-            setOf("id", "kind", "lotId", "lastSeenAt", "online"),
+            setOf("id", "kind", "lotId", "lastSeenAt", "online", "lotName", "batteryPercent", "charging"),
             item["properties"]!!.jsonObject.keys,
         )
         val kinds = schema("DeviceKind")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
@@ -233,6 +235,37 @@ class OpenApiContractTest {
         assertMirrors("Device", DeviceDto.serializer().descriptor)
         assertMirrors("DeviceListItem", DeviceListItemDto.serializer().descriptor)
         assertMirrors("DeviceList", DeviceListDto.serializer().descriptor)
+        assertMirrors("NodeStatus", NodeStatusDto.serializer().descriptor)
+        assertMirrors("SensorReading", SensorReadingDto.serializer().descriptor)
+        assertMirrors("LotHistory", LotHistoryDto.serializer().descriptor)
+        assertMirrors("LotHistoryDay", LotHistoryDayDto.serializer().descriptor)
+    }
+
+    @Test
+    fun uxDr63TheLotHistoryIsAGetForMembersWithTheCursorQuery() {
+        val history = operation("/sites/{siteId}/lots/{lotId}/history", "get")
+        assertEquals("getLotHistory", history["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Member", history["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId", "lotId", "quantity", "from", "to", "cursor", "limit"), parameterNames(history))
+    }
+
+    @Test
+    fun uxDr28TheSensorEnumsAreTheContractValues() {
+        assertEquals(
+            com.escendit.coldframe.core.lots.SensorQuantity.entries
+                .map { it.key },
+            schema("SensorQuantity")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            com.escendit.coldframe.core.lots.SensorUnit.entries
+                .map { it.key },
+            schema("SensorUnit")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            com.escendit.coldframe.core.lots.ChargeState.entries
+                .map { it.key },
+            schema("ChargeState")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
     }
 
     @Test

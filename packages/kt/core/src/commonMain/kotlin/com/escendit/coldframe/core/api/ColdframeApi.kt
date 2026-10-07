@@ -1,6 +1,7 @@
 package com.escendit.coldframe.core.api
 
 import com.escendit.coldframe.core.devices.DevicesApi
+import com.escendit.coldframe.core.lots.LotDetailApi
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
@@ -15,6 +16,7 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -47,6 +49,7 @@ public class ColdframeApi(
     private val certificateError: (Throwable) -> Boolean = ::isCertificateError,
 ) : SitesApi,
     LotsApi,
+    LotDetailApi,
     DevicesApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
@@ -100,6 +103,27 @@ public class ColdframeApi(
                 setBody(CreateLotRequestDto(name))
             }
         }) { it.body<LotDto>() }
+
+    /** `GET /sites/{siteId}/lots/{lotId}` (`getLot`): with a Node, its `node` and `sensors` too. */
+    override suspend fun getLot(
+        siteId: String,
+        lotId: String,
+    ): ApiResult<LotDto> = call({ http.get("${lots(siteId)}/${lotId.encoded()}") { it() } }) { it.body<LotDto>() }
+
+    /** `GET /sites/{siteId}/lots/{lotId}/history` (`getLotHistory`): one page of daily history. */
+    override suspend fun getLotHistory(
+        siteId: String,
+        lotId: String,
+        quantity: String,
+        cursor: String?,
+    ): ApiResult<LotHistoryDto> =
+        call({
+            http.get("${lots(siteId)}/${lotId.encoded()}/history") {
+                it()
+                parameter("quantity", quantity)
+                if (cursor != null) parameter("cursor", cursor)
+            }
+        }) { it.body<LotHistoryDto>() }
 
     /** `PATCH /sites/{siteId}/lots/{lotId}` (`renameLot`). */
     override suspend fun renameLot(

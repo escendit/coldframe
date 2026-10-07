@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.devices
 
+import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SiteSummary
 
@@ -11,6 +12,21 @@ import com.escendit.coldframe.core.sites.SiteSummary
 public data class HubSummary(
     val id: String,
     val online: Boolean,
+    val lastSeenAtEpochMs: Long?,
+)
+
+/**
+ * A Node of the current Site, as the Server listed it, in the Server's order (Lot name, unassigned
+ * last, then Device ID). [lotName] is `null` for an unassigned Node; [batteryPercent], [charging]
+ * and [lastSeenAtEpochMs] come from its newest device report and are `null` when unknown.
+ */
+public data class NodeSummary(
+    val id: String,
+    val lotId: String?,
+    val lotName: String?,
+    val batteryPercent: Int?,
+    val batteryLow: Boolean,
+    val charging: ChargeState?,
     val lastSeenAtEpochMs: Long?,
 )
 
@@ -41,10 +57,11 @@ public sealed interface DevicesState {
         val notice: DevicesNotice,
     ) : DevicesState
 
-    /** [hubs] are the Site's Hubs by Device ID. Nodes are listed by the Server but not shown yet. */
+    /** [hubs] are the Site's Hubs by Device ID, [nodes] its Nodes in the Server's order, never re-sorted. */
     public data class Ready(
         val site: SiteSummary,
         val hubs: List<HubSummary>,
+        val nodes: List<NodeSummary> = emptyList(),
     ) : DevicesState
 
     public companion object {

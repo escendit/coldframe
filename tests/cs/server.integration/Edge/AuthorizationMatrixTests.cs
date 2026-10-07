@@ -92,6 +92,10 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             async (server, siteId, cancellationToken) =>
                 await server.GetAsync(new Uri($"/sites/{siteId}/lots/{await SeedLotAsync(siteId, cancellationToken)}", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK);
+        _samples["GET /sites/{siteId}/lots/{lotId}/history"] = new(
+            async (server, siteId, cancellationToken) =>
+                await server.GetAsync(new Uri($"/sites/{siteId}/lots/{await SeedLotAsync(siteId, cancellationToken)}/history?quantity=soil_moisture", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK);
         _samples["PATCH /sites/{siteId}/lots/{lotId}"] = new(
             async (server, siteId, cancellationToken) =>
                 await LotsTests.PatchNameAsync(server, $"/sites/{siteId}/lots/{await SeedLotAsync(siteId, cancellationToken)}", "Matrix renamed", cancellationToken),

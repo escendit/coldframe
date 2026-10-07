@@ -429,4 +429,46 @@
   <string name="add_node_not_allowed_body">Ask an Owner or Administrator. Nothing was changed.</string>
   <string name="add_node_start_over">Try again</string>
   <string name="add_node_close">Close</string>
+  <!-- Lot detail and Device status (Story 4.8) -->
+  <string name="devices_nodes">Nodes</string>
+  <string name="devices_no_lot">Not in a Lot</string>
+  <string name="devices_charging">charging</string>
+  <string name="devices_not_charging">not charging</string>
+  <string name="lot_detail_since">since %1$s</string>
+  <string name="lot_detail_reading">±5 %% · %1$s</string>
+  <string name="lot_detail_node_silent">Check power or range.</string>
+  <string name="lot_detail_hub_silent">The Hub is silent; Lots behind it can\'t be read.</string>
+  <string name="lot_detail_paused_until">Paused until %1$s</string>
+  <string name="lot_detail_paused">Paused</string>
+  <string name="lot_detail_paused_with_site">Paused with the Site</string>
+  <string name="lot_detail_resume_site">Resume the Site to resume this Node</string>
+  <string name="lot_detail_no_node">This Lot has no Node.</string>
+  <string name="lot_detail_not_found">%1$s has no such Lot. Nothing was changed.</string>
+  <string name="lot_detail_forbidden">You can\'t open this Lot on %1$s. Ask an Owner or Administrator.</string>
+  <string name="lot_detail_unexpected">Your Server couldn\'t read this Lot. Nothing was changed.</string>
+  <string name="lot_detail_sensors">Sensors</string>
+  <string name="lot_detail_no_readings">No Readings yet.</string>
+  <string name="lot_detail_node">Node %1$s</string>
+  <string name="lot_detail_battery">Battery</string>
+  <string name="lot_detail_last_seen">Last seen</string>
+  <string name="lot_detail_every_fifteen">every 15 min</string>
+  <string name="lot_detail_history">History</string>
+  <string name="lot_detail_picker">Sensor</string>
+  <string name="lot_detail_quantity_soil_moisture">Soil moisture</string>
+  <string name="lot_detail_quantity_air_temperature">Temperature</string>
+  <string name="lot_detail_quantity_relative_humidity">Humidity</string>
+  <string name="lot_detail_quantity_gas_resistance">Air (gas)</string>
+  <string name="lot_detail_value_raw">raw %1$s</string>
+  <string name="lot_detail_value_celsius">%1$s °C</string>
+  <string name="lot_detail_value_percent">%1$s %%</string>
+  <string name="lot_detail_value_kiloohm">%1$s kΩ</string>
+  <string name="lot_detail_chart_readout_low">%1$s: lowest %2$s</string>
+  <string name="lot_detail_chart_readout_range">%1$s: %2$s to %3$s</string>
+  <string name="lot_detail_chart_no_readings">No Readings in the last 30 days.</string>
+  <string name="lot_detail_chart_summary_empty">%1$s, 30 days, no Readings.</string>
+  <string name="lot_detail_chart_unavailable">Can\'t load the history. Nothing was changed.</string>
+  <plurals name="lot_detail_chart_summary">
+    <item quantity="one">%1$s, 30 days, lowest %2$s on %3$s, %4$d day with Readings.</item>
+    <item quantity="other">%1$s, 30 days, lowest %2$s on %3$s, %4$d days with Readings.</item>
+  </plurals>
 </resources>

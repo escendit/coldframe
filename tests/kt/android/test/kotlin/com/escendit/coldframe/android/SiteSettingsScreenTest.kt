@@ -331,10 +331,10 @@ class SiteSettingsScreenTest {
     }
 
     @Test
-    fun `UX-DR18 UX-DR84 a Member's no-Node tile is spoken the same and is not tappable`() {
+    fun `UX-DR18 UX-DR84 a Member's no-Node tile is spoken the same`() {
         show(ready(role = SiteRole.Member, lots = listOf(tomatoes)))
 
-        compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").assert(hasNoClickAction())
+        compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").assertExists()
     }
 
     @Test
@@ -360,14 +360,13 @@ class SiteSettingsScreenTest {
     }
 
     @Test
-    fun `UX-DR20 the tiles keep the Server's order and a Member's are not tappable`() {
+    fun `UX-DR20 the tiles keep the Server's order`() {
         show(ready(role = SiteRole.Member, lots = listOf(beans, tomatoes)))
 
         val beansTile = compose.onNodeWithContentDescription("Beans, no Node, add a Node").fetchSemanticsNode()
         val tomatoesTile = compose.onNodeWithContentDescription("Tomatoes, no Node, add a Node").fetchSemanticsNode()
         assertTrue(beansTile.positionInRoot.x < tomatoesTile.positionInRoot.x)
         assertEquals(beansTile.positionInRoot.y, tomatoesTile.positionInRoot.y)
-        assertTrue(!beansTile.isClickable && !tomatoesTile.isClickable)
     }
 
     @Test

@@ -59,7 +59,8 @@ public enum class LotPauseSource {
  * A live Lot of the current Site, as the Server reported it. Every field is the Server's; times
  * are epoch milliseconds. [unknownCause] comes only with [LotStatus.Unknown], [pausedBy] and
  * [pausedUntilEpochMs] only with [LotStatus.Paused]. [moisturePercent] and
- * [lowThresholdPercent] are unrounded; [SoilMoisture] formats them.
+ * [lowThresholdPercent] are unrounded; [SoilMoisture] formats them. [node] and [sensors] are sent
+ * only by the single-Lot read (Lot detail), never by the list.
  */
 public data class LotSummary(
     val id: String,
@@ -72,6 +73,8 @@ public data class LotSummary(
     val pausedUntilEpochMs: Long? = null,
     val moisturePercent: Double? = null,
     val lowThresholdPercent: Double? = null,
+    val node: NodeStatus? = null,
+    val sensors: List<SensorReading> = emptyList(),
 )
 
 /**

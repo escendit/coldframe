@@ -129,6 +129,32 @@ tells durations from the Server's timestamps and the browser's clock.
 - **Refetch on focus.** Garden loads again when its tab gets focus or becomes visible. There is no
   polling and no SignalR yet.
 
+## Lot detail, History and Nodes
+
+Every Lot tile is one link to `/garden/{lotId}` (UX-DR63), the no-Node tile included: on the web it opens
+a detail that says "Add a Node from the mobile app." (the BLE flow is mobile only). The page's server load
+(`src/lib/server/lot-detail.ts`) reads `GET /sites/{siteId}/lots/{lotId}` (the Lot with `node` and
+`sensors`) and one `GET .../history?quantity=...` per quantity the Node reports (soil moisture alone
+without Readings), all in the default 30-day window. Like the overview, a refresh and one retry that fail
+serve the last good detail of that user, Site and Lot as stale (header, "Was OK", no value in the hero,
+Sensor cells or Device cells), and a 404 is a notice. The shell treats `/garden/...` like the overview
+for the Sites it falls back to.
+
+The page only renders. Values arrive converted by the Server (soil `raw N`, `°C`, `%`, `kΩ`); the web
+formats them (`src/lib/lot-detail.ts`: whole numbers, kΩ to 3 significant digits, durations and times
+from Server timestamps) and computes nothing else. The hero shows the soil Reading as `raw N` while the
+Lot needs calibration, otherwise the Server's `moisturePercent` when it sends one. The History chart
+(`HistoryChart.svelte`) is inline SVG: 30 UTC days ending on the day of the page's clock, one outlined bar
+per day with Readings (the daily low), gaps for the others, the picked bar solid, a tap, drag or arrow
+key picks a day, the text summary is the label of the image, and nothing animates. There is no Threshold
+band or below-low bar before Epic 5, and no admin strip before Epics 5 and 8. A "Hub is silent" Lot names
+the first Hub of the Devices list, since the Lot does not carry the Hub (no Server producer yet).
+
+Devices lists "Hubs", then "Nodes" in the Server's order (Lot name, unassigned last, then Device ID) with
+Lot name, last seen, battery (`battery--low` below 20 %) and charging from the Server; no row actions
+until Story 4.9. The Playwright fake Server (`fixtures/fake-idp.ts`) seeds `node`, `sensors`, `history` and
+the Node fields; its Lot reads and the history fail with the rest of the Lots reads.
+
 ## Stale mode
 
 When the Server cannot be reached, the Site overview shows the last good data and says how old it

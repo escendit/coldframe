@@ -179,7 +179,7 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
     }
 
     [Fact]
-    public async Task HubsAndNodesAreListedByDeviceIdAndANodeCarriesItsLot()
+    public async Task HubsComeFirstAndANodeCarriesItsLot()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var (siteId, _, member) = await SeedSiteAsync(cancellationToken);
@@ -188,16 +188,56 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
         var node = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken, new DeviceAssigned(siteId, lotId, Now()));
         var unassigned = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken);
 
-        var expected = new[]
+        // A Hub first; a Node whose Lot has no row in the lots projection reads like an unassigned one: last, by ID.
+        var nodes = new[]
         {
-            new DeviceBody(hub, "hub", null, null, false),
             new DeviceBody(node, "node", lotId, null, false),
             new DeviceBody(unassigned, "node", null, null, false),
         };
 
         Assert.Equal(
-            expected.OrderBy(device => device.Id, StringComparer.Ordinal),
+            [new DeviceBody(hub, "hub", null, null, false), .. nodes.OrderBy(device => device.Id, StringComparer.Ordinal)],
             await ListAsync(member, siteId, cancellationToken));
+    }
+
+    [Fact]
+    public async Task NodesFollowTheHubsByLotNameWithUnassignedLastAndCarryBatteryChargingAndLastSeenFromTheirReport()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, _, member) = await SeedSiteAsync(cancellationToken);
+        var tomatoes = await edge.SeedLotAsync(siteId, "tomatoes", cancellationToken);
+        var beans = await edge.SeedLotAsync(siteId, "Beans", cancellationToken);
+
+        // Device IDs chosen so that ID order and the expected order differ.
+        var hub = await SeedDeviceAsync(siteId, DeviceKind.Hub, cancellationToken);
+        var onTomatoes = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken, new DeviceAssigned(siteId, tomatoes, Now()));
+        var onBeans = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken, new DeviceAssigned(siteId, beans, Now()));
+        var spare = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken);
+        var zucchini = await edge.SeedLotAsync(siteId, "Zucchini", cancellationToken);
+        var onZucchini = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken, new DeviceAssigned(siteId, zucchini, Now()));
+
+        var older = Now().AddMinutes(-40);
+        var newer = Now().AddMinutes(-25);
+        await StoreReportAsync(onTomatoes, older, 80, "charging", cancellationToken);
+        await StoreReportAsync(onTomatoes, newer, 62, "not_charging", cancellationToken);
+        await StoreReportAsync(onBeans, newer, null, "unknown", cancellationToken);
+
+        var devices = await ListNodeFieldsAsync(member, siteId, cancellationToken);
+
+        // Lot names compare without regard to case: Beans, tomatoes, Zucchini.
+        Assert.Equal([hub, onBeans, onTomatoes, onZucchini, spare], devices.Select(device => device.GetProperty("id").GetString()));
+
+        Assert.Equal(["id", "kind", "online"], Property(devices[0]));
+        Assert.Equal(["id", "kind", "lastSeenAt", "lotId", "lotName", "online"], Property(devices[1]));
+        Assert.Equal("Beans", devices[1].GetProperty("lotName").GetString());
+        Assert.Equal(Truncate(newer), devices[1].GetProperty("lastSeenAt").GetString());
+
+        Assert.Equal("tomatoes", devices[2].GetProperty("lotName").GetString());
+        Assert.Equal(62, devices[2].GetProperty("batteryPercent").GetInt32());
+        Assert.Equal("notCharging", devices[2].GetProperty("charging").GetString());
+        Assert.Equal(Truncate(newer), devices[2].GetProperty("lastSeenAt").GetString());
+
+        Assert.Equal(["id", "kind", "online"], Property(devices[4]));
     }
 
     [Fact]
@@ -229,6 +269,34 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
             using var missing = await server.GetAsync(DevicesUri(unknown), cancellationToken);
             await EdgeApiTests.AssertProblemAsync(missing, HttpStatusCode.NotFound, "urn:coldframe:problem:site-not-found", cancellationToken);
         }
+    }
+
+    private static List<string> Property(System.Text.Json.JsonElement device) =>
+        [.. device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
+
+    private async Task StoreReportAsync(string deviceId, DateTimeOffset measuredAt, short? battery, string charging, CancellationToken cancellationToken)
+    {
+        await using var command = edge.Database.CreateCommand(
+            """
+            INSERT INTO device_reports (device_id, reading_seq, measured_at, battery_percent, charging, time_unsynced, received_at)
+            VALUES (@device_id, @seq, @measured_at, @battery, @charging, false, @measured_at)
+            """);
+        command.Parameters.AddWithValue("device_id", deviceId);
+        command.Parameters.AddWithValue("seq", (decimal)Random.Shared.NextInt64(1, long.MaxValue));
+        command.Parameters.AddWithValue("measured_at", measuredAt.ToUniversalTime());
+        command.Parameters.Add(new Npgsql.NpgsqlParameter("battery", NpgsqlTypes.NpgsqlDbType.Smallint) { Value = (object?)battery ?? DBNull.Value });
+        command.Parameters.AddWithValue("charging", charging);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<List<System.Text.Json.JsonElement>> ListNodeFieldsAsync(TestUser user, string siteId, CancellationToken cancellationToken)
+    {
+        using var server = edge.CreateServerClient(user.AccessToken);
+        using var response = await server.GetAsync(DevicesUri(siteId), cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+
+        return [.. body.RootElement.GetProperty("devices").EnumerateArray().Select(device => device.Clone())];
     }
 
     private static Uri DevicesUri(string siteId) => new($"/sites/{siteId}/devices", UriKind.Relative);

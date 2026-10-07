@@ -1,6 +1,6 @@
 import type { DeviceListItem } from '@coldframe/api-client';
 import { t, type MessageKey } from '$lib/i18n';
-import { formatWhen } from '$lib/i18n/format';
+import { formatNumber, formatWhen } from '$lib/i18n/format';
 import { hasRole, type Role } from '$lib/roles';
 
 export type { DeviceListItem } from '@coldframe/api-client';
@@ -20,11 +20,29 @@ export function devicesNoticeOf(notice: DevicesNotice | null): { readonly messag
 }
 
 /**
- * The Hubs of the list, by Device ID. The Server lists every enrolled Device; Nodes are not shown
- * until they have a section of their own.
+ * The Hubs of the list, by Device ID. The Server lists every enrolled Device; Nodes have their own
+ * section (`nodesOf`).
  */
 export function hubsOf(devices: readonly DeviceListItem[]): readonly DeviceListItem[] {
   return devices.filter((device) => device.kind === 'hub').toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * The Nodes of the list, in the Server's order: by Lot name, unassigned last, then Device ID
+ * (UX-DR30). Clients keep that order and never re-sort it.
+ */
+export function nodesOf(devices: readonly DeviceListItem[]): readonly DeviceListItem[] {
+  return devices.filter((device) => device.kind === 'node');
+}
+
+/** "62 %" or the dash, from the Server's battery percentage. */
+export function batteryText(device: Pick<DeviceListItem, 'batteryPercent'>, locale: string): string {
+  return device.batteryPercent === undefined ? '—' : t('lotDetail.value.percent', { value: formatNumber(device.batteryPercent, locale) });
+}
+
+/** "charging", "not charging" or nothing, from the Server's charger state. */
+export function chargingText(device: Pick<DeviceListItem, 'charging'>): string | null {
+  return device.charging === undefined ? null : t(device.charging === 'charging' ? 'devices.charging.charging' : 'devices.charging.notCharging');
 }
 
 /** What a Role sees on the web Devices page besides the list (UX-DR84, UX-DR85). */

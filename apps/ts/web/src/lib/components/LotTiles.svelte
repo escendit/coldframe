@@ -48,13 +48,13 @@
 <!--
   Lot tiles (UX-DR17 to UX-DR20): the six status variants and the stale one, each told apart by
   shape and icon before colour. The models come from `lotTile`; the status is the Server's. Tiles
-  are not tappable yet: Lot detail comes later. Each tile is one accessibility element.
+  open Lot detail (UX-DR63): each tile is one link, whatever its status, the no-Node tile included (it has no BLE action on the web). Each tile is one accessibility element.
 -->
 <div class="cf-lot-grid-frame">
   <ul class="cf-lot-grid" aria-label={t('garden.lots')}>
     {#each tiles as tile (tile.id)}
       <li class="cf-lot-grid__cell" data-lot={tile.id} data-status={tile.status} data-variant={tile.variant}>
-        <div class="cf-lot-tile cf-lot-tile--{variantClass[tile.variant]}" role="img" aria-label={tile.spoken}>
+        <a class="cf-lot-tile cf-lot-tile--{variantClass[tile.variant]}" href="/garden/{tile.id}" aria-label={tile.spoken}>
           {#if tile.level !== null}
             <span class="cf-lot-tile__level" style:--cf-lot-level="{tile.level}%"></span>
           {/if}
@@ -72,7 +72,7 @@
               {@render content(tile)}
             </div>
           {/if}
-        </div>
+        </a>
       </li>
     {/each}
   </ul>
@@ -124,6 +124,8 @@
     aspect-ratio: 1 / 0.82;
     border-radius: var(--cf-radius-none);
     overflow-wrap: anywhere;
+    color: inherit;
+    text-decoration: none;
   }
 
   /* The text of a tile: the name and status at the top, the value and foot line at the bottom. In one column the value follows the status label directly and the tile grows downward. */

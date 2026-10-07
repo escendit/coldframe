@@ -3,6 +3,8 @@ package com.escendit.coldframe.core.sites
 import com.escendit.coldframe.core.api.ColdframeApi
 import com.escendit.coldframe.core.devices.DevicesApi
 import com.escendit.coldframe.core.devices.DevicesEngine
+import com.escendit.coldframe.core.lots.LotDetailApi
+import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.setup.EnrolmentApi
@@ -49,6 +51,14 @@ public object SitesWiring {
         settings: Settings,
         scope: CoroutineScope,
     ): LotsEngine = LotsEngine(api = api, sites = sites, settings = settings, scope = scope)
+
+    /** Lot detail, following the current Site of [sites]; keeps the last good detail of each Lot in [settings]. */
+    public fun lotDetail(
+        api: LotDetailApi,
+        sites: SitesEngine,
+        settings: Settings,
+        scope: CoroutineScope,
+    ): LotDetailEngine = LotDetailEngine(api = api, sites = sites, settings = settings, scope = scope)
 
     /** The Devices engine, following the current Site of [sites]. */
     public fun devices(

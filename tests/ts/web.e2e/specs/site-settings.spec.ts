@@ -76,7 +76,7 @@ test.describe('Site settings and Lots', () => {
       await largestText(page);
       await expect(page.locator('.cf-site-summary').getByText('Home garden', { exact: true })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'No Readings yet' })).toBeVisible();
-      const tiles = page.getByRole('list', { name: 'Lots' }).getByRole('img');
+      const tiles = page.getByRole('list', { name: 'Lots' }).getByRole('link');
       await expect(tiles).toHaveCount(2);
       await expect(tiles.nth(0)).toHaveAccessibleName('Tomatoes, no Node, add a Node');
       await expect(tiles.nth(1)).toHaveAccessibleName('Beans, no Node, add a Node');
@@ -121,7 +121,7 @@ test.describe('Site settings and Lots', () => {
 
     // A Lot holding a Node that has not reported is unknown, never fine (UX-DR18).
     await page.goto('/garden');
-    await expect(page.getByRole('list', { name: 'Lots' }).getByRole('img')).toHaveAccessibleName(/^Tomatoes, unknown, Node silent for \d+ (?:minutes?|hours?), no Readings yet$/u);
+    await expect(page.getByRole('list', { name: 'Lots' }).getByRole('link')).toHaveAccessibleName(/^Tomatoes, unknown, Node silent for \d+ (?:minutes?|hours?), no Readings yet$/u);
     await expect(page.getByRole('heading', { name: "1 Lot can't be read" })).toBeVisible();
   });
 
