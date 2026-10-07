@@ -252,6 +252,66 @@
         }
       }
     },
+    "/sites/{siteId}/devices/{deviceId}/move": {
+      "post": {
+        "operationId": "moveDevice",
+        "summary": "Move a Node to another Lot",
+        "description": "Administrator or Owner only; no Bluetooth is involved. The Device grain claims the target Lot first (a Lot holds one Node), then journals the move, and only then releases the Node's old Lot; that release is retried from persisted state until it succeeds, so the old Lot may show its Node for a moment after the answer. A refusal changes nothing. Moving a Node to the Lot it is on answers 200 and changes nothing; a Node on no Lot is put in the Lot. The Node's Reading history stays with the Node.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/DeviceId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MoveDeviceRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Node is on the Lot now.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/DeviceMoveNotFound" },
+          "409": { "$ref": "#/components/responses/LotClaimed" }
+        }
+      }
+    },
+    "/sites/{siteId}/devices/{deviceId}/unassign": {
+      "post": {
+        "operationId": "unassignDevice",
+        "summary": "Unassign a Node from its Lot",
+        "description": "Administrator or Owner only; no Bluetooth is involved. The Device grain journals the unassignment, then releases the Lot; that release is retried from persisted state until it succeeds. Later Readings of the Node are stored but not evaluated. Unassigning a Node that is on no Lot answers 200 and changes nothing. Readings are never deleted.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/DeviceId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Node is on no Lot now.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/DeviceMoveNotFound" }
+        }
+      }
+    },
     "/sites/{siteId}/lots": {
       "get": {
         "operationId": "listLots",
@@ -484,6 +544,13 @@
         "required": true,
         "description": "The Lot ID, a UUIDv7.",
         "schema": { "type": "string", "format": "uuid" }
+      },
+      "DeviceId": {
+        "name": "deviceId",
+        "in": "path",
+        "required": true,
+        "description": "The Device ID, 16 lowercase hex digits.",
+        "schema": { "$ref": "#/components/schemas/DeviceId" }
       },
       "DeviceIdHeader": {
         "name": "X-Coldframe-Device",
@@ -878,6 +945,17 @@
           }
         }
       },
+      "MoveDeviceRequest": {
+        "type": "object",
+        "required": ["lotId"],
+        "properties": {
+          "lotId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Lot of the Site to move the Node to. A Lot that holds another Node answers 409 lot-claimed."
+          }
+        }
+      },
       "EnrolDeviceRequest": {
         "type": "object",
         "required": ["deviceId", "kind", "enc", "ciphertext"],
@@ -977,6 +1055,7 @@
               "urn:coldframe:problem:device-unauthorized",
               "urn:coldframe:problem:device-on-another-site",
               "urn:coldframe:problem:device-assigned",
+              "urn:coldframe:problem:device-not-found",
               "urn:coldframe:problem:ingest-unavailable"
             ]
           },
@@ -1026,6 +1105,10 @@
       },
       "DeviceEnrolmentNotFound": {
         "description": "urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site); nothing was enrolled.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "DeviceMoveNotFound": {
+        "description": "urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:device-not-found: the Site has no such Node (unknown, a Hub, or of another Site). urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site). Nothing changed.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "DeviceEnrolmentConflict": {

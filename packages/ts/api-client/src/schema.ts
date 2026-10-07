@@ -134,6 +134,46 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/devices/{deviceId}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a Node to another Lot
+         * @description Administrator or Owner only; no Bluetooth is involved. The Device grain claims the target Lot first (a Lot holds one Node), then journals the move, and only then releases the Node's old Lot; that release is retried from persisted state until it succeeds, so the old Lot may show its Node for a moment after the answer. A refusal changes nothing. Moving a Node to the Lot it is on answers 200 and changes nothing; a Node on no Lot is put in the Lot. The Node's Reading history stays with the Node.
+         */
+        post: operations["moveDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sites/{siteId}/devices/{deviceId}/unassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unassign a Node from its Lot
+         * @description Administrator or Owner only; no Bluetooth is involved. The Device grain journals the unassignment, then releases the Lot; that release is retried from persisted state until it succeeds. Later Readings of the Node are stored but not evaluated. Unassigning a Node that is on no Lot answers 200 and changes nothing. Readings are never deleted.
+         */
+        post: operations["unassignDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites/{siteId}/lots": {
         parameters: {
             query?: never;
@@ -536,6 +576,13 @@ export type components = {
             /** @description Lowercase hex SHA-256 of the raw public key. The app shows it to the user; the Device checks it against the key as an integrity check only, since it travels with the key. Authenticity comes from fetching this over TLS and the fingerprint the user sees. */
             fingerprint: string;
         };
+        MoveDeviceRequest: {
+            /**
+             * Format: uuid
+             * @description The Lot of the Site to move the Node to. A Lot that holds another Node answers 409 lot-claimed.
+             */
+            lotId: string;
+        };
         EnrolDeviceRequest: {
             deviceId: components["schemas"]["DeviceId"];
             kind: components["schemas"]["DeviceKind"];
@@ -704,6 +751,15 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
+        /** @description urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:device-not-found: the Site has no such Node (unknown, a Hub, or of another Site). urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site). Nothing changed. */
+        DeviceMoveNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
         /** @description urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. urn:coldframe:problem:lot-claimed: this Lot already has a Node. urn:coldframe:problem:device-assigned: the Node is in another Lot already; move it instead. Nothing was enrolled or assigned. */
         DeviceEnrolmentConflict: {
             headers: {
@@ -730,6 +786,8 @@ export type components = {
         IdempotencyKey: string;
         /** @description The Lot ID, a UUIDv7. */
         LotId: string;
+        /** @description The Device ID, 16 lowercase hex digits. */
+        DeviceId: components["schemas"]["DeviceId"];
         /** @description The calling Device's ID, 16 lowercase hex digits. */
         DeviceIdHeader: components["schemas"]["DeviceId"];
         /** @description The request time, Unix milliseconds UTC; rejected when more than 300000 ms off the Server clock. */
@@ -1003,6 +1061,68 @@ export interface operations {
             404: components["responses"]["DeviceEnrolmentNotFound"];
             409: components["responses"]["DeviceEnrolmentConflict"];
             422: components["responses"]["IdempotencyKeyReused"];
+        };
+    };
+    moveDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Device ID, 16 lowercase hex digits. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description The Node is on the Lot now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeviceMoveNotFound"];
+            409: components["responses"]["LotClaimed"];
+        };
+    };
+    unassignDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Device ID, 16 lowercase hex digits. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Node is on no Lot now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeviceMoveNotFound"];
         };
     };
     listLots: {

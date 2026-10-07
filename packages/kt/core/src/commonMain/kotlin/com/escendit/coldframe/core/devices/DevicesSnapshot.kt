@@ -12,6 +12,13 @@ package com.escendit.coldframe.core.devices
  * unknown), [nodeBatteryLow] (below 20 %), [nodeCharging] (`charging`, `notCharging` or empty) and
  * [nodeLastSeen] (Unix milliseconds in decimal, empty when unknown).
  *
+ * Move and Unassign (UX-DR31): [canManageNodes] is the Role rule (Administrator and up). [nodeLotIds]
+ * (empty for an unassigned Node) and the Lot picker as parallel lists in the Server's order, [lotIds],
+ * [lotNames] and [lotHasNode] (another Node holds it). A Node's own Lot, and a Lot with a Node, cannot
+ * be picked. [workingNodeId] is the Node being moved or unassigned (empty when none); [failedNodeId]
+ * and [actionNotice] (`forbidden`, `lotTaken`, `notFound`, `unreachable`, `certificate` or
+ * `unexpected`) the last action that did not happen (both empty when none).
+ *
  * [surface] is `idle`, `loading`, `failed` or `ready`.
  */
 public data class DevicesSnapshot(
@@ -31,6 +38,14 @@ public data class DevicesSnapshot(
     val nodeBatteryLow: List<Boolean> = emptyList(),
     val nodeCharging: List<String> = emptyList(),
     val nodeLastSeen: List<String> = emptyList(),
+    val canManageNodes: Boolean = false,
+    val nodeLotIds: List<String> = emptyList(),
+    val lotIds: List<String> = emptyList(),
+    val lotNames: List<String> = emptyList(),
+    val lotHasNode: List<Boolean> = emptyList(),
+    val workingNodeId: String = "",
+    val failedNodeId: String = "",
+    val actionNotice: String = "",
 ) {
     public companion object {
         public const val ONLINE: String = "online"
@@ -50,6 +65,8 @@ public fun snapshotOf(state: DevicesState): DevicesSnapshot {
     val failed = state as? DevicesState.Failed
     val hubs = (state as? DevicesState.Ready)?.hubs.orEmpty()
     val nodes = (state as? DevicesState.Ready)?.nodes.orEmpty()
+    val lots = (state as? DevicesState.Ready)?.lots.orEmpty()
+    val failure = (state as? DevicesState.Ready)?.failure
     return DevicesSnapshot(
         surface = surface,
         notice = failed?.notice?.name?.replaceFirstChar { it.lowercase() },
@@ -67,5 +84,18 @@ public fun snapshotOf(state: DevicesState): DevicesSnapshot {
         nodeBatteryLow = nodes.map { it.batteryLow },
         nodeCharging = nodes.map { it.charging?.key.orEmpty() },
         nodeLastSeen = nodes.map { it.lastSeenAtEpochMs?.toString().orEmpty() },
+        canManageNodes = state.canManageNodes,
+        nodeLotIds = nodes.map { it.lotId.orEmpty() },
+        lotIds = lots.map { it.id },
+        lotNames = lots.map { it.name },
+        lotHasNode = lots.map { it.hasNode },
+        workingNodeId = (state as? DevicesState.Ready)?.workingNodeId.orEmpty(),
+        failedNodeId = failure?.nodeId.orEmpty(),
+        actionNotice =
+            failure
+                ?.notice
+                ?.name
+                ?.replaceFirstChar { it.lowercase() }
+                .orEmpty(),
     )
 }

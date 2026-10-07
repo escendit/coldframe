@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FailingReads, FakeDevice, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
+import type { FailingReads, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -32,9 +32,25 @@ export async function resetSites(
 }
 
 /** The fake Server's Sites and Lots, every `POST /sites` and `POST …/lots`, and how often the Lots were read, since the last reset. */
-export async function serverSites(): Promise<{ sites: FakeSite[]; posts: FakeSitePost[]; lots: FakeLot[]; lotPosts: FakeSitePost[]; lotReads: number }> {
+export async function serverSites(): Promise<{
+  sites: FakeSite[];
+  posts: FakeSitePost[];
+  lots: FakeLot[];
+  lotPosts: FakeSitePost[];
+  lotReads: number;
+  devices: FakeDevice[];
+  deviceActions: FakeDeviceAction[];
+}> {
   const response = await fetch(`${idpOrigin}/control/sites`);
-  return (await response.json()) as { sites: FakeSite[]; posts: FakeSitePost[]; lots: FakeLot[]; lotPosts: FakeSitePost[]; lotReads: number };
+  return (await response.json()) as {
+    sites: FakeSite[];
+    posts: FakeSitePost[];
+    lots: FakeLot[];
+    lotPosts: FakeSitePost[];
+    lotReads: number;
+    devices: FakeDevice[];
+    deviceActions: FakeDeviceAction[];
+  };
 }
 
 /**

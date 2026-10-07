@@ -272,5 +272,24 @@
   "lotDetail.chart.summary": {
     "one": "{quantity}, 30 days, lowest {value} on {date}, {count} day with Readings.",
     "other": "{quantity}, 30 days, lowest {value} on {date}, {count} days with Readings."
-  }
+  },
+  "devices.moveNode": "Move",
+  "devices.moveNodeFor": "Move Node {id}",
+  "devices.moveTo": "Move to",
+  "devices.moveLotLabel": "Lot for Node {id}",
+  "devices.moveConfirm": "Move Node {id}",
+  "devices.hasANode": "Has a Node",
+  "devices.currentLot": "Current Lot",
+  "devices.noLotsToMoveTo": "Create a Lot in Site settings to move this Node.",
+  "devices.unassignNode": "Unassign",
+  "devices.unassignNodeFor": "Unassign Node {id}",
+  "devices.unassignQuestion": "Unassign Node {id}?",
+  "devices.unassignDetail": "{lotName} will have no Node. Its Readings stay in Coldframe.",
+  "devices.nodeActions": "Actions for Node {id}",
+  "devices.moved": "Node moved.",
+  "devices.unassigned": "Node unassigned.",
+  "devices.action.forbidden": "You can't change Nodes on this Site. Ask an Owner or Administrator.",
+  "devices.action.lotClaimed": "That Lot already has a Node. Choose another Lot.",
+  "devices.action.notFound": "That Node or Lot is gone. Reload the page.",
+  "devices.action.unexpected": "That didn't work. Try again."
 }

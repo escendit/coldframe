@@ -382,6 +382,21 @@ The simulator plays the Node: `SimulatedDevice.Specifications` (four Sensors mat
 `DefaultReadings`, settable), `SpecHash`, and `Wake`, which attaches the set once after `OpenDownlink`
 saw `specifications_unknown` (`attachSpecifications` attaches or withholds it explicitly).
 
+### Moving and unassigning a Node
+
+`POST /sites/{siteId}/devices/{deviceId}/move` (body `{lotId}`) and `/unassign` (Story 4.9, Administrator and
+up, no Bluetooth) call `IDeviceGrain.Move` / `Unassign`. The order is AD-18's: the Device grain claims the new
+Lot (`ILotGrain.Claim`; a Lot another Node holds is 409 `lot-claimed`, a missing or removed one 404
+`lot-not-found`, and either refusal changes nothing), journals `device.moved` (or `device.unassigned`), and
+only then releases the old Lot. The old Lot is recorded in the Device's journaled `PendingReleases`
+(`DeviceState`, `[Id(11)]`); `device.lot-released` removes it once `ILotGrain.Release` answered released or
+unchanged. A release that throws leaves the move in place and is retried by a 5 s grain timer while the grain
+is active, by the `release-pending-lots` grain reminder, and on activation, so a crash between the journal and
+the release still frees the old Lot. Moving back to a Lot that is still pending release drops it from the
+list. Moving to the current Lot, or unassigning an unassigned Node, answers 200 and journals nothing; a Move
+of a Node on no Lot journals `device.assigned`. Readings stay keyed by the Node: nothing deletes them, and an
+unassigned Node's frames are stored and not evaluated, since no Lot claims it.
+
 ### The Devices list
 
 `GET /sites/{siteId}/devices` (Story 3.7) reads the `devices` table, which `DevicesProjector`
@@ -391,6 +406,9 @@ saw `specifications_unknown` (`attachSpecifications` attaches or withholds it ex
 | --- | --- |
 | `device.enrolled` | Creates the row: `site_id`, `kind` (`hub` or `node`), `enrolled_at` |
 | `device.assigned` | Sets `lot_id` |
+| `device.moved` | Sets `lot_id` to the new Lot (Story 4.9) |
+| `device.unassigned` | Sets `lot_id` to `NULL`: the Node lists as unassigned (Story 4.9) |
+| `device.lot-released` | Nothing: it only clears a Lot from the Device's pending releases |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
 | `device.relay-changed` | Nothing (Epic 7 reads it) |
 | `device.paused`, `device.resumed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |

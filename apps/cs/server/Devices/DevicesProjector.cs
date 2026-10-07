@@ -8,8 +8,8 @@ namespace Coldframe.Server.Devices;
 /// <summary>
 /// Projects the Device streams into <c>devices</c>, the read model of the Devices list. It is the only writer
 /// of that table. A row exists only for an enrolled Device: <c>device.enrolled</c> creates it,
-/// <c>device.assigned</c> sets its Lot and <c>device.seen</c> its last-seen time. The Site's roster
-/// (<c>site.device-registered</c>) never creates a row, since it can exist without an enrolment.
+/// <c>device.assigned</c> and <c>device.moved</c> set its Lot, <c>device.unassigned</c> clears it and
+/// <c>device.seen</c> sets its last-seen time. The Site's roster (<c>site.device-registered</c>) never creates a row, since it can exist without an enrolment.
 /// </summary>
 public sealed class DevicesProjector : IProjector
 {
@@ -30,6 +30,8 @@ public sealed class DevicesProjector : IProjector
         """;
 
     private const string AssignSql = "UPDATE devices SET lot_id = @lot_id WHERE device_id = @device_id";
+
+    private const string UnassignSql = "UPDATE devices SET lot_id = NULL WHERE device_id = @device_id";
 
     // Never moves backwards, so applying an older heartbeat again changes nothing.
     private const string SeenSql =
@@ -78,6 +80,17 @@ public sealed class DevicesProjector : IProjector
                 cancellationToken,
                 ("device_id", deviceId),
                 ("lot_id", assigned.LotId)),
+            DeviceMoved moved => ExecuteAsync(
+                transaction,
+                AssignSql,
+                cancellationToken,
+                ("device_id", deviceId),
+                ("lot_id", moved.ToLotId)),
+            DeviceUnassigned => ExecuteAsync(
+                transaction,
+                UnassignSql,
+                cancellationToken,
+                ("device_id", deviceId)),
             DeviceSeen seen => ExecuteAsync(
                 transaction,
                 SeenSql,

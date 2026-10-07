@@ -215,6 +215,13 @@ test.describe('Lot detail', () => {
       await expect(page.locator('main')).not.toContainText(/raw 1,840|14 °C|78 %|142 kΩ|62 %|~35/u);
       await expect(sensorCells(page)).toHaveText([/Soil moisture\s*—/u, /Temperature\s*—/u, /Humidity\s*—/u, /Air \(gas\)\s*—/u]);
 
+      // The chart's 30-day window ends on the browser's date, so the screenshot is taken on the pinned day, not on
+      // whichever day CI happens to run; the stale times are fixed below, so the pinned clock does not change them.
+      await page.clock.setFixedTime(now);
+      await page.reload();
+      await expect(page.locator('.cf-stale-header__title')).toHaveText("Home garden · can't reach your Server");
+      await expect(page.locator('.cf-chart__bar')).toHaveCount(history.soil_moisture.length);
+
       await fixStaleTimes(page);
       await axeClean(page, `Lot detail, stale (${theme})`);
       await expect(page).toHaveScreenshot(`lot-detail-stale-${theme}.png`, { fullPage: true });

@@ -142,6 +142,12 @@ public data class DeviceDto(
     val lotId: String? = null,
 )
 
+/** `MoveDeviceRequest`: the Lot of the Site to move a Node to. */
+@Serializable
+public data class MoveDeviceRequestDto(
+    val lotId: String,
+)
+
 /**
  * `DeviceListItem`: a Device of the Site's Devices list. [online] is computed by the Server when
  * it answers; [lastSeenAt] is ISO-8601 UTC and absent until the first heartbeat.
