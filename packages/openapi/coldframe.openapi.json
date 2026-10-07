@@ -312,6 +312,41 @@
         }
       }
     },
+    "/sites/{siteId}/sensors/{sensorId}/calibration": {
+      "post": {
+        "operationId": "calibrateSensor",
+        "summary": "Calibrate a Sensor",
+        "description": "Administrator or Owner only; the reference points are chosen from Readings the Server already stored, never over Bluetooth. The body names a dry point (the probe in dry soil) and/or a wet point (in water), each by the reading_seq of a stored Reading of the Sensor; the Server reads the raw value from that Reading. Only a Sensor whose Specification calls for Calibration (calibration: true) can be calibrated. One point is kept until the other one arrives, in either order, and the Sensor stays as calibrated as it was. Two points that are distinct (their raw values at least 16 counts apart, in either orientation) save a Calibration with a new ID: it is two-point linear, a Reading's percentage is clamped to 0 to 100 and rounded to the nearest 5, and it applies to Readings stored from then on (stored Readings keep the Calibration they were stored with; Threshold percentages do not change). The Sensor grain journals the Calibration and sets it in force on the Node before this answers 200; when that fails the Calibration stays saved, the Server delivers it again until the Node's Device grain holds it, and the answer is 503 calibration-not-delivered. The Lot leaves needs-calibration once the Calibration is saved; its percentage appears with the next stored Reading. Sending the pair that is already in force again changes nothing. A refusal changes nothing.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/SensorId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CalibrateSensorRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The points are saved: the Calibration in force, and the point still waiting for its partner, if any.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Calibration" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SensorNotFound" },
+          "503": { "$ref": "#/components/responses/CalibrationNotDelivered" }
+        }
+      }
+    },
     "/sites/{siteId}/lots": {
       "get": {
         "operationId": "listLots",
@@ -545,6 +580,13 @@
         "description": "The Lot ID, a UUIDv7.",
         "schema": { "type": "string", "format": "uuid" }
       },
+      "SensorId": {
+        "name": "sensorId",
+        "in": "path",
+        "required": true,
+        "description": "The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form.",
+        "schema": { "type": "string", "format": "uuid" }
+      },
       "DeviceId": {
         "name": "deviceId",
         "in": "path",
@@ -730,7 +772,7 @@
       "SensorUnit": {
         "type": "string",
         "enum": ["raw", "°C", "%", "kΩ"],
-        "description": "The unit of a converted value: raw is the uncalibrated soil-moisture count (never a percentage before Calibration, Epic 5)."
+        "description": "The unit of a converted value: raw is the uncalibrated soil-moisture count; a soil-moisture Reading stored under a Calibration (Epic 5) is a percentage, rounded to the nearest 5."
       },
       "ChargeState": {
         "type": "string",
@@ -762,7 +804,7 @@
       },
       "SensorReading": {
         "type": "object",
-        "description": "The newest Reading of one Sensor, converted by the Server: soil moisture stays the raw count, temperature is in °C, humidity in %, gas resistance in kΩ. Clients only format it.",
+        "description": "The newest Reading of one Sensor, converted by the Server: soil moisture is the raw count, or a percentage rounded to the nearest 5 when the Reading was stored under a Calibration, temperature is in °C, humidity in %, gas resistance in kΩ. Clients only format it.",
         "required": ["quantity", "value", "unit", "measuredAt"],
         "properties": {
           "quantity": { "$ref": "#/components/schemas/SensorQuantity" },
@@ -945,6 +987,46 @@
           }
         }
       },
+      "CalibrationPoint": {
+        "type": "object",
+        "required": ["readingSeq"],
+        "properties": {
+          "readingSeq": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0,
+            "description": "The reading_seq of a Reading the Server stored for this Sensor. The point's raw value is that Reading's."
+          }
+        }
+      },
+      "CalibrateSensorRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "dry": { "$ref": "#/components/schemas/CalibrationPoint" },
+          "wet": { "$ref": "#/components/schemas/CalibrationPoint" }
+        }
+      },
+      "CalibrationValue": {
+        "type": "object",
+        "required": ["rawValue"],
+        "properties": {
+          "rawValue": { "type": "integer", "format": "int64", "description": "The raw value of the stored Reading the point was taken from." }
+        }
+      },
+      "Calibration": {
+        "type": "object",
+        "description": "Where a Sensor's Calibration stands. dry and wet are the points of the Calibration in force; pendingDry and pendingWet are a point kept while its partner is missing (also while a Sensor in force is being recalibrated).",
+        "required": ["calibrated"],
+        "properties": {
+          "calibrated": { "type": "boolean", "description": "Whether a Calibration is in force." },
+          "calibrationId": { "type": "string", "format": "uuid", "description": "The ID of the Calibration in force, stamped on every Reading stored under it; absent while uncalibrated." },
+          "dry": { "$ref": "#/components/schemas/CalibrationValue" },
+          "wet": { "$ref": "#/components/schemas/CalibrationValue" },
+          "pendingDry": { "$ref": "#/components/schemas/CalibrationValue" },
+          "pendingWet": { "$ref": "#/components/schemas/CalibrationValue" }
+        }
+      },
       "MoveDeviceRequest": {
         "type": "object",
         "required": ["lotId"],
@@ -1056,6 +1138,8 @@
               "urn:coldframe:problem:device-on-another-site",
               "urn:coldframe:problem:device-assigned",
               "urn:coldframe:problem:device-not-found",
+              "urn:coldframe:problem:sensor-not-found",
+              "urn:coldframe:problem:calibration-not-delivered",
               "urn:coldframe:problem:ingest-unavailable"
             ]
           },
@@ -1109,6 +1193,14 @@
       },
       "DeviceMoveNotFound": {
         "description": "urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:device-not-found: the Site has no such Node (unknown, a Hub, or of another Site). urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site). Nothing changed.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "SensorNotFound": {
+        "description": "urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:sensor-not-found: the Site has no such Sensor (unknown, never declared, or of another Site). Nothing changed.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "CalibrationNotDelivered": {
+        "description": "urn:coldframe:problem:calibration-not-delivered: the Calibration is saved, but the Node's Device grain has not acknowledged it yet. The Server delivers it again until it does; send the same request again to see whether it is in force.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "DeviceEnrolmentConflict": {

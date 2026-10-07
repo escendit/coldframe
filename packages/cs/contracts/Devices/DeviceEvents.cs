@@ -197,3 +197,21 @@ public sealed record DeviceSpecificationsDeclared(
     [property: Id(0)] byte[] SpecHash,
     [property: Id(1)] IReadOnlyList<DeclaredSensor> Sensors,
     [property: Id(2)] DateTimeOffset DeclaredAt);
+
+/// <summary>
+/// The Sensor grain set a Calibration in force for one of the Node's Sensors (Story 5.1, AD-9). The Device grain
+/// only caches it: Readings stored from now on carry <paramref name="CalibrationId"/> in <c>calibration_id</c>,
+/// and the Calibration itself belongs to the Sensor grain. Setting the same or an older revision journals nothing.
+/// </summary>
+/// <param name="SensorId">The Sensor the Calibration belongs to.</param>
+/// <param name="CalibrationId">The Calibration ID in force.</param>
+/// <param name="Revision">The Sensor's Calibration count; the cache keeps the highest.</param>
+/// <param name="SetAt">When the Device grain cached it.</param>
+[EventType("device.calibration-set")]
+[GenerateSerializer]
+[Alias("coldframe.device-calibration-set")]
+public sealed record DeviceCalibrationSet(
+    [property: Id(0)] Guid SensorId,
+    [property: Id(1)] Guid CalibrationId,
+    [property: Id(2)] int Revision,
+    [property: Id(3)] DateTimeOffset SetAt);

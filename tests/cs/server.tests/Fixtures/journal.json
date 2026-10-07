@@ -393,5 +393,47 @@
     "alias": "device.unassigned",
     "schemaVersion": 1,
     "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "fromLotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04", "unassignedAt": "2026-10-07T10:00:00Z" }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 4,
+    "alias": "sensor.calibration-point-recorded",
+    "schemaVersion": 1,
+    "payload": { "point": "Dry", "readingSeq": 41, "rawValue": 3000, "recordedAt": "2026-10-07T11:00:00Z" }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 5,
+    "alias": "sensor.calibrated",
+    "schemaVersion": 1,
+    "payload": { "calibrationId": "0192f3a4-9000-7000-8000-000000000001", "dryRaw": 3000, "wetRaw": 1200, "calibratedAt": "2026-10-07T11:01:00Z" }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 6,
+    "alias": "sensor.calibration-delivered",
+    "schemaVersion": 1,
+    "payload": { "calibrationId": "0192f3a4-9000-7000-8000-000000000001", "deliveredAt": "2026-10-07T11:01:01Z" }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 7,
+    "alias": "sensor.calibration-point-recorded",
+    "schemaVersion": 1,
+    "payload": { "point": "Wet", "readingSeq": 77, "rawValue": 1100, "recordedAt": "2026-10-07T12:00:00Z" }
+  },
+  {
+    "streamId": "sensor/dac4e7fe-93b1-56fc-a363-51235a586394",
+    "version": 8,
+    "alias": "sensor.calibrated",
+    "schemaVersion": 1,
+    "payload": { "calibrationId": "0192f3a4-9000-7000-8000-000000000002", "dryRaw": 3100, "wetRaw": 1100, "calibratedAt": "2026-10-07T12:01:00Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c20",
+    "version": 9,
+    "alias": "device.calibration-set",
+    "schemaVersion": 1,
+    "payload": { "sensorId": "dac4e7fe-93b1-56fc-a363-51235a586394", "calibrationId": "0192f3a4-9000-7000-8000-000000000001", "revision": 1, "setAt": "2026-10-07T11:01:00Z" }
   }
 ]
