@@ -75,7 +75,7 @@ development_status:
   4-6-sensor-specifications-and-sensor-grains: done
   4-7-lot-status-and-the-site-overview: done
   4-8-lot-detail-with-history-and-device-status: backlog
-  4-9-move-or-unassign-a-node: backlog
+  4-9-move-or-unassign-a-node: done
   epic-4-retrospective: optional
 
   epic-5: backlog
