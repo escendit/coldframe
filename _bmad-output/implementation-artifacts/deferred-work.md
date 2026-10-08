@@ -637,3 +637,57 @@ source_spec: `spec-5-4-set-thresholds-in-the-app-and-see-them-on-the-chart.md`
 severity: low
 reason: retry() reopens with the Lot only, so the focus on the Sensor column is dropped; with a soil low at 98 or 100, addHigh snaps to 100 and Save shows "Low must stay below high" before the person has typed. Cosmetic: nothing is saved wrongly.
 status: open
+
+### DW-83: An open Threshold Alert never closes once its Sensor stops being eligible, for example when an Administrator turns alerts off (clears the low) while the Alert is open.
+origin: spec-deferred e1ba8faca05a
+location: apps/cs/server/Sensors/SensorGrain.cs (Evaluate, step 2)
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+severity: medium
+reason: SensorGrain.Evaluate returns NotEligible before it looks at State.OpenAlert, so no Reading is evaluated again; the Site keeps listing the Alert and the Lot stays needsWater until a low is set again. AD-7 lists the close reasons (recovered, paused, unassigned, calibrated, removed) and none covers Thresholds that were removed, so closing here needs an architecture decision: which reason, and whether at once or after three Readings.
+status: open
+
+### DW-84: An open Alert of a Sensor that leaves its Node's accepted Specification set stays in Site.OpenAlerts() while the Lot status no longer shows it.
+origin: spec-deferred 4e37ba442e61
+location: apps/cs/server/Devices/DeviceGrain.cs (EvaluateAsync), apps/cs/server/Lots/LotsProjector.cs (InputsSql)
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+severity: medium
+reason: DeviceGrain.EvaluateAsync stops handing that Sensor Readings, so it can never recover; the lots projector hides the Alert through "a.sensor_id = ANY (d.sensor_ids)", so the Site set and the Lot status disagree. The close reason "removed" (AD-7) belongs to a later epic. No test isolates the sensor_ids clause.
+status: open
+
+### DW-85: The open Alert of a Node that was moved keeps naming the Lot it was opened for, while the Lot status follows the Node to its new Lot.
+origin: spec-deferred b36b6ac4aa8d
+location: packages/cs/contracts/Alerts/AlertGrains.cs, apps/cs/server/Devices/DeviceGrain.cs (Move, Unassign)
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+severity: medium
+reason: AlertOpened.LotId, SiteAlert.LotId and AlertSnapshot.LotId are set at open and never change; the projector finds an Alert by Device. Story 6.2 and the notification text would name the old Lot. AD-8 closes a Sensor's Alerts on an unassigned or paused context (reasons unassigned, paused), which is not built yet.
+status: open
+
+### DW-86: IDeviceGrain.SetCalibration is now [AlwaysInterleave] and no test runs a Calibration delivery concurrently with an ingest.
+origin: spec-deferred befc7b28b347
+location: packages/cs/contracts/Devices/DeviceGrains.cs:111
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+reason: Without it Device.Ingest (awaiting Sensor.Evaluate) and Sensor.Calibrate (awaiting Device.SetCalibration) wait on each other until a call times out. With it SetCalibration's RaiseEvent/ConfirmEvents can run inside Ingest's, Move's or Unassign's awaits. Whether a failed append then fails both turns is not shown. Settling it needs a fixture hook that holds one grain call mid-turn and a test that runs Calibrate and Ingest of the same Node together.
+status: open
+
+### DW-87: A Sensor hovering at a Threshold journals sensor.streak-changed on almost every Reading, and every Alert episode adds two events to the Site stream; both streams replay in full (DW-7, DW-45).
+origin: spec-deferred 4036faf6bbd8
+location: apps/cs/server/Sensors/SensorGrain.cs (Evaluate, step 6), apps/cs/server/Identity/SiteGrain.cs
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+severity: low
+reason: Evaluation uses the 5 %-rounded percentage, so a value near the low alternates between below and within and each alternation changes the streak: up to about 96 events a day per Sensor. site.alert-opened and site.alert-closed grow the Site stream the same way. Harmless until streams are long; journal snapshots (DW-7) are the fix.
+status: open
+
+### DW-88: An Alert's openedAt and closedAt are the Server clock at evaluation, not the Reading's measured_at.
+origin: spec-deferred d7a677dc3819
+location: apps/cs/server/Sensors/SensorGrain.cs (Evaluate), packages/cs/contracts/Alerts/AlertEvents.cs
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+severity: low
+reason: A Node that uploads a buffered backlog in order opens and closes Alerts for conditions hours old with times seconds apart, so status_since and the "started" label of Story 6.2 would be off. measuredAt is on the Sensor's episode events but is not passed to OpenAlert, AlertOpened or SiteAlert; adding it changes the contracts.
+status: open
+
+### DW-89: If ConfirmEvents throws after RaiseEvent queued an episode or streak event, a resent frame might raise the same event again.
+origin: spec-deferred f93a0d09ebbe
+location: apps/cs/server/Sensors/SensorGrain.cs (Evaluate, ConfirmEvents)
+source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
+reason: Believed not to happen: JournaledGrain.State is the tentative view, which already holds the unconfirmed event, so the resend sees the episode. Not shown by a test; the same raise-then-confirm pattern is used by every journaled grain. A FaultyJournalStore test that fails one append during Evaluate would settle it.
+status: open

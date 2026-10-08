@@ -3,7 +3,7 @@ title: 'Story 6.1: Threshold Alerts open and close'
 type: 'feature'
 created: '2026-10-08'
 baseline_revision: 'c928cb1a6e0b2c4ea17328044e4577f39e26c884'
-status: 'done'
+status: 'blocked'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -200,6 +200,62 @@ deferred:
   - `[maybe-false]` `[defer]` (intent) `SetCalibration` became `[AlwaysInterleave]` — shares the interleave `deferred` entry.
   - `[false]` `[reject]` (intent) Ingestion gained a `retry` path — required by the matrix row "Retried evaluation".
 
+### 2026-10-08 — Review pass (follow-up)
+- verdicts: 51 findings — high 0, medium 15, low 22, false 13, maybe-false 1
+- intent gap: no change was attempted in this pass, so there is no patch file and nothing was reverted; the story's code stays as merged in `5be1e97`. The rows routed `patch` were not applied (moot under the intent gap) and are still open.
+- findings:
+  - `[medium]` `[defer]` (blind) An open Alert never closes once the low is cleared — carried: `Evaluate` step 2 still returns `NotEligible` before `State.OpenAlert` is read; already in `deferred`.
+  - `[medium]` `[defer]` (blind) A Sensor dropped from the Specification set, or an unassigned Node, leaves its Alert in the Site set — carried: `EvaluateAsync` and `InputsSql` unchanged; already in `deferred`.
+  - `[low]` `[reject]` (blind) A mix of within and above-high Readings does not close a low Alert — verified in `ThresholdStreakRule.Advance`, and it is what the contract says ("closing needs 3 consecutive within", "any Reading off the running side resets that streak"). The Alert closes as soon as three Readings in a row are on one side; counting "not below" instead needs a second counter.
+  - `[false]` `[reject]` (blind) Alert delivery has no poison handling — carried: `Refused`/`NotOpened` cannot come back for a delivery built from the Sensor's own state, and `retry` on a transient failure is the matrix row "Retried evaluation".
+  - `[medium]` `[intent_gap]` (blind) A resent frame of an unsynced Node is evaluated again — verified: `NodeFrameReader` l.144-153 sets `measured_at = receivedAt - age` for an unsynced Reading, so a resend carries a later `measured_at` (`IngestGrainTests` l.271 says so: "rebased to another time, and still stored once"). `DeviceGrain` step 9 evaluates a duplicate like a first delivery, and `SensorGrain.Evaluate` step 3 lets it pass because it is newer. The same Reading then adds to the streak on every resend: three resends open or close an Alert from one Reading. Resends happen on a lost acknowledgement and on the `retry` this story added. The contract promises "a resent frame changes nothing" and names `measured_at` as the guard; it does not say what holds for a Reading whose `measured_at` is not stable. See the questions under Auto Run Result.
+  - `[low]` `[reject]` (blind) `IAlertGrain.Open` and the Site's Alert methods do not check the caller — carried: no untrusted caller reaches a grain.
+  - `[false]` `[reject]` (blind) `Close` answers `NotOpened` before the caller check — before an Alert is opened there is no opening Sensor to compare the caller with, and only Server code reaches the grain, so no caller learns anything it should not.
+  - `[medium]` `[defer]` (blind) The Alert of a moved Node keeps naming the old Lot — carried: `LotId` is still set at open only; already in `deferred`.
+  - `[low]` `[reject]` (blind) The new Lot shows `needsWater` from Readings taken in another Lot — verified and stated in Design Notes; the contract excludes closing on a move ("No closing on Pause, unassign, …"), and which Lot the Alert names is the deferred row above.
+  - `[low]` `[defer]` (blind) A hovering Sensor and every episode grow the Sensor and Site streams — carried; already in `deferred` (DW-7).
+  - `[low]` `[reject]` (blind) `lot_status_alerts` keeps closed rows under a plain index — carried.
+  - `[low]` `[reject]` (blind) `KindName` stores an unknown kind under its C# name — carried: only `Threshold` exists.
+  - `[low]` `[patch]` (blind) The README says the migration deletes the rows of five tables, the SQL deletes four (the new `lot_status_alerts` is empty), and the migration summary calls the table "the open Alerts" — verified in `apps/cs/README.md` l.626-628 and the migration l.47-51; wording only. Not applied in this pass.
+  - `[false]` `[reject]` (blind) `DeliverAlertsAsync` throws to reach its own `catch` — a style remark; no wrong outcome follows from it.
+  - `[false]` `[reject]` (blind) A second deadlock path through the Site grain — `SiteGrain` calls no Device, Sensor or Alert grain, so a Device call queued on the Site waits behind `AlertOpened` and then runs; there is no cycle.
+  - `[medium]` `[intent_gap]` (edge) An unsynced frame sent again counts its Reading again — same defect as the blind row above; shares its route.
+  - `[medium]` `[defer]` (edge) Low cleared while an Alert is open — carried; already in `deferred`.
+  - `[low]` `[reject]` (edge) After a reactivation up to three stale backlog Readings count, not one — verified: the in-memory mark is gone and each backlog Reading is newer than the one before, so all three are evaluated. It needs a reactivation between steady Readings and an out-of-order backlog of three Readings beyond a Threshold; the fix is to journal the mark on every Reading, which DW-7 forbids. The README's "worst case is one stale Reading" understates it.
+  - `[false]` `[reject]` (edge) A permanent refusal is retried for good — carried.
+  - `[low]` `[reject]` (edge) `Sensor.Evaluate` accepts any caller — carried.
+  - `[low]` `[reject]` (edge) `Alert.Open` accepts any caller — carried.
+  - `[low]` `[reject]` (edge) `AlertClosed` journals on a Site that is no longer Active while `AlertOpened` does not — verified in `SiteGrain.AlertClosed`; it only removes an Alert the Site still lists, and `OpenAlerts()` answers empty for such a Site anyway. No reader sees a difference.
+  - `[low]` `[reject]` (edge) A streak runs across a long silence of the Node — verified: no gap rule exists; the contract counts consecutive evaluated Readings, and the third Reading is a current one. A gap limit adds a parameter the contract does not have.
+  - `[medium]` `[patch]` (verification-gap) No test sends an older Reading after steady Readings, so the in-memory half of the "not newer" guard is unpinned — filed with evidence (`SensorGrain.cs` l.174, l.229 can be deleted with all tests green). Not applied in this pass.
+  - `[medium]` `[patch]` (verification-gap) The Sensor's own redelivery (timer at `SensorGrain.cs` l.408, reminder branch l.342) is never exercised — filed with evidence: the two `AFailed…` tests finish through the resent frame, and the "nobody calling" test restarts the silo, so it goes through `OnActivateAsync`. This corrects the first pass's row, which took the timer as tested. Not applied in this pass.
+  - `[low]` `[reject]` (verification-gap) The Alert grain's own report retry is only reached through the Sensor repeating its call — carried.
+  - `[medium]` `[patch]` (verification-gap) No test makes `Evaluate` throw, so the `retry` answer of `DeviceGrain.EvaluateAsync`'s catch is unpinned — filed with evidence (`SensorFaults` only fails `Declare`). Not applied in this pass.
+  - `[low]` `[reject]` (verification-gap) The migration's rebuild has no test of its own — carried.
+  - `[medium]` `[defer]` (verification-gap) `[AlwaysInterleave]` on `SetCalibration` has no test — carried; already in `deferred`.
+  - `[low]` `[reject]` (verification-gap) "Only the opening Sensor closes" is tested with the client only — carried.
+  - `[low]` `[defer]` (verification-gap) The projector's `sensor_ids` clause is not isolated by a test — carried; part of the Specification-set entry in `deferred`.
+  - `[medium]` `[defer]` (verification-gap, other) A Sensor that stops alerting keeps its Alert open — carried; same defect as the first row.
+  - `[false]` `[reject]` (intent) Evaluation compares the rounded percentage — carried.
+  - `[medium]` `[defer]` (intent) After a Move or Unassign the Site set names the old Lot, and no test drives it — carried; already in `deferred`.
+  - `[false]` `[reject]` (intent) A Site that is not Active acknowledges a report and lists nothing — a Site is `Uncreated`, `Active` or gone; only an Active Site has Nodes on Lots and Users to show an Alert to, and `ASiteThatIsNotActiveKeepsNoAlerts` pins the behaviour.
+  - `[low]` `[reject]` (intent) The migration also rebuilds the lots read model — carried.
+  - `[maybe-false]` `[defer]` (intent) `SetCalibration` became `[AlwaysInterleave]` — carried; already in `deferred`.
+  - `[false]` `[reject]` (intent) `alert.site-notified` is an event the contract does not name — it is how "redelivers until acknowledged" survives a restart.
+  - `[false]` `[reject]` (intent) `IAlertGrain.Describe` is an extra method — a read of the Alert's own state, used by the tests; it changes nothing.
+  - `[false]` `[reject]` (intent) `AddAlerts()` registers nothing — it is the hosting hook every feature folder has; no wrong outcome.
+  - `[false]` `[reject]` (intent) Tests enter at the Device grain, not the HTTP endpoint — carried.
+  - `[false]` `[reject]` (intent) Nothing wakes the lots projector when an Alert opens — Alert events go through the journal like every other event, so the outbox sends the usual hint and polling covers the rest (AD-21); the test's manual catch-up only removes the wait.
+  - `[low]` `[reject]` (intent) No test runs from a frame to the HTTP Lot list — carried.
+  - `[low]` `[reject]` (intent) The "first in the list" assertion of the grain suite compares with a Lot that has no Node, which sorts last anyway — verified at `ThresholdAlertGrainTests.cs` l.462; the line before it asserts `needsWater` directly and `LotStatusTests` pins the order. A sharper check needs a second Node with Readings.
+  - `[low]` `[reject]` (intent) The close refusal is tested with the client only — carried.
+  - `[medium]` `[patch]` (intent) Only opens are fault-injected: no integration test fails the delivery of a close — verified: both `AFailed…` tests fail the third opening Reading; the pending close is pinned by the unit test only. Not applied in this pass.
+  - `[medium]` `[patch]` (intent) The "nobody calling" test activates the Sensor through `Describe` — same gap as the redelivery row of the verification-gap layer; shares its route.
+  - `[medium]` `[patch]` (intent) The timer and the reminders are not isolated by a test — same gap; shares its route.
+  - `[low]` `[reject]` (intent) The Alert grain's own redelivery is only reached through the Sensor — carried.
+  - `[low]` `[reject]` (intent) The lag of `lastEvaluatedAt` after a restart is documented but not tested — carried.
+  - `[false]` `[reject]` (intent) Test-first cannot be seen in a squashed diff — true of any squashed change; not a defect of this one.
+
 ## Design Notes
 
 - **Low-to-high switch:** Readings above high are not "within", so a strict reading would leave "needs water" on a Lot that is too wet. Three consecutive Readings on the opposite side therefore close the Alert as `recovered` and open the next episode on that side in the same evaluation.
@@ -217,41 +273,40 @@ deferred:
 
 ## Auto Run Result
 
-Status: done
+Status: blocked
 
-**Summary:** Threshold Alerts now open and close on the Server. After a frame is committed the Device grain hands each declared Sensor of an assigned, unpaused Node its Reading with the Site, Lot and evaluation epoch. The Sensor grain counts the streak (`ThresholdStreakRule`), journals the episode, and opens or closes the Alert through the new event-sourced Alert grain, redelivering until acknowledged. The Alert grain reports to the Site grain, which journals the set of open Alerts and answers `OpenAlerts()`. The Lots projector reads `alert.opened`/`alert.closed` into `lot_status_alerts`, so a Lot with an open low-side soil-moisture Alert is `needsWater` and sorts first. No REST, OpenAPI or client change.
+Blocking condition: intent gap
 
-**Files changed:**
-- `packages/cs/contracts/Alerts/{AlertGrains,AlertEvents}.cs` -- `IAlertGrain`, its records, `alert.opened`, `alert.closed`, `alert.site-notified`
-- `packages/cs/contracts/Sensors/{SensorGrains,SensorEvents}.cs` -- `Evaluate`, evaluation context and result, streak and episode events
-- `packages/cs/contracts/Sites/{SiteGrains,SiteEvents}.cs` -- `AlertOpened`, `AlertClosed`, `OpenAlerts`, `site.alert-opened`, `site.alert-closed`
-- `packages/cs/contracts/Devices/DeviceGrains.cs` -- `SetCalibration` is `[AlwaysInterleave]` (Device and Sensor now call each other)
-- `apps/cs/server/Sensors/{SensorGrain,SensorState,ThresholdStreakRule}.cs` -- evaluation, streak rule, episode, delivery with retry
-- `apps/cs/server/Alerts/{AlertGrain,AlertState,AlertIds,AlertsHostingExtensions}.cs`, `apps/cs/server/Program.cs` -- the Alert grain, the UUIDv5 namespace, hosting
-- `apps/cs/server/Identity/{SiteGrain,SiteState}.cs` -- the Site's open-Alert set
-- `apps/cs/server/Devices/{DeviceGrain,DeviceState}.cs` -- evaluate after commit, derived epoch, `retry` on failure
-- `apps/cs/server/Lots/LotsProjector.cs`, `apps/cs/migrations/Migrations/M20261008120000CreateTableLotStatusAlerts.cs` -- `OpenLowAlert` from Alert events; the migration also rebuilds the lots read model and its support tables
-- `tests/cs/server.integration/Devices/ThresholdAlertGrainTests.cs` (22 tests), `Edge/LotStatusTests.cs`, `Identity/IdentityCluster.cs` (Alert and Site fault filters)
-- `tests/cs/server.tests/**` -- streak rule, Sensor, Alert, Site and Device state tests, fixture journal rows, replay map
-- `apps/cs/README.md` -- Alerts section; stale "before Epic 6" statements removed
-- `_bmad-output/implementation-artifacts/epic-6-context.md` -- compiled Epic 6 context
+**What happened:** This was a follow-up review of the merged story (PR #67, `5be1e97`). No code was changed. The review found one defect that the intent contract does not settle, so the pass stops here for a decision.
 
-**Review findings:** 53 findings (high 0, medium 9, low 28, false 12, maybe-false 4).
-- Patched: 9 rows (medium 3, low 6). The three medium ones are missing tests, now added: a new epoch at a streak of one, an open and a close of one Alert pending together, a paused Node. The low ones: streak reset on `sensor.calibrated` and `sensor.specification-changed`, `lastEvaluatedAt` advanced for a not-eligible Reading, no second delivery attempt after a failed one, grain calls built inside the `try`, and tests for the rounded percentage and a Site that is not Active.
-- Deferred: 7 entries in frontmatter `deferred` (13 rows).
-- Rejected: 31 rows, each with its reason in the Review Triage Log.
+**The defect:** A Node without synced time sends Readings marked unsynced. The Server gives such a Reading the time `receivedAt - age` (`apps/cs/server/Devices/NodeFrameReader.cs` l.144-153), so the same Reading gets a later `measured_at` each time its frame is sent again. The Device grain evaluates a duplicate frame like a first delivery, and the Sensor grain's guard (`measured_at` not newer than `lastEvaluatedAt`) lets it through. Each resend then adds one to the streak: one dry Reading sent three times opens an Alert, and one in-range Reading sent three times closes one. Resends happen when an acknowledgement is lost and when a frame is answered `retry`, which this story added. A Node is unsynced until its first acknowledgement after a boot, which is also when acknowledgements are most likely to be missing. Found by reading the code; no test was run for it.
 
-**Follow-up review recommended: true.** Three medium entries were patched (all tests). The unverified risk a second pass should look at is `[AlwaysInterleave]` on `IDeviceGrain.SetCalibration`: it is needed to avoid a Device/Sensor wait cycle, and no test runs a Calibration delivery during an ingest.
+**Why it needs a decision:** The contract says "a Reading whose `measured_at` is not newer than `lastEvaluatedAt` is not evaluated, so a resent frame changes nothing" and "a frame is evaluated on first delivery and on a duplicate resend alike". For an unsynced Reading both cannot hold with `measured_at` as the guard. The guard comes from AD-7.
 
-**Verification:**
-- `dotnet restore --locked-mode && dotnet build --no-restore -warnaserror` -- success, 0 warnings
-- `dotnet format --verify-no-changes --no-restore` -- no changes
-- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build` -- 981 passed, 0 failed, 0 skipped (after the review patches; 975 before them)
-- Matrix audit: every row has a passing test in `ThresholdAlertGrainTests`, `ThresholdStreakRuleTests` or `LotStatusTests`.
-- The Verification command for the unit project needed `--project`; corrected above.
+**Questions:**
+1. What identifies a Reading that was already evaluated when its `measured_at` is not stable? Options seen:
+   - Guard on `reading_seq` as well (or instead). Exact, but `EvaluateReading`, the Sensor's evaluation events and `SensorState` gain a field, and AD-7 changes.
+   - Do not evaluate the Reading of a duplicate unsynced frame; only deliver what is pending. Small, but a Reading whose first evaluation failed is then never evaluated.
+   - Evaluate a duplicate with the `measured_at` stored at first delivery. Keeps the contract, but the Device grain needs the stored time back from the commit.
+2. Should an unsynced Reading count toward a streak at all?
+
+**Review findings:** 51 findings (high 0, medium 15, low 22, false 13, maybe-false 1). 27 repeat rows of the first pass and keep their verdict and route.
+- Intent gap: 1 entry (2 rows), above.
+- Patch, not applied (moot under the intent gap, still open): 5 entries (7 rows), all tests or wording:
+  - an older Reading after steady Readings (the in-memory half of the "not newer" guard);
+  - the Sensor's own redelivery by timer and by the `deliver-alerts` reminder, which no test reaches (the first pass took the timer as tested);
+  - `Evaluate` throwing and the frame answering `retry`;
+  - a failed delivery of a close;
+  - the README and migration summary wording about which tables the migration empties.
+- Deferred: nothing new. 10 rows repeat entries already in `deferred`.
+- Rejected: 32 rows, each with its reason in the Review Triage Log.
+
+**Follow-up review recommended:** unchanged (`true`). Nothing was patched in this pass. The story needs another review after the decision is built.
+
+**Verification:** none run; the tree's code is identical to `5be1e97`. The diff reviewed is `git diff c928cb1a6e0b2c4ea17328044e4577f39e26c884` without `_bmad-output/`.
 
 **Residual risks:**
-- An Alert stays open when its Sensor stops being eligible (alerts turned off, Sensor dropped from the Specification set) and keeps naming the old Lot after a move. These need the non-recovery close reasons of AD-7/AD-8 and a decision for cleared Thresholds; all three are in `deferred`.
-- While an open or close is undelivered (Alert or Site grain unreachable) every frame of that Node answers `retry`; Readings are stored, but the Node keeps resending.
-- The migration empties `lots`, `lot_status_devices`, `lot_status_sensors` and `calibrations`; they rebuild from the journal when the Server starts, and the Garden is empty until the projector has caught up.
-- `lastEvaluatedAt` is journaled only with streak changes, so after a reactivation one stale Reading can start a streak of 1.
+- The defect above is live on `main`.
+- After a reactivation up to three stale backlog Readings can count, not one as the README says (rejected as low: it needs an out-of-order backlog right after a reactivation).
+- A low Alert stays open while Readings alternate between within and above the high.
+- The risks listed by the first pass still hold.
