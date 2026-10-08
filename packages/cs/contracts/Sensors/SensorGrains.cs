@@ -63,13 +63,120 @@ public interface ISensorGrain : IGrainWithStringKey
     /// the change: a high needs a low (a Sensor alerts exactly when its effective low exists), the low must be
     /// strictly below the high, and an empty high never alerts. A calibrating Sensor takes whole percent 0 to 100,
     /// any other Sensor values within its Specification's range, in the Specification's unit. A change journals
-    /// <see cref="SensorThresholdsChanged"/>, a new evaluation epoch for Story 6.1; a request that leaves both
-    /// sides as they are, and a refusal, journal nothing.
+    /// <see cref="SensorThresholdsChanged"/>, which resets the evaluation streak (Story 6.1); a request that
+    /// leaves both sides as they are, and a refusal, journal nothing.
     /// </summary>
     /// <param name="request">The sides to set.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("set-thresholds")]
     Task<SetSensorThresholdsResult> SetThresholds(SetSensorThresholds request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Evaluates one Reading against the Sensor's Thresholds (Story 6.1). Only the Device grain calls it, after
+    /// it committed the Reading's frame, and only for a declared Sensor of an assigned Node. A calibrating Sensor
+    /// is compared as the percentage of its current Calibration, any other one in its Specification's unit.
+    /// Three consecutive Readings beyond the same Threshold journal the next episode and open its Alert; three
+    /// consecutive Readings back within close it. A Reading that is not newer than the last evaluated one is
+    /// not evaluated, so a frame sent again changes nothing. An open or a close the Alert grain has not
+    /// acknowledged is delivered again first; while that fails the Reading is evaluated all the same, the answer
+    /// is <see cref="SensorEvaluationOutcome.NotDelivered"/>, and the Sensor keeps delivering by itself. It
+    /// never calls the Device grain.
+    /// </summary>
+    /// <param name="request">The Reading and where its Node is.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("evaluate")]
+    Task<SensorEvaluationResult> Evaluate(EvaluateReading request, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Where a Node is when one of its Readings is evaluated (Story 6.1). The Sensor grain knows only its Device, so
+/// the Device grain sends it along.
+/// </summary>
+/// <param name="SiteId">The Site of the Node.</param>
+/// <param name="LotId">The Lot the Node is assigned to.</param>
+/// <param name="Epoch">
+/// The Node's evaluation epoch: it changes with every assignment and Pause event, and a streak never runs
+/// across two epochs.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.evaluation-context")]
+public sealed record EvaluationContext(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] string LotId,
+    [property: Id(2)] long Epoch);
+
+/// <summary>
+/// One stored Reading to evaluate.
+/// </summary>
+/// <param name="RawValue">The Reading's raw value.</param>
+/// <param name="MeasuredAt">When the Reading was taken.</param>
+/// <param name="Context">Where the Node is.</param>
+[GenerateSerializer]
+[Alias("coldframe.evaluate-reading")]
+public sealed record EvaluateReading(
+    [property: Id(0)] long RawValue,
+    [property: Id(1)] DateTimeOffset MeasuredAt,
+    [property: Id(2)] EvaluationContext Context);
+
+/// <summary>
+/// How <see cref="ISensorGrain.Evaluate"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.sensor-evaluation-outcome")]
+public enum SensorEvaluationOutcome
+{
+    /// <summary>
+    /// The Reading was evaluated, and whatever it opened or closed is delivered.
+    /// </summary>
+    Evaluated = 0,
+
+    /// <summary>
+    /// The Sensor does not alert: it was never declared, it calibrates and has no Calibration, or it has no
+    /// effective low Threshold. Nothing was journaled.
+    /// </summary>
+    NotEligible = 1,
+
+    /// <summary>
+    /// The Reading is not newer than the last evaluated one. Nothing was journaled.
+    /// </summary>
+    NotNewer = 2,
+
+    /// <summary>
+    /// An open or a close of the Sensor's Alert is journaled but not acknowledged yet; it is delivered again
+    /// until it is. The caller answers its frame with retry.
+    /// </summary>
+    NotDelivered = 3,
+}
+
+/// <summary>
+/// The result of <see cref="ISensorGrain.Evaluate"/>.
+/// </summary>
+/// <param name="Outcome">How the evaluation ended.</param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-evaluation-result")]
+public sealed record SensorEvaluationResult([property: Id(0)] SensorEvaluationOutcome Outcome);
+
+/// <summary>
+/// Where a Reading is against the Sensor's Thresholds (Story 6.1).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.threshold-position")]
+public enum ThresholdPosition
+{
+    /// <summary>
+    /// At or above the low and, when there is a high, at or below it.
+    /// </summary>
+    Within = 0,
+
+    /// <summary>
+    /// Strictly below the low.
+    /// </summary>
+    BelowLow = 1,
+
+    /// <summary>
+    /// Strictly above the high. Never without a high.
+    /// </summary>
+    AboveHigh = 2,
 }
 
 /// <summary>

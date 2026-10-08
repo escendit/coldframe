@@ -20,7 +20,8 @@ namespace Coldframe.Server.Devices;
 /// acknowledgement (<see cref="Ingest"/>), zeroing the keys again each time. It is the only writer of the
 /// Readings, device-report, Reading-key and replay tables (AD-9), through <see cref="DeviceIngestionStore"/>.
 /// It keeps a Node's known <c>spec_hash</c> and Sensor list (AD-19), and declares each Sensor of an accepted
-/// Specification set to its <see cref="ISensorGrain"/>.
+/// Specification set to its <see cref="ISensorGrain"/>. After a frame is committed it hands every declared
+/// Sensor of an assigned Node its Reading to evaluate (Story 6.1).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -607,7 +608,16 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 }
             }
 
-            // 9. Only after the commit: the acknowledgement, sealed with the ack/v1 key under the fresh counter.
+            // 9. Evaluation (Story 6.1), after the commit and the declaration: every declared Sensor of an
+            // assigned Node gets its Reading, on a first delivery and on a resend alike. When an evaluation or
+            // the delivery of what it opened or closed fails, the frame is not acknowledged: the Node resends,
+            // and the resend, a duplicate, finishes it.
+            if (!paused && !await EvaluateAsync(frame.Rows))
+            {
+                return new DeviceIngestResult(DeviceIngestStatus.Retry);
+            }
+
+            // 10. Only after the commit: the acknowledgement, sealed with the ack/v1 key under the fresh counter.
             var downlink = new Downlink
             {
                 ProtocolVersion = CryptoSpec.ProtocolMajor,
@@ -673,6 +683,45 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             {
                 Readings = [.. rows.Readings.Select(reading => reading with { CalibrationId = State.CalibrationOf(reading.SensorId) })],
             };
+
+    // Hands each declared Sensor its Reading with where the Node is (Site, Lot, epoch): the Sensor grain knows
+    // only its Device and must not call back. Nothing is evaluated for an unassigned Node (AD-8) or for a slot
+    // that is not in the accepted Specification set (AD-19); those Readings are stored all the same. False when
+    // a Sensor could not evaluate or deliver. Never throws.
+    private async Task<bool> EvaluateAsync(FrameRows? rows)
+    {
+        if (rows is null || rows.Readings.Count == 0 || State.SiteId is not { } siteId || State.LotId is not { } lotId)
+        {
+            return true;
+        }
+
+        var context = new EvaluationContext(siteId, lotId, State.EvaluationEpoch);
+        var declared = State.Sensors.Select(sensor => sensor.SensorId).ToHashSet();
+
+        try
+        {
+            // A frame has one measured_at: of two Readings of one Sensor only the newer one can count.
+            var evaluations = rows.Readings
+                .Where(reading => declared.Contains(reading.SensorId))
+                .GroupBy(reading => reading.SensorId)
+                .Select(readings => readings.MaxBy(reading => reading.ReadingSeq)!)
+                .Select(reading => GrainFactory
+                    .GetGrain<ISensorGrain>(reading.SensorId.ToString("D"))
+                    // Not cancelled by the caller: the frame is committed, and its evaluation is not abandoned halfway.
+                    .Evaluate(new EvaluateReading(reading.RawValue, rows.MeasuredAt, context), CancellationToken.None))
+                .ToList();
+
+            var results = await Task.WhenAll(evaluations);
+            return results.All(result => result.Outcome != SensorEvaluationOutcome.NotDelivered);
+        }
+#pragma warning disable CA1031 // Whatever failed the evaluation, the answer is retry: the Node resends.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogEvaluationFailed(Logger, DeviceId, exception);
+            return false;
+        }
+    }
 
     // Commits a frame and, on success, adopts its replay window. A failed transaction stored nothing: the
     // in-memory window is dropped and read again for the next frame, so it always equals the stored one.
@@ -743,6 +792,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     [LoggerMessage(EventId = 3, Level = LogLevel.Warning, Message = "The Specification set of Device {DeviceId} could not be declared; the frame is answered with retry.")]
     private static partial void LogDeclarationFailed(ILogger logger, string deviceId, Exception exception);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Warning, Message = "A Reading of Device {DeviceId} could not be evaluated; the frame is answered with retry.")]
+    private static partial void LogEvaluationFailed(ILogger logger, string deviceId, Exception exception);
 
     // Unwraps K_dev, derives the hub-auth/v1 key, verifies, and zeroes both keys on every path.
     private bool Verify(WrappedDeviceKey wrapped, string method, string path, byte[] body, long timestampMs, byte[] nonce, byte[] signature)

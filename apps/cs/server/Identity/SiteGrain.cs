@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sites;
@@ -10,7 +11,8 @@ namespace Coldframe.Server.Identity;
 /// <summary>
 /// A Site, keyed by its Site ID. The only writer of the Site's Memberships and Roles, both in its journal
 /// and in Phase Two (AD-1, AD-3). It checks its own persisted state, calls Keycloak, then persists.
-/// Reconciliation only reads Keycloak and never writes back to it.
+/// Reconciliation only reads Keycloak and never writes back to it. It also keeps the set of the Site's open
+/// Alerts (Story 6.1), as the Alert grains report them, and never calls User grains.
 /// </summary>
 [GrainType("site")]
 public sealed partial class SiteGrain(
@@ -245,6 +247,42 @@ public sealed partial class SiteGrain(
         // Site Pause arrives in Epic 8 (AD-8); until then a Site is never paused.
         return new DeviceRegistrationResult(DeviceRegistrationOutcome.Registered, SitePause.NotPaused);
     }
+
+    /// <inheritdoc />
+    public async Task AlertOpened(SiteAlert alert, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(alert);
+
+        // Idempotent: the Alert grain reports until this returns. A Site that is not active keeps no Alerts;
+        // the report is acknowledged so that nothing waits on a Site that is gone.
+        if (State.Lifecycle != SiteLifecycle.Active || State.OpenAlerts.ContainsKey(alert.AlertId))
+        {
+            return;
+        }
+
+        RaiseEvent(new SiteAlertOpened(alert));
+        await ConfirmEvents();
+    }
+
+    /// <inheritdoc />
+    public async Task AlertClosed(Guid alertId, AlertCloseReason reason, DateTimeOffset closedAt, CancellationToken cancellationToken = default)
+    {
+        // Idempotent: an Alert the Site does not list (closed already, or never listed) journals nothing.
+        if (!State.OpenAlerts.ContainsKey(alertId))
+        {
+            return;
+        }
+
+        RaiseEvent(new SiteAlertClosed(alertId, reason, closedAt));
+        await ConfirmEvents();
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<SiteAlert>> OpenAlerts(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<SiteAlert>>(
+            State.Lifecycle == SiteLifecycle.Active
+                ? [.. State.OpenAlerts.Values.OrderBy(alert => alert.OpenedAt).ThenBy(alert => alert.AlertId)]
+                : []);
 
     // Does the pulled roster show what the event says? A missing Organization shows no member and no role.
     private static bool Shows(PhaseTwoRoster? roster, RosterExpectation expectation)

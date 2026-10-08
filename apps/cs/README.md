@@ -301,7 +301,10 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
       from the last one; a frame that is not committed records none.
    8. The Specification set, when the frame's `spec_hash` is not the known one and a set is
       attached (see [Sensor Specifications](#sensor-specifications)).
-   9. Only after that, the `Downlink` (`acked_counter`, `server_time_ms`, the frame's
+   9. Evaluation ([Alerts](#alerts)): every declared Sensor of an assigned Node is handed its Reading
+      (`ISensorGrain.Evaluate`), on a first delivery and on a resend alike; a paused Node stored
+      nothing and evaluates nothing.
+   10. Only after that, the `Downlink` (`acked_counter`, `server_time_ms`, the frame's
       `reading_seq` ranges, no commands, `specifications_unknown`) is sealed with the `ack/v1` key
       under the reserved counter. `stored` when at least one key was new (or the Device is paused),
       `duplicate` otherwise.
@@ -311,9 +314,10 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
 A failed transaction answers `retry` and leaves no trace: the grain drops its in-memory window and
 reads it again for the next frame, so memory never runs ahead of the database. The downlink counter
 is never kept in memory, so no counter is reused after a restart. No event is journaled per frame.
-Two kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub could
-not be journaled, or its Specification set could not be declared, the frame is not acknowledged, and
-the Node's resend is a `duplicate`.
+Three kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub could
+not be journaled, its Specification set could not be declared, or a Reading could not be evaluated
+(or the Alert it opened or closed not delivered), the frame is not acknowledged, and the Node's resend
+is a `duplicate`, which finishes what was left.
 
 Time: a synced Reading keeps the Node's `measured_at`. An unsynced one (`time_unsynced`, with its
 `boot_id` and `uptime_ms` kept) is rebased: taken by the boot that sealed the frame, it is
@@ -366,10 +370,14 @@ A paused or unassigned Node declares too; only Readings pass the Pause gate.
 | --- | --- |
 | `sensor.declared` `{deviceId, slot, specification, declaredAt}` | The first declaration. Both Thresholds follow the Specification's defaults |
 | `sensor.specification-changed` `{specification, changedAt}` | A declaration with another Specification for the same slot and quantity. The same Specification journals nothing |
-| `sensor.thresholds-changed` `{low, high, changedAt}` | An Administrator changed a side of the Thresholds ([Thresholds](#thresholds)); never for a request that changes nothing. Story 6.1 reads it as a new evaluation epoch |
+| `sensor.thresholds-changed` `{low, high, changedAt}` | An Administrator changed a side of the Thresholds ([Thresholds](#thresholds)); never for a request that changes nothing. It resets the evaluation streak ([Alerts](#alerts)) |
 | `sensor.calibration-point-recorded` `{point, readingSeq, rawValue, recordedAt}` | One point (`Dry` or `Wet`) of a Calibration was saved and the other is missing ([Calibration](#calibration)) |
 | `sensor.calibrated` `{calibrationId, dryRaw, wetRaw, calibratedAt}` | Both points are known and distinct: the new Calibration in force |
 | `sensor.calibration-delivered` `{calibrationId, deliveredAt}` | The Device grain acknowledged the Calibration as in force |
+| `sensor.streak-changed` `{position, count, epoch, measuredAt}` | A Reading changed the evaluation streak ([Alerts](#alerts)); never for a steady Reading |
+| `sensor.threshold-episode-opened` `{episode, alertId, side, siteId, lotId, value, threshold, epoch, measuredAt, openedAt}` | The third consecutive Reading beyond a Threshold: the Sensor's next episode, journaled before its Alert is opened |
+| `sensor.threshold-episode-closed` `{episode, alertId, reason, epoch, measuredAt?, closedAt}` | The third consecutive Reading back within (or on the other side): the episode ended |
+| `sensor.alert-delivered` `{alertId, change, deliveredAt}` | The Alert grain holds the open or the close and its Site knows it |
 
 A `specification` is `{quantity, unit, rangeMin, rangeMax, calibration, defaultLow?, defaultHigh?}`;
 the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
@@ -384,8 +392,8 @@ the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
 - **Undeclared slots.** A Reading whose slot and quantity are not in the Device's Sensor list (sent
   before the declaration, for a slot beyond the set, or with another quantity) is stored and
   acknowledged under its derived Sensor ID and creates no Sensor stream. A later declaration produces
-  that same ID, so nothing is migrated. Nothing is evaluated yet: no Reading reaches a Sensor grain
-  before Epic 6, which will evaluate only the Sensors of that list.
+  that same ID, so nothing is migrated. It is never evaluated: only the Sensors of that list are handed
+  their Readings ([Alerts](#alerts)).
 
 The simulator plays the Node: `SimulatedDevice.Specifications` (four Sensors matching
 `DefaultReadings`, settable), `SpecHash`, and `Wake`, which attaches the set once after `OpenDownlink`
@@ -454,7 +462,8 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
    sides leaves the Sensor watched only. A calibrating Sensor (`calibration: true`) takes and gives whole percent 0
    to 100 whatever its Calibration (Threshold percentages never change on recalibration); any other Sensor takes
    values within its Specification's range. A refusal journals nothing and is 400 `validation`.
-3. A change journals `sensor.thresholds-changed`, which Story 6.1 treats as a new evaluation epoch. A request that
+3. A change journals `sensor.thresholds-changed`, which resets the evaluation streak ([Alerts](#alerts)); an open
+   Alert stays open. A request that
    leaves both sides as they are (the same kinds and overrides) journals nothing and still answers 200.
    A Specification redeclaration never replaces an override or a cleared side.
 4. The API speaks display units (AD-14), the grain stores the Specification unit: `%` for a calibrating Sensor,
@@ -464,6 +473,70 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
    `Min + 20 % x (Max - Min)` of the Sensor's range (20 for a calibrating Sensor), integer arithmetic, only when the
    Specification has no default low; there is never a proposed high. It is computed on read and never journaled
    until an Administrator saves it as an override.
+
+### Alerts
+
+A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Nothing
+here is an endpoint yet: the Alerts read model and its API are Story 6.2, notifications 6.3 to 6.6. Three grains
+take part, through grain calls and the journal only (AD-5):
+
+1. **The Device grain hands out Readings.** After a frame is committed (step 9 of `DeviceGrain.Ingest` in
+   [Ingesting Node frames](#ingesting-node-frames-step-by-step)) it calls `ISensorGrain.Evaluate` for every
+   Reading whose Sensor is in the Node's accepted Specification set (AD-19), with the raw value, `measured_at` and
+   an evaluation context `{siteId, lotId, epoch}`: the Sensor grain knows only its Device and never calls it back.
+   An unassigned Node (AD-8) and an undeclared slot are stored and not evaluated. The **epoch** is
+   `DeviceState.EvaluationEpoch`, the count of the Device's `device.assigned`, `device.moved`,
+   `device.unassigned`, `device.paused` and `device.resumed` events, so it needs no event of its own. A resent
+   frame, a `duplicate`, is evaluated again; when a Sensor answers that something is still undelivered, or the
+   call fails, the frame answers `retry`.
+2. **The Sensor grain evaluates** (`server/Sensors/SensorGrain.cs`). In this order: it first delivers what an
+   earlier evaluation left undelivered; a Sensor that was never declared, calibrates and has no Calibration, or has
+   no effective low Threshold is not evaluated; a Reading whose `measured_at` is not newer than the last evaluated
+   one is not evaluated either, so a backlog Reading and a resent frame change nothing. A calibrating Sensor is
+   compared as the percentage `CalibrationMath.Percent` gives under its current Calibration, rounded to 5 like the
+   Lot tile ("~30 %, your low is 30 %" is not below); any other Sensor in its Specification's unit.
+3. **The streak rule** is `ThresholdStreakRule` (`server/Sensors/`), pure and the only place that decides. A value
+   is beyond only strictly (`<` low, `>` high), and an empty high never alerts. Three consecutive Readings beyond
+   the same side open an Alert; three consecutive Readings within close it as `recovered`. A Reading off the
+   running side ends that streak and starts its own, so 2 of 3 opens nothing and a flapping Lot keeps its Alert.
+   While a low Alert is open, three consecutive Readings above the high close it as `recovered` and open the next
+   episode on the high side in the same step (and the other way round). `sensor.thresholds-changed` and a Reading
+   of another epoch reset the streak; an open Alert stays open.
+4. **Journal volume.** The Sensor journals only when the streak, the episode or the Alert changes
+   (`sensor.streak-changed`, `sensor.threshold-episode-opened`, `sensor.threshold-episode-closed`); a steady
+   Reading leaves no event, because streams replay in full. The last evaluated `measured_at` therefore advances in
+   memory between events: after a reactivation it starts from the journaled one, and the worst case is one stale
+   Reading starting a streak of 1.
+5. **Episode before Alert.** The third Reading journals `sensor.threshold-episode-opened` with the next episode
+   number and the Alert ID `UUIDv5(AlertIds.Namespace, "sensor:{sensorId}:threshold:{episode}")`
+   (`server/Alerts/AlertIds.cs`; the namespace is a Server-only constant, not part of `packages/crypto-spec`). Only
+   then the Sensor calls `IAlertGrain.Open`, so a retry opens the same Alert and a Sensor has at most one open
+   Threshold Alert. An open or a close the Alert grain did not acknowledge stays in the Sensor's state and is
+   delivered again, oldest first: by the next evaluation, on a 5 s grain timer while the grain is active, by the
+   `deliver-alerts` reminder, and on activation. `sensor.alert-delivered` ends it.
+6. **The Alert grain** (`server/Alerts/AlertGrain.cs`, `alert/{alertId}`) is event-sourced and idempotent:
+   `alert.opened` `{kind, side, siteId, lotId, sensorId, deviceId, quantity, episode, openedAt}` and `alert.closed`
+   `{reason, closedAt}` are journaled once each, whatever is retried. `Open` refuses a request that does not derive
+   its own Alert ID. `Close` is accepted only from the Sensor grain that opened the Alert: the grain reads the
+   caller of the call itself, so a client, another grain or another Sensor is refused and the Alert stays open. The
+   reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`; only `recovered` is produced
+   before Epics 7 and 8.
+7. **The Site's open Alerts.** The Alert grain reports each open and close to its Site grain
+   (`ISiteGrain.AlertOpened`, `AlertClosed`), the open before the close, and journals the acknowledgement as
+   `alert.site-notified`; until then it reports again, on a 5 s grain timer, by the `report-alert` reminder, on
+   activation and whenever the Sensor repeats its call (the Sensor counts an Alert as delivered only once its Site
+   knows it). The Site grain journals `site.alert-opened` and `site.alert-closed`, once per Alert, and answers
+   `ISiteGrain.OpenAlerts()` (oldest first) from the state it replays from its own stream; it never calls User
+   grains and never reads a read model (AD-1). A Site that is not `Active` keeps no Alerts.
+
+Streak, side, episode, the open Alert and every pending delivery are journaled state, so a silo restart loses
+none of them. A moved Node's open Alert follows its Device to the new Lot until three Readings recover; closing on
+Pause, unassign, recalibration and removal arrives with Epics 7 and 8. The lots projector derives *needs water*
+from the Alert events ([Lot status](#lot-status)).
+
+`SetCalibration` on the Device grain is `[AlwaysInterleave]`: the Device grain awaits a Sensor's evaluation while
+that Sensor may be awaiting the Device to acknowledge a Calibration, and without interleaving the two calls would
+wait for each other until one times out.
 
 ### Moving and unassigning a Node
 
@@ -478,7 +551,9 @@ is active, by the `release-pending-lots` grain reminder, and on activation, so a
 the release still frees the old Lot. Moving back to a Lot that is still pending release drops it from the
 list. Moving to the current Lot, or unassigning an unassigned Node, answers 200 and journals nothing; a Move
 of a Node on no Lot journals `device.assigned`. Readings stay keyed by the Node: nothing deletes them, and an
-unassigned Node's frames are stored and not evaluated, since no Lot claims it.
+unassigned Node's frames are stored and not evaluated, since no Lot claims it. A move, an assignment and an
+unassignment each start a new evaluation epoch ([Alerts](#alerts)): a Sensor's streak starts over, and an open
+Alert stays open.
 
 ### The Devices list
 
@@ -530,8 +605,8 @@ place that decides a status. The first line that holds wins:
 The list is ordered `needsWater`, `needsCalibration`, `unknown`, `ok`, `paused`, `noNode`, then by
 creation time, then by Lot ID (`LotsReadModel.StatusOrder`).
 
-**The projection.** `LotsProjector` (projector name `lots`) is the only writer of `lots` and of its two
-support tables. It reads three kinds of streams and, after every event that can change a status, runs
+**The projection.** `LotsProjector` (projector name `lots`) is the only writer of `lots` and of its four
+support tables. It reads four kinds of streams and, after every event that can change a status, runs
 the Lots it touches through the rule again:
 
 | Event | Effect |
@@ -542,29 +617,35 @@ the Lots it touches through the rule again:
 | `device.specifications-declared` | The Sensor IDs of the Device's accepted set in `lot_status_devices`; its Lot is evaluated |
 | `sensor.declared`, `sensor.specification-changed` | The Sensor's Device, quantity and `calibration` flag in `lot_status_sensors`; the Lot of its Device is evaluated |
 | `sensor.calibrated` | The Calibration's points in `calibrations` (by Calibration ID) and `lot_status_sensors.calibrated`; the Lot of its Device is evaluated |
+| `alert.opened`, `alert.closed` | The Alert's Node, Sensor, quantity, kind and side in `lot_status_alerts`, and its `closed_at`; the Lot of its Node is evaluated |
 
 `status_since` moves only when the status changes, to the time of the event that changed it: the
 journal's `recorded_at` for a Lot event (Lot events carry no time), the event's own time otherwise.
 Applying an event again therefore changes nothing. A Sensor is declared before its Device's set
 (`sensor.declared` precedes `device.specifications-declared` in the journal); until the set names the
-Sensor, the Lot keeps its status. To rebuild, delete the rows of the four tables (`lots`, `lot_status_devices`, `lot_status_sensors`,
-`calibrations`) and the `lots` checkpoint;
-the migration that added the status columns does exactly that, so Lots from before it get their
+Sensor, the Lot keeps its status. To rebuild, delete the rows of the five tables (`lots`, `lot_status_devices`, `lot_status_sensors`,
+`lot_status_alerts`, `calibrations`) and the `lots` checkpoint;
+the migration that added `lot_status_alerts` does exactly that, so every Lot gets its
 status and its time from the journal when the Server starts.
 
-**Live and fixture-only inputs.** Three inputs are live in Epic 4: the Node on the Lot, the Pause
-sources (journaled only by tests until Epic 8 adds the commands), and the uncalibrated soil Sensor.
+**Needs water.** A Lot is `needsWater` while a Threshold Alert with side `low` is open on a soil-moisture
+Sensor of its Node's accepted Specification set ([Alerts](#alerts)). The Alert is found by its Node, so the
+Alert of a Node that moved counts for the Lot the Node is on now. A high-side Alert and an Alert of another
+quantity change no status. `status_since` is the Alert's `openedAt`, and its `closedAt` when the Lot goes back
+to `ok`. A closed Alert keeps its row with `closed_at` set, so an Alert event applied again changes nothing.
+
+**Live and fixture-only inputs.** Four inputs are live: the Node on the Lot, the Pause
+sources (journaled only by tests until Epic 8 adds the commands), the uncalibrated soil Sensor, and the open
+low-side Alert (Story 6.1).
 A declared `calibration: true` soil-moisture Sensor counts as uncalibrated until its `sensor.calibrated` is
-projected (Story 5.1). The other two have no producer yet:
+projected (Story 5.1). One has no producer yet:
 
 - **Silence.** No Silent Alert exists before Epic 7. The only silence the projector knows is a Node
   that has declared no Sensor: it has never reported, so its Lot is `unknown` with `unknownCause: node`
   (`LotsProjector.InputsOf`). Without this a freshly assigned Node would read `ok`. `unknownCause: hub`
   is never produced.
-- **Open low-side Alert.** No Threshold Alert exists before Epic 6; the projector always passes
-  "none", so `needsWater` is never produced.
 
-Tests and client fixtures cover `needsWater` and `unknown` by Hub with seeded rows.
+Tests and client fixtures cover `unknown` by Hub with seeded rows.
 
 **`lastReadingAt` is read, not projected.** Both queries of `LotsReadModel` take the newest
 `measured_at` of the Readings of the Lot's Node with `measured_at >= claimed_at`, through

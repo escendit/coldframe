@@ -6,7 +6,7 @@ namespace Coldframe.Server.Devices;
 /// The state of the Device grain: its Site, kind and wrapped <c>K_dev</c>, once enrolled, a Node's Lot, when
 /// it was last seen, its Pause sources (AD-8), a Node's last relay Hub (AD-18), and the hash and Sensors of
 /// the last Specification set the Server accepted from a Node (AD-19), and the Calibration in force per Sensor
-/// as the Sensor grain set it (Story 5.1). The replay window and the
+/// as the Sensor grain set it (Story 5.1), and the evaluation epoch (Story 6.1). The replay window and the
 /// downlink counter are not journaled: they live in <c>device_replay</c> and commit with the Readings (AD-9).
 /// </summary>
 [GenerateSerializer]
@@ -68,6 +68,16 @@ public sealed class DeviceState
     /// </summary>
     [Id(6)]
     public string? LotId { get; private set; }
+
+    /// <summary>
+    /// The Node's evaluation epoch (Story 6.1): it counts the assignment and Pause events the Device journaled
+    /// (<see cref="DeviceAssigned"/>, <see cref="DeviceMoved"/>, <see cref="DeviceUnassigned"/>,
+    /// <see cref="DevicePaused"/>, <see cref="DeviceResumed"/>), so it is derived from the stream and needs no
+    /// event of its own. The Device grain sends it with every Reading it hands a Sensor grain, and a Sensor's
+    /// streak never runs across two epochs.
+    /// </summary>
+    [Id(13)]
+    public long EvaluationEpoch { get; private set; }
 
     /// <summary>
     /// The Pause sources of the Device, each with its optional end date (AD-8).
@@ -140,6 +150,7 @@ public sealed class DeviceState
         ArgumentNullException.ThrowIfNull(@event);
         LotId = @event.LotId;
         _pendingReleases.Remove(@event.LotId);
+        EvaluationEpoch++;
     }
 
     public void Apply(DeviceMoved @event)
@@ -150,6 +161,7 @@ public sealed class DeviceState
         // Moving back to a Lot still pending release makes it the Node's again: it must not be released.
         _pendingReleases.Remove(@event.ToLotId);
         QueueRelease(@event.FromLotId);
+        EvaluationEpoch++;
     }
 
     public void Apply(DeviceUnassigned @event)
@@ -157,6 +169,7 @@ public sealed class DeviceState
         ArgumentNullException.ThrowIfNull(@event);
         LotId = null;
         QueueRelease(@event.FromLotId);
+        EvaluationEpoch++;
     }
 
     public void Apply(DeviceLotReleased @event)
@@ -182,12 +195,14 @@ public sealed class DeviceState
     {
         ArgumentNullException.ThrowIfNull(@event);
         _pausedBy[@event.Source] = @event.EndsAt;
+        EvaluationEpoch++;
     }
 
     public void Apply(DeviceResumed @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
         _pausedBy.Remove(@event.Source);
+        EvaluationEpoch++;
     }
 
     public void Apply(DeviceSpecificationsDeclared @event)
