@@ -115,7 +115,7 @@ class CalibrateEngineTest {
         runCurrent()
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
-        return CalibrateEngine(api, sites, backgroundScope, now = { clock }, pollMs = 1_000).also { runCurrent() }
+        return CalibrateEngine(api, sites, backgroundScope, pollMs = 1_000).also { runCurrent() }
     }
 
     private fun CalibrateEngine.ready() = assertIs<CalibrateState.Ready>(state.value)
@@ -149,6 +149,24 @@ class CalibrateEngineTest {
             assertNull(ready.fresh)
             assertFalse(ready.canRecord)
             assertEquals(soil, ready.sensorId)
+        }
+
+    @Test
+    fun story52AReadingStoredAfterTheStepStartedIsFreshWhateverThePhoneClockSays() =
+        runTest {
+            api.state = CalibrationStateDto(calibrated = false, readings = listOf(reading(7, 612, clock - 60_000)))
+            val engine = opened()
+
+            // The Node's time is far behind this phone's clock, but the Server stored the Reading later.
+            api.state =
+                CalibrationStateDto(
+                    calibrated = false,
+                    readings = listOf(reading(8, 640, clock - 3_600_000), reading(7, 612, clock - 60_000)),
+                )
+            wait(engine)
+
+            assertEquals(8L, engine.ready().fresh?.readingSeq)
+            assertTrue(engine.ready().canRecord)
         }
 
     @Test

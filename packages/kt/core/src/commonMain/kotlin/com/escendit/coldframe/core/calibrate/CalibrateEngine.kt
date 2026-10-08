@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 
 /**
  * Calibrate from the app (Story 5.2, UX-DR66): dry, then wet, on one Lot's soil Sensor. The
@@ -41,7 +40,6 @@ public class CalibrateEngine(
     private val api: CalibrateApi,
     private val sites: SitesEngine,
     private val scope: CoroutineScope,
-    internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val pollMs: Long = POLL_MS,
 ) {
     private val mutableState = MutableStateFlow<CalibrateState>(CalibrateState.Idle)
@@ -137,7 +135,8 @@ public class CalibrateEngine(
             mutableState.value =
                 current.copy(
                     step = CalibrateStep.Wet,
-                    stepStartedAtEpochMs = now(),
+                    afterSeq = newestSeq(current.readings, reading.readingSeq),
+                    afterMeasuredAtEpochMs = newestMeasuredAt(current.readings),
                     fresh = null,
                     picked = null,
                     dryRaw = pendingDryRaw ?: reading.rawValue,
@@ -151,7 +150,8 @@ public class CalibrateEngine(
             mutableState.value =
                 current.copy(
                     step = CalibrateStep.Confirm,
-                    stepStartedAtEpochMs = now(),
+                    afterSeq = newestSeq(current.readings, reading.readingSeq),
+                    afterMeasuredAtEpochMs = newestMeasuredAt(current.readings),
                     fresh = null,
                     picked = null,
                     dryRaw = dry,
@@ -237,7 +237,8 @@ public class CalibrateEngine(
                 lotName = lotName,
                 sensorId = sensorId,
                 step = if (resumeAtWet) CalibrateStep.Wet else CalibrateStep.Dry,
-                stepStartedAtEpochMs = now(),
+                afterSeq = newestSeq(dto.readings.map { it.toReading() }),
+                afterMeasuredAtEpochMs = newestMeasuredAt(dto.readings.map { it.toReading() }),
                 readings = dto.readings.map { it.toReading() },
                 fresh = null,
                 picked = null,
@@ -309,8 +310,7 @@ public class CalibrateEngine(
         val readings = dto.readings.map { it.toReading() }
         val fresh =
             readings.firstOrNull {
-                val at = it.measuredAtEpochMs
-                at != null && at > current.stepStartedAtEpochMs && it.readingSeq != current.recordedSeq
+                it.readingSeq > current.afterSeq && it.readingSeq != current.recordedSeq
             }
         val isNew = fresh != null && fresh.readingSeq != current.fresh?.readingSeq
         mutableState.value =
@@ -320,6 +320,16 @@ public class CalibrateEngine(
                 announcement = if (isNew) announce(current, fresh) else current.announcement,
             )
     }
+
+    /** The newest `reading_seq` among [readings] and [also]: where a step's freshness starts (-1 when none). */
+    private fun newestSeq(
+        readings: List<CalibrationReading>,
+        also: Long = -1,
+    ): Long = maxOf(also, readings.maxOfOrNull { it.readingSeq } ?: -1)
+
+    /** The newest Reading time among [readings] (0 when none): where the first percentage's freshness starts. */
+    private fun newestMeasuredAt(readings: List<CalibrationReading>): Long =
+        readings.maxOfOrNull { it.measuredAtEpochMs ?: 0 } ?: 0
 
     private fun announce(
         ready: CalibrateState.Ready,
@@ -349,8 +359,8 @@ public class CalibrateEngine(
                 .firstOrNull { it.sensorId == ready.sensorId && it.unit == SensorUnit.Percent }
         val at = soil?.measuredAtEpochMs
         val current = mutableState.value as? CalibrateState.Ready ?: return
-        // A percentage counts only when the Server stored it after the Calibration was saved.
-        if (soil == null || at == null || at <= current.stepStartedAtEpochMs || current.percent != null) return
+        // A percentage counts only when it was stored after the Readings seen when the Calibration was saved.
+        if (soil == null || at == null || at <= current.afterMeasuredAtEpochMs || current.percent != null) return
         val percent = SoilMoisture.rounded(soil.value)
         mutableState.value =
             current.copy(

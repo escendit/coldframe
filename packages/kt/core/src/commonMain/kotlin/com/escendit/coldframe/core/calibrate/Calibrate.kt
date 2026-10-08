@@ -122,8 +122,10 @@ public sealed interface CalibrateState {
     ) : CalibrateState
 
     /**
-     * The two-step flow. [stepStartedAtEpochMs] is when the current step started (the injected clock);
-     * a Reading counts as fresh only when it was taken after that. [readings] are the recent stored
+     * The two-step flow. [afterSeq] is the newest `reading_seq` seen when the current step started, and
+     * [afterMeasuredAtEpochMs] the newest Reading time seen then: a Reading counts as fresh only when it
+     * was stored after that, by the Server's order, so a phone clock that is off cannot hide it (nor can
+     * the Node's). [readings] are the recent stored
      * Readings, newest first; [fresh] is the newest fresh one; [picked] the `reading_seq` the person chose
      * from the list. [dryRaw] and [wetRaw] are the recorded points. [percent] appears on the confirmation
      * only once the Server stored a calibrated Reading; until then [waitingForPercent] is true.
@@ -134,7 +136,8 @@ public sealed interface CalibrateState {
         val lotName: String,
         val sensorId: String,
         val step: CalibrateStep,
-        val stepStartedAtEpochMs: Long,
+        val afterSeq: Long,
+        val afterMeasuredAtEpochMs: Long,
         val readings: List<CalibrationReading>,
         val fresh: CalibrationReading?,
         val picked: Long?,
