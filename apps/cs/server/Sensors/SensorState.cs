@@ -153,10 +153,6 @@ public sealed class SensorState
     private static ThresholdSetting Stored(ThresholdSetting side) =>
         side.Kind == ThresholdKind.Override ? side : new ThresholdSetting(side.Kind);
 
-    private static long? Effective(ThresholdSetting side, long? specificationDefault) => side.Kind switch
-    {
-        ThresholdKind.Default => specificationDefault,
-        ThresholdKind.Override => side.Value,
-        _ => null,
-    };
+    private static long? Effective(ThresholdSetting side, long? specificationDefault) =>
+        ThresholdRules.Effective(side, specificationDefault);
 }

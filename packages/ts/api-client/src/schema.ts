@@ -198,6 +198,30 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/sensors/{sensorId}/thresholds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a Sensor's Thresholds
+         * @description Member and up (Story 5.3): every Member reads, only an Administrator or Owner changes them. Each side is default (it follows the Specification's default, which may be absent), override (its own value) or cleared (no Threshold). value is the effective Threshold in the display unit (a calibrating Sensor: whole percent 0 to 100, whatever its Calibration; temperature in °C, humidity in %, gas resistance in kΩ) and is omitted when the side has none. A Sensor alerts exactly when its effective low exists. proposedLow is Min + 20 % x (Max - Min) of the Sensor's range (20 for a calibrating Sensor) when its Specification has no default low; there is never a proposed high. It is a suggestion and is not stored until an Administrator saves it as an override. A Sensor of another Site is not disclosed.
+         */
+        get: operations["getSensorThresholds"];
+        /**
+         * Set a Sensor's Thresholds
+         * @description Administrator or Owner only (Story 5.3); a Member gets 403. The Sensor grain is the only validator. A side that is absent stays as it is. On the effective values after the change: a high needs a low (low is required on an alerting Sensor), the low must be strictly below the high, an empty high is allowed and never alerts, and clearing both sides makes the Sensor watched only. A side is default, override with a value, or cleared; a value on default or cleared, or none on override, is refused. A calibrating Sensor takes whole percent 0 to 100, any other Sensor a value within its Specification's range, in the display unit (°C, %, kΩ). A change is saved and answers 200 with the Thresholds in force; a request that leaves both sides as they are answers 200 and saves nothing. A saved change starts a new evaluation epoch for Threshold Alerts. A refusal changes nothing. A later Specification declaration never replaces an override.
+         */
+        put: operations["setSensorThresholds"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites/{siteId}/lots": {
         parameters: {
             query?: never;
@@ -672,6 +696,37 @@ export type components = {
             pendingWet?: components["schemas"]["CalibrationValue"];
             /** @description The recent stored Readings, newest first. */
             readings: components["schemas"]["CalibrationReading"][];
+        };
+        /**
+         * @description How one side of a Sensor's Thresholds is set: default follows the Specification's default (which may be absent), override has its own value, cleared has no Threshold.
+         * @enum {string}
+         */
+        ThresholdKind: "default" | "override" | "cleared";
+        ThresholdSideRequest: {
+            kind: components["schemas"]["ThresholdKind"];
+            /** @description The Threshold in the display unit; required with override, refused with default and cleared. A calibrating Sensor: a whole percent from 0 to 100. */
+            value?: number;
+        };
+        SetSensorThresholdsRequest: {
+            low?: components["schemas"]["ThresholdSideRequest"];
+            high?: components["schemas"]["ThresholdSideRequest"];
+        };
+        ThresholdSide: {
+            kind: components["schemas"]["ThresholdKind"];
+            /** @description The effective Threshold in the display unit; absent when the side has none. */
+            value?: number;
+        };
+        /** @description A Sensor's Thresholds in force. A Sensor alerts exactly when its effective low exists. */
+        SensorThresholds: {
+            /**
+             * @description The display unit of every value; % for a calibrating Sensor.
+             * @enum {string}
+             */
+            unit: "%" | "°C" | "kΩ" | "raw";
+            low: components["schemas"]["ThresholdSide"];
+            high: components["schemas"]["ThresholdSide"];
+            /** @description Min + 20 % x (Max - Min) of the Sensor's range (20 for a calibrating Sensor), present only when the Specification has no default low. There is no proposed high. */
+            proposedLow?: number;
         };
         MoveDeviceRequest: {
             /**
@@ -1302,6 +1357,67 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SensorNotFound"];
             503: components["responses"]["CalibrationNotDelivered"];
+        };
+    };
+    getSensorThresholds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form. */
+                sensorId: components["parameters"]["SensorId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Thresholds in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorThresholds"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SensorNotFound"];
+        };
+    };
+    setSensorThresholds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form. */
+                sensorId: components["parameters"]["SensorId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSensorThresholdsRequest"];
+            };
+        };
+        responses: {
+            /** @description The Thresholds in force after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorThresholds"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SensorNotFound"];
         };
     };
     listLots: {
