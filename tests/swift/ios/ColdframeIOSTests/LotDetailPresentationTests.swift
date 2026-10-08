@@ -222,16 +222,11 @@ func chartBarsAndGaps() throws {
   #expect(chart.daysWithReadings == 3)
 }
 
-@Test("UX-DR32 no Threshold exists before Epic 5: every bar is a normal outlined bar")
-func chartHasNoThresholdStyle() throws {
+@Test("UX-DR32 a Lot with no Threshold has no band and every bar is a normal outlined bar")
+func chartWithoutAThresholdHasNoBandAndNoBelowLowBars() throws {
   let chart = try #require(LotDetailFixture.needsCalibration.build().chart)
-  // The chart carries no Threshold, band or below-low state for a bar to take.
-  let fields = Mirror(reflecting: chart.bars[29]).children.compactMap(\.label)
-  #expect(!fields.contains { $0.localizedCaseInsensitiveContains("below") })
-  #expect(!fields.contains { $0.localizedCaseInsensitiveContains("threshold") })
-  #expect(
-    try Repo.text("apps/swift/ios/Sources/ColdframeIOS/UI/LotDetailViews.swift")
-      .contains("chartBarBelowLow") == false)
+  #expect(chart.band == nil)
+  #expect(!chart.bars.contains { $0.belowLow })
 }
 
 @Test("UX-DR32 the axis ends are UTC dates; a history day is written as the Server sent it")
