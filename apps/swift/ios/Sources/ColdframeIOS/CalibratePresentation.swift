@@ -332,7 +332,9 @@ public struct CalibratePresentation: Equatable, Sendable {
   // Paused
 
   /// The explanation that replaces waiting on a paused Node.
-  public func pausedMessage(bySite: Bool) -> L10n { bySite ? .calibratePausedSite : .calibratePaused }
+  public func pausedMessage(bySite: Bool) -> L10n {
+    bySite ? .calibratePausedSite : .calibratePaused
+  }
 
   /// Resume is offered only when the core says so: Admin+ and the Device's own Pause. The core
   /// has no Resume call before Epic 8, so the shell draws no control for it yet.

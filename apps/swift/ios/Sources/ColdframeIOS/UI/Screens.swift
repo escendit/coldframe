@@ -144,7 +144,8 @@
           GardenView(
             presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
             onAddHub: onAddHub, onAddNode: { onAddNode($0) }, onCalibrate: onCalibrate,
-            lotDetail: lotDetail, lotDetailActions: lotDetailActions, onOpenDevices: { selection.wrappedValue = .devices }
+            lotDetail: lotDetail, lotDetailActions: lotDetailActions,
+            onOpenDevices: { selection.wrappedValue = .devices }
           )
         } else {
           palette.background.ignoresSafeArea()

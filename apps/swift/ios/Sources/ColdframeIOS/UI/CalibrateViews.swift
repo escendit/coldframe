@@ -125,7 +125,9 @@
       if let counter = presentation.step.counter {
         counter.text.role(Typography.statusLabel).foregroundStyle(palette.textHelper)
       }
-      title(presentation.step == .confirm ? L10n.calibrateStepConfirm.string : presentation.title.string)
+      title(
+        presentation.step == .confirm
+          ? L10n.calibrateStepConfirm.string : presentation.title.string)
       if let notice = presentation.notice {
         InlineNotice(
           message: notice.message, subject: notice.takesSite ? siteName : nil,
