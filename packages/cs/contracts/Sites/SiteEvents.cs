@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Events;
 
@@ -111,3 +112,27 @@ public sealed record DeviceRegistered(
     [property: Id(1)] DeviceKind Kind,
     [property: Id(2)] string IdempotencyKey,
     [property: Id(3)] DateTimeOffset RegisteredAt);
+
+/// <summary>
+/// An Alert opened on the Site (Story 6.1): the Alert grain reported it, and the Site lists it among its open
+/// Alerts until <see cref="SiteAlertClosed"/>. Journaled once per Alert.
+/// </summary>
+/// <param name="Alert">The Alert as the Site lists it.</param>
+[EventType("site.alert-opened")]
+[GenerateSerializer]
+[Alias("coldframe.site-alert-opened")]
+public sealed record SiteAlertOpened([property: Id(0)] SiteAlert Alert);
+
+/// <summary>
+/// An Alert the Site listed closed (Story 6.1): it leaves the Site's open Alerts.
+/// </summary>
+/// <param name="AlertId">The Alert that closed.</param>
+/// <param name="Reason">Why it closed.</param>
+/// <param name="ClosedAt">When it closed.</param>
+[EventType("site.alert-closed")]
+[GenerateSerializer]
+[Alias("coldframe.site-alert-closed")]
+public sealed record SiteAlertClosed(
+    [property: Id(0)] Guid AlertId,
+    [property: Id(1)] AlertCloseReason Reason,
+    [property: Id(2)] DateTimeOffset ClosedAt);

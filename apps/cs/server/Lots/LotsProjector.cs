@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sensors;
@@ -10,30 +11,31 @@ namespace Coldframe.Server.Lots;
 
 /// <summary>
 /// Projects Lots into <c>lots</c>, the read model of Garden and Site settings, with the Server's status of
-/// every Lot (AD-14). It is the only writer of that table and of its three support tables,
-/// <c>lot_status_devices</c>, <c>lot_status_sensors</c> and <c>calibrations</c> (the points of every
-/// Calibration, from which a Reading's percentage is derived).
+/// every Lot (AD-14). It is the only writer of that table and of its four support tables,
+/// <c>lot_status_devices</c>, <c>lot_status_sensors</c>, <c>lot_status_alerts</c> (every Alert and whether it is open) and
+/// <c>calibrations</c> (the points of every Calibration, from which a Reading's percentage is derived).
 /// </summary>
 /// <remarks>
 /// <para>
-/// It reads three kinds of streams. Lot events create, rename, claim, release and remove the row. Device
-/// events (<c>device.paused</c>, <c>device.resumed</c>, <c>device.specifications-declared</c>) and Sensor
-/// events (<c>sensor.declared</c>, <c>sensor.specification-changed</c>, <c>sensor.calibrated</c>) fill the
-/// support tables. After every
+/// It reads four kinds of streams. Lot events create, rename, claim, release and remove the row. Device
+/// events (<c>device.paused</c>, <c>device.resumed</c>, <c>device.specifications-declared</c>), Sensor
+/// events (<c>sensor.declared</c>, <c>sensor.specification-changed</c>, <c>sensor.calibrated</c>) and Alert
+/// events (<c>alert.opened</c>, <c>alert.closed</c>) fill the support tables. After every
 /// event that can change a status, the Lots it touches are evaluated again through
 /// <see cref="LotStatusRule"/>, the only place that decides a status.
 /// </para>
 /// <para>
 /// <c>status_since</c> moves only when the status changes, to the time of the event that changed it: the
 /// journal's recorded time for a Lot event, the event's own time otherwise. Applying an event again
-/// therefore changes nothing, and deleting the four tables' rows and the checkpoint rebuilds them from position 0.
+/// therefore changes nothing, and deleting the five tables' rows and the checkpoint rebuilds them from position 0.
 /// </para>
 /// <para>
-/// Two inputs of the rule have no producer yet. No Silent Alert exists before Epic 7, so the only silence
-/// the projector knows is a Node that has declared no Sensor: it has never reported, and its Lot is
-/// <c>unknown</c> with cause <c>node</c>. No Threshold Alert exists before Epic 6, so the open low-side
-/// Alert is always absent. A declared <c>calibration: true</c> soil-moisture Sensor is uncalibrated until its
-/// <c>sensor.calibrated</c> event is projected (Story 5.1).
+/// A Lot <c>needsWater</c> while a low-side Threshold Alert is open on a soil-moisture Sensor of its Node's
+/// accepted Specification set (Story 6.1). The Alert is found by its Node, so it follows a Node that moved to
+/// its new Lot until it closes. One input of the rule has no producer yet: no Silent Alert exists before Epic
+/// 7, so the only silence the projector knows is a Node that has declared no Sensor: it has never reported, and
+/// its Lot is <c>unknown</c> with cause <c>node</c>. A declared <c>calibration: true</c> soil-moisture Sensor is
+/// uncalibrated until its <c>sensor.calibrated</c> event is projected (Story 5.1).
 /// </para>
 /// </remarks>
 public sealed class LotsProjector : IProjector
@@ -48,6 +50,14 @@ public sealed class LotsProjector : IProjector
     private const string DeviceStreamPrefix = "device/";
 
     private const string SensorStreamPrefix = "sensor/";
+
+    private const string AlertStreamPrefix = "alert/";
+
+    private const string ThresholdKindName = "threshold";
+
+    private const string LowSide = "low";
+
+    private const string HighSide = "high";
 
     private const string CreateSql =
         """
@@ -121,6 +131,22 @@ public sealed class LotsProjector : IProjector
         RETURNING device_id
         """;
 
+    // An Alert by its ID. A closed Alert keeps its row, so an event applied again changes nothing: neither an
+    // open after its close nor a second close.
+    private const string OpenAlertSql =
+        """
+        INSERT INTO lot_status_alerts (alert_id, device_id, sensor_id, quantity, kind, side, opened_at)
+        VALUES (@alert_id, @device_id, @sensor_id, @quantity, @kind, @side, @opened_at)
+        ON CONFLICT (alert_id) DO NOTHING
+        """;
+
+    private const string CloseAlertSql =
+        """
+        UPDATE lot_status_alerts SET closed_at = @closed_at
+        WHERE alert_id = @alert_id AND closed_at IS NULL
+        RETURNING device_id
+        """;
+
     // The inputs of the rule for the Lots one key selects, read from what this transaction has written.
     private const string InputsSql =
         """
@@ -133,7 +159,11 @@ public sealed class LotsProjector : IProjector
                d.site_paused_until,
                EXISTS (
                    SELECT 1 FROM lot_status_sensors s
-                   WHERE s.sensor_id = ANY (d.sensor_ids) AND s.quantity = @soil_moisture AND s.calibration AND NOT s.calibrated)
+                   WHERE s.sensor_id = ANY (d.sensor_ids) AND s.quantity = @soil_moisture AND s.calibration AND NOT s.calibrated),
+               EXISTS (
+                   SELECT 1 FROM lot_status_alerts a
+                   WHERE a.device_id = l.claimed_by AND a.closed_at IS NULL AND a.sensor_id = ANY (d.sensor_ids)
+                     AND a.kind = @threshold AND a.side = @low AND a.quantity = @soil_moisture)
         FROM lots l
         LEFT JOIN lot_status_devices d ON d.device_id = l.claimed_by
         WHERE
@@ -171,20 +201,28 @@ public sealed class LotsProjector : IProjector
         IdOf(streamId, SensorStreamPrefix) is { } id && Guid.TryParse(id, out var sensorId) ? sensorId : null;
 
     /// <summary>
+    /// Returns the Alert ID of an Alert stream (<c>alert/{id}</c>), or <see langword="null"/> for any other
+    /// stream or an ID that is not a UUID.
+    /// </summary>
+    public static Guid? AlertIdOf(string streamId) =>
+        IdOf(streamId, AlertStreamPrefix) is { } id && Guid.TryParse(id, out var alertId) ? alertId : null;
+
+    /// <summary>
     /// Returns the inputs of the status rule as the projector knows them today: a Node that has declared no
-    /// Sensor is silent, and no low-side Alert is open (see the remarks of the class).
+    /// Sensor is the only silence it knows (see the remarks of the class).
     /// </summary>
     /// <param name="hasNode">Whether a Node occupies the Lot.</param>
     /// <param name="hasDeclared">Whether the Server accepted a Specification set of that Node.</param>
     /// <param name="pausedBy">The Pause sources of that Node.</param>
     /// <param name="uncalibratedSoilSensor">Whether the Node has a calibrating soil-moisture Sensor without Calibration.</param>
-    public static LotStatusInputs InputsOf(bool hasNode, bool hasDeclared, LotPauseSources pausedBy, bool uncalibratedSoilSensor) =>
+    /// <param name="openLowAlert">Whether a low-side Threshold Alert is open on a soil-moisture Sensor of the Node.</param>
+    public static LotStatusInputs InputsOf(bool hasNode, bool hasDeclared, LotPauseSources pausedBy, bool uncalibratedSoilSensor, bool openLowAlert) =>
         new(
             hasNode,
             pausedBy,
             hasNode && !hasDeclared ? LotSilence.Node : LotSilence.None,
             uncalibratedSoilSensor,
-            OpenLowAlert: false);
+            openLowAlert);
 
     /// <inheritdoc />
     public Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
@@ -205,6 +243,11 @@ public sealed class LotsProjector : IProjector
         if (SensorIdOf(journalEvent.StreamId) is { } sensorId)
         {
             return ApplySensorAsync(sensorId, journalEvent.Data, transaction, cancellationToken);
+        }
+
+        if (AlertIdOf(journalEvent.StreamId) is { } alertId)
+        {
+            return ApplyAlertAsync(alertId, journalEvent.Data, transaction, cancellationToken);
         }
 
         return Task.CompletedTask;
@@ -346,6 +389,64 @@ public sealed class LotsProjector : IProjector
         }
     }
 
+    private static async Task ApplyAlertAsync(Guid alertId, object data, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        string? deviceId;
+        DateTimeOffset at;
+
+        switch (data)
+        {
+            case AlertOpened opened:
+                deviceId = opened.DeviceId;
+                at = opened.OpenedAt;
+                await using (var command = new NpgsqlCommand(OpenAlertSql, transaction.Connection, transaction))
+                {
+                    command.Parameters.AddWithValue("alert_id", alertId);
+                    command.Parameters.AddWithValue("device_id", opened.DeviceId);
+                    command.Parameters.AddWithValue("sensor_id", opened.SensorId);
+                    command.Parameters.AddWithValue("quantity", opened.Quantity);
+                    command.Parameters.AddWithValue("kind", KindName(opened.Kind));
+                    command.Parameters.AddWithValue("side", NpgsqlDbType.Text, (object?)SideName(opened.Side) ?? DBNull.Value);
+                    command.Parameters.AddWithValue("opened_at", opened.OpenedAt.ToUniversalTime());
+
+                    // Opened once: an event applied again evaluates nothing.
+                    if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)
+                    {
+                        return;
+                    }
+                }
+
+                break;
+            case AlertClosed closed:
+                at = closed.ClosedAt;
+                await using (var command = new NpgsqlCommand(CloseAlertSql, transaction.Connection, transaction))
+                {
+                    command.Parameters.AddWithValue("alert_id", alertId);
+                    command.Parameters.AddWithValue("closed_at", closed.ClosedAt.ToUniversalTime());
+                    deviceId = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+                }
+
+                break;
+            default:
+                return;
+        }
+
+        if (deviceId is not null)
+        {
+            await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // Only a Threshold Alert reaches the rule; a kind this projector does not know yet is kept under its name.
+    private static string KindName(AlertKind kind) => kind == AlertKind.Threshold ? ThresholdKindName : kind.ToString();
+
+    private static string? SideName(ThresholdSide? side) => side switch
+    {
+        ThresholdSide.Low => LowSide,
+        ThresholdSide.High => HighSide,
+        _ => null,
+    };
+
     private static async Task PauseAsync(
         NpgsqlTransaction transaction,
         string deviceId,
@@ -378,6 +479,8 @@ public sealed class LotsProjector : IProjector
         {
             select.Parameters.AddWithValue("key", key);
             select.Parameters.AddWithValue("soil_moisture", CryptoSpec.SensorQuantitySoilMoisture);
+            select.Parameters.AddWithValue("threshold", ThresholdKindName);
+            select.Parameters.AddWithValue("low", LowSide);
 
             await using var reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -398,7 +501,7 @@ public sealed class LotsProjector : IProjector
                     ends.Add(await ReadTimeAsync(reader, 6, cancellationToken).ConfigureAwait(false));
                 }
 
-                var result = LotStatusRule.Evaluate(InputsOf(reader.GetBoolean(1), reader.GetBoolean(2), sources, reader.GetBoolean(7)));
+                var result = LotStatusRule.Evaluate(InputsOf(reader.GetBoolean(1), reader.GetBoolean(2), sources, reader.GetBoolean(7), reader.GetBoolean(8)));
                 var pausedUntil = result.Status == LotStatusRule.Paused ? LotStatusRule.PausedUntil(ends) : null;
 
                 decisions.Add((reader.GetString(0), result, pausedUntil));

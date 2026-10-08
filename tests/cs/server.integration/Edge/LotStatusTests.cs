@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sensors;
@@ -19,8 +20,9 @@ namespace Coldframe.Server.IntegrationTests.Edge;
 /// </summary>
 /// <remarks>
 /// Device and Sensor events are seeded on fresh streams exactly as the grains journal them, because nothing
-/// pauses a Device before Epic 8. <c>needsWater</c> and <c>unknown</c> with cause <c>hub</c> have no producer
-/// before Epics 6 and 7, so the list-order test writes those two rows into <c>lots</c> itself.
+/// pauses a Device before Epic 8. <c>needsWater</c> comes from Alert events (Story 6.1), seeded the same way.
+/// <c>unknown</c> with cause <c>hub</c> has no producer before Epic 7, so the list-order test writes that row
+/// into <c>lots</c> itself.
 /// </remarks>
 [Collection(IngestSuites.Name)]
 public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixture>
@@ -352,19 +354,20 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         var needsCalibration = await edge.SeedLotAsync(siteId, "Peppers", cancellationToken, new LotClaimed(calibrationNode));
         await DeclareAsync(calibrationNode, at, cancellationToken, Soil);
 
-        var needsWater = await edge.SeedLotAsync(siteId, "Tomatoes", cancellationToken, new LotClaimed("aa03"));
+        // A calibrated soil Sensor with an open low-side Threshold Alert: the Lot needs water.
+        var dryNode = await SeedNodeAsync(siteId, cancellationToken);
+        var needsWater = await edge.SeedLotAsync(siteId, "Tomatoes", cancellationToken, new LotClaimed(dryNode));
+        var drySoil = (await DeclareAsync(dryNode, at, cancellationToken, Soil))[0];
+        await CalibrateAsync(drySoil, at, cancellationToken);
+        await OpenAlertAsync(siteId, needsWater, dryNode, drySoil, ThresholdSide.Low, Soil.Quantity, at, cancellationToken);
 
-        // The two statuses without a producer, written as the projector will store them.
+        // The one status without a producer, written as the projector will store it.
         await using (var seed = edge.Database.CreateCommand(
-            """
-            UPDATE lots SET status = 'needsWater', status_since = @at, unknown_cause = NULL WHERE lot_id = @needs_water;
-            UPDATE lots SET status = 'unknown', status_since = @at, unknown_cause = 'hub' WHERE lot_id = @hub_silent;
-            """))
+            "UPDATE lots SET status = 'unknown', status_since = @at, unknown_cause = 'hub' WHERE lot_id = @hub_silent"))
         {
             seed.Parameters.AddWithValue("at", at);
-            seed.Parameters.AddWithValue("needs_water", needsWater);
             seed.Parameters.AddWithValue("hub_silent", hubSilent);
-            Assert.Equal(2, await seed.ExecuteNonQueryAsync(cancellationToken));
+            Assert.Equal(1, await seed.ExecuteNonQueryAsync(cancellationToken));
         }
 
         var lots = await ListAsync(member, siteId, cancellationToken);
@@ -388,6 +391,62 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         Assert.Equal(["hub", "node"], lots.Skip(2).Take(2).Select(lot => lot.GetProperty("unknownCause").GetString()));
         Assert.Equal(["site"], Strings(lots[5].GetProperty("pausedBy")));
         Assert.All(lots, lot => Assert.EndsWith("Z", lot.GetProperty("statusSince").GetString(), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnOpenLowSideAlertOnASoilSensorIsNeedsWaterUntilItClosesAndOtherAlertsChangeNothing()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, member) = await SeedSiteAsync(cancellationToken);
+        var node = await SeedNodeAsync(siteId, cancellationToken);
+        var lotId = await edge.SeedLotAsync(siteId, "Tomatoes", cancellationToken, new LotClaimed(node));
+        var start = Now().AddMinutes(10);
+        var sensors = await DeclareAsync(node, start, cancellationToken, Soil, Temperature);
+        await CalibrateAsync(sensors[0], start.AddMinutes(1), cancellationToken);
+
+        async Task<(string? Status, string? Since)> StatusAsync()
+        {
+            var lot = Assert.Single(await ListAsync(member, siteId, cancellationToken));
+            return (lot.GetProperty("status").GetString(), lot.GetProperty("statusSince").GetString());
+        }
+
+        var ok = ("ok", Format(start.AddMinutes(1)));
+        Assert.Equal(ok, await StatusAsync());
+
+        // Too wet, and an Alert of another quantity: neither is "needs water".
+        await OpenAlertAsync(siteId, lotId, node, sensors[0], ThresholdSide.High, Soil.Quantity, start.AddMinutes(2), cancellationToken);
+        await OpenAlertAsync(siteId, lotId, node, sensors[1], ThresholdSide.Low, Temperature.Quantity, start.AddMinutes(3), cancellationToken);
+        Assert.Equal(ok, await StatusAsync());
+
+        // A low-side Alert of a soil Sensor of another Node is not this Lot's.
+        var otherNode = await SeedNodeAsync(siteId, cancellationToken);
+        await OpenAlertAsync(siteId, lotId, otherNode, Guid.NewGuid(), ThresholdSide.Low, Soil.Quantity, start.AddMinutes(4), cancellationToken);
+        Assert.Equal(ok, await StatusAsync());
+
+        var alertId = await OpenAlertAsync(siteId, lotId, node, sensors[0], ThresholdSide.Low, Soil.Quantity, start.AddMinutes(5), cancellationToken);
+        var needsWater = ("needsWater", Format(start.AddMinutes(5)));
+        Assert.Equal(needsWater, await StatusAsync());
+
+        // The Alert's events once more through the projector itself: nothing moves.
+        var again = await edge.ReadStreamAsync($"alert/{alertId}", cancellationToken);
+        await using (var connection = await edge.Database.OpenConnectionAsync(cancellationToken))
+        await using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+        {
+            await new LotsProjector().ApplyAsync(again[0], transaction, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        Assert.Equal(needsWater, await StatusAsync());
+
+        // Closed: back to ok at the time of the close, whatever else is still open.
+        var last = await edge.AppendAsync(
+            $"alert/{alertId}",
+            1,
+            [new AlertClosed(AlertCloseReason.Recovered, start.AddMinutes(50))],
+            cancellationToken);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        Assert.Equal(("ok", Format(start.AddMinutes(50))), await StatusAsync());
     }
 
     [Fact]
@@ -490,6 +549,38 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         await edge.WaitForProjectionCheckpointAsync(Projector, last);
 
         return [.. sensors.Select(sensor => sensor.SensorId)];
+    }
+
+    // A Calibration, as the Sensor grain journals it after its declaration.
+    private async Task CalibrateAsync(Guid sensorId, DateTimeOffset calibratedAt, CancellationToken cancellationToken)
+    {
+        var last = await edge.AppendAsync(
+            $"sensor/{sensorId}",
+            1,
+            [new SensorCalibrated(Guid.CreateVersion7(), 3000, 1000, calibratedAt)],
+            cancellationToken);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+    }
+
+    // An open Threshold Alert, as the Alert grain journals it.
+    private async Task<Guid> OpenAlertAsync(
+        string siteId,
+        string lotId,
+        string deviceId,
+        Guid sensorId,
+        ThresholdSide side,
+        string quantity,
+        DateTimeOffset openedAt,
+        CancellationToken cancellationToken)
+    {
+        var alertId = Guid.NewGuid();
+        var last = await edge.AppendAsync(
+            $"alert/{alertId}",
+            [new AlertOpened(AlertKind.Threshold, side, siteId, lotId, sensorId, deviceId, quantity, 1, openedAt)],
+            cancellationToken);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        return alertId;
     }
 
     // A stored Reading, as the Device grain writes it.

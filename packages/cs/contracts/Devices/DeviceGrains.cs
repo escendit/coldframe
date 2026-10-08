@@ -1,3 +1,5 @@
+using Orleans.Concurrency;
+
 namespace Coldframe.Contracts.Devices;
 
 /// <summary>
@@ -96,10 +98,17 @@ public interface IDeviceGrain : IGrainWithStringKey
     /// and returns when that is persisted. A Calibration whose revision is not above the one held, which is what a
     /// redelivery is, journals nothing and returns as well.
     /// </summary>
+    /// <remarks>
+    /// It interleaves with the Device grain's other calls. The Device grain awaits
+    /// <c>ISensorGrain.Evaluate</c> while it ingests a frame (Story 6.1), and the Sensor grain awaits this call
+    /// while it calibrates: without interleaving the two would wait for each other until a call times out. The
+    /// method only journals one event that no other call reads halfway.
+    /// </remarks>
     /// <param name="request">The Sensor and the Calibration in force.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <exception cref="InvalidOperationException">The Device is not an enrolled Node. Nothing is journaled.</exception>
     [Alias("set-calibration")]
+    [AlwaysInterleave]
     Task SetCalibration(SetCalibration request, CancellationToken cancellationToken = default);
 }
 

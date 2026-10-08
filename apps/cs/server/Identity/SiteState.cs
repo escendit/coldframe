@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
 
@@ -30,8 +31,8 @@ public sealed record DeviceRegistration(
     [property: Id(1)] DateTimeOffset RegisteredAt);
 
 /// <summary>
-/// The state of the Site grain: lifecycle, name, Memberships, former members and whether an ownerless
-/// edit is being refused.
+/// The state of the Site grain: lifecycle, name, Memberships, former members, whether an ownerless
+/// edit is being refused, and the Site's open Alerts (Story 6.1).
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.site-state")]
@@ -51,6 +52,9 @@ public sealed class SiteState
 
     [Id(7)]
     private readonly Dictionary<string, DeviceRegistration> _deviceRegistrations = new(StringComparer.Ordinal);
+
+    [Id(8)]
+    private readonly Dictionary<Guid, SiteAlert> _openAlerts = [];
 
     /// <summary>
     /// Where the Site is in its lifecycle.
@@ -121,6 +125,12 @@ public sealed class SiteState
         && now - registration.RegisteredAt < UserState.IdempotencyKeyLifetime
             ? registration
             : null;
+
+    /// <summary>
+    /// The Site's open Alerts by Alert ID (Story 6.1), as the Alert grains reported them: rebuilt from
+    /// <see cref="SiteAlertOpened"/> and <see cref="SiteAlertClosed"/> on the Site's own stream.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, SiteAlert> OpenAlerts => _openAlerts;
 
     public void Apply(SiteCreated @event)
     {
@@ -193,5 +203,17 @@ public sealed class SiteState
         ArgumentNullException.ThrowIfNull(@event);
         _devices[@event.DeviceId] = @event.Kind;
         _deviceRegistrations[@event.IdempotencyKey] = new DeviceRegistration(@event.DeviceId, @event.RegisteredAt);
+    }
+
+    public void Apply(SiteAlertOpened @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _openAlerts[@event.Alert.AlertId] = @event.Alert;
+    }
+
+    public void Apply(SiteAlertClosed @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _openAlerts.Remove(@event.AlertId);
     }
 }

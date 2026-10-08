@@ -1,7 +1,9 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
+using Coldframe.Server.Alerts;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.IntegrationTests.Journal;
@@ -18,7 +20,7 @@ using Orleans.TestingHost;
 namespace Coldframe.Server.IntegrationTests.Identity;
 
 /// <summary>
-/// A one-silo <see cref="TestCluster"/> with the User, Site, Lot, Device and Sensor grains, Device enrolment keys, the identity and lots projectors, a
+/// A one-silo <see cref="TestCluster"/> with the User, Site, Lot, Device, Sensor and Alert grains, Device enrolment keys, the identity and lots projectors, a
 /// <see cref="FakePhaseTwoOrganizations"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
 /// </summary>
@@ -59,6 +61,18 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public IDeviceGrain Device(string deviceId) => Cluster.GrainFactory.GetGrain<IDeviceGrain>(deviceId);
 
     public ISensorGrain Sensor(Guid sensorId) => Cluster.GrainFactory.GetGrain<ISensorGrain>(sensorId.ToString("D"));
+
+    public IAlertGrain Alert(Guid alertId) => Cluster.GrainFactory.GetGrain<IAlertGrain>(alertId.ToString("D"));
+
+    /// <summary>
+    /// The silo's Alert call filter, which a test can make fail the next opens and closes of any Alert.
+    /// </summary>
+    public AlertFaults AlertFaults => SiloServices.GetRequiredService<AlertFaults>();
+
+    /// <summary>
+    /// The silo's Site call filter, which a test can make fail the next Alert reports to any Site.
+    /// </summary>
+    public SiteFaults SiteFaults => SiloServices.GetRequiredService<SiteFaults>();
 
     /// <summary>
     /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor.
@@ -192,6 +206,7 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddProjector<IdentityProjector>();
             siloBuilder.Services.AddSingleton<IdentityReadModel>();
             siloBuilder.Services.AddLots();
+            siloBuilder.Services.AddAlerts();
 
             // Registered before AddDevices, which adds the real store only when there is none.
             siloBuilder.Services.AddSingleton<DeviceIngestionStore, FaultyIngestionStore>();
@@ -208,6 +223,10 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<LotFaults>());
             siloBuilder.Services.AddSingleton<DeviceFaults>();
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<DeviceFaults>());
+            siloBuilder.Services.AddSingleton<AlertFaults>();
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<AlertFaults>());
+            siloBuilder.Services.AddSingleton<SiteFaults>();
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<SiteFaults>());
             siloBuilder.Services.AddOptions<KeycloakOptions>();
             siloBuilder.Services.AddSingleton<FakePhaseTwoOrganizations>();
             siloBuilder.Services.AddSingleton<IPhaseTwoOrganizations>(provider => provider.GetRequiredService<FakePhaseTwoOrganizations>());
@@ -369,6 +388,70 @@ public sealed class DeviceFaults : IIncomingGrainCallFilter
         {
             Failed++;
             throw new InvalidOperationException("The test failed this Calibration.");
+        }
+
+        return context.Invoke();
+    }
+}
+
+/// <summary>
+/// Passes every grain call on, except that a test can make the next <see cref="IAlertGrain.Open"/> and
+/// <see cref="IAlertGrain.Close"/> calls throw, the way an Alert grain that cannot be reached or cannot write its
+/// journal does. Nothing reaches the grain then.
+/// </summary>
+public sealed class AlertFaults : IIncomingGrainCallFilter
+{
+    private int _failures;
+
+    /// <summary>
+    /// Makes the next <paramref name="calls"/> opens and closes fail, whichever Alert they are for.
+    /// </summary>
+    public void FailNext(int calls) => Interlocked.Exchange(ref _failures, calls);
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is IAlertGrain && context.MethodName is nameof(IAlertGrain.Open) or nameof(IAlertGrain.Close))
+        {
+            if (Interlocked.Decrement(ref _failures) >= 0)
+            {
+                throw new InvalidOperationException("The test failed this Alert call.");
+            }
+
+            Interlocked.Exchange(ref _failures, 0);
+        }
+
+        return context.Invoke();
+    }
+}
+
+/// <summary>
+/// Passes every grain call on, except that a test can make the next <see cref="ISiteGrain.AlertOpened"/> and
+/// <see cref="ISiteGrain.AlertClosed"/> calls throw, the way a Site grain that cannot be reached does. Nothing
+/// reaches the grain then.
+/// </summary>
+public sealed class SiteFaults : IIncomingGrainCallFilter
+{
+    private int _failures;
+
+    /// <summary>
+    /// Makes the next <paramref name="calls"/> Alert reports fail, whichever Site they are for.
+    /// </summary>
+    public void FailNextAlertReports(int calls) => Interlocked.Exchange(ref _failures, calls);
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is ISiteGrain && context.MethodName is nameof(ISiteGrain.AlertOpened) or nameof(ISiteGrain.AlertClosed))
+        {
+            if (Interlocked.Decrement(ref _failures) >= 0)
+            {
+                throw new InvalidOperationException("The test failed this Alert report.");
+            }
+
+            Interlocked.Exchange(ref _failures, 0);
         }
 
         return context.Invoke();

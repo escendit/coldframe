@@ -1,8 +1,10 @@
 using System.Text.Json;
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
+using Coldframe.Server.Alerts;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Journal;
@@ -26,6 +28,7 @@ public sealed class FixtureJournalReplayTests
     // Each alias prefix names the state its events apply to. A new aggregate adds its state here.
     private static readonly Dictionary<string, Func<object>> States = new(StringComparer.Ordinal)
     {
+        ["alert"] = () => new AlertState(),
         ["device"] = () => new DeviceState(),
         ["lot"] = () => new LotState(),
         ["sample"] = () => new SampleState(),
@@ -133,6 +136,35 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(Guid.Parse("0192f3a4-9000-7000-8000-000000000001"), soil.DeliveredCalibrationId);
         Assert.True(soil.DeliveryPending);
         Assert.Equal(((long?)null, (long?)null), (soil.PendingDryRaw, soil.PendingWetRaw));
+
+        // Evaluated (Story 6.1): a streak of two, episode 1 opened, delivered, recovered and delivered, then
+        // episode 2 opened and not delivered yet, and one Reading within since.
+        var firstAlert = Guid.Parse("0760cb39-dfed-5779-9344-f44689933ee4");
+        var secondAlert = Guid.Parse("4321deb0-d3de-52ca-acfb-c3b31ebddd27");
+        Assert.Equal((firstAlert, secondAlert), (AlertIds.Threshold(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394"), 1), AlertIds.Threshold(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394"), 2)));
+        Assert.Equal(2, soil.Episode);
+        Assert.Equal(new SensorOpenAlert(secondAlert, 2, ThresholdSide.Low), soil.OpenAlert);
+        Assert.Equal(new StreakState(ThresholdSide.Low, ThresholdPosition.Within, 1), soil.Streak);
+        Assert.Equal((4L, new DateTimeOffset(2026, 10, 8, 15, 15, 0, TimeSpan.Zero)), (soil.EvaluationEpoch, soil.LastEvaluatedAt));
+        var undelivered = Assert.Single(soil.PendingAlertDeliveries);
+        Assert.Equal((secondAlert, AlertLifecycle.Open), (undelivered.AlertId, undelivered.Change));
+
+        // The first Alert was opened, closed as recovered, and its Site knows both; the second is open and
+        // its Site was not told by the Alert grain yet.
+        var closedAlert = Assert.IsType<AlertState>(states[$"alert/{firstAlert}"]);
+        Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Recovered, false), (closedAlert.Lifecycle, closedAlert.Reason, closedAlert.ReportPending));
+        var openAlert = Assert.IsType<AlertState>(states[$"alert/{secondAlert}"]);
+        Assert.Equal(
+            (AlertLifecycle.Open, (ThresholdSide?)ThresholdSide.Low, "5a4b3c2d1e0f7c20", "soil_moisture", true),
+            (openAlert.Lifecycle, openAlert.Side, openAlert.DeviceId, openAlert.Quantity, openAlert.ReportPending));
+        Assert.Equal(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394"), openAlert.SensorId);
+
+        // The Site's set of open Alerts holds the second only.
+        Assert.Equal([secondAlert], site.OpenAlerts.Keys);
+        Assert.Equal("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", site.OpenAlerts[secondAlert].LotId);
+
+        // Assigned, then paused twice and resumed once: the fourth evaluation epoch.
+        Assert.Equal(4, node.EvaluationEpoch);
 
         // The Node caches the first Calibration of the soil Sensor.
         Assert.Equal(Guid.Parse("0192f3a4-9000-7000-8000-000000000001"), node.CalibrationOf(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394")));

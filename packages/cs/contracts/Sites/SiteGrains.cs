@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 
@@ -105,6 +106,37 @@ public interface ISiteGrain : IGrainWithStringKey
         DeviceKind kind,
         string idempotencyKey,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records that an Alert opened on the Site (Story 6.1). Only the Alert grain calls it, again until it
+    /// returns. Idempotent: an Alert the Site already lists journals nothing; otherwise the Site journals
+    /// <see cref="SiteAlertOpened"/>. A Site that is not <see cref="SiteLifecycle.Active"/> keeps no Alerts and
+    /// journals nothing. The Site grain never calls User grains.
+    /// </summary>
+    /// <param name="alert">The Alert that opened.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("alert-opened")]
+    Task AlertOpened(SiteAlert alert, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records that an Alert closed (Story 6.1). Only the Alert grain calls it, after the Site acknowledged the
+    /// open, again until it returns. Idempotent: an Alert the Site does not list journals nothing; otherwise
+    /// the Site journals <see cref="SiteAlertClosed"/>.
+    /// </summary>
+    /// <param name="alertId">The Alert that closed.</param>
+    /// <param name="reason">Why it closed.</param>
+    /// <param name="closedAt">When it closed.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("alert-closed")]
+    Task AlertClosed(Guid alertId, AlertCloseReason reason, DateTimeOffset closedAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the Site's open Alerts, oldest first, from the state the grain replays from its own stream
+    /// (AD-1). Empty for a Site that is not <see cref="SiteLifecycle.Active"/>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("open-alerts")]
+    Task<IReadOnlyList<SiteAlert>> OpenAlerts(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -394,3 +426,26 @@ public sealed record SitePause([property: Id(0)] bool Paused, [property: Id(1)] 
 public sealed record DeviceRegistrationResult(
     [property: Id(0)] DeviceRegistrationOutcome Outcome,
     [property: Id(1)] SitePause? Pause = null);
+
+/// <summary>
+/// An open Alert as its Site lists it (Story 6.1).
+/// </summary>
+/// <param name="AlertId">The Alert ID.</param>
+/// <param name="Kind">What the Alert is about.</param>
+/// <param name="Side">The Threshold that was crossed; <see langword="null"/> for an Alert that is not a Threshold Alert.</param>
+/// <param name="LotId">The Lot the Alert was opened for.</param>
+/// <param name="SensorId">The Sensor that opened the Alert.</param>
+/// <param name="DeviceId">The Device ID of that Sensor's Node.</param>
+/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>.</param>
+/// <param name="OpenedAt">When the Alert opened.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-alert")]
+public sealed record SiteAlert(
+    [property: Id(0)] Guid AlertId,
+    [property: Id(1)] AlertKind Kind,
+    [property: Id(2)] ThresholdSide? Side,
+    [property: Id(3)] string LotId,
+    [property: Id(4)] Guid SensorId,
+    [property: Id(5)] string DeviceId,
+    [property: Id(6)] string Quantity,
+    [property: Id(7)] DateTimeOffset OpenedAt);

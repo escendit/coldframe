@@ -1,3 +1,4 @@
+using Coldframe.Server.Alerts;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Edge;
 using Coldframe.Server.Hosting;
@@ -13,6 +14,7 @@ builder
     .AddSiteIdentity()
     .AddLots()
     .AddDevices()
+    .AddAlerts()
     .AddKeycloakEventPipeline()
     .AddSilo()
     .AddEdgeApi()

@@ -115,9 +115,29 @@ public sealed class LotStateTests
     [InlineData(true, true, LotSilence.None)]
     public void ANodeThatDeclaredNothingIsTheOnlySilenceTheProjectorKnows(bool hasNode, bool hasDeclared, LotSilence silence)
     {
-        var inputs = LotsProjector.InputsOf(hasNode, hasDeclared, LotPauseSources.Site, uncalibratedSoilSensor: true);
+        var inputs = LotsProjector.InputsOf(hasNode, hasDeclared, LotPauseSources.Site, uncalibratedSoilSensor: true, openLowAlert: false);
 
         Assert.Equal(new LotStatusInputs(hasNode, LotPauseSources.Site, silence, true, OpenLowAlert: false), inputs);
+    }
+
+    [Theory]
+    [InlineData(true, "needsWater")]
+    [InlineData(false, "ok")]
+    public void AnOpenLowSideAlertOnASoilSensorIsTheProjectorsNeedsWater(bool openLowAlert, string status)
+    {
+        var inputs = LotsProjector.InputsOf(hasNode: true, hasDeclared: true, LotPauseSources.None, uncalibratedSoilSensor: false, openLowAlert);
+
+        Assert.Equal(openLowAlert, inputs.OpenLowAlert);
+        Assert.Equal(status, LotStatusRule.Evaluate(inputs).Status);
+    }
+
+    [Theory]
+    [InlineData("alert/0760cb39-dfed-5779-9344-f44689933ee4", "0760cb39-dfed-5779-9344-f44689933ee4")]
+    [InlineData("alert/not-a-uuid", null)]
+    [InlineData("sensor/0760cb39-dfed-5779-9344-f44689933ee4", null)]
+    public void AlertStreamsAreProjected(string streamId, string? alertId)
+    {
+        Assert.Equal(alertId, LotsProjector.AlertIdOf(streamId)?.ToString());
     }
 
     [Theory]
