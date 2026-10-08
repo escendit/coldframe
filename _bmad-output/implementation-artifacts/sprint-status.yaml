@@ -80,7 +80,7 @@ development_status:
 
   epic-5: backlog
   5-1-calibration-on-the-server: done
-  5-2-calibrate-from-the-app: backlog
+  5-2-calibrate-from-the-app: done
   5-3-thresholds-on-the-server: backlog
   5-4-set-thresholds-in-the-app-and-see-them-on-the-chart: backlog
   epic-5-retrospective: optional
