@@ -134,7 +134,7 @@ func thresholdCancelAndSave() {
   #expect(thresholds().title.string == "Thresholds for Tomatoes")
 }
 
-@Test("UX-DR84 a Member sees the columns read-only: no Save, no edit control, Back instead of Cancel")
+@Test("UX-DR84 a Member sees the columns read-only: no Save, no edit control, Back not Cancel")
 func thresholdMemberReadOnly() throws {
   let member = thresholds(canEdit: false)
   let column = try #require(member.columns.first)
@@ -235,7 +235,7 @@ func thresholdActionsReachTheService() {
 
 // MARK: - Entry points (UX-DR84) and the chart band (UX-DR5, UX-DR32, UX-DR33)
 
-@Test("UX-DR84 Set Thresholds shows for an editor, View Thresholds for a Member, hidden without a Sensor")
+@Test("UX-DR84 Set Thresholds shows for an editor, View Thresholds for a Member, else hidden")
 func lotDetailThresholdsAction() {
   var editor = LotDetailFixture.thresholds
   #expect(editor.build().thresholdsAction == .thresholdsActionSet)

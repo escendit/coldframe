@@ -128,11 +128,13 @@ func uxDrCoverage() throws {
   }
 }
 
-@Test("UX-DR124 UX-DR91 the Threshold copy is in the catalogue with the placeholders the views fill")
+@Test("UX-DR124 UX-DR91 the Threshold copy is in the catalogue with its placeholders")
 func thresholdCopy() throws {
   let entries = try Catalogue.entries()
   #expect(entries["thresholds_low_not_below_high"] == "Low must stay below high.")
-  #expect(entries["thresholds_notice_forbidden"] == "You can't change this on %1$@. Ask an Owner or Administrator.")
+  #expect(
+    entries["thresholds_notice_forbidden"]
+      == "You can't change this on %1$@. Ask an Owner or Administrator.")
   #expect(entries["lot_detail_chart_legend"] == "solid bar = below %1$@ %%")
   for kind in ThresholdsNoticeKind.allCases {
     #expect(entries[kind.message.rawValue] != nil, "\(kind)")
