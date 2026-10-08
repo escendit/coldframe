@@ -36,15 +36,29 @@ export function getSensorCalibration(locals: Locals, siteId: string, sensorId: s
   return call(locals, dependencies, (client) => client.GET('/sites/{siteId}/sensors/{sensorId}/calibration', { params: { path: { siteId, sensorId } } }));
 }
 
-/** Saves one reference point, named by the `reading_seq` of a stored Reading. */
-export function calibrateSensor(locals: Locals, siteId: string, sensorId: string, point: CalibratePoint, readingSeq: number, dependencies: SitesDependencies = {}) {
+/** The Server's Problem Details type for a Calibration that is saved but not yet acknowledged by the Node. */
+const notDeliveredProblem = 'urn:coldframe:problem:calibration-not-delivered';
+
+function isNotDelivered(response: Response, body: unknown): boolean {
+  return response.status === 503 && typeof body === 'object' && body !== null && 'type' in body && body.type === notDeliveredProblem;
+}
+
+/**
+ * Saves one reference point, named by the `reading_seq` of a stored Reading. `notDelivered` is true for the
+ * 503 `calibration-not-delivered` problem, which the generic 503 `unavailable` cannot tell apart.
+ */
+export async function calibrateSensor(locals: Locals, siteId: string, sensorId: string, point: CalibratePoint, readingSeq: number, dependencies: SitesDependencies = {}) {
   const reference = { readingSeq };
-  return call(locals, dependencies, (client) =>
-    client.POST('/sites/{siteId}/sensors/{sensorId}/calibration', {
+  let notDelivered = false;
+  const result = await call(locals, dependencies, async (client) => {
+    const answer = await client.POST('/sites/{siteId}/sensors/{sensorId}/calibration', {
       params: { path: { siteId, sensorId } },
       body: point === 'dry' ? { dry: reference } : { wet: reference },
-    }),
-  );
+    });
+    notDelivered = isNotDelivered(answer.response, answer.error);
+    return answer;
+  });
+  return { result, notDelivered };
 }
 
 function noticeOfPage(error: SitesError): CalibratePageNotice {
@@ -141,25 +155,24 @@ export async function calibrateAction(
   const readingSeq = Number(text(form, 'readingSeq'));
   const savedAt = (dependencies.now?.() ?? new Date()).toISOString();
 
-  const result = await calibrateSensor(locals, siteId, sensorId, point, readingSeq, dependencies);
+  const { result, notDelivered } = await calibrateSensor(locals, siteId, sensorId, point, readingSeq, dependencies);
   if ('ok' in result) {
     const saved = result.ok;
-    return saved.calibrated && saved.dry !== undefined && saved.wet !== undefined && point === 'wet'
+    // Whichever point completed the pair, the Calibration is saved: the page goes to the confirmation.
+    return saved.calibrated && saved.dry !== undefined && saved.wet !== undefined
       ? { done: true, point, calibrated: true, dryRaw: saved.dry.rawValue, wetRaw: saved.wet.rawValue, savedAt }
       : { done: true, point, calibrated: saved.calibrated };
   }
   if (result.error === 'unauthorized') {
     return signedOutRedirect();
   }
-  if (result.error === 'unavailable') {
-    // The Server answers 503 when it saved the Calibration but the Node has not confirmed it yet: read it back.
+  if (notDelivered) {
+    // The Calibration is saved but the Node has not acknowledged it: read it back so the confirmation shows it.
     const state = await getSensorCalibration(locals, siteId, sensorId, dependencies);
-    if ('ok' in state && state.ok.calibrated && state.ok.dry !== undefined && state.ok.wet !== undefined) {
-      const chosen = state.ok.readings.find((reading) => reading.readingSeq === readingSeq);
-      if (chosen === undefined || chosen.rawValue === state.ok.wet.rawValue || chosen.rawValue === state.ok.dry.rawValue) {
-        return fail(503, { notice: 'notDelivered', point, dryRaw: state.ok.dry.rawValue, wetRaw: state.ok.wet.rawValue, savedAt });
-      }
+    if ('ok' in state && state.ok.dry !== undefined && state.ok.wet !== undefined) {
+      return fail(503, { notice: 'notDelivered', point, dryRaw: state.ok.dry.rawValue, wetRaw: state.ok.wet.rawValue, savedAt });
     }
+    return fail(503, { notice: 'notDelivered', point });
   }
   const notice = noticeOf(result.error);
   return fail(statusOfNotice[notice], { notice, point });

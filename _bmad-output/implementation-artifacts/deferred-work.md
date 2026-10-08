@@ -589,3 +589,35 @@ source_spec: `spec-5-1-calibration-on-the-server.md`
 severity: low
 reason: readings is partitioned by measured_at and only indexed on (sensor_id, measured_at); the lookup is rare (admin calibration) but grows with history. An index on (sensor_id, reading_seq) or a bounded time window would fix it.
 status: open
+
+### DW-77: The Add-a-Node outcome offers Calibrate before the Node has reported, so the flow opens on "Node has not sent a Reading".
+origin: code-review 58
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/setup/NodeSetupEngine.kt
+source_spec: `spec-5-2-calibrate-from-the-app.md`
+severity: low
+reason: The spec names the Node-added outcome as an entry point, but a new Node has stored no Readings, so the Lot has no calibratable Sensor id to open Calibrate on. The failure already says what to do and offers Try again. A waiting state that polls the Lot until the Sensor appears, or hiding the action until the Lot has one, would remove the dead end.
+status: open
+
+### DW-78: Lot Sensor responses carry sensorId and calibratable for every role, including Members, who cannot use the Calibration endpoint.
+origin: code-review 58
+location: apps/cs/server/Edge/EdgeApi.cs
+source_spec: `spec-5-2-calibrate-from-the-app.md`
+severity: low
+reason: GET /lots/{id} is a Member read, so a read-only Member now receives Sensor ids that key the Administrator-only calibration endpoint. Nothing is writable with them, but the ids were not exposed to that role before; return them from Administrator up only if that matters.
+status: open
+
+### DW-79: CalibrateEngine.open and reset can race with the init collector that resets on site state changes.
+origin: code-review 58
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/calibrate/CalibrateEngine.kt
+source_spec: `spec-5-2-calibrate-from-the-app.md`
+severity: low
+reason: If the engine is built lazily and open runs before the collector's first emission, that emission resets to Idle and cancels the load. No occurrence is known (the engine is built with the Sites core), only the ordering.
+status: open
+
+### DW-80: SensorReadings.RecentAsync reads reading_seq as decimal and casts to ulong, while the contract and the Kotlin and TypeScript clients use signed 64-bit.
+origin: code-review 58
+location: apps/cs/server/Sensors/SensorReadings.cs
+source_spec: `spec-5-2-calibrate-from-the-app.md`
+severity: low
+reason: A reading_seq above long.MaxValue would wrap in Kotlin and lose precision past 2^53 in TypeScript. Not reachable in practice; validate or narrow the type if the sequence is ever widened.
+status: open

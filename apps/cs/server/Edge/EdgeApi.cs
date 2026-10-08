@@ -640,6 +640,18 @@ public static partial class EdgeApi
         IGrainFactory grains,
         CancellationToken cancellationToken)
     {
+        // A Sensor is calibratable when its Specification says so; a Sensor no Node declared is not. The grains
+        // are asked once per Sensor and all at the same time, not one after the other per Reading.
+        var calibratable = readings
+            .Where(reading => reading.SensorId is not null)
+            .Select(reading => reading.SensorId!.Value)
+            .Distinct()
+            .ToDictionary(
+                sensorId => sensorId,
+                sensorId => IsCalibratableAsync(grains, sensorId, cancellationToken));
+
+        await Task.WhenAll(calibratable.Values).ConfigureAwait(false);
+
         var responses = new List<SensorReadingResponse>(readings.Count);
 
         foreach (var reading in readings)
@@ -649,21 +661,20 @@ public static partial class EdgeApi
                 continue;
             }
 
-            // A Sensor is calibratable when its Specification says so; a Sensor no Node declared is not.
-            var calibratable = reading.SensorId is { } sensorId
-                && await grains.GetGrain<ISensorGrain>(sensorId.ToString("D")).Describe(cancellationToken).ConfigureAwait(false) is { Specification.Calibration: true };
-
             responses.Add(new SensorReadingResponse(
                 reading.Quantity,
                 converted.Value,
                 converted.Unit,
                 ToServerTime(reading.MeasuredAt),
                 reading.SensorId?.ToString("D"),
-                calibratable));
+                reading.SensorId is { } sensorId && await calibratable[sensorId].ConfigureAwait(false)));
         }
 
         return responses;
     }
+
+    private static async Task<bool> IsCalibratableAsync(IGrainFactory grains, Guid sensorId, CancellationToken cancellationToken) =>
+        await grains.GetGrain<ISensorGrain>(sensorId.ToString("D")).Describe(cancellationToken).ConfigureAwait(false) is { Specification.Calibration: true };
 
     /// <summary>
     /// Maps a stored charger token to the contract's <c>ChargeState</c>; <see langword="null"/> when it is unknown or absent.

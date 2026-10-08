@@ -3,7 +3,7 @@ import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import CalibratePage from '../../../apps/ts/web/src/routes/(app)/garden/[lotId]/calibrate/+page.svelte';
 import LotTiles from '$lib/components/LotTiles.svelte';
-import { calibrateAccessOf, calibrateStep, calibratableSensor, confirmation, freshReading, readingAnnouncement, recentReadings, type CalibrateStep, type CalibrationReading, type CalibrationState } from '$lib/calibrate';
+import { calibrateAccessOf, calibrateStep, calibratableSensor, confirmation, freshReading, newestSeq, readingAnnouncement, recentReadings, type CalibrateStep, type CalibrationReading, type CalibrationState } from '$lib/calibrate';
 import type { Lot } from '$lib/lots';
 import { calibrateSensor, calibrateAction, loadCalibrate } from '$lib/server/calibrate';
 import type { Site } from '$lib/sites';
@@ -64,10 +64,12 @@ describe('Calibrate rules the shell only formats (AD-14)', () => {
     expect(calibrateStep(lot('paused', { pausedBy: ['site'] }), uncalibrated, null)).toBe('paused');
   });
 
-  test('a Reading is fresh only when taken after the step started', () => {
-    expect(freshReading([newer, older], new Date('2026-10-06T05:10:00.000Z'))?.readingSeq).toBe(41);
-    expect(freshReading([newer, older], new Date('2026-10-06T05:17:00.000Z'))).toBeNull();
-    expect(freshReading([], now)).toBeNull();
+  test('a Reading is fresh only when stored after the step started, whatever the clocks say', () => {
+    expect(freshReading([newer, older], 40)?.readingSeq).toBe(41);
+    expect(freshReading([newer, older], 41)).toBeNull();
+    expect(freshReading([], -1)).toBeNull();
+    expect(newestSeq([newer, older])).toBe(41);
+    expect(newestSeq([])).toBe(-1);
   });
 
   test('the polite announcement names the time, the raw value and the action that became available', () => {
@@ -76,7 +78,7 @@ describe('Calibrate rules the shell only formats (AD-14)', () => {
   });
 
   test('recent Readings are listed newest first with a time and the raw value', () => {
-    expect(recentReadings([newer, older], now, 'en', 'UTC').map((item) => [item.readingSeq, item.label])).toEqual([
+    expect(recentReadings([newer, older], 'en', 'UTC').map((item) => [item.readingSeq, item.label])).toEqual([
       [41, '5:17 AM, raw 612'],
       [40, '5:02 AM, raw 2,900'],
     ]);
@@ -133,7 +135,7 @@ describe('The Calibrate calls (AD-14)', () => {
   test('recording sends only the chosen point with its readingSeq', async () => {
     const server = fakeServer(() => jsonResponse(200, { calibrated: false, pendingDry: { rawValue: 2900 } }));
     const result = await calibrateSensor(locals, siteId, sensorId, 'dry', 40, { serverUrl, fetch: server.fetch });
-    expect(result).toEqual({ ok: { calibrated: false, pendingDry: { rawValue: 2900 } } });
+    expect(result).toEqual({ result: { ok: { calibrated: false, pendingDry: { rawValue: 2900 } } }, notDelivered: false });
     expect(server.seen[0]).toMatchObject({ method: 'POST', path: `/sites/${siteId}/sensors/${sensorId}/calibration` });
     expect(JSON.parse(server.seen[0]?.body ?? '')).toEqual({ dry: { readingSeq: 40 } });
   });
@@ -179,9 +181,26 @@ describe('The Calibrate calls (AD-14)', () => {
     expect(failure).toMatchObject({ status: 503, data: { notice: 'notDelivered', point: 'wet', dryRaw: 2900, wetRaw: 612, savedAt: now.toISOString() } });
   });
 
-  test('a 503 that saved nothing is the generic unavailable notice', async () => {
-    const server = fakeServer((request) => (request.method === 'POST' ? problemResponse(503, 'calibration-not-delivered') : jsonResponse(200, uncalibrated)));
-    expect(await calibrateAction(locals, form(fields), { serverUrl, fetch: server.fetch, now: () => now })).toMatchObject({ data: { notice: 'unavailable' } });
+  test('a dry point that completes a pending wet point answers calibrated with both raw values', async () => {
+    const server = fakeServer(() => jsonResponse(200, { calibrated: true, calibrationId: 'c1', dry: { rawValue: 2900 }, wet: { rawValue: 612 } }));
+    expect(await calibrateAction(locals, form({ ...fields, point: 'dry' }), { serverUrl, fetch: server.fetch, now: () => now })).toEqual({
+      done: true,
+      point: 'dry',
+      calibrated: true,
+      dryRaw: 2900,
+      wetRaw: 612,
+      savedAt: now.toISOString(),
+    });
+  });
+
+  test('not delivered whose read-back fails is still the not-delivered notice, without values', async () => {
+    const server = fakeServer((request) => (request.method === 'POST' ? problemResponse(503, 'calibration-not-delivered') : problemResponse(500, 'internal')));
+    expect(await calibrateAction(locals, form(fields), { serverUrl, fetch: server.fetch, now: () => now })).toMatchObject({ status: 503, data: { notice: 'notDelivered', point: 'wet' } });
+  });
+
+  test('a 503 that is not calibration-not-delivered is the generic unavailable notice', async () => {
+    const server = fakeServer((request) => (request.method === 'POST' ? problemResponse(503, 'unavailable') : jsonResponse(200, uncalibrated)));
+    expect(await calibrateAction(locals, form(fields), { serverUrl, fetch: server.fetch, now: () => now })).toMatchObject({ status: 503, data: { notice: 'unavailable' } });
   });
 });
 

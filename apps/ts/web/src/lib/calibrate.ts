@@ -44,10 +44,18 @@ export function calibrateStep(lot: Pick<Lot, 'status' | 'pausedBy'>, state: Cali
   return state.pendingDry === undefined ? 'dry' : 'wet';
 }
 
-/** The newest stored Reading taken after the step started, or null while the flow still waits. */
-export function freshReading(readings: readonly CalibrationReading[], startedAt: Date): CalibrationReading | null {
-  const since = startedAt.getTime();
-  return readings.find((reading) => Date.parse(reading.measuredAt) > since) ?? null;
+/** The newest `readingSeq` among the Readings, or -1 when there are none. */
+export function newestSeq(readings: readonly CalibrationReading[]): number {
+  return readings.reduce((newest, reading) => Math.max(newest, reading.readingSeq), -1);
+}
+
+/**
+ * The newest stored Reading stored after the step started, or null while the flow still waits. The step's
+ * start is the newest `readingSeq` seen when it began: the order is the Server's, so no clock (the phone's
+ * or the Node's) can make a Reading look older than the step.
+ */
+export function freshReading(readings: readonly CalibrationReading[], afterSeq: number): CalibrationReading | null {
+  return readings.find((reading) => reading.readingSeq > afterSeq) ?? null;
 }
 
 function timeOf(reading: CalibrationReading, locale: string, timeZone: string): string {
@@ -71,7 +79,7 @@ export interface RecentReading {
 }
 
 /** The Server's recent stored Readings, newest first, each named by its `readingSeq`. */
-export function recentReadings(readings: readonly CalibrationReading[], _now: Date, locale: string, timeZone: string): readonly RecentReading[] {
+export function recentReadings(readings: readonly CalibrationReading[], locale: string, timeZone: string): readonly RecentReading[] {
   return readings.map((reading) => ({ readingSeq: reading.readingSeq, label: t('calibrate.recentItem', { time: timeOf(reading, locale, timeZone), raw: reading.rawValue }) }));
 }
 

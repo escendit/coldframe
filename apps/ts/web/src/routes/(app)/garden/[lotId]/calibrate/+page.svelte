@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -11,6 +11,7 @@
     calibrateStep,
     confirmation,
     freshReading,
+    newestSeq,
     lastReadingText,
     readingAnnouncement,
     recentReadings,
@@ -40,24 +41,20 @@
   /** Both points of a Calibration this page saved; the confirmation stays on screen until Done. */
   let recorded: Recorded | null = $state(null);
 
-  /** The step's start: only a Reading taken after it enables Record. */
-  let started: Date | null = $state(null);
-  const startedAt = $derived(started ?? new Date(data.loadedAt));
   const step = $derived(lot === null || calibration === null ? null : calibrateStep(lot, calibration, recorded));
-  /** The Reading just recorded: the next step waits for one taken after it, whatever the clocks say. */
-  let consumedAt = 0;
-  let lastStep: string | null = null;
-  $effect(() => {
-    if (step !== lastStep) {
-      lastStep = step;
-      started = new Date(Math.max(Date.now(), consumedAt));
-    }
-  });
+  /**
+   * The step's start, as the newest `readingSeq` seen when it began: only a Reading stored after it enables
+   * Record. It moves when a point is recorded, in the same tick as the data and the step, so the Reading just
+   * used never counts as fresh for the next step.
+   */
+  let baseline: number | null = $state(null);
+  const loadedSeq = newestSeq(untrack(() => data.state?.readings ?? []));
+  const baselineSeq = $derived(baseline ?? loadedSeq);
 
   const readings = $derived(calibration?.readings ?? []);
-  const fresh = $derived(step === 'dry' || step === 'wet' ? freshReading(readings, startedAt) : null);
+  const fresh = $derived(step === 'dry' || step === 'wet' ? freshReading(readings, baselineSeq) : null);
   const last = $derived(lastReadingText(readings, locale, timeZone));
-  const recent = $derived(recentReadings(readings, startedAt, locale, timeZone));
+  const recent = $derived(recentReadings(readings, locale, timeZone));
   const sure = $derived.by(() => {
     const saved = recorded;
     return lot === null || saved === null ? null : confirmation(lot.name, lot, saved.savedAt);
@@ -95,8 +92,8 @@
     const chosen = readings.find((reading) => String(reading.readingSeq) === formData.get('readingSeq'));
     working = true;
     return async ({ result, update }) => {
-      if (result.type === 'success' && chosen !== undefined) {
-        consumedAt = Date.parse(chosen.measuredAt);
+      if (result.type === 'success') {
+        baseline = Math.max(chosen?.readingSeq ?? -1, newestSeq(readings), baselineSeq);
       }
       await update();
       working = false;
