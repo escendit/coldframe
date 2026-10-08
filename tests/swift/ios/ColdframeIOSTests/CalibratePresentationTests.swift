@@ -89,7 +89,8 @@ func calibrateFreshReading() {
   #expect(presentation.candidate?.readingSeq == 42)
   #expect(presentation.announcement?.announcement == .polite)
   #expect(
-    presentation.spokenAnnouncement(context) == "New Reading 07:02, raw 612. Record dry is available.")
+    presentation.spokenAnnouncement(context)
+      == "New Reading 07:02, raw 612. Record dry is available.")
 }
 
 @Test("Story 5.2 the wet step announces Record wet")
@@ -222,7 +223,7 @@ func calibrateOnTheNodeOutcome() {
   #expect(onError.outcome?.secondary == nil)
 }
 
-@Test("Story 5.2 the needs-calibration tile gets its Calibrate control from the core, others do not")
+@Test("Story 5.2 the needs-calibration tile gets its Calibrate control from the core")
 func calibrateOnTheTile() {
   var calibrating = Overview.needsCalibration
   calibrating.opensCalibrate = true

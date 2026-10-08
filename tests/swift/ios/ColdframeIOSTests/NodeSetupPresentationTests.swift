@@ -19,7 +19,8 @@ func nodeSetup(
   newLotName: String = "", newLotError: String? = nil, creatingLot: Bool = false,
   assigning: Bool = false, lotNotice: String? = nil, lotNoticeLot: String? = nil,
   lotsRetryable: Bool = false, outcome: String? = nil, outcomePrimary: String? = nil,
-  outcomeSecondary: String? = nil, stoppedStep: Int = 0, confirmingLeave: Bool = false, announcementId: Int = 0,
+  outcomeSecondary: String? = nil, stoppedStep: Int = 0, confirmingLeave: Bool = false,
+  announcementId: Int = 0,
   announcementKind: String? = nil, announcementAssertive: Bool = false,
   announcementLot: String? = nil, announcementSignal: String? = nil,
   announcementOutcome: String? = nil
@@ -35,7 +36,8 @@ func nodeSetup(
     newLotName: newLotName, newLotError: newLotError, creatingLot: creatingLot,
     assigning: assigning, lotNotice: lotNotice, lotNoticeLot: lotNoticeLot,
     lotsRetryable: lotsRetryable, outcome: outcome, outcomePrimary: outcomePrimary,
-    outcomeSecondary: outcomeSecondary, stoppedStep: stoppedStep, confirmingLeave: confirmingLeave, announcementId: announcementId,
+    outcomeSecondary: outcomeSecondary, stoppedStep: stoppedStep, confirmingLeave: confirmingLeave,
+    announcementId: announcementId,
     announcementKind: announcementKind, announcementAssertive: announcementAssertive,
     announcementNode: "7C19", announcementLot: announcementLot,
     announcementSignal: announcementSignal, announcementOutcome: announcementOutcome)
@@ -624,7 +626,8 @@ func nodeSnapshotKeys() {
       "assigned", "stoppedListening", "lostConnection", "nodeRefused", "serverUnreachable",
       "fingerprintMismatch", "alreadyAssigned", "onAnotherSite", "notAllowed",
     ])
-  #expect(NodeOutcomeActionKind.allCases.map(\.rawValue) == ["done", "startOver", "close", "calibrate"])
+  #expect(
+    NodeOutcomeActionKind.allCases.map(\.rawValue) == ["done", "startOver", "close", "calibrate"])
   #expect(
     LotPickerNoticeKind.allCases.map(\.rawValue) == [
       "unreachable", "certificate", "unexpected", "lotTaken", "lotGone", "assignFailed",

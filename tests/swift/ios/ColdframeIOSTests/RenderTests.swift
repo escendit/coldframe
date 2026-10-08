@@ -813,7 +813,8 @@
       calibrateSnapshot(canRecord: true, hasFresh: true, pickedSeq: "42"),
       calibrateSnapshot(canRecord: true, pickedSeq: "41"),
       calibrateSnapshot(step: "wet", dryRaw: "3000"),
-      calibrateSnapshot(step: "wet", canRecord: true, hasFresh: true, pickedSeq: "42", dryRaw: "3000"),
+      calibrateSnapshot(
+        step: "wet", canRecord: true, hasFresh: true, pickedSeq: "42", dryRaw: "3000"),
       calibrateSnapshot(step: "confirm", dryRaw: "3000", wetRaw: "1200"),
       calibrateSnapshot(step: "confirm", dryRaw: "3000", wetRaw: "1200", percent: "40"),
     ]
