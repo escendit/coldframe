@@ -699,9 +699,18 @@ public static partial class EdgeApi
             return null;
         }
 
-        var snapshot = await grains.GetGrain<ISensorGrain>(sensorId.ToString("D")).Describe(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var snapshot = await grains.GetGrain<ISensorGrain>(sensorId.ToString("D")).Describe(cancellationToken).ConfigureAwait(false);
 
-        return snapshot is { Specification.Calibration: true, Low.Value: { } low } ? (int)low : null;
+            return snapshot is { Specification.Calibration: true, Low.Value: { } low } ? (int)low : null;
+        }
+#pragma warning disable CA1031 // One Sensor that cannot be described must not fail the whole Lot list or detail.
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+#pragma warning restore CA1031
+        {
+            return null;
+        }
     }
 
     private static async Task<IReadOnlyList<SensorReadingResponse>> ToSensorReadingsAsync(
@@ -823,10 +832,12 @@ public static partial class EdgeApi
             .HistoryAsync(claim.NodeId, quantity, since, end, after, limit, httpContext.RequestAborted)
             .ConfigureAwait(false);
 
-        // A page with any calibrated soil-moisture Reading is in percent (AD-14: the Server converts, the band is in
-        // percent), and then only counts the Readings that have a Calibration: a day of raw counts cannot sit beside it.
-        // A page without one is raw as before. The cursor still names the last day of the page.
-        var inPercent = quantity == "soil_moisture" && days.Any(day => day.CalibratedCount > 0);
+        // A window with any calibrated soil-moisture Reading is in percent (AD-14: the Server converts, the band is in
+        // percent), and then only counts the Readings that have a Calibration: a day of raw counts cannot sit beside
+        // it. The window decides, not the page, so every page of a paged History has the same unit. A window without
+        // one is raw as before. The cursor still names the last day of the page.
+        var inPercent = quantity == "soil_moisture"
+            && await detail.HasCalibratedAsync(claim.NodeId, quantity, since, end, httpContext.RequestAborted).ConfigureAwait(false);
 
         return TypedResults.Ok(new LotHistoryResponse(
             quantity,

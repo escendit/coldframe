@@ -536,4 +536,27 @@ class LotDetailEngineTest {
             assertEquals(25, engine.ready().soilThresholds?.lowPercent)
             assertEquals(80, engine.ready().soilThresholds?.highPercent)
         }
+
+    @Test
+    fun uxDr5AFailedRereadAfterASaveDropsTheOldBandInsteadOfDrawingIt() =
+        runTest {
+            api.lot = soilDetail
+            api.pages[null] = LotHistoryDto("s", "%", listOf(LotHistoryDayDto("2026-10-06", 20.0, 50.0, 30)))
+            api.thresholds =
+                ApiResult.Ok(
+                    SensorThresholdsDto("%", ThresholdSideDto("override", 30.0), ThresholdSideDto("override", 70.0)),
+                )
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            assertEquals(70, engine.ready().soilThresholds?.highPercent)
+
+            // The high was cleared and saved, but the read that follows fails: the old 70 must not stay on the chart.
+            api.thresholds = ApiResult.Failed(ApiFailure.Unreachable)
+            engine.refresh()
+            runCurrent()
+
+            assertNull(engine.ready().soilThresholds)
+            assertNull(engine.ready().staleReason)
+        }
 }

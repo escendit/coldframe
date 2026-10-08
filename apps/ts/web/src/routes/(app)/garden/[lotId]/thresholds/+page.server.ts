@@ -11,5 +11,5 @@ export const load: PageServerLoad = async ({ locals, parent, cookies, params }) 
 };
 
 export const actions = {
-  save: ({ locals, request }) => saveThresholdsAction(locals, request),
+  save: ({ locals, request, params }) => saveThresholdsAction(locals, request, params.lotId),
 } satisfies Actions;

@@ -139,6 +139,28 @@ public sealed class LotThresholdBandTests(EdgeApiFixture edge) : IClassFixture<E
         Assert.Equal((75d, 75d, 1), (only.GetProperty("low").GetDouble(), only.GetProperty("high").GetDouble(), only.GetProperty("readingCount").GetInt32()));
     }
 
+    [Fact]
+    public async Task EveryPageOfAPagedHistoryHasTheUnitOfTheWholeWindow()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var site = await SeedSiteAsync(cancellationToken);
+        var (lotId, node, soil) = await SeedCalibratedLotAsync(site, cancellationToken);
+        var calibrationId = await CalibrateAsync(site, soil, cancellationToken);
+        var day = DateTimeOffset.UtcNow.Date.AddDays(-4);
+
+        // The first day of the window is raw only; a later one is calibrated. Pages of one day each.
+        await StoreReadingAsync(node, soil, 10, 2100, day.AddHours(6), null, cancellationToken);
+        await StoreReadingAsync(node, soil, 11, 1650, day.AddDays(1).AddHours(6), calibrationId, cancellationToken);
+
+        var first = await GetHistoryAsync(site, lotId, "quantity=soil_moisture&limit=1", cancellationToken);
+        var cursor = first.GetProperty("nextCursor").GetString();
+        var second = await GetHistoryAsync(site, lotId, $"quantity=soil_moisture&limit=1&cursor={Uri.EscapeDataString(cursor!)}", cancellationToken);
+
+        Assert.Equal("%", first.GetProperty("unit").GetString());
+        Assert.Equal("%", second.GetProperty("unit").GetString());
+        Assert.Equal(75d, Assert.Single(second.GetProperty("days").EnumerateArray()).GetProperty("low").GetDouble());
+    }
+
     private static string NewDeviceId() => Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
 
     private async Task<JsonElement> GetLotAsync(SeededSite site, string lotId, CancellationToken cancellationToken)

@@ -149,11 +149,12 @@ describe('The Thresholds page', () => {
     expect(text(body)).toContain('Turn on Alerts');
   });
 
-  test('UX-DR69 the modal has Cancel and Save, Save is an enabled submit while valid', () => {
+  test('UX-DR69 the modal has Cancel and Save, a submit that waits for a change', () => {
     const body = page('Owner');
     expect(text(body)).toContain('Cancel');
     expect(body).toMatch(/<button[^>]*type="submit"[^>]*>\s*<span[^>]*>Save/u);
-    expect(body).not.toMatch(/<button[^>]*disabled[^>]*>\s*<span[^>]*>Save/u);
+    // Nothing is edited yet, so there is nothing to save: the same rule the apps have.
+    expect(body).toMatch(/<button[^>]*disabled[^>]*>\s*<span[^>]*>Save/u);
     expect(body).toContain(`href="/garden/${lotId}"`);
   });
 
@@ -197,18 +198,27 @@ describe('Saving Thresholds', () => {
 
   test('saving puts each changed Sensor and returns to the Lot', async () => {
     const server = fakeServer(() => jsonResponse(200, soilThresholds));
-    const location = await redirectOf(() => saveThresholdsAction(locals, form([{ sensorId: soilId, body: { low: { kind: 'override', value: 25 } } }]), { serverUrl, fetch: server.fetch }));
+    const location = await redirectOf(() => saveThresholdsAction(locals, form([{ sensorId: soilId, body: { low: { kind: 'override', value: 25 } } }]), lotId, { serverUrl, fetch: server.fetch }));
     expect(location).toBe(`/garden/${lotId}`);
     expect(server.seen).toHaveLength(1);
     expect(server.seen[0]).toMatchObject({ method: 'PUT', path: `/sites/${siteId}/sensors/${soilId}/thresholds` });
     expect(JSON.parse(server.seen[0]?.body ?? '')).toEqual({ low: { kind: 'override', value: 25 } });
   });
 
+  test('a save with nothing to change is invalid, and the Lot to return to is the route\'s, not the form\'s', async () => {
+    const server = fakeServer(() => jsonResponse(200, soilThresholds));
+    expect(await saveThresholdsAction(locals, form([]), lotId, { serverUrl, fetch: server.fetch })).toMatchObject({ status: 400, data: { notice: 'invalid' } });
+    expect(server.seen).toHaveLength(0);
+    const tampered = form([{ sensorId: soilId, body: { low: { kind: 'override', value: 25 } } }]);
+    const location = await redirectOf(() => saveThresholdsAction(locals, tampered, lotId, { serverUrl, fetch: server.fetch }));
+    expect(location).toBe(`/garden/${lotId}`);
+  });
+
   test('UX-DR91 a 400 is invalid, a 403 forbidden, a 503 or an unreachable Server not saved; nothing is retried by the app', async () => {
     const change = form([{ sensorId: soilId, body: { low: { kind: 'override', value: 25 } } }]);
     const run = async (respond: () => Response): Promise<unknown> => {
       const server = fakeServer(respond);
-      return saveThresholdsAction(locals, change.clone(), { serverUrl, fetch: server.fetch });
+      return saveThresholdsAction(locals, change.clone(), lotId, { serverUrl, fetch: server.fetch });
     };
     expect(await run(() => problemResponse(400, 'validation'))).toMatchObject({ status: 400, data: { notice: 'invalid' } });
     expect(await run(() => problemResponse(403, 'forbidden'))).toMatchObject({ status: 403, data: { notice: 'forbidden' } });

@@ -91,6 +91,16 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
         LIMIT @take
         """;
 
+    private const string HasCalibratedSql =
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM readings r
+            JOIN calibrations c ON c.calibration_id = r.calibration_id
+            WHERE r.device_id = @device_id AND r.quantity = @quantity
+              AND r.measured_at >= @from AND r.measured_at <= @to)
+        """;
+
     /// <summary>
     /// Returns the Node the Lot holds and when it took the Lot, or <see langword="null"/> without a Node.
     /// </summary>
@@ -218,6 +228,29 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
         }
 
         return days.Count > limit ? (days[..limit], true) : (days, false);
+    }
+
+    /// <summary>
+    /// Whether any Reading of the window was stored with a Calibration. History asks it once for the whole
+    /// window, so every page of a window agrees on its unit.
+    /// </summary>
+    /// <param name="nodeId">The Node the Lot holds.</param>
+    /// <param name="quantity">The Quantity.</param>
+    /// <param name="from">The start of the window.</param>
+    /// <param name="to">The end of the window.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<bool> HasCalibratedAsync(string nodeId, string quantity, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(nodeId);
+        ArgumentNullException.ThrowIfNull(quantity);
+
+        await using var command = dataSource.CreateCommand(HasCalibratedSql);
+        command.Parameters.AddWithValue("device_id", nodeId);
+        command.Parameters.AddWithValue("quantity", quantity);
+        command.Parameters.AddWithValue("from", from.ToUniversalTime());
+        command.Parameters.AddWithValue("to", to.ToUniversalTime());
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
     }
 
     /// <summary>

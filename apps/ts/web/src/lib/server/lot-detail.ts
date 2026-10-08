@@ -55,6 +55,10 @@ async function readDetail(locals: Locals, siteId: string, lotId: string, depende
     return lot;
   }
   const quantities = lot.ok.node === undefined ? [] : pickerQuantities(lot.ok.sensors);
+  // The soil Sensor's Thresholds are an addition to the detail: a failed read leaves the detail without them. They are
+  // read at the same time as the Histories, not after them.
+  const soil = lot.ok.sensors?.find((sensor) => sensor.quantity === 'soil_moisture' && sensor.calibratable === true && sensor.sensorId !== undefined);
+  const thresholdsRead = soil?.sensorId === undefined ? null : getSensorThresholds(locals, siteId, soil.sensorId, dependencies);
   const answers = await Promise.all(quantities.map(async (quantity) => [quantity, await getLotHistory(locals, siteId, lotId, quantity, dependencies)] as const));
   const histories: Partial<Record<SensorQuantity, LotHistory>> = {};
   for (const [quantity, answer] of answers) {
@@ -68,9 +72,7 @@ async function readDetail(locals: Locals, siteId: string, lotId: string, depende
     const devices = await listDevices(locals, siteId, dependencies);
     hubId = 'ok' in devices ? (devices.ok.find((device) => device.kind === 'hub')?.id ?? null) : null;
   }
-  // The soil Sensor's Thresholds are an addition to the detail: a failed read leaves the detail without them.
-  const soil = lot.ok.sensors?.find((sensor) => sensor.quantity === 'soil_moisture' && sensor.calibratable === true && sensor.sensorId !== undefined);
-  const thresholds = soil?.sensorId === undefined ? null : await getSensorThresholds(locals, siteId, soil.sensorId, dependencies);
+  const thresholds = thresholdsRead === null ? null : await thresholdsRead;
   return { ok: { lot: lot.ok, histories, hubId, thresholds: thresholds !== null && 'ok' in thresholds ? thresholds.ok : null } };
 }
 

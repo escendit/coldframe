@@ -98,13 +98,12 @@
       {/if}
 
       <input type="hidden" name="siteId" value={data.currentSite.id} />
-      <input type="hidden" name="lotId" value={params.lotId} />
       <input type="hidden" name="changes" value={JSON.stringify(changes)} />
 
       <div class="cf-thresholds__actions">
         {#if data.canEdit}
           <Button label={t('thresholds.cancel')} variant="secondary" href={backHref} />
-          <Button type="submit" label={t('thresholds.save')} workingLabel={t('thresholds.saving')} {working} disabled={invalid} />
+          <Button type="submit" label={t('thresholds.save')} workingLabel={t('thresholds.saving')} {working} disabled={invalid || changes.length === 0} />
         {:else}
           <Button label={t('thresholds.back', { name: data.lot.name })} variant="secondary" href={backHref} />
         {/if}

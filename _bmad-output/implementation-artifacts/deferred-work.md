@@ -621,3 +621,19 @@ source_spec: `spec-5-2-calibrate-from-the-app.md`
 severity: low
 reason: A reading_seq above long.MaxValue would wrap in Kotlin and lose precision past 2^53 in TypeScript. Not reachable in practice; validate or narrow the type if the sequence is ever widened.
 status: open
+
+### DW-81: The Lot list asks the Sensor grain for the low Threshold once per Lot that shows a percentage, and its read model runs a second newest-Reading subquery.
+origin: code-review 65
+location: apps/cs/server/Edge/EdgeApi.cs, apps/cs/server/Lots/LotsReadModel.cs
+source_spec: `spec-5-4-set-thresholds-in-the-app-and-see-them-on-the-chart.md`
+severity: low
+reason: Every list refresh costs one concurrent grain call per such Lot, and the apps reload the list on foreground. The low Threshold changes rarely and could come from a projection column, as the rest of the Lot row does; the two newest-Reading lookups per row could share one lateral subquery. Fine for a home garden; revisit if Sites grow.
+status: open
+
+### DW-82: The Thresholds modal's Try again after a failed open loses the Sensor cell it was opened from, and Add high can start at or above the low.
+origin: code-review 65
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/thresholds/ThresholdsEngine.kt
+source_spec: `spec-5-4-set-thresholds-in-the-app-and-see-them-on-the-chart.md`
+severity: low
+reason: retry() reopens with the Lot only, so the focus on the Sensor column is dropped; with a soil low at 98 or 100, addHigh snaps to 100 and Save shows "Low must stay below high" before the person has typed. Cosmetic: nothing is saved wrongly.
+status: open

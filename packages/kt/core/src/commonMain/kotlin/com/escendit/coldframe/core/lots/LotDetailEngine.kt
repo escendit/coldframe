@@ -289,12 +289,13 @@ public class LotDetailEngine(
         // History is a daily aggregate that moves on every Reading, so it is read again with the Lot.
         if (picked != null) loadHistory(siteId, lot.id, picked, started)
         lot.sensors
-            .firstOrNull { it.quantity == SensorQuantity.SoilMoisture && it.sensorId != null }
+            .firstOrNull { it.quantity == SensorQuantity.SoilMoisture && it.calibratable && it.sensorId != null }
             ?.sensorId
             ?.let { loadThresholds(siteId, it, started) }
     }
 
-    // The band's high line needs the Thresholds; a failed read leaves the chart without it, never the page.
+    // The band's high line needs the Thresholds; a failed read leaves the chart without them (never the page), so
+    // values that may no longer match the Server (a Threshold just cleared) are never drawn.
     private fun loadThresholds(
         siteId: String,
         sensorId: String,
@@ -304,16 +305,19 @@ public class LotDetailEngine(
             val result = api.getSensorThresholds(siteId, sensorId)
             if (started != generation) return@launch
             val current = mutableState.value as? LotDetailState.Ready ?: return@launch
-            val dto = (result as? ApiResult.Ok)?.value ?: return@launch
-            if (SensorUnit.fromServer(dto.unit) != SensorUnit.Percent) return@launch
+            val dto = (result as? ApiResult.Ok)?.value
             mutableState.value =
                 current.copy(
                     soilThresholds =
-                        SoilThresholds(
-                            sensorId,
-                            dto.low.value?.roundToInt(),
-                            dto.high.value?.roundToInt(),
-                        ),
+                        if (dto == null || SensorUnit.fromServer(dto.unit) != SensorUnit.Percent) {
+                            null
+                        } else {
+                            SoilThresholds(
+                                sensorId,
+                                dto.low.value?.roundToInt(),
+                                dto.high.value?.roundToInt(),
+                            )
+                        },
                 )
         }
     }

@@ -78,17 +78,17 @@ export async function loadThresholds(locals: Locals, site: Site | null, lotId: s
     return { ...empty, canEdit, notice: noticeOfPage(lot.error) };
   }
   const sensors = (lot.ok.sensors ?? []).filter((sensor) => sensor.sensorId !== undefined);
+  // Each Sensor's Thresholds are an independent read: all at the same time, in the Sensors' order.
+  const reads = await Promise.all(sensors.map(async (sensor) => ({ sensor, thresholds: await getSensorThresholds(locals, site.id, sensor.sensorId ?? '', dependencies) })));
   const columns: ThresholdsColumn[] = [];
-  for (const sensor of sensors) {
-    const sensorId = sensor.sensorId ?? '';
-    const thresholds = await getSensorThresholds(locals, site.id, sensorId, dependencies);
+  for (const { sensor, thresholds } of reads) {
     if ('error' in thresholds) {
       if (thresholds.error === 'unauthorized') {
         signedOutRedirect();
       }
       return { ...empty, lot: { id: lot.ok.id, name: lot.ok.name }, canEdit, notice: noticeOfPage(thresholds.error) };
     }
-    columns.push({ sensorId, quantity: sensor.quantity, reading: sensor.value, readingUnit: sensor.unit, thresholds: thresholds.ok });
+    columns.push({ sensorId: sensor.sensorId ?? '', quantity: sensor.quantity, reading: sensor.value, readingUnit: sensor.unit, thresholds: thresholds.ok });
   }
   return { lot: { id: lot.ok.id, name: lot.ok.name }, columns, canEdit, notice: null, ...base };
 }
@@ -149,15 +149,19 @@ function changesOf(raw: string): Change[] {
 }
 
 /**
- * Saves what changed, one Sensor after the other, from the page's form: `siteId`, `lotId` and `changes`
- * (a JSON list of `{sensorId, body}`). The first refusal stops the save and answers its notice; what was
- * already saved stays saved. A save that went through returns to the Lot.
+ * Saves what changed, one Sensor after the other, from the page's form: `siteId` and `changes` (a JSON list of
+ * `{sensorId, body}`). The Lot is the page's own route parameter, never the form's: a save returns to that Lot.
+ * A save with nothing to change is `invalid`, not a save. The first refusal stops the save and answers its
+ * notice; what was already saved stays saved. A save that went through returns to the Lot.
  */
-export async function saveThresholdsAction(locals: Locals, request: Request, dependencies: ThresholdsDependencies = {}): Promise<ActionFailure<{ notice: ThresholdsFailure }>> {
+export async function saveThresholdsAction(locals: Locals, request: Request, lotId: string, dependencies: ThresholdsDependencies = {}): Promise<ActionFailure<{ notice: ThresholdsFailure }>> {
   const form = await request.formData();
   const siteId = text(form, 'siteId');
-  const lotId = text(form, 'lotId');
-  for (const change of changesOf(text(form, 'changes'))) {
+  const changes = changesOf(text(form, 'changes'));
+  if (changes.length === 0) {
+    return fail(statusOfNotice.invalid, { notice: 'invalid' });
+  }
+  for (const change of changes) {
     const result = await setSensorThresholds(locals, siteId, change.sensorId, change.body, dependencies);
     if ('error' in result) {
       if (result.error === 'unauthorized') {
@@ -167,5 +171,5 @@ export async function saveThresholdsAction(locals: Locals, request: Request, dep
       return fail(statusOfNotice[notice], { notice });
     }
   }
-  return redirect(303, `/garden/${lotId}`);
+  return redirect(303, `/garden/${encodeURIComponent(lotId)}`);
 }
