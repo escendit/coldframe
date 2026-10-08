@@ -318,7 +318,7 @@ func chartSummaryNamesBelowLowDays() throws {
 @Test("UX-DR33 selecting a below-low day reads it with the low line")
 func chartReadoutBelowLow() throws {
   let chart = try #require(LotDetailFixture.thresholds.build().chart)
-  let index = try #require(chart.bars.firstIndex(where: \.belowLow))
+  let index = try #require(chart.bars.firstIndex(where: { $0.belowLow }))
 
   #expect(chart.readout(at: index, context)?.hasSuffix("lowest 20 %, below 30 %") == true)
 }
