@@ -900,7 +900,7 @@
   func thresholdsRender(dark: Bool) {
     let states = [
       thresholdsSnapshot(),
-      thresholdsSnapshot(high: "70", dirty: true, canSave: true),
+      thresholdsSnapshot(dirty: true, canSave: true, high: "70"),
       thresholdsSnapshot(working: true, dirty: true, canSave: true),
       thresholdsSnapshot(notice: "notSaved", dirty: true, canSave: true),
       thresholdsSnapshot(surface: "loading"),
