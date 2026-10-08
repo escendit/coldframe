@@ -418,4 +418,214 @@ class LotDetailTest {
             ).canCalibrate,
         )
     }
+
+    private val soilPercentDays =
+        listOf(
+            LotHistoryDayDto("2026-10-04", 45.0, 60.0, 90),
+            LotHistoryDayDto("2026-10-05", 20.0, 55.0, 90),
+            LotHistoryDayDto("2026-10-06", 30.0, 50.0, 30),
+        )
+
+    @Test
+    fun uxDr5TheChartDrawsTheThresholdBandOnlyForSoilMoistureInPercent() {
+        val chart =
+            HistoryChart.of(
+                SensorQuantity.SoilMoisture,
+                SensorUnit.Percent,
+                soilPercentDays,
+                now,
+                lowPercent = 30,
+                highPercent = 70,
+            )
+        val band = assertNotNull(chart.band)
+
+        assertEquals(30, band.lowPercent)
+        assertEquals(70, band.highPercent)
+        assertEquals(0.3, band.lowFraction)
+        assertEquals(0.7, band.highFraction)
+
+        val raw =
+            HistoryChart.of(
+                SensorQuantity.SoilMoisture,
+                SensorUnit.Raw,
+                soilPercentDays,
+                now,
+                lowPercent = 30,
+                highPercent = 70,
+            )
+        val air =
+            HistoryChart.of(
+                SensorQuantity.AirTemperature,
+                SensorUnit.Celsius,
+                soilPercentDays,
+                now,
+                lowPercent = 30,
+            )
+        val none = HistoryChart.of(SensorQuantity.SoilMoisture, SensorUnit.Percent, soilPercentDays, now)
+        assertNull(raw.band)
+        assertNull(air.band)
+        assertNull(none.band)
+    }
+
+    @Test
+    fun uxDr5AnEmptyHighLeavesTheBandOpenAtTheTop() {
+        val chart =
+            HistoryChart.of(
+                SensorQuantity.SoilMoisture,
+                SensorUnit.Percent,
+                soilPercentDays,
+                now,
+                lowPercent = 30,
+            )
+
+        val band = assertNotNull(chart.band)
+        assertNull(band.highPercent)
+        assertNull(band.highFraction)
+    }
+
+    @Test
+    fun uxDr32ADailyLowUnderTheLowThresholdIsASolidBelowLowBar() {
+        val chart =
+            HistoryChart.of(
+                SensorQuantity.SoilMoisture,
+                SensorUnit.Percent,
+                soilPercentDays,
+                now,
+                lowPercent = 30,
+                highPercent = 70,
+            )
+
+        val below = chart.bars.filter { it.belowLow }
+        assertEquals(listOf("2026-10-05"), below.map { it.day })
+        // A day exactly at the low is not below it, and a gap never is.
+        assertFalse(chart.bars.single { it.day == "2026-10-06" }.belowLow)
+        assertEquals(1, chart.bars.count { it.belowLow })
+        assertEquals(listOf("2026-10-05"), chart.belowLowDays)
+        // The axis is the fixed 0 to 100 of a percentage, so a bar sits where its value is.
+        assertEquals(0.2, chart.bars.single { it.day == "2026-10-05" }.fraction)
+    }
+
+    @Test
+    fun uxDr33TheBelowLowDaysAreNamedForTheAccessibleSummaryAndNoneWithoutALowThreshold() {
+        val with =
+            HistoryChart.of(SensorQuantity.SoilMoisture, SensorUnit.Percent, soilPercentDays, now, lowPercent = 40)
+        assertEquals(listOf("2026-10-05", "2026-10-06"), with.belowLowDays)
+
+        val without = HistoryChart.of(SensorQuantity.SoilMoisture, SensorUnit.Percent, soilPercentDays, now)
+        assertEquals(emptyList(), without.belowLowDays)
+    }
+
+    private fun thresholdsReady(
+        role: SiteRole,
+        thresholds: SoilThresholds? = SoilThresholds("s-1", 30, 70),
+        stale: Boolean = false,
+        lowFromLot: Double? = null,
+        withSensorId: Boolean = true,
+    ) = LotDetail.of(
+        ready(
+            lot(
+                LotStatus.Ok,
+                sensors =
+                    listOf(
+                        SensorReading(
+                            SensorQuantity.SoilMoisture,
+                            40.0,
+                            SensorUnit.Percent,
+                            now - 60_000,
+                            sensorId = "s-1".takeIf { withSensorId },
+                            calibratable = true,
+                        ),
+                    ),
+                moisture = 40.0,
+            ).copy(lowThresholdPercent = lowFromLot),
+            role,
+            stale,
+            history =
+                mapOf(
+                    SensorQuantity.SoilMoisture to
+                        LotHistory(SensorQuantity.SoilMoisture, SensorUnit.Percent, soilPercentDays),
+                ),
+        ).copy(soilThresholds = thresholds),
+        now,
+    )
+
+    @Test
+    fun uxDr84OwnersAndAdministratorsSetThresholdsAndAMemberOnlyViewsThem() {
+        assertTrue(thresholdsReady(SiteRole.Owner).canSetThresholds)
+        assertTrue(thresholdsReady(SiteRole.Administrator).canSetThresholds)
+
+        val member = thresholdsReady(SiteRole.Member)
+        assertFalse(member.canSetThresholds)
+        assertTrue(member.canViewThresholds)
+        assertEquals(30, member.thresholdLowPercent)
+        assertEquals(70, member.thresholdHighPercent)
+    }
+
+    @Test
+    fun uxDr84NoThresholdsAreOfferedWhileStaleOrWithoutASensorId() {
+        val stale = thresholdsReady(SiteRole.Owner, stale = true)
+        assertFalse(stale.canSetThresholds)
+        assertFalse(stale.canViewThresholds)
+        assertNull(stale.thresholdLowPercent)
+
+        val noSensor = thresholdsReady(SiteRole.Owner, withSensorId = false)
+        assertFalse(noSensor.canSetThresholds)
+        assertFalse(noSensor.canViewThresholds)
+    }
+
+    @Test
+    fun uxDr5TheBandFallsBackToTheLotsLowThresholdWhenTheThresholdsReadFailed() {
+        val detail = thresholdsReady(SiteRole.Owner, thresholds = null, lowFromLot = 25.0)
+
+        assertEquals(25, assertNotNull(detail.chart?.band).lowPercent)
+        assertNull(detail.chart?.band?.highPercent)
+        assertEquals(25, detail.thresholdLowPercent)
+    }
+
+    @Test
+    fun uxDr5TheSensorCellKnowsItsSensorForTheTapThatOpensThresholds() {
+        val cells = assertNotNull(thresholdsReady(SiteRole.Owner).sensors)
+
+        assertEquals("s-1", cells.single().sensorId)
+    }
+
+    @Test
+    fun uxDr33TheSnapshotCarriesTheBandAndTheBelowLowBars() {
+        val state =
+            ready(
+                lot(
+                    LotStatus.Ok,
+                    sensors =
+                        listOf(
+                            SensorReading(SensorQuantity.SoilMoisture, 40.0, SensorUnit.Percent, now, "s-1", true),
+                        ),
+                ).copy(moisturePercent = 40.0),
+                history =
+                    mapOf(
+                        SensorQuantity.SoilMoisture to
+                            LotHistory(SensorQuantity.SoilMoisture, SensorUnit.Percent, soilPercentDays),
+                    ),
+            ).copy(soilThresholds = SoilThresholds("s-1", 30, null))
+
+        val snapshot = snapshotOf(state, now)
+
+        assertTrue(snapshot.chartHasBand)
+        assertEquals("30", snapshot.chartBandLowPercent)
+        assertEquals("", snapshot.chartBandHighPercent)
+        assertEquals(0.3, snapshot.chartBandLowFraction)
+        assertEquals(30, snapshot.barBelowLow.size)
+        assertEquals(1, snapshot.barBelowLow.count { it })
+        assertEquals(listOf("2026-10-05"), snapshot.chartBelowLowDays)
+        assertTrue(snapshot.canSetThresholds)
+        assertEquals("30", snapshot.thresholdLowPercent)
+    }
+
+    @Test
+    fun uxDr18ACalibratedInRangeLotShowsThePercentageAndOk() {
+        val detail = detail(lot(LotStatus.Ok, moisture = 40.0))
+
+        assertEquals(HeroValueKind.Percent, detail.hero.valueKind)
+        assertEquals(40, detail.hero.soilPercent)
+        assertEquals(LotStatus.Ok, detail.hero.status)
+    }
 }

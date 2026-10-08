@@ -270,6 +270,14 @@ struct LotDetailFixture {
   var noNode = false
   var canAddNode = true
   var canCalibrate = false
+  var canSetThresholds = false
+  var canViewThresholds = false
+  var thresholdLowPercent = ""
+  var thresholdHighPercent = ""
+  var sensorIds: [String] = []
+  /// The Threshold band; `nil` is no band. Days back from today whose low is under the low line.
+  var band: (low: String, high: String, lowFraction: Double, highFraction: Double)?
+  var belowLowDays: Set<Int> = []
   var hasSensors = true
   var sensors: [(quantity: String, number: String, unit: String)] = [
     ("soilMoisture", "1840", "raw"), ("airTemperature", "14", "celsius"),
@@ -329,7 +337,31 @@ struct LotDetailFixture {
       barHighs: order.map { days[$0]?.high ?? "" }, barCounts: order.map { days[$0]?.count ?? 0 },
       barFractions: order.map { days[$0]?.fraction ?? 0 }, chartDaysWithReadings: days.count,
       chartLowest: chartLowest, chartLowestDay: lowestDay, chartHighest: "2300",
-      chartHighestDay: Self.dayText(back: 3))
+      chartHighestDay: Self.dayText(back: 3), canSetThresholds: canSetThresholds,
+      canViewThresholds: canViewThresholds, thresholdLowPercent: thresholdLowPercent,
+      thresholdHighPercent: thresholdHighPercent, sensorIds: sensorIds,
+      chartHasBand: band != nil, chartBandLowPercent: band?.low ?? "",
+      chartBandHighPercent: band?.high ?? "", chartBandLowFraction: band?.lowFraction ?? 0,
+      chartBandHighFraction: band?.highFraction ?? 0,
+      barBelowLow: order.map { belowLowDays.contains($0) },
+      chartBelowLowDays: order.filter { belowLowDays.contains($0) }.map(Self.dayText(back:)))
+  }
+
+  /// Calibrated soil with a 30 % low and a 70 % high, a day 3 back under the low line.
+  static var thresholds: LotDetailFixture {
+    var detail = ok
+    detail.canSetThresholds = true
+    detail.canViewThresholds = true
+    detail.thresholdLowPercent = "30"
+    detail.thresholdHighPercent = "70"
+    detail.sensorIds = ["s-soil", "s-air", "s-hum", "s-gas"]
+    detail.chartUnit = "percent"
+    detail.days = [0: ("45", "60", 30, 0.45), 1: ("50", "62", 96, 0.5), 3: ("20", "40", 96, 0.2)]
+    detail.chartLowest = "20"
+    detail.chartLowestDay = dayText(back: 3)
+    detail.band = ("30", "70", 0.3, 0.7)
+    detail.belowLowDays = [3]
+    return detail
   }
 
   static let needsCalibration = LotDetailFixture()

@@ -427,8 +427,8 @@ A Reading is stored with the Calibration in force for its Sensor at that moment 
 own. The percentage is derived, never stored: `CalibrationMath.Percent` is linear between the points of the
 Reading's Calibration, clamped to 0 to 100 and rounded to the nearest 5 (a half rounds up), and the Lot detail's
 `sensors` shows a soil-moisture Reading that has a Calibration as `%`. A Reading stored before the first
-Calibration stays `raw`, so a percentage appears with the next Reading, never before. The history endpoint is
-unchanged: it still reports soil moisture raw. Threshold percentages never change on recalibration.
+Calibration stays `raw`, so a percentage appears with the next Reading, never before. The history endpoint reports a calibrated soil-moisture page in percent
+([Lot detail and history](#lot-detail-and-history)). Threshold percentages never change on recalibration.
 
 **Reading the state from a client (Story 5.2).** `GET /sites/{siteId}/sensors/{sensorId}/calibration`
 (Administrator and up; a Sensor of another Site is 404 `sensor-not-found`) answers 200
@@ -569,8 +569,11 @@ Tests and client fixtures cover `needsWater` and `unknown` by Hub with seeded ro
 **`lastReadingAt` is read, not projected.** Both queries of `LotsReadModel` take the newest
 `measured_at` of the Readings of the Lot's Node with `measured_at >= claimed_at`, through
 `ix_readings_device_id_measured_at`. It is absent without a Node or before its first Reading since it
-took the Lot. `moisturePercent` and `lowThresholdPercent` are in the contract for the clients'
-fixtures, but `LotResponse` has no such property: the Server sends them from Epics 5 and 6 on.
+took the Lot. `moisturePercent` and `lowThresholdPercent` are sent by the Lot list and Lot detail (Story 5.4) when the
+newest soil-moisture Reading since the Lot took its Node was stored with a Calibration: the percentage of that
+Calibration (`LotsReadModel` joins the `calibrations` points, `CalibrationMath.Percent`) and the Sensor grain's
+effective low Threshold (`Describe`, one grain call per such Lot); the low is absent when the Sensor has none.
+A create or rename answer carries neither.
 
 ### Lot detail and history
 
@@ -594,7 +597,11 @@ one entry per UTC day with Readings of the Lot's current Node since it claimed t
 now and `from` to `to` minus 30 days, rounded down to the start of its UTC day so the first bar is a whole
 day (a default read is at most 31 days, the default `limit`; `limit` is at most 366). Paging is keyset on the
 day: `nextCursor` is the opaque last day of the page (`LotDetailReadModel.EncodeCursor`), present only when
-more days follow. A bad `quantity`, `from`, `to`, `cursor` or `limit`, or `from` after `to`, is a 400
+more days follow. For soil moisture, a page that has any Reading stored with a Calibration is in `%` (Story 5.4): `HistorySql` derives each
+Reading's percentage from its own Calibration like `CalibrationMath.Percent` (linear, clamped, nearest 5), `low`/`high`
+are the day's lowest and highest percentage, and `readingCount` and the days count only Readings that have a Calibration
+(a day of raw counts is left out of a percentage page; the cursor still names the page's last day). A page with none is
+raw as before. A bad `quantity`, `from`, `to`, `cursor` or `limit`, or `from` after `to`, is a 400
 `validation` problem; an unknown Lot is 404 `lot-not-found`. After a reassignment only the new Lot's Node
 Readings count, and the old Lot has none. Readings and device reports are never deleted (FR8).
 

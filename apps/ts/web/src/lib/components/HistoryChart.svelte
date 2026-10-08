@@ -50,9 +50,12 @@
 
 <!--
   History chart (UX-DR32, UX-DR33): 30 daily bars, drawn from the Server's daily low. Days without
-  Readings are gaps, never zero bars. No Threshold exists yet, so every bar is normal-style: a 1 px
-  outline; the picked bar is solid, so selection is not by colour alone. A tap or drag picks a bar
-  and the readout names it. Nothing animates, so Reduce Motion needs nothing more.
+  Readings are gaps, never zero bars. A bar is normal-style, a 1 px outline; the picked bar is solid, so
+  selection is not by colour alone. With a low Threshold on a percent History (UX-DR5) the chart draws the
+  band between low and high, a 2 px low line and a dashed 1 px high line, and a day whose low is under the
+  low Threshold is a solid bar in the below-low token: a non-colour cue, named in the legend and the text
+  summary. A tap or drag picks a bar and the readout names it. Nothing animates, so Reduce Motion needs
+  nothing more.
 -->
 <figure class="cf-chart" data-quantity={chart.quantity}>
   <!-- The chart is one image with a text alternative; tap, drag and the arrow keys pick a bar for the readout. -->
@@ -73,11 +76,20 @@
     onkeydown={step}
   >
     <svg class="cf-chart__svg" viewBox="0 0 {width} {height}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      {#if chart.band !== null}
+        {@const top = chart.band.high === null ? 0 : (1 - chart.band.high) * height}
+        <rect class="cf-chart__band" x="0" y={top} {width} height={(1 - chart.band.low) * height - top} />
+        <line class="cf-chart__low-line" x1="0" x2={width} y1={(1 - chart.band.low) * height} y2={(1 - chart.band.low) * height} />
+        {#if chart.band.high !== null}
+          <line class="cf-chart__high-line" x1="0" x2={width} y1={top} y2={top} />
+        {/if}
+      {/if}
       {#each chart.bars as bar (bar.slot)}
         {@const barHeight = Math.max(1, bar.height * (height - 2))}
         <rect
           class="cf-chart__bar"
           class:cf-chart__bar--picked={shown?.slot === bar.slot}
+          class:cf-chart__bar--below-low={bar.belowLow}
           data-day={bar.day}
           x={bar.slot * slotWidth + (slotWidth - barWidth) / 2}
           y={height - 1 - barHeight}
@@ -91,6 +103,9 @@
     <span>{chart.axis.start}</span>
     <span>{chart.axis.end}</span>
   </div>
+  {#if chart.legend !== null}
+    <p class="cf-chart__legend">{chart.legend}</p>
+  {/if}
   <figcaption class="cf-chart__readout">{shown === null ? t('lotDetail.chart.noReadings') : shown.readout}</figcaption>
 </figure>
 
@@ -123,6 +138,36 @@
 
   .cf-chart__bar--picked {
     fill: var(--cf-color-chart-bar);
+  }
+
+  .cf-chart__bar--below-low {
+    fill: var(--cf-color-chart-bar-below-low);
+    stroke: var(--cf-color-chart-bar-below-low);
+  }
+
+  .cf-chart__band {
+    fill: var(--cf-color-chart-band);
+  }
+
+  .cf-chart__low-line {
+    stroke: var(--cf-color-primary-text);
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .cf-chart__high-line {
+    stroke: var(--cf-color-chart-high-line);
+    stroke-width: 1px;
+    stroke-dasharray: 4 3;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .cf-chart__legend {
+    margin: 0;
+    font-family: var(--cf-type-meta-mono-font-family);
+    font-size: var(--cf-type-meta-mono-font-size);
+    line-height: var(--cf-type-meta-mono-line-height);
+    color: var(--cf-color-text-secondary);
   }
 
   .cf-chart__axis {

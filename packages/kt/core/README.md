@@ -122,5 +122,18 @@ Hubs, in the Server's order (Lot name, unassigned last, Device ID); the client d
 For Swift, `IosLotDetail` observes a flat `LotDetailSnapshot`, and `DevicesSnapshot` gains the
 parallel `node…` lists.
 
-Fixture-only or absent until later epics: no Threshold band or below-low bar (Epic 5), no admin
-strip, no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7).
+**Thresholds (Story 5.4).** `thresholds/ThresholdsEngine` is Set Thresholds of one Lot: it reads the Lot and each
+Sensor's `getSensorThresholds` (Member allowed) into a `ThresholdColumn` per Sensor (draft `low`/`high`, the
+Server's `proposedLow`, the current Reading, the 5 % step of calibrated soil, a 0 to 100 track for a percentage),
+edits are drafts (`setLow`, `setHigh`, the `…Text` variants, `addHigh`, `clearHigh`, `turnOnAlerts`,
+`turnOffAlerts`), `canSave` gates Save on "low below high" and "a high needs a low" (the Server stays the only
+validator), `save` sends only the sides that changed (`override` or `cleared`) one Sensor after the other, keeps
+every edit on an error (`ThresholdsNotice`: 400, 403, not delivered) and, once saved, makes Lot detail and the
+Lots read again (`SitesWiring.thresholds`). Only an Owner or Administrator edits: a Member's `canEdit` is false
+and every edit call is ignored. Lot detail reads the soil Sensor's Thresholds for the chart: `HistoryChart.band`
+(only soil moisture in `%`, a fixed 0 to 100 axis), `ChartBar.belowLow` (a daily low under the low Threshold),
+`HistoryChart.belowLowDays` for the summary; `LotDetail.canSetThresholds` / `canViewThresholds`. For Swift,
+`IosThresholds` observes a flat `ThresholdsSnapshot`.
+
+Absent until later epics: no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7), no Alert
+evaluation or *needs water* (Epic 6).

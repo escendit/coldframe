@@ -11,6 +11,7 @@ import com.escendit.coldframe.core.setup.IosRadioState
 import com.escendit.coldframe.core.setup.KableSetupRadio
 import com.escendit.coldframe.core.sites.IosSites
 import com.escendit.coldframe.core.sites.SitesWiring
+import com.escendit.coldframe.core.thresholds.IosThresholds
 import com.escendit.coldframe.core.watch
 import com.russhwolf.settings.NSUserDefaultsSettings
 import io.ktor.client.engine.darwin.Darwin
@@ -58,6 +59,7 @@ public class IosSignIn private constructor(
     private val lotDetailEngine = SitesWiring.lotDetail(api, sitesEngine, settings, scope)
     private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope)
     private val calibrateEngine = SitesWiring.calibrate(api, sitesEngine, scope)
+    private val thresholdsEngine = SitesWiring.thresholds(api, sitesEngine, scope, lotDetailEngine, lotsEngine)
     private val radio = KableSetupRadio(IosRadioState())
     private val nodeSetupEngine =
         SitesWiring.nodeSetup(api, api, radio, sitesEngine, lotsEngine, devicesEngine, scope, calibrateEngine)
@@ -70,6 +72,9 @@ public class IosSignIn private constructor(
 
     /** Calibrate of one Lot's soil Sensor: dry, then wet, from stored Readings over REST. */
     public val calibrate: IosCalibrate = IosCalibrate(calibrateEngine, scope)
+
+    /** Thresholds of one Lot's Sensors: a Threshold column each, edited and saved over REST. */
+    public val thresholds: IosThresholds = IosThresholds(thresholdsEngine, scope)
 
     /** The Devices of the current Site; Swift loads it on every entry of the Devices tab. */
     public val devices: IosDevices = IosDevices(devicesEngine, scope)

@@ -40,6 +40,8 @@ public data class CalibrateSnapshot(
     val wetRaw: String,
     val percent: String,
     val waitingForPercent: Boolean,
+    /** The confirmation offers "Set Thresholds" for the same Lot (Story 5.4). */
+    val offersThresholds: Boolean,
     val announcementId: Int,
     val announcementKind: String?,
     val announcementStep: String?,
@@ -109,6 +111,7 @@ public fun snapshotOf(state: CalibrateState): CalibrateSnapshot {
         wetRaw = ready?.wetRaw.text(),
         percent = ready?.percent.text(),
         waitingForPercent = ready?.waitingForPercent == true,
+        offersThresholds = ready?.offersThresholds == true,
         announcementId = announcement?.id ?: 0,
         announcementKind = announcement?.kind?.key(),
         announcementStep = announcement?.step?.key(),

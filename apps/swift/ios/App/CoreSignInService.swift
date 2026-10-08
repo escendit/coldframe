@@ -44,6 +44,9 @@ final class CoreSignInService: SignInService {
   /// Calibrate of the same core instance, for `CoreCalibrateService`.
   var calibrate: IosCalibrate { core.calibrate }
 
+  /// Thresholds of the same core instance, for `CoreThresholdsService`.
+  var thresholds: IosThresholds { core.thresholds }
+
   /// The Devices half of the same core instance, for `CoreDevicesService`.
   var devices: IosDevices { core.devices }
 

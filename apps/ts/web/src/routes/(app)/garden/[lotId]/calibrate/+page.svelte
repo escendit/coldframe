@@ -146,7 +146,8 @@
         <p class="cf-calibrate__text" id="cf-calibrate-points">{t('calibrate.confirm.points', { dry: recorded.dryRaw, wet: recorded.wetRaw })}</p>
         <p class="cf-calibrate__result" id="cf-calibrate-result" data-ready={sure.ready}>{sure.text}</p>
         <div class="cf-calibrate__actions">
-          <Button label={t('calibrate.done')} href={backHref} />
+          <Button label={t('thresholds.next')} href="{backHref}/thresholds" id="cf-calibrate-thresholds" />
+          <Button label={t('calibrate.done')} variant="secondary" href={backHref} />
         </div>
       {:else}
         <h2 class="cf-calibrate__step">{t(step === 'dry' ? 'calibrate.step.dry' : 'calibrate.step.wet')}</h2>

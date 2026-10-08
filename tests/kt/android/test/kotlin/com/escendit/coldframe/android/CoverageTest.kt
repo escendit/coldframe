@@ -8,6 +8,7 @@ import kotlin.test.assertTrue
 class CoverageTest {
     private val storyIds =
         listOf(
+            5,
             12,
             15,
             17,
@@ -33,6 +34,7 @@ class CoverageTest {
             40,
             41,
             42,
+            45,
             53,
             54,
             55,
@@ -46,6 +48,7 @@ class CoverageTest {
             65,
             66,
             67,
+            69,
             71,
             74,
             75,
@@ -56,6 +59,7 @@ class CoverageTest {
             80,
             82,
             84,
+            91,
             92,
             93,
             94,
@@ -89,6 +93,7 @@ class CoverageTest {
     /** Named in Swift too (the iOS shell builds these components and surfaces). */
     private val iosIds =
         listOf(
+            5,
             12,
             17,
             18,
@@ -113,6 +118,7 @@ class CoverageTest {
             40,
             41,
             42,
+            45,
             54,
             55,
             56,
@@ -122,6 +128,7 @@ class CoverageTest {
             65,
             66,
             67,
+            69,
             71,
             74,
             75,
@@ -132,6 +139,7 @@ class CoverageTest {
             80,
             82,
             84,
+            91,
             94,
             95,
             97,

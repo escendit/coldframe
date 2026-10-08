@@ -866,4 +866,106 @@
       rendersAtDefaultSize(
         lotDetailView(detail.build()), dark: dark))
   }
+
+  // MARK: - Thresholds (Story 5.4)
+
+  @MainActor
+  private func thresholdsView(_ presentation: ThresholdsPresentation) -> some View {
+    ThresholdsView(
+      presentation: presentation, siteName: "Home garden", actions: .none,
+      now: { Overview.context.now }, timeZone: Overview.context.timeZone)
+  }
+
+  private func thresholdsSnapshot(
+    surface: String = "ready", notice: String? = nil, noticeTryAgain: Bool = false,
+    canEdit: Bool = true, working: Bool = false, dirty: Bool = false, canSave: Bool = false,
+    invalid: Bool = false, high: String = ""
+  ) -> ThresholdsPresentation {
+    ThresholdsPresentation(
+      surface: surface, notice: notice, noticeTryAgain: noticeTryAgain, lotId: "t",
+      lotName: "Tomatoes", canEdit: canEdit, working: working, dirty: dirty, canSave: canSave,
+      saved: false, focusSensorId: "", sensorIds: ["s-soil", "s-air"],
+      quantities: ["soilMoisture", "airTemperature"], units: ["percent", "celsius"],
+      lows: [invalid ? "70" : "30", ""], highs: [invalid ? "60" : high, ""],
+      originalLows: ["30", ""], originalHighs: ["", ""], proposedLows: ["", "7"],
+      currents: ["40", "14.4"], steps: ["5", ""], trackMins: [0, 0], trackMaxs: [100, 30],
+      draggables: [true, false], alerting: [true, false], lowMustStayBelowHigh: [invalid, false],
+      lowRequired: [false, false], offersProposal: [false, true])
+  }
+
+  @Test(
+    "UX-DR45 UX-DR69 Thresholds renders every state at the largest accessibility text size and at the default one",
+    arguments: [false, true])
+  @MainActor
+  func thresholdsRender(dark: Bool) {
+    let states = [
+      thresholdsSnapshot(),
+      thresholdsSnapshot(high: "70", dirty: true, canSave: true),
+      thresholdsSnapshot(working: true, dirty: true, canSave: true),
+      thresholdsSnapshot(notice: "notSaved", dirty: true, canSave: true),
+      thresholdsSnapshot(surface: "loading"),
+      thresholdsSnapshot(surface: "failed", notice: "noSensor", noticeTryAgain: true),
+    ]
+    for presentation in states {
+      #expect(renders(thresholdsView(presentation), dark: dark))
+      #expect(rendersAtDefaultSize(thresholdsView(presentation), dark: dark))
+    }
+  }
+
+  @Test(
+    "UX-DR91 Thresholds shows Low must stay below high inline with Save disabled",
+    arguments: [false, true])
+  @MainActor
+  func thresholdsInvalidRenders(dark: Bool) {
+    let invalid = thresholdsSnapshot(dirty: true, canSave: false, invalid: true)
+    #expect(!invalid.isSaveEnabled)
+    #expect(renders(thresholdsView(invalid), dark: dark))
+    #expect(rendersAtDefaultSize(thresholdsView(invalid), dark: dark))
+    let forbidden = thresholdsSnapshot(notice: "forbidden", dirty: true)
+    #expect(renders(thresholdsView(forbidden), dark: dark))
+  }
+
+  @Test(
+    "UX-DR84 Thresholds for a Member renders read-only at the largest accessibility text size",
+    arguments: [false, true])
+  @MainActor
+  func thresholdsMemberRenders(dark: Bool) {
+    let member = thresholdsSnapshot(canEdit: false, high: "70")
+    #expect(member.saveLabel == nil)
+    #expect(renders(thresholdsView(member), dark: dark))
+    #expect(rendersAtDefaultSize(thresholdsView(member), dark: dark))
+  }
+
+  @Test(
+    "UX-DR5 UX-DR32 UX-DR33 the chart band, the low and high lines and the solid below-low bar render",
+    arguments: [false, true])
+  @MainActor
+  func historyChartBandRenders(dark: Bool) throws {
+    let chart = try #require(LotDetailFixture.thresholds.build().chart)
+    #expect(
+      rendersAtDefaultSize(HistoryChartView(chart: chart, context: Overview.context), dark: dark))
+    #expect(
+      renders(HistoryChartView(chart: chart, context: Overview.context), dark: dark))
+    #expect(
+      rendersAtDefaultSize(lotDetailView(LotDetailFixture.thresholds.build()), dark: dark))
+    var member = LotDetailFixture.thresholds
+    member.canSetThresholds = false
+    #expect(rendersAtDefaultSize(lotDetailView(member.build()), dark: dark))
+  }
+
+  @Test(
+    "UX-DR69 the Calibrate confirmation with Set Thresholds renders", arguments: [false, true])
+  @MainActor
+  func calibrateConfirmationWithThresholdsRenders(dark: Bool) {
+    let confirm = CalibratePresentation(
+      surface: "ready", notice: nil, noticeTryAgain: false, lotId: "t", lotName: "Tomatoes",
+      step: "confirm", working: false, canRecord: false, hasFresh: false, lastRawValue: "612",
+      lastReadingAt: String(Overview.readingMs), readingSeqs: [], readingRawValues: [],
+      readingAts: [], pickedSeq: "", dryRaw: "3000", wetRaw: "1200", percent: "",
+      announcementId: 0, announcementKind: nil, announcementStep: nil, announcementRaw: "",
+      announcementAt: "", announcementPercent: "", announcementLot: "Tomatoes",
+      pausedBySite: false, offersResume: false, offersThresholds: true)
+    #expect(renders(calibrateView(confirm), dark: dark))
+    #expect(rendersAtDefaultSize(calibrateView(confirm), dark: dark))
+  }
 #endif

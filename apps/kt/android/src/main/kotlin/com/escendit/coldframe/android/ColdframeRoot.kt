@@ -36,6 +36,8 @@ import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.sites.loadMessage
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
+import com.escendit.coldframe.android.ui.thresholds.ThresholdsActions
+import com.escendit.coldframe.android.ui.thresholds.ThresholdsScreen
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.calibrate.CalibrateState
 import com.escendit.coldframe.core.devices.DevicesState
@@ -46,6 +48,7 @@ import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.SitesState
+import com.escendit.coldframe.core.thresholds.ThresholdsState
 import com.escendit.coldframe.designtokens.Spacing
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -88,6 +91,8 @@ fun ColdframeRoot(
     lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
     calibrate: CalibrateState = CalibrateState.Idle,
     calibrateActions: CalibrateActions = CalibrateActions.None,
+    thresholds: ThresholdsState = ThresholdsState.Idle,
+    thresholdsActions: ThresholdsActions = ThresholdsActions.None,
     onForeground: () -> Unit = {},
 ) {
     // Every start of the activity, the first one and each return to the foreground.
@@ -128,6 +133,8 @@ fun ColdframeRoot(
                     lotDetailEvents,
                     calibrate,
                     calibrateActions,
+                    thresholds,
+                    thresholdsActions,
                 )
             }
         }
@@ -156,6 +163,8 @@ private fun SignedIn(
     lotDetailEvents: Flow<LotsEvent>,
     calibrate: CalibrateState,
     calibrateActions: CalibrateActions,
+    thresholds: ThresholdsState,
+    thresholdsActions: ThresholdsActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -197,6 +206,8 @@ private fun SignedIn(
             val creating = sites.creating
             if (creating != null) {
                 CreateSiteScreen(form = creating, actions = actions)
+            } else if (thresholds !is ThresholdsState.Idle) {
+                ThresholdsScreen(state = thresholds, actions = thresholdsActions, now = now)
             } else if (calibrate !is CalibrateState.Idle) {
                 CalibrateScreen(state = calibrate, actions = calibrateActions, now = now)
             } else if (hubSetup.open) {
@@ -223,6 +234,7 @@ private fun SignedIn(
                     lotDetailActions = lotDetailActions,
                     lotDetailEvents = lotDetailEvents,
                     onCalibrate = calibrateActions.open,
+                    onThresholds = thresholdsActions.open,
                 )
             }
         }

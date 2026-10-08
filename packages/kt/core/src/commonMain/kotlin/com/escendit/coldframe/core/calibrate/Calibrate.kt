@@ -160,6 +160,9 @@ public sealed interface CalibrateState {
         /** Whether the step's record button is enabled. */
         val canRecord: Boolean get() = step != CalibrateStep.Confirm && !working && candidate != null
 
+        /** The confirmation leads on to Thresholds for the same Lot (an Administrator or Owner is here by definition). */
+        val offersThresholds: Boolean get() = step == CalibrateStep.Confirm
+
         /** The confirmation shows "% appears with the next Reading" until [percent] is known. */
         val waitingForPercent: Boolean get() = step == CalibrateStep.Confirm && percent == null
     }

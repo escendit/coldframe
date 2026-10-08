@@ -39,7 +39,10 @@ public sealed record StoredReport(short? BatteryPercent, string Charging, DateTi
 /// <param name="Low">The day's lowest stored value.</param>
 /// <param name="High">The day's highest stored value.</param>
 /// <param name="ReadingCount">How many Readings the day has.</param>
-public sealed record StoredDay(DateOnly Day, long Low, long High, int ReadingCount);
+/// <param name="CalibratedLow">The day's lowest percentage among its Readings stored with a Calibration, or <see langword="null"/> without one.</param>
+/// <param name="CalibratedHigh">The day's highest percentage among those Readings, or <see langword="null"/> without one.</param>
+/// <param name="CalibratedCount">How many of the day's Readings were stored with a Calibration.</param>
+public sealed record StoredDay(DateOnly Day, long Low, long High, int ReadingCount, long? CalibratedLow = null, long? CalibratedHigh = null, int CalibratedCount = 0);
 
 /// <summary>
 /// Reads what Lot detail adds to a Lot (Story 4.8): the newest Reading per Sensor, the Node's newest
@@ -68,15 +71,23 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
         LIMIT 1
         """;
 
+    // The percentage of a Reading is derived here exactly as CalibrationMath.Percent does: linear between the points of
+    // the Calibration it was stored with, clamped to 0-100, rounded to the nearest 5 (numeric rounds a half away from zero).
     private const string HistorySql =
         """
-        SELECT (measured_at AT TIME ZONE 'UTC')::date AS day, min(raw_value), max(raw_value), count(*)
-        FROM readings
-        WHERE device_id = @device_id AND quantity = @quantity
-          AND measured_at >= @from AND measured_at <= @to
-          AND (@after::date IS NULL OR (measured_at AT TIME ZONE 'UTC')::date > @after::date)
-        GROUP BY 1
-        ORDER BY 1
+        WITH readings_of_day AS (
+            SELECT (r.measured_at AT TIME ZONE 'UTC')::date AS day, r.raw_value,
+                   CASE WHEN c.dry_raw IS NULL THEN NULL
+                        ELSE round(LEAST(100, GREATEST(0, 100.0 * (r.raw_value - c.dry_raw) / (c.wet_raw - c.dry_raw))) / 5) * 5 END AS percent
+            FROM readings r
+            LEFT JOIN calibrations c ON c.calibration_id = r.calibration_id
+            WHERE r.device_id = @device_id AND r.quantity = @quantity
+              AND r.measured_at >= @from AND r.measured_at <= @to
+              AND (@after::date IS NULL OR (r.measured_at AT TIME ZONE 'UTC')::date > @after::date))
+        SELECT day, min(raw_value), max(raw_value), count(*), min(percent), max(percent), count(percent)
+        FROM readings_of_day
+        GROUP BY day
+        ORDER BY day
         LIMIT @take
         """;
 
@@ -158,6 +169,8 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
 
     /// <summary>
     /// Returns up to <paramref name="limit"/> UTC days with Readings of one quantity, ascending, and whether more follow.
+    /// Every day carries the percentages of its Readings that were stored with a Calibration (Story 5.4); a day is
+    /// raw (<c>Low</c> and <c>High</c>) and calibrated at once, and the caller decides which one it shows.
     /// </summary>
     /// <param name="nodeId">The Node's Device ID.</param>
     /// <param name="quantity">The quantity token.</param>
@@ -192,7 +205,16 @@ public sealed class LotDetailReadModel(NpgsqlDataSource dataSource)
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            days.Add(new StoredDay(reader.GetFieldValue<DateOnly>(0), reader.GetInt64(1), reader.GetInt64(2), (int)reader.GetInt64(3)));
+            var calibrated = reader.GetInt64(6) > 0;
+
+            days.Add(new StoredDay(
+                reader.GetFieldValue<DateOnly>(0),
+                reader.GetInt64(1),
+                reader.GetInt64(2),
+                (int)reader.GetInt64(3),
+                calibrated ? (long)reader.GetDecimal(4) : null,
+                calibrated ? (long)reader.GetDecimal(5) : null,
+                (int)reader.GetInt64(6)));
         }
 
         return days.Count > limit ? (days[..limit], true) : (days, false);

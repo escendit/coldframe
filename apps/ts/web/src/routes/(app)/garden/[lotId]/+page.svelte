@@ -10,6 +10,7 @@
   import { locale, t, type MessageKey } from '$lib/i18n';
   import { deviceCells, heroSpoken, historyChart, lotHero, pickerQuantities, quantityName, sensorCells, type SensorQuantity } from '$lib/lot-detail';
   import { calibratableSensor } from '$lib/calibrate';
+  import { thresholdSummary } from '$lib/thresholds';
   import { hasRole } from '$lib/roles';
   import type { PageProps } from './$types';
 
@@ -40,7 +41,12 @@
 
   let picked: SensorQuantity | null = $state(null);
   const quantity = $derived(picked !== null && quantities.includes(picked) ? picked : (quantities[0] ?? 'soil_moisture'));
-  const chart = $derived(historyChart(data.detail?.histories[quantity], quantity, now, locale));
+  /** The band comes from the Server's low (Thresholds in force, else the Lot's `lowThresholdPercent`) and optional high. */
+  const thresholds = $derived(data.detail?.thresholds ?? null);
+  const bandLow = $derived(thresholds?.low.value ?? lot?.lowThresholdPercent ?? null);
+  const chart = $derived(historyChart(data.detail?.histories[quantity], quantity, now, locale, bandLow === null ? null : { low: bandLow, high: thresholds?.high.value ?? null }));
+  const soilCell = $derived(lot?.sensors?.find((sensor) => sensor.quantity === 'soil_moisture'));
+  const summary = $derived(thresholds === null || soilCell === undefined ? null : thresholdSummary(quantityName('soil_moisture'), thresholds, locale));
   const options = $derived(quantities.map((value) => ({ value, label: quantityName(value) })));
   function choose(value: SensorQuantity): void {
     picked = value;
@@ -123,12 +129,28 @@
             <ul class="cf-cells cf-cells--sensors">
               {#each cells as cell (cell.quantity)}
                 <li class="cf-cell" data-quantity={cell.quantity}>
-                  <span class="cf-cell__label">{cell.label}</span>
-                  <span class="cf-cell__value">{cell.value}</span>
-                  {#if cell.time !== null}<span class="cf-cell__meta">{cell.time}</span>{/if}
+                  {#if cell.sensorId !== undefined}
+                    <a class="cf-cell__link" href="/garden/{lot.id}/thresholds#sensor-{cell.sensorId}">
+                      <span class="cf-cell__label">{cell.label}</span>
+                      <span class="cf-cell__value">{cell.value}</span>
+                      {#if cell.time !== null}<span class="cf-cell__meta">{cell.time}</span>{/if}
+                    </a>
+                  {:else}
+                    <span class="cf-cell__label">{cell.label}</span>
+                    <span class="cf-cell__value">{cell.value}</span>
+                    {#if cell.time !== null}<span class="cf-cell__meta">{cell.time}</span>{/if}
+                  {/if}
                 </li>
               {/each}
             </ul>
+          {/if}
+          {#if summary !== null}
+            <p class="cf-detail__thresholds" id="cf-detail-thresholds">{summary}</p>
+          {/if}
+          {#if cells.some((cell) => cell.sensorId !== undefined)}
+            <p class="cf-detail__calibrate">
+              <Button label={t(admin ? 'thresholds.action.set' : 'thresholds.action.view')} variant="secondary" href="/garden/{lot.id}/thresholds" id="cf-detail-thresholds-link" />
+            </p>
           {/if}
           {#if canCalibrate}
             <p class="cf-detail__calibrate"><Button label={t('calibrate.action')} variant="secondary" href="/garden/{lot.id}/calibrate" id="cf-detail-calibrate" /></p>
@@ -186,6 +208,14 @@
 
   .cf-detail__calibrate {
     margin: var(--cf-spacing-5) 0 0;
+  }
+
+  .cf-detail__thresholds {
+    margin: var(--cf-spacing-5) 0 0;
+    font-family: var(--cf-type-body-font-family);
+    font-size: var(--cf-type-body-font-size);
+    line-height: var(--cf-type-body-line-height);
+    overflow-wrap: anywhere;
   }
 
   .cf-detail__empty {

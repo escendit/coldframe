@@ -63,6 +63,9 @@ data class ColdframeColors(
     val staleBorder: Color,
     val staleInk: Color,
     val chartBar: Color,
+    val chartBand: Color,
+    val chartHighLine: Color,
+    val chartBarBelowLow: Color,
 ) {
     companion object {
         /** Resolves every token for [isDark]; nothing else in the app names a colour. */
@@ -114,6 +117,9 @@ data class ColdframeColors(
                 staleBorder = ColorTokens.staleBorder.color(),
                 staleInk = ColorTokens.staleInk.color(),
                 chartBar = ColorTokens.chartBar.color(),
+                chartBand = ColorTokens.chartBand.color(),
+                chartHighLine = ColorTokens.chartHighLine.color(),
+                chartBarBelowLow = ColorTokens.chartBarBelowLow.color(),
             )
         }
     }

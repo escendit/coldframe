@@ -34,7 +34,8 @@ final class CoreCalibrateService: CalibrateService {
             announcementRaw: snapshot.announcementRaw, announcementAt: snapshot.announcementAt,
             announcementPercent: snapshot.announcementPercent,
             announcementLot: snapshot.announcementLot, pausedBySite: snapshot.pausedBySite,
-            offersResume: snapshot.offersResume))
+            offersResume: snapshot.offersResume,
+            offersThresholds: snapshot.offersThresholds))
       }
     }
   }

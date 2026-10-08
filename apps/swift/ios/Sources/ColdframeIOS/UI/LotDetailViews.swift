@@ -41,8 +41,8 @@
   /// Lot detail (UX-DR63): the full-width hero, a 3-up row of Sensor cells, the 30-day History
   /// chart with its Sensor picker, then a 2-up row of Device cells; the rows go 1-up from
   /// Accessibility 1. The core decided everything shown; this draws it with catalogue words.
-  /// Calibrate shows for Administrators and Owners where the core says so; Thresholds and Pause have no destination before Epics 5
-  /// and 8. Stale mode shows the stale header, the hero without a value, and no Sensor or Device
+  /// Calibrate and Set Thresholds show for Administrators and Owners where the core says so; a
+  /// Member sees View Thresholds, read-only (UX-DR84). Pause has no destination before Epic 8. Stale mode shows the stale header, the hero without a value, and no Sensor or Device
   /// cell. A *no Node* Lot is the empty detail. Pull to refresh reads the Lot again; a one-minute
   /// tick moves the stale age and announces nothing.
   public struct LotDetailView: View {
@@ -51,6 +51,8 @@
     let actions: LotDetailActions
     let onAddNode: (String) -> Void
     let onCalibrate: (String, String) -> Void
+    /// Opens Thresholds: the Lot's id and name, and the Sensor cell it came from (or empty).
+    let onSetThresholds: (String, String, String) -> Void
     let onOpenDevices: () -> Void
     let now: () -> Date
     let timeZone: TimeZone
@@ -62,6 +64,7 @@
       presentation: LotDetailPresentation, siteName: String,
       actions: LotDetailActions = .none, onAddNode: @escaping (String) -> Void = { _ in },
       onCalibrate: @escaping (String, String) -> Void = { _, _ in },
+      onSetThresholds: @escaping (String, String, String) -> Void = { _, _, _ in },
       onOpenDevices: @escaping () -> Void = {}, now: @escaping () -> Date = { Date() },
       timeZone: TimeZone = .current
     ) {
@@ -70,6 +73,7 @@
       self.actions = actions
       self.onAddNode = onAddNode
       self.onCalibrate = onCalibrate
+      self.onSetThresholds = onSetThresholds
       self.onOpenDevices = onOpenDevices
       self.now = now
       self.timeZone = timeZone
@@ -143,6 +147,12 @@
             onCalibrate(lotId, presentation.hero?.name ?? "")
           }
         }
+        // Thresholds: Set for an editor, View (read-only) for a Member; hidden, never disabled.
+        if let action = presentation.thresholdsAction, let lotId = presentation.lotId {
+          PrimaryButton(action, variant: .secondary) {
+            onSetThresholds(lotId, presentation.hero?.name ?? "", "")
+          }
+        }
         if let sensors = presentation.sensors {
           sensorCells(sensors, context)
         }
@@ -184,11 +194,21 @@
             ForEach(cells) { cell in
               DetailCell(
                 label: cell.label.string, value: cell.valueText(context),
-                meta: cell.timeText(context), spoken: cell.spokenText(context))
+                meta: cell.timeText(context), spoken: cell.spokenText(context),
+                onTap: thresholdsTap(for: cell))
             }
           }
         }
       }
+    }
+
+    // A Sensor cell is a button only where the core offers Thresholds (UX-DR84).
+    private func thresholdsTap(for cell: SensorCellPresentation) -> (() -> Void)? {
+      guard let sensorId = presentation.thresholdsSensorId(for: cell),
+        let lotId = presentation.lotId
+      else { return nil }
+      let name = presentation.hero?.name ?? ""
+      return { onSetThresholds(lotId, name, sensorId) }
     }
 
     private func deviceCells(_ device: DeviceCellsPresentation, _ context: CopyContext)
@@ -369,9 +389,11 @@
     }
   }
 
-  /// The History chart (UX-DR32, UX-DR33): one 1 pt outlined bar per day for 30 days, the day's
-  /// low scaled by the core; a day without Readings is a gap. There is no Threshold, so every
-  /// bar has the normal style. A tap or drag selects a day and shows its readout as text; the
+  /// The History chart (UX-DR5, UX-DR32, UX-DR33): one 1 pt outlined bar per day for 30 days, the
+  /// day's low scaled by the core; a day without Readings is a gap. With a Threshold band
+  /// (soil moisture in %) it draws the `chart-band` zone, the 2 pt low line and the 1 pt dashed
+  /// `chart-high-line`, and a day whose low is under the low line is a solid `chart-bar-below-low`
+  /// bar, which is not colour alone. A tap or drag selects a day and shows its readout as text; the
   /// whole chart is one element whose label is the text summary (UX-DR98). Nothing animates.
   struct HistoryChartView: View {
     static let plotHeight: Double = 120
@@ -400,6 +422,11 @@
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: chart.summary(context)))
         .accessibilityAddTraits(.isImage)
+        if let legend = chart.legend(context) {
+          // The legend explains the solid bars.
+          Text(verbatim: legend).role(Typography.metaMono).foregroundStyle(palette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
         if let first = chart.bars.first, let last = chart.bars.last {
           HStack {
             Text(verbatim: chart.dayText(first.dayStart, context)).role(Typography.metaMono)
@@ -422,6 +449,15 @@
       let slot = Double(size.width) / Double(chart.bars.count)
       let gap = slot * Self.barGap
       let height = Double(size.height)
+      let plot = height - 2
+      // The band sits behind the bars: from the low line up to the high line, or to the top.
+      if let band = chart.band {
+        let top = band.highFraction ?? 1
+        let rect = CGRect(
+          x: 0, y: height - plot * top, width: Double(size.width),
+          height: plot * (top - band.lowFraction))
+        drawing.fill(Path(rect), with: .color(palette.color(ColorTokens.chartBand)))
+      }
       var baseline = Path()
       baseline.move(to: CGPoint(x: 0, y: height))
       baseline.addLine(to: CGPoint(x: Double(size.width), y: height))
@@ -432,8 +468,30 @@
         let rect = CGRect(
           x: Double(index) * slot + gap / 2 + stroke / 2, y: height - barHeight + stroke / 2,
           width: max(1, slot - gap - stroke), height: max(1, barHeight - stroke))
+        if bar.belowLow {
+          // Under the low Threshold: solid, in its own token.
+          drawing.fill(Path(rect), with: .color(palette.color(ColorTokens.chartBarBelowLow)))
+        }
         drawing.stroke(
-          Path(rect), with: .color(palette.color(ColorTokens.chartBar)), lineWidth: stroke)
+          Path(rect),
+          with: .color(palette.color(bar.belowLow ? ColorTokens.chartBarBelowLow : ColorTokens.chartBar)),
+          lineWidth: stroke)
+      }
+      if let band = chart.band {
+        var low = Path()
+        let lowY = height - plot * band.lowFraction
+        low.move(to: CGPoint(x: 0, y: lowY))
+        low.addLine(to: CGPoint(x: Double(size.width), y: lowY))
+        drawing.stroke(low, with: .color(palette.primaryText), lineWidth: 2)
+        if let high = band.highFraction {
+          var line = Path()
+          let highY = height - plot * high
+          line.move(to: CGPoint(x: 0, y: highY))
+          line.addLine(to: CGPoint(x: Double(size.width), y: highY))
+          drawing.stroke(
+            line, with: .color(palette.color(ColorTokens.chartHighLine)),
+            style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
       }
     }
   }

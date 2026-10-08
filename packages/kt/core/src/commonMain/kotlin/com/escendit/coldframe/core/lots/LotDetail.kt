@@ -145,6 +145,8 @@ public data class SensorCell(
     val number: String,
     val unit: SensorUnit,
     val measuredAtEpochMs: Long?,
+    /** The Sensor this cell opens Thresholds for (a tap on the cell); `null` from a Server that does not send it. */
+    val sensorId: String? = null,
 )
 
 /** What the hero's big value is. */
@@ -227,6 +229,20 @@ public data class ChartBar(
     val readingCount: Int,
     /** 0..1 of the axis; 0 for a gap. */
     val fraction: Double,
+    /** The day's low is under the low Threshold: drawn solid in the below-low token, a non-colour cue (UX-DR5, UX-DR32). */
+    val belowLow: Boolean = false,
+)
+
+/**
+ * The Threshold band of the 30-day chart (UX-DR5): the zone from the low line up to the high line, the 2 px low line
+ * and the dashed high line. It is drawn only for soil moisture in `%`. [lowFraction] and [highFraction] are 0..1 of
+ * the axis; [highPercent] is `null` without a high, and then the band runs to the top.
+ */
+public data class ChartBand(
+    val lowPercent: Int,
+    val highPercent: Int?,
+    val lowFraction: Double,
+    val highFraction: Double?,
 )
 
 /**
@@ -244,9 +260,15 @@ public data class HistoryChart(
     val lowestDay: String?,
     val highestNumber: String?,
     val highestDay: String?,
+    /** The Threshold band, or `null` unless this is soil moisture in `%` with a low Threshold. */
+    val band: ChartBand? = null,
 ) {
+    /** The days whose low is under the low Threshold, for the legend ("solid bar = below N %") and the text summary. */
+    val belowLowDays: List<String> get() = bars.filter { it.belowLow }.map { it.day }
+
     public companion object {
         public const val DAYS: Int = 30
+        private const val PERCENT_AXIS = 100.0
         private const val MS_PER_DAY = 86_400_000L
         private const val MIN_FRACTION = 0.03
 
@@ -256,13 +278,28 @@ public data class HistoryChart(
             unit: SensorUnit,
             days: List<LotHistoryDayDto>,
             nowEpochMs: Long,
+            lowPercent: Int? = null,
+            highPercent: Int? = null,
         ): HistoryChart {
+            // A percentage chart runs on a fixed 0 to 100 axis, so the Threshold lines sit where their value is.
+            val percent = quantity == SensorQuantity.SoilMoisture && unit == SensorUnit.Percent
             val today = nowEpochMs.floorDiv(MS_PER_DAY)
             val byDay = days.associateBy { it.day }
             val slots = (today - DAYS + 1..today).map { epochDay -> epochDay to byDay[dayText(epochDay)] }
             val present = slots.mapNotNull { it.second }
-            val axisLow = minOf(0.0, present.minOfOrNull { it.low } ?: 0.0)
-            val axisHigh = maxOf(axisLow + 1.0, present.maxOfOrNull { it.low } ?: 0.0)
+            val axisLow = if (percent) 0.0 else minOf(0.0, present.minOfOrNull { it.low } ?: 0.0)
+            val axisHigh = if (percent) PERCENT_AXIS else maxOf(axisLow + 1.0, present.maxOfOrNull { it.low } ?: 0.0)
+            val band =
+                if (percent && lowPercent != null) {
+                    ChartBand(
+                        lowPercent = lowPercent,
+                        highPercent = highPercent,
+                        lowFraction = (lowPercent / PERCENT_AXIS).coerceIn(0.0, 1.0),
+                        highFraction = highPercent?.let { (it / PERCENT_AXIS).coerceIn(0.0, 1.0) },
+                    )
+                } else {
+                    null
+                }
             val bars =
                 slots.map { (epochDay, entry) ->
                     ChartBar(
@@ -278,6 +315,7 @@ public data class HistoryChart(
                             } else {
                                 ((entry.low - axisLow) / (axisHigh - axisLow)).coerceIn(MIN_FRACTION, 1.0)
                             },
+                        belowLow = entry != null && band != null && entry.low < band.lowPercent,
                     )
                 }
             val lowest = present.minByOrNull { it.low }
@@ -291,6 +329,7 @@ public data class HistoryChart(
                 lowestDay = lowest?.day,
                 highestNumber = highest?.let { SensorFormat.number(it.high, unit) },
                 highestDay = highest?.day,
+                band = band,
             )
         }
 
@@ -338,6 +377,14 @@ public data class LotDetail(
     val historyUnavailable: Boolean,
     /** Calibrate shows: Admin+ on a live Lot with a Sensor whose Specification calls for Calibration; hidden, never disabled. */
     val canCalibrate: Boolean = false,
+    /** Set Thresholds shows: Admin+ on a live Lot with a Sensor; hidden, never disabled (UX-DR84). */
+    val canSetThresholds: Boolean = false,
+    /** The Thresholds are shown, read-only for a Member: a live Lot with a Sensor. */
+    val canViewThresholds: Boolean = false,
+    /** The soil Sensor's low Threshold in percent, or `null` without one. */
+    val thresholdLowPercent: Int? = null,
+    /** The soil Sensor's high Threshold in percent, or `null` without one. */
+    val thresholdHighPercent: Int? = null,
 ) {
     public companion object {
         public fun of(
@@ -385,6 +432,10 @@ public data class LotDetail(
                 )
             val node = lot.node
             val liveNode = if (stale) null else node
+            val thresholdLow =
+                ready.soilThresholds?.lowPercent ?: lot.lowThresholdPercent?.takeUnless { it.isNaN() }?.roundToInt()
+            val thresholdHigh = ready.soilThresholds?.highPercent
+            val hasSensor = lot.sensors.any { it.sensorId != null }
             return LotDetail(
                 stale = stale,
                 fetchedAtEpochMs = ready.fetchedAtEpochMs,
@@ -403,6 +454,7 @@ public data class LotDetail(
                                 SensorFormat.number(it.value, it.unit),
                                 it.unit,
                                 it.measuredAtEpochMs,
+                                it.sensorId,
                             )
                         }
                     },
@@ -425,12 +477,18 @@ public data class LotDetail(
                             it.unit,
                             it.days,
                             nowEpochMs,
+                            lowPercent = thresholdLow,
+                            highPercent = thresholdHigh,
                         )
                     },
                 historyUnavailable = ready.historyUnavailable,
                 canCalibrate =
                     !stale && role >= SiteRole.Administrator &&
                         lot.sensors.any { it.calibratable && it.sensorId != null },
+                canSetThresholds = !stale && role >= SiteRole.Administrator && hasSensor,
+                canViewThresholds = !stale && hasSensor,
+                thresholdLowPercent = if (stale) null else thresholdLow,
+                thresholdHighPercent = if (stale) null else thresholdHigh,
             )
         }
 

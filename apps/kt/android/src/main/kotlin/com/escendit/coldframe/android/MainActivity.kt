@@ -17,6 +17,7 @@ import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
+import com.escendit.coldframe.android.ui.thresholds.ThresholdsActions
 
 /**
  * Registers the Custom Tabs flow, renders the root, and on every foreground resumes the session
@@ -37,7 +38,14 @@ class MainActivity : ComponentActivity() {
         val lotDetail = app.signIn.lotDetail
         val lotDetailActions = LotDetailActions.of(lotDetail)
         val calibrate = app.signIn.calibrate
-        val calibrateActions = CalibrateActions.of(calibrate)
+        val thresholds = app.signIn.thresholds
+        val thresholdsActions = ThresholdsActions.of(thresholds)
+        // After Calibration, the confirmation leads on to Thresholds for the same Lot (Story 5.4).
+        val calibrateActions =
+            CalibrateActions.of(calibrate) { lotId, name ->
+                calibrate.close()
+                thresholds.open(lotId, name)
+            }
         val devices = app.signIn.devices
         val devicesActions = DevicesActions.of(devices)
         val hubSetup = app.signIn.hubSetup
@@ -51,6 +59,7 @@ class MainActivity : ComponentActivity() {
             val lotsState by lots.state.collectAsStateWithLifecycle()
             val lotDetailState by lotDetail.state.collectAsStateWithLifecycle()
             val calibrateState by calibrate.state.collectAsStateWithLifecycle()
+            val thresholdsState by thresholds.state.collectAsStateWithLifecycle()
             val devicesState by devices.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val nodeSetupState by nodeSetup.state.collectAsStateWithLifecycle()
@@ -90,6 +99,8 @@ class MainActivity : ComponentActivity() {
                 lotDetailEvents = lotDetail.events,
                 calibrate = calibrateState,
                 calibrateActions = calibrateActions,
+                thresholds = thresholdsState,
+                thresholdsActions = thresholdsActions,
                 // Reload on start: a no-op until a Site is current, else the Lots are read again.
                 onForeground = {
                     engine.resume()

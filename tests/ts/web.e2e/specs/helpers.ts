@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FailingReads, FakeCalibration, FakeCalibrationPost, FakeCalibrationReading, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
+import type { FailingReads, FakeCalibration, FakeCalibrationPost, FakeCalibrationReading, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, FakeThresholds, FakeThresholdsPut, Mode } from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -23,11 +23,12 @@ export async function resetSites(
   devices: readonly FakeDevice[] = [],
   devicesStatus: number | null = null,
   calibrations: readonly FakeCalibration[] = [],
+  thresholds: readonly FakeThresholds[] = [],
 ): Promise<void> {
   const response = await fetch(`${idpOrigin}/control/sites`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...(sites === undefined ? {} : { sites }), lots, devices, calibrations, ...(devicesStatus === null ? {} : { devicesStatus }) }),
+    body: JSON.stringify({ ...(sites === undefined ? {} : { sites }), lots, devices, calibrations, thresholds, ...(devicesStatus === null ? {} : { devicesStatus }) }),
   });
   expect(response.ok).toBe(true);
 }
@@ -43,6 +44,8 @@ export async function serverSites(): Promise<{
   deviceActions: FakeDeviceAction[];
   calibrations: FakeCalibration[];
   calibrationPosts: FakeCalibrationPost[];
+  thresholds: FakeThresholds[];
+  thresholdPuts: FakeThresholdsPut[];
 }> {
   const response = await fetch(`${idpOrigin}/control/sites`);
   return (await response.json()) as {
@@ -55,6 +58,8 @@ export async function serverSites(): Promise<{
     deviceActions: FakeDeviceAction[];
     calibrations: FakeCalibration[];
     calibrationPosts: FakeCalibrationPost[];
+    thresholds: FakeThresholds[];
+    thresholdPuts: FakeThresholdsPut[];
   };
 }
 
@@ -74,6 +79,16 @@ export async function setLotSensors(lotId: string, sensors: readonly unknown[]):
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ lotId, sensors }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** Changes fields of a Lot at the fake Server, as when its first calibrated Reading is stored. */
+export async function patchLot(lotId: string, fields: Partial<FakeLot>): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/lot-fields`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ lotId, fields }),
   });
   expect(response.ok).toBe(true);
 }

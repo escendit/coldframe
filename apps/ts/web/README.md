@@ -146,14 +146,31 @@ from Server timestamps) and computes nothing else. The hero shows the soil Readi
 Lot needs calibration, otherwise the Server's `moisturePercent` when it sends one. The History chart
 (`HistoryChart.svelte`) is inline SVG: 30 UTC days ending on the day of the page's clock, one outlined bar
 per day with Readings (the daily low), gaps for the others, the picked bar solid, a tap, drag or arrow
-key picks a day, the text summary is the label of the image, and nothing animates. There is no Threshold
-band or below-low bar before Epic 5, and no admin strip before Epics 5 and 8. A "Hub is silent" Lot names
+key picks a day, the text summary is the label of the image, and nothing animates. With a low Threshold on a
+soil-moisture History the Server sent in `%` (calibrated Readings), the chart also draws the band
+(`chart-band`), a 2 px low line, a dashed 1 px high line (`chart-high-line`) and a solid
+`chart-bar-below-low` bar for each day whose low is under the low, with the legend "solid bar = below N %"
+and the below-low days in the text summary; a raw History has none of it. There is no admin strip before Epic 8. A "Hub is silent" Lot names
 the first Hub of the Devices list, since the Lot does not carry the Hub (no Server producer yet).
 
 Devices lists "Hubs", then "Nodes" in the Server's order (Lot name, unassigned last, then Device ID) with
 Lot name, last seen, battery (`battery--low` below 20 %) and charging from the Server; no row actions
 until Story 4.9. The Playwright fake Server (`fixtures/fake-idp.ts`) seeds `node`, `sensors`, `history` and
 the Node fields; its Lot reads and the history fail with the rest of the Lots reads.
+
+### Thresholds (Story 5.4)
+
+`/garden/{lotId}/thresholds` (`src/lib/server/thresholds.ts`, `src/lib/thresholds.ts`,
+`ThresholdColumn.svelte`) reads `GET /sites/{siteId}/sensors/{sensorId}/thresholds` for each Sensor of the Lot
+(a Member may) and saves with `PUT` through the `save` form action (only the changed sides are sent; the
+Server stays the only validator, the client check of "Low must stay below high." only gates Save). It is
+reached from Lot detail ("Set Thresholds", "View Thresholds" for a Member), a Sensor cell and the Calibration
+confirmation. Each Sensor is a Threshold column: a vertical track, the low line, the current Reading marker, a
+dashed "no high" marker, values to the right; a percentage track (calibrated soil moves in 5 % steps) can be
+dragged or typed, other Sensors are typed or moved with the arrow keys. A Member sees the values read-only with
+no control. Lot detail also reads the calibratable soil Sensor's Thresholds for the chart band and the summary
+line; a failed read leaves them out. The fake Server has `thresholds` seeds, `PUT` recording and
+`/control/lot-fields` (`patchLot`).
 
 ## Stale mode
 

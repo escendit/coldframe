@@ -316,4 +316,32 @@ class OpenApiContractTest {
         assertMirrors("CalibrateSensorRequest", CalibrateSensorRequestDto.serializer().descriptor)
         assertMirrors("SensorReading", SensorReadingDto.serializer().descriptor)
     }
+
+    @Test
+    fun story54TheThresholdOperationsExistReadForMembersWriteForAdministrators() {
+        val read = operation("/sites/{siteId}/sensors/{sensorId}/thresholds", "get")
+        val write = operation("/sites/{siteId}/sensors/{sensorId}/thresholds", "put")
+        assertEquals("getSensorThresholds", read["operationId"]!!.jsonPrimitive.content)
+        assertEquals("setSensorThresholds", write["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Member", read["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals("Administrator", write["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        for (operation in listOf(read, write)) {
+            assertEquals(listOf("siteId", "sensorId"), parameterNames(operation))
+        }
+        assertNotNull(write["responses"]!!.jsonObject["403"])
+    }
+
+    @Test
+    fun story54TheThresholdDtosMirrorTheContract() {
+        assertMirrors("SensorThresholds", SensorThresholdsDto.serializer().descriptor)
+        assertMirrors("ThresholdSide", ThresholdSideDto.serializer().descriptor)
+        assertMirrors("SetSensorThresholdsRequest", SetSensorThresholdsRequestDto.serializer().descriptor)
+    }
+
+    @Test
+    fun story54TheLotCarriesTheCalibratedPercentageAndLowThresholdAsOptionalNumbers() {
+        val properties = schema("Lot")["properties"]!!.jsonObject
+        assertNotNull(properties["moisturePercent"])
+        assertNotNull(properties["lowThresholdPercent"])
+    }
 }

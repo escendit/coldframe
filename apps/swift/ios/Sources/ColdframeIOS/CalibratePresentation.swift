@@ -176,6 +176,8 @@ public struct CalibratePresentation: Equatable, Sendable {
   public let percent: Int?
   public let notice: CalibrateNoticeKind?
   public let announcement: CalibrateAnnouncementPresentation?
+  /// The confirmation leads on to "Set Thresholds" for the same Lot (Story 5.4); the core says when.
+  public let offersThresholds: Bool
 
   public static let idle = CalibratePresentation(surface: .idle)
 
@@ -185,7 +187,7 @@ public struct CalibratePresentation: Equatable, Sendable {
     hasFresh: Bool = false, lastRaw: String = "", lastReadingAt: Date? = nil,
     readings: [CalibrateReadingPresentation] = [], dryRaw: String = "", wetRaw: String = "",
     percent: Int? = nil, notice: CalibrateNoticeKind? = nil,
-    announcement: CalibrateAnnouncementPresentation? = nil
+    announcement: CalibrateAnnouncementPresentation? = nil, offersThresholds: Bool = false
   ) {
     self.surface = surface
     self.lotId = lotId
@@ -202,6 +204,7 @@ public struct CalibratePresentation: Equatable, Sendable {
     self.percent = percent
     self.notice = notice
     self.announcement = announcement
+    self.offersThresholds = offersThresholds
   }
 
   /// Mirrors the flat snapshot field for field. Times are Unix milliseconds in decimal; an
@@ -214,7 +217,7 @@ public struct CalibratePresentation: Equatable, Sendable {
     readingAts: [String], pickedSeq: String, dryRaw: String, wetRaw: String, percent: String,
     announcementId: Int, announcementKind: String?, announcementStep: String?,
     announcementRaw: String, announcementAt: String, announcementPercent: String,
-    announcementLot: String?, pausedBySite: Bool, offersResume: Bool
+    announcementLot: String?, pausedBySite: Bool, offersResume: Bool, offersThresholds: Bool = false
   ) {
     let name = lotName ?? ""
     let noticeKind = notice.map { CalibrateNoticeKind(rawValue: $0) ?? .unexpected }
@@ -259,7 +262,8 @@ public struct CalibratePresentation: Equatable, Sendable {
       step: step.flatMap(CalibrateStepKind.init(rawValue:)) ?? .dry, isWorking: working,
       canRecord: canRecord, hasFresh: hasFresh, lastRaw: lastRawValue,
       lastReadingAt: Self.date(lastReadingAt), readings: readings, dryRaw: dryRaw, wetRaw: wetRaw,
-      percent: Int(percent), notice: noticeKind, announcement: announcement)
+      percent: Int(percent), notice: noticeKind, announcement: announcement,
+      offersThresholds: offersThresholds)
   }
 
   private static func date(_ epochMs: String) -> Date? {

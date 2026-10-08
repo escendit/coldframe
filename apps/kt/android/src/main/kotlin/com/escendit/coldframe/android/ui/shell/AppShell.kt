@@ -115,6 +115,7 @@ fun AppShell(
     lotDetailActions: LotDetailActions = LotDetailActions.None,
     lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
     onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
+    onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit = { _, _, _ -> },
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -254,6 +255,7 @@ fun AppShell(
                     events = lotDetailEvents,
                     onAddNode = onAddNode,
                     onCalibrate = onCalibrate,
+                    onThresholds = onThresholds,
                     onOpenDevices = {
                         lotDetailActions.close()
                         tab = Tab.Devices

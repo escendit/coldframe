@@ -5,7 +5,7 @@
  * and served as stale when the Server cannot be reached (UX-DR79).
  */
 import type { Cookies } from '@sveltejs/kit';
-import type { Lot, LotHistory, SensorQuantity } from '@coldframe/api-client';
+import type { Lot, LotHistory, SensorQuantity, SensorThresholds } from '@coldframe/api-client';
 import { pickerQuantities } from '$lib/lot-detail';
 import type { Site } from '$lib/sites';
 import { isTimeZone } from './create-site';
@@ -13,6 +13,7 @@ import { lotDetailKey, readThrough, recall, userKeyOf, type LastGoodDependencies
 import { signedOutRedirect, timeZoneCookieName } from './shell';
 import { call, type SitesDependencies, type SitesError, type SitesResult } from './sites';
 import { listDevices } from './devices';
+import { getSensorThresholds } from './thresholds';
 
 type Locals = Pick<App.Locals, 'session'>;
 
@@ -22,6 +23,8 @@ export interface LotDetail {
   readonly histories: Readonly<Partial<Record<SensorQuantity, LotHistory>>>;
   /** The Hub a Hub-silent Lot names, when the Server lists one; otherwise null. */
   readonly hubId: string | null;
+  /** The Thresholds of the calibratable soil Sensor, for the chart band and the summary; null when it has none or they could not be read. */
+  readonly thresholds: SensorThresholds | null;
 }
 
 /** Why the detail has no Lot: the Lot is gone, or the Server could not be read. */
@@ -65,7 +68,10 @@ async function readDetail(locals: Locals, siteId: string, lotId: string, depende
     const devices = await listDevices(locals, siteId, dependencies);
     hubId = 'ok' in devices ? (devices.ok.find((device) => device.kind === 'hub')?.id ?? null) : null;
   }
-  return { ok: { lot: lot.ok, histories, hubId } };
+  // The soil Sensor's Thresholds are an addition to the detail: a failed read leaves the detail without them.
+  const soil = lot.ok.sensors?.find((sensor) => sensor.quantity === 'soil_moisture' && sensor.calibratable === true && sensor.sensorId !== undefined);
+  const thresholds = soil?.sensorId === undefined ? null : await getSensorThresholds(locals, siteId, soil.sensorId, dependencies);
+  return { ok: { lot: lot.ok, histories, hubId, thresholds: thresholds !== null && 'ok' in thresholds ? thresholds.ok : null } };
 }
 
 function noticeOf(error: SitesError): LotDetailNotice {

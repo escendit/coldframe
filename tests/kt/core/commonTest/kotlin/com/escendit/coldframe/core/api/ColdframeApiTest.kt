@@ -587,4 +587,80 @@ class ColdframeApiTest {
             assertEquals("s-1", lot.sensors!!.single().sensorId)
             assertEquals(true, lot.sensors!!.single().calibratable)
         }
+
+    @Test
+    fun story54GetSensorThresholdsReadsBothSidesAndTheProposedLow() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"unit":"°C","low":{"kind":"cleared"},"high":{"kind":"default"},"proposedLow":7.0}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result = api().getSensorThresholds("a", "s-1")
+
+            assertEquals(
+                ApiResult.Ok(SensorThresholdsDto("°C", ThresholdSideDto("cleared"), ThresholdSideDto("default"), 7.0)),
+                result,
+            )
+            val sent = requests.single()
+            assertEquals(HttpMethod.Get, sent.method)
+            assertEquals("https://server.example/sites/a/sensors/s-1/thresholds", sent.url.toString())
+        }
+
+    @Test
+    fun story54SetSensorThresholdsPutsOnlyTheSidesItIsGiven() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"unit":"%","low":{"kind":"override","value":25},"high":{"kind":"default"}}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result =
+                api().setSensorThresholds(
+                    "a",
+                    "s-1",
+                    SetSensorThresholdsRequestDto(low = ThresholdSideDto("override", 25.0)),
+                )
+
+            assertEquals(
+                ApiResult.Ok(SensorThresholdsDto("%", ThresholdSideDto("override", 25.0), ThresholdSideDto("default"))),
+                result,
+            )
+            val sent = requests.single()
+            assertEquals(HttpMethod.Put, sent.method)
+            assertEquals("https://server.example/sites/a/sensors/s-1/thresholds", sent.url.toString())
+            assertEquals("""{"low":{"kind":"override","value":25.0}}""", sent.text())
+        }
+
+    @Test
+    fun uxDr91ThresholdProblemsMapToTheirFailures() =
+        runTest {
+            val cases =
+                listOf(
+                    Triple(HttpStatusCode.BadRequest, "validation", ApiFailure.Validation),
+                    Triple(HttpStatusCode.Forbidden, "forbidden", ApiFailure.Forbidden),
+                    Triple(HttpStatusCode.NotFound, "sensor-not-found", ApiFailure.NotFound),
+                    Triple(
+                        HttpStatusCode.ServiceUnavailable,
+                        "identity-provider-unavailable",
+                        ApiFailure.IdentityProviderUnavailable,
+                    ),
+                )
+            for ((status, type, failure) in cases) {
+                answer = { respond(problem(type), status, problem) }
+                assertEquals(
+                    ApiResult.Failed(failure),
+                    api().setSensorThresholds("a", "s-1", SetSensorThresholdsRequestDto()),
+                    type,
+                )
+            }
+        }
 }

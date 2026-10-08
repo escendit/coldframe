@@ -7,6 +7,7 @@ import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
 import com.escendit.coldframe.core.sites.SitesApi
+import com.escendit.coldframe.core.thresholds.ThresholdsApi
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
@@ -20,6 +21,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -52,6 +54,7 @@ public class ColdframeApi(
     LotsApi,
     LotDetailApi,
     CalibrateApi,
+    ThresholdsApi,
     DevicesApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
@@ -219,6 +222,32 @@ public class ColdframeApi(
                 )
             }
         }) { it.body<CalibrationDto>() }
+
+    /** `GET /sites/{siteId}/sensors/{sensorId}/thresholds` (`getSensorThresholds`, Member). */
+    override suspend fun getSensorThresholds(
+        siteId: String,
+        sensorId: String,
+    ): ApiResult<SensorThresholdsDto> =
+        call({ http.get(thresholds(siteId, sensorId)) { it() } }) { it.body<SensorThresholdsDto>() }
+
+    /** `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` (`setSensorThresholds`, Admin+): a side left out stays. */
+    override suspend fun setSensorThresholds(
+        siteId: String,
+        sensorId: String,
+        request: SetSensorThresholdsRequestDto,
+    ): ApiResult<SensorThresholdsDto> =
+        call({
+            http.put(thresholds(siteId, sensorId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+        }) { it.body<SensorThresholdsDto>() }
+
+    private fun thresholds(
+        siteId: String,
+        sensorId: String,
+    ): String = "$base/sites/${siteId.encoded()}/sensors/${sensorId.encoded()}/thresholds"
 
     private fun calibration(
         siteId: String,

@@ -522,4 +522,37 @@
   <string name="calibrate_notice_unreachable">Can\'t reach your Server, so nothing was saved. Check that this phone is on your home Wi-Fi and try again.</string>
   <string name="calibrate_notice_unexpected">Something went wrong and nothing was changed. Try again.</string>
   <string name="calibrate_no_sensor">This Lot has no Sensor that can be calibrated yet. Try again after its Node has sent a Reading.</string>
+  <string name="lot_detail_chart_legend">solid bar = below %1$s %%</string>
+  <string name="lot_detail_chart_readout_below_low">%1$s: lowest %2$s, below %3$s %%</string>
+  <string name="lot_detail_chart_summary_below_low">Below %1$s %% on %2$s.</string>
+  <string name="lot_detail_chart_summary_never_below">Never below %1$s %%.</string>
+  <string name="thresholds_action_set">Set Thresholds</string>
+  <string name="thresholds_action_view">View Thresholds</string>
+  <string name="thresholds_title">Thresholds for %1$s</string>
+  <string name="thresholds_save">Save</string>
+  <string name="thresholds_saving">Saving…</string>
+  <string name="thresholds_low">Low</string>
+  <string name="thresholds_high">High</string>
+  <string name="thresholds_low_for">Low for %1$s</string>
+  <string name="thresholds_high_for">High for %1$s</string>
+  <string name="thresholds_slider_low">Low Threshold of %1$s</string>
+  <string name="thresholds_slider_high">High Threshold of %1$s</string>
+  <string name="thresholds_add_high">Add high</string>
+  <string name="thresholds_clear_high">Clear high</string>
+  <string name="thresholds_turn_on">Turn on Alerts</string>
+  <string name="thresholds_turn_off">Turn off Alerts</string>
+  <string name="thresholds_alerts_off">Alerts are off</string>
+  <string name="thresholds_no_high">no high</string>
+  <string name="thresholds_now">Now %1$s</string>
+  <string name="thresholds_no_reading">No Reading yet</string>
+  <string name="thresholds_low_not_below_high">Low must stay below high.</string>
+  <string name="thresholds_low_required">Set a low before adding a high.</string>
+  <string name="thresholds_read_only">Only an Owner or Administrator can change Thresholds.</string>
+  <string name="thresholds_next">Set Thresholds</string>
+  <string name="thresholds_no_sensors">This Lot has no Sensors yet.</string>
+  <string name="thresholds_notice_invalid">The Server did not accept these Thresholds. Nothing was changed. Check that Low is below High, then save again.</string>
+  <string name="thresholds_notice_forbidden">You can\'t change this on %1$s. Ask an Owner or Administrator.</string>
+  <string name="thresholds_notice_not_found">%1$s has no such Sensor. Nothing was changed. Go back to the Lot and open Thresholds again.</string>
+  <string name="thresholds_notice_not_saved">Not saved. The Server could not be reached, so your edits are kept here. Try again.</string>
+  <string name="thresholds_notice_unexpected">Something went wrong, and nothing was changed. Try again.</string>
 </resources>

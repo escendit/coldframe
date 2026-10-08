@@ -12,6 +12,7 @@ import com.escendit.coldframe.core.setup.KableSetupRadio
 import com.escendit.coldframe.core.setup.NodeSetupEngine
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesWiring
+import com.escendit.coldframe.core.thresholds.ThresholdsEngine
 import com.russhwolf.settings.SharedPreferencesSettings
 import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +73,9 @@ public class AndroidSignIn private constructor(
 
     /** Calibrate of one Lot's soil Sensor: dry, then wet, from stored Readings over REST. */
     public val calibrate: CalibrateEngine = SitesWiring.calibrate(api, sites, scope)
+
+    /** Thresholds of one Lot's Sensors; a saved change makes Lot detail and the Lots read again. */
+    public val thresholds: ThresholdsEngine = SitesWiring.thresholds(api, sites, scope, lotDetail, lots)
 
     private val radio = KableSetupRadio(AndroidRadioState(context))
 

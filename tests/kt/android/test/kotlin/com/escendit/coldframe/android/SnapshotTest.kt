@@ -43,6 +43,7 @@ import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.sites.TimeZoneProposal
+import com.escendit.coldframe.core.thresholds.ThresholdsState
 import com.escendit.coldframe.designtokens.Spacing
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.After
@@ -125,6 +126,7 @@ class SnapshotTest {
         devices: DevicesState? = null,
         nodeSetup: NodeSetupState = NodeSetupState.CLOSED,
         calibrate: CalibrateState = CalibrateState.Idle,
+        thresholds: ThresholdsState = ThresholdsState.Idle,
     ) {
         compose.setContent {
             AtFontScale(2f) {
@@ -142,6 +144,7 @@ class SnapshotTest {
                     now = { devicesNow },
                     nodeSetup = nodeSetup,
                     calibrate = calibrate,
+                    thresholds = thresholds,
                 )
             }
         }
@@ -783,6 +786,90 @@ class SnapshotTest {
         /** Lot detail in one column at font scale 2. */
         const val HUGE = "w411dp-h3600dp-mdpi"
     }
+
+    // Thresholds (Story 5.4): the editor, a Member's read-only view and the failures, light and dark, font scale 2.
+
+    @Test
+    fun `UX-DR45 UX-DR69 Thresholds editor, light, font scale 2`() =
+        snapshot("thresholds-editor-light", readySites(), ThemePreference.Light, thresholds = ThresholdsStates.changed)
+
+    @Test
+    fun `UX-DR45 UX-DR69 Thresholds editor, dark, font scale 2`() =
+        snapshot("thresholds-editor-dark", readySites(), ThemePreference.Dark, thresholds = ThresholdsStates.changed)
+
+    @Test
+    fun `UX-DR45 UX-DR91 Thresholds with Low above high, light, font scale 2`() =
+        snapshot(
+            "thresholds-low-above-high-light",
+            readySites(),
+            ThemePreference.Light,
+            thresholds = ThresholdsStates.lowAboveHigh,
+        )
+
+    @Test
+    fun `UX-DR45 UX-DR91 Thresholds with Low above high, dark, font scale 2`() =
+        snapshot(
+            "thresholds-low-above-high-dark",
+            readySites(),
+            ThemePreference.Dark,
+            thresholds = ThresholdsStates.lowAboveHigh,
+        )
+
+    @Test
+    fun `UX-DR84 Thresholds read-only for a Member, light, font scale 2`() =
+        snapshot(
+            "thresholds-member-light",
+            readySites(homeSite(SiteRole.Member)),
+            ThemePreference.Light,
+            thresholds = ThresholdsStates.member,
+        )
+
+    @Test
+    fun `UX-DR84 Thresholds read-only for a Member, dark, font scale 2`() =
+        snapshot(
+            "thresholds-member-dark",
+            readySites(homeSite(SiteRole.Member)),
+            ThemePreference.Dark,
+            thresholds = ThresholdsStates.member,
+        )
+
+    @Test
+    fun `UX-DR91 Thresholds not saved, light, font scale 2`() =
+        snapshot(
+            "thresholds-not-saved-light",
+            readySites(),
+            ThemePreference.Light,
+            thresholds = ThresholdsStates.notSaved,
+        )
+
+    @Test
+    fun `UX-DR91 Thresholds not saved, dark, font scale 2`() =
+        snapshot(
+            "thresholds-not-saved-dark",
+            readySites(),
+            ThemePreference.Dark,
+            thresholds = ThresholdsStates.notSaved,
+        )
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR5 UX-DR32 UX-DR33 Lot detail chart with the Threshold band and a below-low bar, light`() =
+        detail("lot-detail-band-light", ThresholdsStates.detail(), ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR5 UX-DR32 UX-DR33 Lot detail chart with the Threshold band and a below-low bar, dark`() =
+        detail("lot-detail-band-dark", ThresholdsStates.detail(), ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR5 UX-DR32 UX-DR33 Lot detail chart with the Threshold band, light, font scale 2`() =
+        detail("lot-detail-band-large-light", ThresholdsStates.detail(), ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = HUGE)
+    fun `UX-DR5 UX-DR32 UX-DR33 Lot detail chart with the Threshold band, dark, font scale 2`() =
+        detail("lot-detail-band-large-dark", ThresholdsStates.detail(), ThemePreference.Dark, fontScale = 2f)
 
     // Calibrate (Story 5.2): every step, the resume path and the paused explanation, light and dark, font scale 2.
 

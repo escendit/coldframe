@@ -280,7 +280,7 @@ export type paths = {
         };
         /**
          * Read a Lot's daily history of one quantity
-         * @description One entry per UTC day that has Readings, ascending, with the day's lowest and highest converted value and its Reading count; a day without Readings is absent, never zero. The history follows the Lot's current Node: only the Readings of that Node since it was put in the Lot. Values are converted by the Server like Lot.sensors. from defaults to to minus 30 days and to to now. The page holds at most limit days (default 31, at most 366); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad quantity, from, to, cursor or limit, or from after to, answers 400 validation.
+         * @description One entry per UTC day that has Readings, ascending, with the day's lowest and highest converted value and its Reading count; a day without Readings is absent, never zero. The history follows the Lot's current Node: only the Readings of that Node since it was put in the Lot. Values are converted by the Server like Lot.sensors; for soil moisture, a page with Readings stored under a Calibration is in percent (unit %, only the days and Readings that have a Calibration, each Reading's percentage derived from its own Calibration and rounded to the nearest 5), otherwise raw. from defaults to to minus 30 days and to to now. The page holds at most limit days (default 31, at most 366); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad quantity, from, to, cursor or limit, or from after to, answers 400 validation.
          */
         get: operations["getLotHistory"];
         put?: never;
@@ -399,9 +399,9 @@ export type components = {
              * @description When the Pause ends, ISO-8601 UTC with Z: the latest end of its sources. Absent when status is not paused or any source has no end.
              */
             pausedUntil?: string;
-            /** @description The calibrated soil moisture of the Lot's newest Reading, in percent. Absent without a Calibration; the Server sends it from Epic 5 on. */
+            /** @description The calibrated soil moisture of the Lot's newest Reading, in percent. Absent unless the newest soil-moisture Reading was stored under a Calibration; a multiple of 5. Sent by the list and by Lot detail. */
             moisturePercent?: number;
-            /** @description The low Threshold of the Lot's soil-moisture Sensor, in percent. Absent without one; the Server sends it from Epic 6 on. */
+            /** @description The low Threshold of the Lot's soil-moisture Sensor, in percent. Absent without a Calibrated percentage or when the Sensor has no low Threshold (cleared or no default); sent with moisturePercent by the list and by Lot detail. */
             lowThresholdPercent?: number;
             /** @description The Lot's Node with its battery and last seen. Sent only by GET /sites/{siteId}/lots/{lotId}, never by the list, and only while the Lot holds a Node. */
             node?: components["schemas"]["NodeStatus"];
