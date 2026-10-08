@@ -203,6 +203,7 @@
     let lotsActions: LotsActions
     let onAddHub: () -> Void
     let onAddNode: (String) -> Void
+    let onCalibrate: (String, String) -> Void
     let lotDetail: LotDetailPresentation
     let lotDetailActions: LotDetailActions
     let onOpenDevices: () -> Void
@@ -219,6 +220,7 @@
       presentation: GardenPresentation, lots: LotsPresentation = .waiting,
       actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
       onAddNode: @escaping (String) -> Void = { _ in },
+      onCalibrate: @escaping (String, String) -> Void = { _, _ in },
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       onOpenDevices: @escaping () -> Void = {},
       now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
@@ -229,6 +231,7 @@
       self.lotsActions = lotsActions
       self.onAddHub = onAddHub
       self.onAddNode = onAddNode
+      self.onCalibrate = onCalibrate
       self.lotDetail = lotDetail
       self.lotDetailActions = lotDetailActions
       self.onOpenDevices = onOpenDevices
@@ -247,7 +250,7 @@
           }
           LotGrid(
             lots: lots, context: context, onTryAgain: lotsActions.load, onAddNode: onAddNode,
-            onOpenLot: { openedLot = OpenedLot(id: $0, name: $1) })
+            onOpenLot: { openedLot = OpenedLot(id: $0, name: $1) }, onCalibrate: onCalibrate)
         }
         .padding(Spacing.gutterMobile)
       }
@@ -268,7 +271,8 @@
         // The core reads the Lot while the destination is on screen and forgets it on leaving.
         LotDetailView(
           presentation: lotDetail, siteName: presentation.siteName, actions: lotDetailActions,
-          onAddNode: onAddNode, onOpenDevices: onOpenDevices, now: now, timeZone: timeZone
+          onAddNode: onAddNode, onCalibrate: onCalibrate, onOpenDevices: onOpenDevices, now: now,
+          timeZone: timeZone
         )
         .navigationTitle(lot.name)
         .onAppear { lotDetailActions.open(lot.id, lot.name) }

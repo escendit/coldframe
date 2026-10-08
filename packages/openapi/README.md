@@ -20,6 +20,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `POST /sites/{siteId}/devices/{deviceId}/move` | `Administrator` | Story 4.9 |
 | `POST /sites/{siteId}/devices/{deviceId}/unassign` | `Administrator` | Story 4.9 |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.1 |
+| `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.2 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
@@ -93,7 +94,10 @@ is planned today.
   pendingDry?, pendingWet?}` once the Node's Device grain holds the Calibration, 400 `validation` for an
   indistinct pair, a Reading the Sensor has not stored, or a Sensor without Calibration, 404 `sensor-not-found`,
   403 for a Member, and 503 `calibration-not-delivered` while the Device has not acknowledged it. Only Readings
-  stored afterwards use the new Calibration.
+  stored afterwards use the new Calibration. `GET` on the same path (Story 5.2, Administrator) answers 200
+  `{calibrated, calibrationId?, dry?, wet?, pendingDry?, pendingWet?, readings}`, where `readings` are the Sensor's
+  recent stored Readings (`readingSeq`, `rawValue`, `measuredAt`), newest first. Each Lot detail Sensor carries
+  `sensorId` and `calibratable` (its Specification says `calibration: true`).
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

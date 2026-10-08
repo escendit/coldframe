@@ -14,6 +14,7 @@
   import LotTiles from '$lib/components/LotTiles.svelte';
   import SiteSummaryHeader from '$lib/components/SiteSummaryHeader.svelte';
   import StaleHeader from '$lib/components/StaleHeader.svelte';
+  import { calibrateAccessOf } from '$lib/calibrate';
   import { firstRunSteps } from '$lib/first-run';
   import { lastGoodLoad, onFocusDecision, siteHeadline, staleTransition, webAppProbePath } from '$lib/garden';
   import { locale, t } from '$lib/i18n';
@@ -128,7 +129,7 @@
         action={lotsNotice.tryAgain ? { label: t('notice.tryAgain'), href: '/garden', reload: true } : null}
       />
     {:else if data.lots.length > 0}
-      <LotTiles lots={data.lots} {now} {timeZone} {staleSince} />
+      <LotTiles lots={data.lots} {now} {timeZone} {staleSince} canCalibrate={calibrateAccessOf(data.currentSite.role)} />
     {/if}
   </div>
 {/if}

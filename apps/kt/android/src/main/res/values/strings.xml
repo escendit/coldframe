@@ -487,4 +487,39 @@
     <item quantity="one">%1$s, 30 days, lowest %2$s on %3$s, %4$d day with Readings.</item>
     <item quantity="other">%1$s, 30 days, lowest %2$s on %3$s, %4$d days with Readings.</item>
   </plurals>
+
+  <string name="calibrate_action">Calibrate</string>
+  <string name="calibrate_action_for">Calibrate %1$s</string>
+  <string name="calibrate_title">Calibrate %1$s</string>
+  <string name="calibrate_step_dry">Step 1 of 2: dry</string>
+  <string name="calibrate_step_wet">Step 2 of 2: wet</string>
+  <string name="calibrate_step_confirm">Calibration saved</string>
+  <string name="calibrate_intro_dry">Put the probe in dry soil.</string>
+  <string name="calibrate_intro_wet">Put the probe in water.</string>
+  <string name="calibrate_waiting">Waiting for the next Reading</string>
+  <string name="calibrate_last">Last Reading: raw %1$s at %2$s</string>
+  <string name="calibrate_none_yet">No Reading yet.</string>
+  <string name="calibrate_hint">Short-press the Node\'s setup button to send a Reading now.</string>
+  <string name="calibrate_fresh">New Reading %1$s, raw %2$s.</string>
+  <string name="calibrate_record_dry">Record dry</string>
+  <string name="calibrate_record_wet">Record wet</string>
+  <string name="calibrate_recording">Saving</string>
+  <string name="calibrate_announce_dry">New Reading %1$s, raw %2$s. Record dry is available.</string>
+  <string name="calibrate_announce_wet">New Reading %1$s, raw %2$s. Record wet is available.</string>
+  <string name="calibrate_announce_percent">%1$s reads about %2$s percent.</string>
+  <string name="calibrate_recent">Recent Readings</string>
+  <string name="calibrate_recent_empty">No recent Readings.</string>
+  <string name="calibrate_recent_item">%1$s, raw %2$s</string>
+  <string name="calibrate_confirm_points">Dry raw %1$s, wet raw %2$s.</string>
+  <string name="calibrate_confirm_pending" formatted="false">% appears with the next Reading</string>
+  <string name="calibrate_confirm_reads">%1$s reads ~%2$s %%</string>
+  <string name="calibrate_paused">This Node is paused. Readings resume after the Pause ends, so there is nothing to wait for now.</string>
+  <string name="calibrate_paused_site">The Site is paused. Readings resume after the Pause ends.</string>
+  <string name="calibrate_notice_indistinct">The dry and wet Readings are too close together. Nothing was saved. Choose a drier dry Reading and a wetter wet Reading.</string>
+  <string name="calibrate_notice_not_delivered">The Calibration is saved but the Node has not confirmed it yet. It is sent again until it does. Nothing is lost. Record the point again to check.</string>
+  <string name="calibrate_notice_forbidden">You can\'t calibrate on %1$s. Nothing was changed. Ask an Owner or Administrator.</string>
+  <string name="calibrate_notice_not_found">%1$s has no such Lot or Sensor any more. Nothing was changed.</string>
+  <string name="calibrate_notice_unreachable">Can\'t reach your Server, so nothing was saved. Check that this phone is on your home Wi-Fi and try again.</string>
+  <string name="calibrate_notice_unexpected">Something went wrong and nothing was changed. Try again.</string>
+  <string name="calibrate_no_sensor">This Lot has no Sensor that can be calibrated yet. Try again after its Node has sent a Reading.</string>
 </resources>

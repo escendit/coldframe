@@ -41,6 +41,9 @@ final class CoreSignInService: SignInService {
   /// Lot detail of the same core instance, for `CoreLotDetailService`.
   var lotDetail: IosLotDetail { core.lotDetail }
 
+  /// Calibrate of the same core instance, for `CoreCalibrateService`.
+  var calibrate: IosCalibrate { core.calibrate }
+
   /// The Devices half of the same core instance, for `CoreDevicesService`.
   var devices: IosDevices { core.devices }
 

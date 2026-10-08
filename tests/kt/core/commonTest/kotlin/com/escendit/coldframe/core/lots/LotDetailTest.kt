@@ -379,4 +379,43 @@ class LotDetailTest {
         assertEquals(listOf("notCharging", ""), snapshot.nodeCharging)
         assertEquals(listOf("5", ""), snapshot.nodeLastSeen)
     }
+
+    private val calibratableSoil =
+        SensorReading(SensorQuantity.SoilMoisture, 1840.0, SensorUnit.Raw, now - 60_000, "s-1", calibratable = true)
+
+    @Test
+    fun story52CalibrateShowsForAdministratorsOnALiveLotWithACalibratableSensor() {
+        val calibrating = lot(LotStatus.NeedsCalibration, sensors = listOf(calibratableSoil))
+
+        assertTrue(detail(calibrating, SiteRole.Owner).canCalibrate)
+        assertTrue(detail(calibrating, SiteRole.Administrator).canCalibrate)
+        // Hidden, never disabled, for a Member; nothing live in stale mode.
+        assertFalse(detail(calibrating, SiteRole.Member).canCalibrate)
+        assertFalse(detail(calibrating, SiteRole.Owner, stale = true).canCalibrate)
+    }
+
+    @Test
+    fun story52CalibrateIsHiddenWithoutACalibratableSensor() {
+        assertFalse(detail(lot(LotStatus.NeedsCalibration)).canCalibrate)
+        assertFalse(
+            detail(
+                lot(LotStatus.NeedsCalibration, sensors = listOf(calibratableSoil.copy(calibratable = false))),
+            ).canCalibrate,
+        )
+        assertFalse(
+            detail(
+                lot(LotStatus.NeedsCalibration, sensors = listOf(calibratableSoil.copy(sensorId = null))),
+            ).canCalibrate,
+        )
+        assertFalse(detail(lot(LotStatus.NoNode, node = null, sensors = emptyList())).canCalibrate)
+    }
+
+    @Test
+    fun story52ARecalibratableOkLotOffersCalibrateToo() {
+        assertTrue(
+            detail(
+                lot(LotStatus.Ok, sensors = listOf(calibratableSoil.copy(unit = SensorUnit.Percent, value = 40.0))),
+            ).canCalibrate,
+        )
+    }
 }

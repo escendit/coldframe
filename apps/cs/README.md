@@ -123,6 +123,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
 | `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online}]}`; `online` is computed when the Server answers |
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
+| `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | The Sensor's Calibration state and its recent stored Readings with their `readingSeq` (Story 5.2, see [Calibration](#calibration)) |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Saves the dry and/or wet point of a Sensor's Calibration (Story 5.1, see [Calibration](#calibration)): 200 with where the Calibration stands |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 | `POST /device/ingest` | `Device` | A Hub relays sealed Node frames: `Device(hubId).AuthenticateRelay(…)`, then `Device(nodeId).Ingest(…)` per frame; 200 `{results: [{status, downlink?}]}` |
@@ -426,6 +427,16 @@ Reading's Calibration, clamped to 0 to 100 and rounded to the nearest 5 (a half 
 `sensors` shows a soil-moisture Reading that has a Calibration as `%`. A Reading stored before the first
 Calibration stays `raw`, so a percentage appears with the next Reading, never before. The history endpoint is
 unchanged: it still reports soil moisture raw. Threshold percentages never change on recalibration.
+
+**Reading the state from a client (Story 5.2).** `GET /sites/{siteId}/sensors/{sensorId}/calibration`
+(Administrator and up; a Sensor of another Site is 404 `sensor-not-found`) answers 200
+`{calibrated, calibrationId?, dry?, wet?, pendingDry?, pendingWet?, readings}`: the Calibration in force, the point
+the Sensor grain kept (so a flow left after the dry point resumes at wet), and `readings`, the Sensor's own recent
+stored Readings newest first (`readingSeq`, `rawValue`, `measuredAt`), which are what the POST names.
+`SensorReadings.RecentAsync` bounds the query by `measured_at` (the last 2 days, at most 20), so it only visits the
+partitions of that window; `readings` is empty for a Sensor whose Specification has no Calibration. Each Sensor of
+the Lot detail's `sensors` also carries `sensorId` and `calibratable` (its Specification says `calibration: true`,
+read from the Sensor grain), so a client finds the Sensor to calibrate without another call.
 
 ### Moving and unassigning a Node
 

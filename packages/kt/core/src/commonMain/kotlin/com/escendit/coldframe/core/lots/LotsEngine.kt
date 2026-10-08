@@ -576,6 +576,7 @@ public class LotsEngine(
                 ApiFailure.Unauthorized,
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
+                ApiFailure.CalibrationNotDelivered,
                 ApiFailure.Unexpected,
                 -> {
                     LotsNotice(

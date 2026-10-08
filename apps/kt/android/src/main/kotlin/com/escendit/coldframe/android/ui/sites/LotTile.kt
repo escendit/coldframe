@@ -37,6 +37,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.components.ButtonVariant
+import com.escendit.coldframe.android.ui.components.ColdframeButton
 import com.escendit.coldframe.android.ui.components.dashedBorder
 import com.escendit.coldframe.android.ui.components.dottedBorder
 import com.escendit.coldframe.android.ui.components.hatched
@@ -288,17 +290,40 @@ fun LotTiles(
     modifier: Modifier = Modifier,
     onAddNode: ((lotId: String) -> Unit)? = null,
     onOpenLot: ((lotId: String, name: String) -> Unit)? = null,
+    onCalibrate: ((lotId: String, name: String) -> Unit)? = null,
 ) {
     TileGrid(tiles, modifier) { tile, side, oneColumn, cell ->
-        LotTileView(
-            tile = tile,
-            copy = copy,
-            minHeight = side,
-            oneColumn = oneColumn,
-            modifier = cell,
-            onAddNode = onAddNode?.let { add -> { add(tile.id) } },
-            onOpen = onOpenLot?.let { open -> { open(tile.id, tile.name) } },
-        )
+        val calibrate = onCalibrate?.takeIf { tile.opensCalibrate }
+        if (calibrate == null) {
+            LotTileView(
+                tile = tile,
+                copy = copy,
+                minHeight = side,
+                oneColumn = oneColumn,
+                modifier = cell,
+                onAddNode = onAddNode?.let { add -> { add(tile.id) } },
+                onOpen = onOpenLot?.let { open -> { open(tile.id, tile.name) } },
+            )
+        } else {
+            // The tile keeps its own tap target (Lot detail); Calibrate is a sibling control under it (UX-DR66).
+            Column(modifier = cell, verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp)) {
+                LotTileView(
+                    tile = tile,
+                    copy = copy,
+                    minHeight = side,
+                    oneColumn = oneColumn,
+                    modifier = Modifier.fillMaxWidth(),
+                    onOpen = onOpenLot?.let { open -> { open(tile.id, tile.name) } },
+                )
+                val description = stringResource(R.string.calibrate_action_for, tile.name)
+                ColdframeButton(
+                    label = stringResource(R.string.calibrate_action),
+                    onClick = { calibrate(tile.id, tile.name) },
+                    variant = ButtonVariant.Secondary,
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
+                )
+            }
+        }
     }
 }
 

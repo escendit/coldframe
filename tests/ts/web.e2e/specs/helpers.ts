@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FailingReads, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
+import type { FailingReads, FakeCalibration, FakeCalibrationPost, FakeCalibrationReading, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, Mode } from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -22,11 +22,12 @@ export async function resetSites(
   lots: readonly FakeLot[] = [],
   devices: readonly FakeDevice[] = [],
   devicesStatus: number | null = null,
+  calibrations: readonly FakeCalibration[] = [],
 ): Promise<void> {
   const response = await fetch(`${idpOrigin}/control/sites`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...(sites === undefined ? {} : { sites }), lots, devices, ...(devicesStatus === null ? {} : { devicesStatus }) }),
+    body: JSON.stringify({ ...(sites === undefined ? {} : { sites }), lots, devices, calibrations, ...(devicesStatus === null ? {} : { devicesStatus }) }),
   });
   expect(response.ok).toBe(true);
 }
@@ -40,6 +41,8 @@ export async function serverSites(): Promise<{
   lotReads: number;
   devices: FakeDevice[];
   deviceActions: FakeDeviceAction[];
+  calibrations: FakeCalibration[];
+  calibrationPosts: FakeCalibrationPost[];
 }> {
   const response = await fetch(`${idpOrigin}/control/sites`);
   return (await response.json()) as {
@@ -50,7 +53,29 @@ export async function serverSites(): Promise<{
     lotReads: number;
     devices: FakeDevice[];
     deviceActions: FakeDeviceAction[];
+    calibrations: FakeCalibration[];
+    calibrationPosts: FakeCalibrationPost[];
   };
+}
+
+/** A new stored Reading of a Sensor arrives at the fake Server. */
+export async function pushCalibrationReading(sensorId: string, reading: FakeCalibrationReading): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/calibration-reading`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sensorId, reading }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** Replaces the Sensors a Lot's detail shows, as when a calibrated Reading is stored. */
+export async function setLotSensors(lotId: string, sensors: readonly unknown[]): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/lot-sensors`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ lotId, sensors }),
+  });
+  expect(response.ok).toBe(true);
 }
 
 /**

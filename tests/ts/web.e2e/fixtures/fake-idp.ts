@@ -87,6 +87,34 @@ export interface FakeSensorReading {
   readonly value: number;
   readonly unit: 'raw' | '°C' | '%' | 'kΩ';
   readonly measuredAt: string;
+  /** Story 5.2: the Sensor ID and whether its Specification calls for Calibration. */
+  readonly sensorId?: string;
+  readonly calibratable?: boolean;
+}
+
+/** A stored Reading a Calibration point can be taken from. */
+export interface FakeCalibrationReading {
+  readonly readingSeq: number;
+  readonly rawValue: number;
+  readonly measuredAt: string;
+}
+
+/** A Sensor's Calibration state, as `GET /sites/{id}/sensors/{id}/calibration` returns it. */
+export interface FakeCalibration {
+  readonly sensorId: string;
+  readonly siteId: string;
+  readonly readings: readonly FakeCalibrationReading[];
+  readonly pendingDry?: number;
+  readonly dry?: number;
+  readonly wet?: number;
+  /** Answer the next POST with this status instead (a Node that does not confirm: 503). */
+  readonly failNextPost?: number;
+}
+
+/** One `POST …/calibration` the fake Server received. */
+export interface FakeCalibrationPost {
+  readonly sensorId: string;
+  readonly body: unknown;
 }
 
 /** One UTC day of a Lot's history. */
@@ -198,6 +226,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   const created = new Map<string, FakeSite>();
   let lots: FakeLot[] = [];
   let lotPosts: FakeSitePost[] = [];
+  let calibrations: FakeCalibration[] = [];
+  let calibrationPosts: FakeCalibrationPost[] = [];
   const createdLots = new Map<string, FakeLot>();
   let devices: FakeDevice[] = [];
   let deviceActions: FakeDeviceAction[] = [];
@@ -281,6 +311,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       lots = Array.isArray(body.lots) ? (body.lots as FakeLot[]) : [];
       devices = Array.isArray(body.devices) ? (body.devices as FakeDevice[]) : [];
       deviceActions = [];
+      calibrations = Array.isArray(body.calibrations) ? (body.calibrations as FakeCalibration[]) : [];
+      calibrationPosts = [];
       devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
       failing = 'none';
       lotReads = 0;
@@ -292,7 +324,21 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       return;
     }
     if (path === '/control/sites') {
-      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions });
+      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts });
+      return;
+    }
+    // Story 5.2: a new stored Reading of a Sensor arrives, and the Lot's Sensors as the Lot detail shows them change.
+    if (path === '/control/calibration-reading' && request.method === 'POST') {
+      const body = await readJson(request);
+      const reading = body.reading as FakeCalibrationReading;
+      calibrations = calibrations.map((entry) => (entry.sensorId === body.sensorId ? { ...entry, readings: [reading, ...entry.readings] } : entry));
+      send(response, 200, {});
+      return;
+    }
+    if (path === '/control/lot-sensors' && request.method === 'POST') {
+      const body = await readJson(request);
+      lots = lots.map((lot) => (lot.id === body.lotId ? { ...lot, sensors: body.sensors as FakeSensorReading[] } : lot));
+      send(response, 200, {});
       return;
     }
     if (path === '/control/reads' && request.method === 'POST') {
@@ -479,6 +525,68 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         }
         send(response, 200, { quantity, unit: units[quantity], days: lot.history?.[quantity] ?? [] });
       }
+      return;
+    }
+
+    // Story 5.2: a Sensor's Calibration state and recent Readings, and saving a point (Administrator).
+    const calibrationMatch = /^\/sites\/([^/]+)\/sensors\/([^/]+)\/calibration$/u.exec(path);
+    if (calibrationMatch !== null) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(calibrationMatch[1] ?? '');
+      const sensorId = decodeURIComponent(calibrationMatch[2] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      if (site.role === 'Member') {
+        problem(response, 403, 'forbidden');
+        return;
+      }
+      const entry = calibrations.find((candidate) => candidate.sensorId === sensorId && candidate.siteId === siteId);
+      if (entry === undefined) {
+        problem(response, 404, 'sensor-not-found');
+        return;
+      }
+      const stateOf = (value: FakeCalibration): Record<string, unknown> => ({
+        calibrated: value.dry !== undefined && value.wet !== undefined,
+        ...(value.dry === undefined ? {} : { dry: { rawValue: value.dry } }),
+        ...(value.wet === undefined ? {} : { wet: { rawValue: value.wet } }),
+        ...(value.pendingDry === undefined ? {} : { pendingDry: { rawValue: value.pendingDry } }),
+      });
+      if (request.method === 'GET') {
+        send(response, 200, { ...stateOf(entry), readings: entry.readings });
+        return;
+      }
+      const body = await readJson(request);
+      calibrationPosts = [...calibrationPosts, { sensorId, body }];
+      const point = (body.dry ?? body.wet) as { readingSeq?: number } | undefined;
+      const chosen = entry.readings.find((reading) => reading.readingSeq === point?.readingSeq);
+      if (point === undefined || chosen === undefined) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      let next: FakeCalibration;
+      if (body.dry === undefined) {
+        const dry = entry.pendingDry ?? entry.dry;
+        if (dry === undefined || Math.abs(dry - chosen.rawValue) < 16) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        next = { ...entry, dry, wet: chosen.rawValue, pendingDry: undefined };
+      } else {
+        next = { ...entry, pendingDry: chosen.rawValue };
+      }
+      const failure = entry.failNextPost;
+      calibrations = calibrations.map((candidate) => (candidate === entry ? { ...next, failNextPost: undefined } : candidate));
+      if (failure !== undefined) {
+        problem(response, failure, 'calibration-not-delivered');
+        return;
+      }
+      send(response, 200, stateOf(next));
       return;
     }
 

@@ -360,3 +360,21 @@ describe('Lot detail load', () => {
     expect(fake.seen).toEqual([]);
   });
 });
+
+describe('Lot detail Calibrate entry (Story 5.2)', () => {
+  const soilSensor = { quantity: 'soil_moisture', value: 1840, unit: 'raw', measuredAt: '2026-10-06T07:02:00.000Z', sensorId: '0192a000-0000-7000-8000-0000000000aa', calibratable: true } as const;
+  const calibratable = lot('needsCalibration', { node, sensors: [soilSensor, ...sensors.slice(1)] });
+
+  test('an Owner or Administrator sees Calibrate for a calibratable Sensor', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      const body = page({ lot: calibratable, role });
+      expect(body).toContain(`href="/garden/${lotId}/calibrate"`);
+      expect(text(body)).toContain('Calibrate');
+    }
+  });
+
+  test('a Member sees no Calibrate, and neither does a Lot without a calibratable Sensor', () => {
+    expect(page({ lot: calibratable, role: 'Member' })).not.toContain('/calibrate');
+    expect(page({ lot: needsCalibration, role: 'Owner' })).not.toContain('/calibrate');
+  });
+});

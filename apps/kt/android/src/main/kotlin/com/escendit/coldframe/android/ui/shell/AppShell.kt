@@ -114,6 +114,7 @@ fun AppShell(
     lotDetail: LotDetailState = LotDetailState.Idle,
     lotDetailActions: LotDetailActions = LotDetailActions.None,
     lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
+    onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -252,6 +253,7 @@ fun AppShell(
                     now = now,
                     events = lotDetailEvents,
                     onAddNode = onAddNode,
+                    onCalibrate = onCalibrate,
                     onOpenDevices = {
                         lotDetailActions.close()
                         tab = Tab.Devices
@@ -271,6 +273,7 @@ fun AppShell(
                     onAddHub = onAddHub,
                     onAddNode = onAddNode,
                     onOpenLot = lotDetailActions.open,
+                    onCalibrate = onCalibrate,
                     now = now,
                     events = lotsEvents,
                 )

@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.calibrate.CalibrateActions
+import com.escendit.coldframe.android.ui.calibrate.CalibrateScreen
 import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
@@ -35,6 +37,7 @@ import com.escendit.coldframe.android.ui.sites.loadMessage
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.appearance.ThemePreference
+import com.escendit.coldframe.core.calibrate.CalibrateState
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
@@ -83,6 +86,8 @@ fun ColdframeRoot(
     lotDetail: LotDetailState = LotDetailState.Idle,
     lotDetailActions: LotDetailActions = LotDetailActions.None,
     lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
+    calibrate: CalibrateState = CalibrateState.Idle,
+    calibrateActions: CalibrateActions = CalibrateActions.None,
     onForeground: () -> Unit = {},
 ) {
     // Every start of the activity, the first one and each return to the foreground.
@@ -121,6 +126,8 @@ fun ColdframeRoot(
                     lotDetail,
                     lotDetailActions,
                     lotDetailEvents,
+                    calibrate,
+                    calibrateActions,
                 )
             }
         }
@@ -147,6 +154,8 @@ private fun SignedIn(
     lotDetail: LotDetailState,
     lotDetailActions: LotDetailActions,
     lotDetailEvents: Flow<LotsEvent>,
+    calibrate: CalibrateState,
+    calibrateActions: CalibrateActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -188,6 +197,8 @@ private fun SignedIn(
             val creating = sites.creating
             if (creating != null) {
                 CreateSiteScreen(form = creating, actions = actions)
+            } else if (calibrate !is CalibrateState.Idle) {
+                CalibrateScreen(state = calibrate, actions = calibrateActions, now = now)
             } else if (hubSetup.open) {
                 AddHubFlow(state = hubSetup, actions = hubSetupActions)
             } else if (nodeSetup.open) {
@@ -211,6 +222,7 @@ private fun SignedIn(
                     lotDetail = lotDetail,
                     lotDetailActions = lotDetailActions,
                     lotDetailEvents = lotDetailEvents,
+                    onCalibrate = calibrateActions.open,
                 )
             }
         }

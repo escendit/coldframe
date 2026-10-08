@@ -102,4 +102,5 @@ fun NodeOutcomeAction.label(): Int =
         NodeOutcomeAction.Done -> R.string.add_node_done
         NodeOutcomeAction.StartOver -> R.string.add_node_start_over
         NodeOutcomeAction.Close -> R.string.add_node_close
+        NodeOutcomeAction.Calibrate -> R.string.calibrate_action
     }

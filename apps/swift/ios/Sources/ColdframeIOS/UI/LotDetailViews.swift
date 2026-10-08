@@ -41,7 +41,7 @@
   /// Lot detail (UX-DR63): the full-width hero, a 3-up row of Sensor cells, the 30-day History
   /// chart with its Sensor picker, then a 2-up row of Device cells; the rows go 1-up from
   /// Accessibility 1. The core decided everything shown; this draws it with catalogue words.
-  /// There is no admin strip: Thresholds, Calibrate and Pause have no destination before Epics 5
+  /// Calibrate shows for Administrators and Owners where the core says so; Thresholds and Pause have no destination before Epics 5
   /// and 8. Stale mode shows the stale header, the hero without a value, and no Sensor or Device
   /// cell. A *no Node* Lot is the empty detail. Pull to refresh reads the Lot again; a one-minute
   /// tick moves the stale age and announces nothing.
@@ -50,6 +50,7 @@
     let siteName: String
     let actions: LotDetailActions
     let onAddNode: (String) -> Void
+    let onCalibrate: (String, String) -> Void
     let onOpenDevices: () -> Void
     let now: () -> Date
     let timeZone: TimeZone
@@ -60,6 +61,7 @@
     public init(
       presentation: LotDetailPresentation, siteName: String,
       actions: LotDetailActions = .none, onAddNode: @escaping (String) -> Void = { _ in },
+      onCalibrate: @escaping (String, String) -> Void = { _, _ in },
       onOpenDevices: @escaping () -> Void = {}, now: @escaping () -> Date = { Date() },
       timeZone: TimeZone = .current
     ) {
@@ -67,6 +69,7 @@
       self.siteName = siteName
       self.actions = actions
       self.onAddNode = onAddNode
+      self.onCalibrate = onCalibrate
       self.onOpenDevices = onOpenDevices
       self.now = now
       self.timeZone = timeZone
@@ -134,6 +137,12 @@
       if presentation.noNode {
         noNode
       } else {
+        // Calibrate is hidden, not disabled, unless the core says this Role and Lot may.
+        if presentation.canCalibrate, let lotId = presentation.lotId {
+          PrimaryButton(.calibrateAction, variant: .secondary) {
+            onCalibrate(lotId, presentation.hero?.name ?? "")
+          }
+        }
         if let sensors = presentation.sensors {
           sensorCells(sensors, context)
         }

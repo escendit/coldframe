@@ -13,7 +13,8 @@ struct ColdframeApp: App {
       hubSetup: CoreHubSetupService(core: signIn.hubSetup),
       devices: CoreDevicesService(core: signIn.devices),
       nodeSetup: CoreNodeSetupService(core: signIn.nodeSetup),
-      lotDetail: CoreLotDetailService(core: signIn.lotDetail))
+      lotDetail: CoreLotDetailService(core: signIn.lotDetail),
+      calibrate: CoreCalibrateService(core: signIn.calibrate))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -36,7 +37,9 @@ struct ColdframeApp: App {
         nodeSetup: model.nodeSetup,
         nodeSetupActions: model.nodeSetupActions,
         lotDetail: model.lotDetail,
-        lotDetailActions: model.lotDetailActions
+        lotDetailActions: model.lotDetailActions,
+        calibrate: model.calibrate,
+        calibrateActions: model.calibrateActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active {

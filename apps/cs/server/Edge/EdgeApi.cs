@@ -11,6 +11,7 @@ using Coldframe.Protocol.Device.V1;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Lots;
+using Coldframe.Server.Sensors;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -103,7 +104,37 @@ public sealed record NodeStatusResponse(string DeviceId, int? BatteryPercent = n
 /// <param name="Value">The converted value.</param>
 /// <param name="Unit"><c>raw</c>, <c>°C</c>, <c>%</c> or <c>kΩ</c>.</param>
 /// <param name="MeasuredAt">When the Reading was taken, ISO-8601 UTC.</param>
-public sealed record SensorReadingResponse(string Quantity, double Value, string Unit, string MeasuredAt);
+/// <param name="SensorId">The Sensor ID, which names the Sensor in <c>/sites/{siteId}/sensors/{sensorId}/calibration</c>.</param>
+/// <param name="Calibratable">Whether the Sensor's Specification calls for Calibration; clients show Calibrate only then.</param>
+public sealed record SensorReadingResponse(string Quantity, double Value, string Unit, string MeasuredAt, string? SensorId = null, bool? Calibratable = null);
+
+/// <summary>
+/// One recent stored Reading of a Sensor a Calibration can be taken from.
+/// </summary>
+/// <param name="ReadingSeq">The Reading's <c>reading_seq</c>, which the Calibration request names.</param>
+/// <param name="RawValue">The stored raw value.</param>
+/// <param name="MeasuredAt">When the Reading was taken, ISO-8601 UTC.</param>
+public sealed record CalibrationReadingResponse(ulong ReadingSeq, long RawValue, string MeasuredAt);
+
+/// <summary>
+/// The body of <c>GET /sites/{siteId}/sensors/{sensorId}/calibration</c>: where the Sensor's Calibration stands
+/// (as the Calibration endpoint's 200 carries it) and the recent stored Readings to pick a point from.
+/// </summary>
+/// <param name="Calibrated">Whether a Calibration is in force.</param>
+/// <param name="Readings">The recent stored Readings, newest first; empty for a Sensor that cannot be calibrated.</param>
+/// <param name="CalibrationId">The Calibration ID in force; omitted while the Sensor is uncalibrated.</param>
+/// <param name="Dry">The dry point of the Calibration in force.</param>
+/// <param name="Wet">The wet point of the Calibration in force.</param>
+/// <param name="PendingDry">A dry point kept while the wet one is missing.</param>
+/// <param name="PendingWet">A wet point kept while the dry one is missing.</param>
+public sealed record CalibrationStateResponse(
+    bool Calibrated,
+    IReadOnlyList<CalibrationReadingResponse> Readings,
+    string? CalibrationId = null,
+    CalibrationPointResponse? Dry = null,
+    CalibrationPointResponse? Wet = null,
+    CalibrationPointResponse? PendingDry = null,
+    CalibrationPointResponse? PendingWet = null);
 
 /// <summary>
 /// One UTC day of a Lot's history.
@@ -358,6 +389,10 @@ public static partial class EdgeApi
             .WithName("calibrateSensor")
             .RequireSiteRole(SiteRole.Administrator);
 
+        endpoints.MapGet("/sites/{siteId}/sensors/{sensorId}/calibration", GetSensorCalibrationAsync)
+            .WithName("getSensorCalibration")
+            .RequireSiteRole(SiteRole.Administrator);
+
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
             .WithName("listLots")
             .RequireSiteRole(SiteRole.Member);
@@ -565,7 +600,8 @@ public static partial class EdgeApi
         string lotId,
         HttpContext httpContext,
         [FromServices] LotsReadModel lots,
-        [FromServices] LotDetailReadModel detail)
+        [FromServices] LotDetailReadModel detail,
+        [FromServices] IGrainFactory grains)
     {
         var canonicalSite = SiteAccessHandler.Canonicalize(siteId)!;
         var canonicalLot = CanonicalizeLotId(lotId);
@@ -595,19 +631,38 @@ public static partial class EdgeApi
                 report?.BatteryPercent,
                 ToChargeState(report?.Charging),
                 report is null ? null : ToServerTime(report.MeasuredAt)),
-            Sensors = [.. ToSensorReadings(readings)],
+            Sensors = await ToSensorReadingsAsync(readings, grains, httpContext.RequestAborted).ConfigureAwait(false),
         });
     }
 
-    private static IEnumerable<SensorReadingResponse> ToSensorReadings(IReadOnlyList<StoredReading> readings)
+    private static async Task<IReadOnlyList<SensorReadingResponse>> ToSensorReadingsAsync(
+        IReadOnlyList<StoredReading> readings,
+        IGrainFactory grains,
+        CancellationToken cancellationToken)
     {
+        var responses = new List<SensorReadingResponse>(readings.Count);
+
         foreach (var reading in readings)
         {
-            if (SensorConversion.Convert(reading.Quantity, reading.RawValue, reading.Calibration) is { } converted)
+            if (SensorConversion.Convert(reading.Quantity, reading.RawValue, reading.Calibration) is not { } converted)
             {
-                yield return new SensorReadingResponse(reading.Quantity, converted.Value, converted.Unit, ToServerTime(reading.MeasuredAt));
+                continue;
             }
+
+            // A Sensor is calibratable when its Specification says so; a Sensor no Node declared is not.
+            var calibratable = reading.SensorId is { } sensorId
+                && await grains.GetGrain<ISensorGrain>(sensorId.ToString("D")).Describe(cancellationToken).ConfigureAwait(false) is { Specification.Calibration: true };
+
+            responses.Add(new SensorReadingResponse(
+                reading.Quantity,
+                converted.Value,
+                converted.Unit,
+                ToServerTime(reading.MeasuredAt),
+                reading.SensorId?.ToString("D"),
+                calibratable));
         }
+
+        return responses;
     }
 
     /// <summary>
@@ -1364,23 +1419,12 @@ public static partial class EdgeApi
                 "Send a JSON body with dry and/or wet, each {readingSeq}, the reading_seq of a stored Reading of the Sensor.");
         }
 
-        if (!Guid.TryParse(sensorId, out var id))
+        if (await FindSiteSensorAsync(siteId, sensorId, grains, httpContext.RequestAborted).ConfigureAwait(false) is not { } found)
         {
             return SensorNotFound();
         }
 
-        // The Sensor must be a Sensor of a Node of this Site: another Site's Sensor is not disclosed.
-        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
-        var sensor = grains.GetGrain<ISensorGrain>(id.ToString("D"));
-        var snapshot = await sensor.Describe(httpContext.RequestAborted).ConfigureAwait(false);
-        var device = snapshot is null
-            ? null
-            : await grains.GetGrain<IDeviceGrain>(snapshot.DeviceId).Describe(httpContext.RequestAborted).ConfigureAwait(false);
-
-        if (device is not { Kind: DeviceKind.Node } node || !string.Equals(node.SiteId, canonical, StringComparison.Ordinal))
-        {
-            return SensorNotFound();
-        }
+        var sensor = found.Grain;
 
         var result = await sensor
             .Calibrate(
@@ -1391,6 +1435,66 @@ public static partial class EdgeApi
             .ConfigureAwait(false);
 
         return ToHttpResult(result);
+    }
+
+    private static async Task<IResult> GetSensorCalibrationAsync(
+        string siteId,
+        string sensorId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] SensorReadings sensorReadings,
+        [FromServices] TimeProvider time)
+    {
+        if (await FindSiteSensorAsync(siteId, sensorId, grains, httpContext.RequestAborted).ConfigureAwait(false) is not { } found)
+        {
+            return SensorNotFound();
+        }
+
+        var snapshot = found.Snapshot;
+        var recent = snapshot.Specification.Calibration
+            ? await sensorReadings
+                .RecentAsync(found.Id, time.GetUtcNow() - CalibrationReadingWindow, CalibrationReadingLimit, httpContext.RequestAborted)
+                .ConfigureAwait(false)
+            : [];
+
+        var state = ToCalibrationResponse(new SensorCalibrationResult(SensorCalibrationOutcome.Calibrated, snapshot.Calibration, snapshot.PendingDryRaw, snapshot.PendingWetRaw));
+
+        return TypedResults.Ok(new CalibrationStateResponse(
+            state.Calibrated,
+            [.. recent.Select(reading => new CalibrationReadingResponse(reading.ReadingSeq, reading.RawValue, ToServerTime(reading.MeasuredAt)))],
+            state.CalibrationId,
+            state.Dry,
+            state.Wet,
+            state.PendingDry,
+            state.PendingWet));
+    }
+
+    private static readonly TimeSpan CalibrationReadingWindow = TimeSpan.FromDays(2);
+
+    private const int CalibrationReadingLimit = 20;
+
+    // The Sensor must be a Sensor of a Node of this Site: another Site's Sensor is not disclosed.
+    private static async Task<(Guid Id, ISensorGrain Grain, SensorSnapshot Snapshot)?> FindSiteSensorAsync(
+        string siteId,
+        string sensorId,
+        IGrainFactory grains,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(sensorId, out var id))
+        {
+            return null;
+        }
+
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var grain = grains.GetGrain<ISensorGrain>(id.ToString("D"));
+        var snapshot = await grain.Describe(cancellationToken).ConfigureAwait(false);
+        var device = snapshot is null
+            ? null
+            : await grains.GetGrain<IDeviceGrain>(snapshot.DeviceId).Describe(cancellationToken).ConfigureAwait(false);
+
+        return snapshot is not null && device is { Kind: DeviceKind.Node } node && string.Equals(node.SiteId, canonical, StringComparison.Ordinal)
+            ? (id, grain, snapshot)
+            : null;
     }
 
     /// <summary>

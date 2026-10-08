@@ -579,4 +579,41 @@ class LotsOverviewTest {
         const val NOW = 1_791_270_120_000L
         const val FETCHED = NOW - 2 * HOUR - 12 * MINUTE
     }
+
+    @Test
+    fun story52OnlyALiveNeedsCalibrationTileOffersCalibrateAndOnlyToAdministratorsAndOwners() {
+        val needs = lot(LotStatus.NeedsCalibration, "Tomatoes")
+
+        assertTrue(LotTile.of(needs, false, FETCHED, NOW, canAddNode = true, canCalibrate = true).opensCalibrate)
+        assertFalse(LotTile.of(needs, false, FETCHED, NOW, canAddNode = true, canCalibrate = false).opensCalibrate)
+        assertFalse(LotTile.of(needs, true, FETCHED, NOW, canAddNode = true, canCalibrate = true).opensCalibrate)
+        for (status in LotStatus.entries - LotStatus.NeedsCalibration) {
+            assertFalse(
+                LotTile.of(lot(status), false, FETCHED, NOW, canAddNode = true, canCalibrate = true).opensCalibrate,
+                status.key,
+            )
+        }
+        val lots = listOf(needs)
+        assertTrue(
+            LotsOverview
+                .of(ready(lots, SiteRole.Administrator), NOW)
+                .tiles
+                .single()
+                .opensCalibrate,
+        )
+        assertTrue(
+            LotsOverview
+                .of(ready(lots, SiteRole.Owner), NOW)
+                .tiles
+                .single()
+                .opensCalibrate,
+        )
+        assertFalse(
+            LotsOverview
+                .of(ready(lots, SiteRole.Member), NOW)
+                .tiles
+                .single()
+                .opensCalibrate,
+        )
+    }
 }

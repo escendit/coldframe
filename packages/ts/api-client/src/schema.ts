@@ -181,7 +181,11 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Read a Sensor's Calibration state and recent Readings
+         * @description Administrator or Owner only (Story 5.2). Where the Sensor's Calibration stands: the Calibration in force and a point the Server kept while its partner is missing, so a Calibrate flow left after the dry point resumes at the wet one. readings lists the Sensor's recent stored Readings, newest first, each with the reading_seq the POST names; it is empty for a Sensor whose Specification has no Calibration. Clients re-read it while a Calibrate flow waits for a fresh Reading.
+         */
+        get: operations["getSensorCalibration"];
         put?: never;
         /**
          * Calibrate a Sensor
@@ -420,6 +424,13 @@ export type components = {
              * @description When the Reading was taken, ISO-8601 UTC with Z.
              */
             measuredAt: string;
+            /**
+             * Format: uuid
+             * @description The Sensor ID; names the Sensor in /sites/{siteId}/sensors/{sensorId}/calibration.
+             */
+            sensorId?: string;
+            /** @description Whether the Sensor's Specification calls for Calibration (calibration: true). Clients show Calibrate only for such a Sensor, and only to an Administrator or Owner. */
+            calibratable?: boolean;
         };
         LotHistoryDay: {
             /**
@@ -627,6 +638,40 @@ export type components = {
             wet?: components["schemas"]["CalibrationValue"];
             pendingDry?: components["schemas"]["CalibrationValue"];
             pendingWet?: components["schemas"]["CalibrationValue"];
+        };
+        /** @description One recent stored Reading of a Sensor a Calibration point can be taken from. */
+        CalibrationReading: {
+            /**
+             * Format: uint64
+             * @description The reading_seq the Calibration request names.
+             */
+            readingSeq: number;
+            /**
+             * Format: int64
+             * @description The stored raw value.
+             */
+            rawValue: number;
+            /**
+             * Format: date-time
+             * @description When the Reading was taken, ISO-8601 UTC with Z.
+             */
+            measuredAt: string;
+        };
+        /** @description Where a Sensor's Calibration stands, as the Calibration endpoint's 200 carries it, plus the recent stored Readings to pick a point from. */
+        CalibrationState: {
+            /** @description Whether a Calibration is in force. */
+            calibrated: boolean;
+            /**
+             * Format: uuid
+             * @description The ID of the Calibration in force; absent while uncalibrated.
+             */
+            calibrationId?: string;
+            dry?: components["schemas"]["CalibrationValue"];
+            wet?: components["schemas"]["CalibrationValue"];
+            pendingDry?: components["schemas"]["CalibrationValue"];
+            pendingWet?: components["schemas"]["CalibrationValue"];
+            /** @description The recent stored Readings, newest first. */
+            readings: components["schemas"]["CalibrationReading"][];
         };
         MoveDeviceRequest: {
             /**
@@ -1195,6 +1240,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["DeviceMoveNotFound"];
+        };
+    };
+    getSensorCalibration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form. */
+                sensorId: components["parameters"]["SensorId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Calibration state and the recent stored Readings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationState"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SensorNotFound"];
         };
     };
     calibrateSensor: {

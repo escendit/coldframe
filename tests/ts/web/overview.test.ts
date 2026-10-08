@@ -443,9 +443,9 @@ describe('Stale header', () => {
     expect(source).toMatch(/setInterval\([\s\S]*?60_000\)/u);
     expect(source).toContain('clearInterval');
     expect(source).not.toMatch(/announce\(|announcer/u);
-    // The stale-age tick is the only repeating timer of the web app: nothing polls.
+    // The stale-age tick is a repeating timer of the web app; the only polling is the Calibrate flow's wait (Story 5.2).
     const repeating = filesUnder(webSrc, ['.svelte', '.ts']).filter((file) => read(file).includes('setInterval')).map(rel);
-    expect(repeating).toEqual(['apps/ts/web/src/lib/components/StaleHeader.svelte']);
+    expect(repeating).toEqual(['apps/ts/web/src/lib/components/StaleHeader.svelte', 'apps/ts/web/src/routes/(app)/garden/[lotId]/calibrate/+page.svelte']);
   });
 });
 

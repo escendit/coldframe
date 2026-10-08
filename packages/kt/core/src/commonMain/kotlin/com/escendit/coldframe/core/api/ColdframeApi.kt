@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.api
 
+import com.escendit.coldframe.core.calibrate.CalibrateApi
 import com.escendit.coldframe.core.devices.DevicesApi
 import com.escendit.coldframe.core.lots.LotDetailApi
 import com.escendit.coldframe.core.lots.LotsApi
@@ -50,6 +51,7 @@ public class ColdframeApi(
 ) : SitesApi,
     LotsApi,
     LotDetailApi,
+    CalibrateApi,
     DevicesApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
@@ -191,6 +193,38 @@ public class ColdframeApi(
             it.body<DeviceDto>()
         }
 
+    /** `GET /sites/{siteId}/sensors/{sensorId}/calibration` (`getSensorCalibration`, Admin+). */
+    override suspend fun getSensorCalibration(
+        siteId: String,
+        sensorId: String,
+    ): ApiResult<CalibrationStateDto> =
+        call({ http.get(calibration(siteId, sensorId)) { it() } }) { it.body<CalibrationStateDto>() }
+
+    /** `POST /sites/{siteId}/sensors/{sensorId}/calibration` (`calibrateSensor`, Admin+): a dry and/or a wet point. */
+    override suspend fun calibrateSensor(
+        siteId: String,
+        sensorId: String,
+        dryReadingSeq: Long?,
+        wetReadingSeq: Long?,
+    ): ApiResult<CalibrationDto> =
+        call({
+            http.post(calibration(siteId, sensorId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(
+                    CalibrateSensorRequestDto(
+                        dry = dryReadingSeq?.let(::CalibrationPointDto),
+                        wet = wetReadingSeq?.let(::CalibrationPointDto),
+                    ),
+                )
+            }
+        }) { it.body<CalibrationDto>() }
+
+    private fun calibration(
+        siteId: String,
+        sensorId: String,
+    ): String = "$base/sites/${siteId.encoded()}/sensors/${sensorId.encoded()}/calibration"
+
     private fun lots(siteId: String): String = "$base/sites/${siteId.encoded()}/lots"
 
     private fun String.encoded(): String = encodeURLPathPart()
@@ -256,7 +290,11 @@ public class ColdframeApi(
             }
 
             HttpStatusCode.ServiceUnavailable -> {
-                ApiFailure.IdentityProviderUnavailable
+                if (problemType(response) == PROBLEM_CALIBRATION_NOT_DELIVERED) {
+                    ApiFailure.CalibrationNotDelivered
+                } else {
+                    ApiFailure.IdentityProviderUnavailable
+                }
             }
 
             else -> {
@@ -287,6 +325,7 @@ public class ColdframeApi(
         public const val PROBLEM_VALIDATION: String = "urn:coldframe:problem:validation"
         public const val PROBLEM_DEVICE_ON_ANOTHER_SITE: String = "urn:coldframe:problem:device-on-another-site"
         public const val PROBLEM_DEVICE_ASSIGNED: String = "urn:coldframe:problem:device-assigned"
+        public const val PROBLEM_CALIBRATION_NOT_DELIVERED: String = "urn:coldframe:problem:calibration-not-delivered"
 
         private val JSON =
             Json {

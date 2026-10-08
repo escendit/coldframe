@@ -61,6 +61,8 @@ fun AddNodeFlow(
                 copy = nodeOutcomeCopy(outcome.kind, node, state.lotName.orEmpty(), state.siteName),
                 primaryLabel = stringResource(outcome.primary.label()),
                 onPrimary = { actions.outcomeAction(outcome.primary) },
+                secondaryLabel = outcome.secondary?.let { stringResource(it.label()) },
+                onSecondary = { outcome.secondary?.let(actions.outcomeAction) },
             )
         } else {
             SetupFlowShell(

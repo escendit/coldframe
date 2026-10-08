@@ -776,4 +776,94 @@
     #expect(
       spy.calls == ["open p Peppers", "refresh", "tick", "pick airTemperature", "close"])
   }
+  // MARK: - Calibrate (Story 5.2)
+
+  @MainActor
+  private func calibrateView(_ presentation: CalibratePresentation) -> some View {
+    CalibrateView(
+      presentation: presentation, siteName: "Home garden", actions: .none,
+      now: { Overview.context.now }, timeZone: Overview.context.timeZone)
+  }
+
+  private func calibrateSnapshot(
+    surface: String = "ready", notice: String? = nil, noticeTryAgain: Bool = false,
+    step: String = "dry", canRecord: Bool = false, hasFresh: Bool = false, pickedSeq: String = "",
+    dryRaw: String = "", wetRaw: String = "", percent: String = "", pausedBySite: Bool = false,
+    offersResume: Bool = false
+  ) -> CalibratePresentation {
+    CalibratePresentation(
+      surface: surface, notice: notice, noticeTryAgain: noticeTryAgain, lotId: "t",
+      lotName: "Tomatoes", step: step, working: false, canRecord: canRecord, hasFresh: hasFresh,
+      lastRawValue: "612", lastReadingAt: String(Overview.readingMs), readingSeqs: [42, 41],
+      readingRawValues: [612, 640],
+      readingAts: [String(Overview.readingMs), String(Overview.earlierMs)], pickedSeq: pickedSeq,
+      dryRaw: dryRaw, wetRaw: wetRaw, percent: percent, announcementId: 0,
+      announcementKind: nil, announcementStep: nil, announcementRaw: "", announcementAt: "",
+      announcementPercent: "", announcementLot: "Tomatoes", pausedBySite: pausedBySite,
+      offersResume: offersResume)
+  }
+
+  @Test(
+    "Story 5.2 Calibrate renders every step at the largest accessibility text size and at the default one",
+    arguments: [false, true])
+  @MainActor
+  func calibrateStepsRender(dark: Bool) {
+    let steps = [
+      calibrateSnapshot(),
+      calibrateSnapshot(canRecord: true, hasFresh: true, pickedSeq: "42"),
+      calibrateSnapshot(canRecord: true, pickedSeq: "41"),
+      calibrateSnapshot(step: "wet", dryRaw: "3000"),
+      calibrateSnapshot(
+        step: "wet", canRecord: true, hasFresh: true, pickedSeq: "42", dryRaw: "3000"),
+      calibrateSnapshot(step: "confirm", dryRaw: "3000", wetRaw: "1200"),
+      calibrateSnapshot(step: "confirm", dryRaw: "3000", wetRaw: "1200", percent: "40"),
+    ]
+    for presentation in steps {
+      #expect(renders(calibrateView(presentation), dark: dark), "\(presentation.step)")
+      #expect(rendersAtDefaultSize(calibrateView(presentation), dark: dark))
+    }
+  }
+
+  @Test(
+    "Story 5.2 Calibrate renders its notices, the loading outline and the paused explanation",
+    arguments: [false, true])
+  @MainActor
+  func calibrateOtherSurfacesRender(dark: Bool) {
+    let surfaces = [
+      calibrateSnapshot(surface: "loading"),
+      calibrateSnapshot(surface: "failed", notice: "noSensor", noticeTryAgain: true),
+      calibrateSnapshot(surface: "failed", notice: "forbidden"),
+      calibrateSnapshot(surface: "paused", offersResume: true),
+      calibrateSnapshot(surface: "paused", pausedBySite: true),
+      calibrateSnapshot(notice: "indistinct", step: "wet", dryRaw: "3000"),
+      calibrateSnapshot(notice: "notDelivered", canRecord: true, pickedSeq: "42"),
+    ]
+    for presentation in surfaces {
+      #expect(renders(calibrateView(presentation), dark: dark))
+      #expect(rendersAtDefaultSize(calibrateView(presentation), dark: dark))
+    }
+  }
+
+  @Test(
+    "Story 5.2 the Node-added outcome with Calibrate and the needs-calibration tile control render",
+    arguments: [false, true])
+  @MainActor
+  func calibrateEntryPointsRender(dark: Bool) {
+    #expect(
+      renders(
+        nodeFlow(
+          nodeSetup(
+            step: 5, lotName: "Tomatoes", outcome: "assigned", outcomePrimary: "done",
+            outcomeSecondary: "calibrate", stoppedStep: 5)),
+        dark: dark))
+    var calibrating = Overview.needsCalibration
+    calibrating.opensCalibrate = true
+    #expect(
+      rendersAtDefaultSize(overview(Overview.lots([calibrating, Overview.ok])), dark: dark))
+    var detail = LotDetailFixture.needsCalibration
+    detail.canCalibrate = true
+    #expect(
+      rendersAtDefaultSize(
+        lotDetailView(detail.build()), dark: dark))
+  }
 #endif

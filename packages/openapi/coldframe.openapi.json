@@ -345,6 +345,29 @@
           "404": { "$ref": "#/components/responses/SensorNotFound" },
           "503": { "$ref": "#/components/responses/CalibrationNotDelivered" }
         }
+      },
+      "get": {
+        "operationId": "getSensorCalibration",
+        "summary": "Read a Sensor's Calibration state and recent Readings",
+        "description": "Administrator or Owner only (Story 5.2). Where the Sensor's Calibration stands: the Calibration in force and a point the Server kept while its partner is missing, so a Calibrate flow left after the dry point resumes at the wet one. readings lists the Sensor's recent stored Readings, newest first, each with the reading_seq the POST names; it is empty for a Sensor whose Specification has no Calibration. Clients re-read it while a Calibrate flow waits for a fresh Reading.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/SensorId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Calibration state and the recent stored Readings.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CalibrationState" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SensorNotFound" }
+        }
       }
     },
     "/sites/{siteId}/lots": {
@@ -810,7 +833,9 @@
           "quantity": { "$ref": "#/components/schemas/SensorQuantity" },
           "value": { "type": "number" },
           "unit": { "$ref": "#/components/schemas/SensorUnit" },
-          "measuredAt": { "type": "string", "format": "date-time", "description": "When the Reading was taken, ISO-8601 UTC with Z." }
+          "measuredAt": { "type": "string", "format": "date-time", "description": "When the Reading was taken, ISO-8601 UTC with Z." },
+          "sensorId": { "type": "string", "format": "uuid", "description": "The Sensor ID; names the Sensor in /sites/{siteId}/sensors/{sensorId}/calibration." },
+          "calibratable": { "type": "boolean", "description": "Whether the Sensor's Specification calls for Calibration (calibration: true). Clients show Calibrate only for such a Sensor, and only to an Administrator or Owner." }
         }
       },
       "LotHistoryDay": {
@@ -1025,6 +1050,34 @@
           "wet": { "$ref": "#/components/schemas/CalibrationValue" },
           "pendingDry": { "$ref": "#/components/schemas/CalibrationValue" },
           "pendingWet": { "$ref": "#/components/schemas/CalibrationValue" }
+        }
+      },
+      "CalibrationReading": {
+        "type": "object",
+        "description": "One recent stored Reading of a Sensor a Calibration point can be taken from.",
+        "required": ["readingSeq", "rawValue", "measuredAt"],
+        "properties": {
+          "readingSeq": { "type": "integer", "format": "uint64", "minimum": 0, "description": "The reading_seq the Calibration request names." },
+          "rawValue": { "type": "integer", "format": "int64", "description": "The stored raw value." },
+          "measuredAt": { "type": "string", "format": "date-time", "description": "When the Reading was taken, ISO-8601 UTC with Z." }
+        }
+      },
+      "CalibrationState": {
+        "type": "object",
+        "description": "Where a Sensor's Calibration stands, as the Calibration endpoint's 200 carries it, plus the recent stored Readings to pick a point from.",
+        "required": ["calibrated", "readings"],
+        "properties": {
+          "calibrated": { "type": "boolean", "description": "Whether a Calibration is in force." },
+          "calibrationId": { "type": "string", "format": "uuid", "description": "The ID of the Calibration in force; absent while uncalibrated." },
+          "dry": { "$ref": "#/components/schemas/CalibrationValue" },
+          "wet": { "$ref": "#/components/schemas/CalibrationValue" },
+          "pendingDry": { "$ref": "#/components/schemas/CalibrationValue" },
+          "pendingWet": { "$ref": "#/components/schemas/CalibrationValue" },
+          "readings": {
+            "type": "array",
+            "description": "The recent stored Readings, newest first.",
+            "items": { "$ref": "#/components/schemas/CalibrationReading" }
+          }
         }
       },
       "MoveDeviceRequest": {

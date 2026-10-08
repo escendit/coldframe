@@ -128,10 +128,27 @@ class NodeSetupSnapshotTest {
                 val outcome = NodeOutcome(kind, 3)
                 outcome.primary to snapshotOf(open.copy(outcome = outcome)).outcomePrimary
             }
-        assertEquals(NodeOutcomeAction.entries.toSet(), sent.map { it.first }.toSet())
+        // Calibrate is only ever a secondary action (Story 5.2).
+        assertEquals((NodeOutcomeAction.entries - NodeOutcomeAction.Calibrate).toSet(), sent.map { it.first }.toSet())
         assertEquals(setOf("done", "startOver", "close"), sent.map { it.second }.toSet())
         for ((action, key) in sent) assertEquals(action, nodeOutcomeActionOf(key!!), key)
         assertNull(nodeOutcomeActionOf("unknown"))
+    }
+
+    @Test
+    fun story52ASuccessTheCallerMayCalibrateOffersCalibrateAsItsSecondaryAction() {
+        val success = NodeOutcome(NodeOutcomeKind.Assigned, 5, calibrateLotId = "t")
+
+        assertEquals("done", snapshotOf(open.copy(outcome = success)).outcomePrimary)
+        assertEquals("calibrate", snapshotOf(open.copy(outcome = success)).outcomeSecondary)
+        assertEquals(NodeOutcomeAction.Calibrate, nodeOutcomeActionOf("calibrate"))
+        // No Role, no secondary; no error outcome has one.
+        assertNull(snapshotOf(open.copy(outcome = NodeOutcome(NodeOutcomeKind.Assigned, 5))).outcomeSecondary)
+        assertNull(
+            snapshotOf(
+                open.copy(outcome = NodeOutcome(NodeOutcomeKind.NodeRefused, 3, calibrateLotId = "t")),
+            ).outcomeSecondary,
+        )
     }
 
     @Test

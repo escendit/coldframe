@@ -132,6 +132,7 @@ enum Overview {
     var pausedBySite: Bool = false
     var pausedUntil: String = ""
     var opensAddNode: Bool = false
+    var opensCalibrate: Bool = false
 
     /// The same Lot in stale mode, as the core flattens it: no value, "as of".
     var stale: Lot {
@@ -221,6 +222,7 @@ enum Overview {
       lotReadingAts: lots.map(\.readingAt), lotDurationValues: lots.map(\.durationValue),
       lotDurationUnits: lots.map(\.durationUnit), lotPausedBySite: lots.map(\.pausedBySite),
       lotPausedUntils: lots.map(\.pausedUntil), lotOpensAddNode: lots.map(\.opensAddNode),
+      lotOpensCalibrate: lots.map(\.opensCalibrate),
       menuItems: menuItems, menuEnabled: menuEnabled)
   }
 
@@ -267,6 +269,7 @@ struct LotDetailFixture {
   var heroDuration: (value: String, unit: String) = ("", "")
   var noNode = false
   var canAddNode = true
+  var canCalibrate = false
   var hasSensors = true
   var sensors: [(quantity: String, number: String, unit: String)] = [
     ("soilMoisture", "1840", "raw"), ("airTemperature", "14", "celsius"),
@@ -313,7 +316,7 @@ struct LotDetailFixture {
       heroPausedUntil: heroPausedUntil, heroResumeSiteHint: heroResumeSiteHint,
       heroNeedsWaterFill: heroVariant == "needsWater", heroDurationValue: heroDuration.value,
       heroDurationUnit: heroDuration.unit, noNode: noNode, canAddNode: canAddNode,
-      hasSensors: hasSensors, sensorQuantities: sensors.map(\.quantity),
+      canCalibrate: canCalibrate, hasSensors: hasSensors, sensorQuantities: sensors.map(\.quantity),
       sensorNumbers: sensors.map(\.number), sensorUnits: sensors.map(\.unit),
       sensorMeasuredAts: sensors.map { _ in String(Overview.readingMs) }, hasDevice: hasDevice,
       deviceNodeId: "7c19", deviceBattery: battery, deviceBatteryLow: batteryLow,

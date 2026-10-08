@@ -401,6 +401,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
   public let noNode: Bool
   /// Add a Node on the empty detail, for Administrators and Owners.
   public let canAddNode: Bool
+  /// Calibrate shows: Administrators and Owners on a live Lot with a Sensor that can be calibrated.
+  public let canCalibrate: Bool
   /// Nil while stale or without a Node; empty is "No Readings yet."
   public let sensors: [SensorCellPresentation]?
   public let device: DeviceCellsPresentation?
@@ -414,7 +416,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
     surface: LotDetailSurface, lotId: String? = nil, hero: LotDetailHeroPresentation? = nil,
     stale: Bool = false, refreshing: Bool = false, fetchedAt: Date? = nil,
     staleAge: StaleAgePresentation = StaleAgePresentation(days: 0, hours: 0, minutes: 0),
-    noNode: Bool = false, canAddNode: Bool = false, sensors: [SensorCellPresentation]? = nil,
+    noNode: Bool = false, canAddNode: Bool = false, canCalibrate: Bool = false,
+    sensors: [SensorCellPresentation]? = nil,
     device: DeviceCellsPresentation? = nil, quantities: [SensorQuantityKind] = [],
     picked: SensorQuantityKind? = nil, historyUnavailable: Bool = false,
     chart: HistoryChartPresentation? = nil
@@ -428,6 +431,7 @@ public struct LotDetailPresentation: Equatable, Sendable {
     self.staleAge = staleAge
     self.noNode = noNode
     self.canAddNode = canAddNode
+    self.canCalibrate = canCalibrate
     self.sensors = sensors
     self.device = device
     self.quantities = quantities
@@ -467,7 +471,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
     heroValue: String?, heroRawNumber: String, heroSoilPercent: String, heroLowPercent: String,
     heroReadingAt: String, heroNote: String?, heroPausedUntil: String, heroResumeSiteHint: Bool,
     heroNeedsWaterFill: Bool, heroDurationValue: String, heroDurationUnit: String, noNode: Bool,
-    canAddNode: Bool, hasSensors: Bool, sensorQuantities: [String], sensorNumbers: [String],
+    canAddNode: Bool, canCalibrate: Bool = false, hasSensors: Bool, sensorQuantities: [String],
+    sensorNumbers: [String],
     sensorUnits: [String], sensorMeasuredAts: [String], hasDevice: Bool, deviceNodeId: String,
     deviceBattery: String, deviceBatteryLow: Bool, deviceCharging: String, deviceLastSeen: String,
     quantities: [String], picked: String?, historyUnavailable: Bool, hasChart: Bool,
@@ -551,7 +556,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
         ? Date(timeIntervalSince1970: Double(fetchedAtEpochMs) / 1000) : nil,
       staleAge: StaleAgePresentation(
         days: staleAgeDays, hours: staleAgeHours, minutes: staleAgeMinutes),
-      noNode: noNode, canAddNode: canAddNode, sensors: sensors, device: device,
+      noNode: noNode, canAddNode: canAddNode, canCalibrate: canCalibrate, sensors: sensors,
+      device: device,
       quantities: quantities.compactMap(SensorQuantityKind.init(rawValue:)),
       picked: picked.flatMap(SensorQuantityKind.init(rawValue:)),
       historyUnavailable: historyUnavailable, chart: chart)

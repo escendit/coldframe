@@ -2,6 +2,7 @@ package com.escendit.coldframe.core.signin
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import com.escendit.coldframe.core.calibrate.CalibrateEngine
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotsEngine
@@ -69,10 +70,23 @@ public class AndroidSignIn private constructor(
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
     public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)
 
+    /** Calibrate of one Lot's soil Sensor: dry, then wet, from stored Readings over REST. */
+    public val calibrate: CalibrateEngine = SitesWiring.calibrate(api, sites, scope)
+
     private val radio = KableSetupRadio(AndroidRadioState(context))
 
     /** Add a Node over Kable, on one Site; an assigned Node reloads the Lots and the Devices. */
-    public val nodeSetup: NodeSetupEngine = SitesWiring.nodeSetup(api, api, radio, sites, lots, devices, scope)
+    public val nodeSetup: NodeSetupEngine =
+        SitesWiring.nodeSetup(
+            api,
+            api,
+            radio,
+            sites,
+            lots,
+            devices,
+            scope,
+            calibrate,
+        )
 
     /** Add a Hub over Kable; Bluetooth is only touched once the flow opens. Its outcome leads to Add a Node. */
     public val hubSetup: HubSetupEngine =

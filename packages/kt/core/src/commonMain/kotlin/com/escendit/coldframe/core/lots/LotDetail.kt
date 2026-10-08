@@ -82,6 +82,10 @@ public data class SensorReading(
     val value: Double,
     val unit: SensorUnit,
     val measuredAtEpochMs: Long?,
+    /** The Sensor ID Calibration names; `null` from a Server that does not send it. */
+    val sensorId: String? = null,
+    /** The Server's: the Sensor's Specification says `calibration: true`. */
+    val calibratable: Boolean = false,
 )
 
 internal fun NodeStatusDto.toNodeStatus(): NodeStatus =
@@ -96,7 +100,7 @@ internal fun NodeStatusDto.toNodeStatus(): NodeStatus =
 internal fun SensorReadingDto.toSensorReading(): SensorReading? {
     val known = SensorQuantity.fromServer(quantity) ?: return null
     val knownUnit = SensorUnit.fromServer(unit) ?: return null
-    return SensorReading(known, value, knownUnit, DevicesEngine.epochMsOf(measuredAt))
+    return SensorReading(known, value, knownUnit, DevicesEngine.epochMsOf(measuredAt), sensorId, calibratable == true)
 }
 
 /** Formatting of converted values: soil `raw N`, whole °C and %RH, kΩ to 3 significant digits. */
@@ -332,6 +336,8 @@ public data class LotDetail(
     val picked: SensorQuantity?,
     val chart: HistoryChart?,
     val historyUnavailable: Boolean,
+    /** Calibrate shows: Admin+ on a live Lot with a Sensor whose Specification calls for Calibration; hidden, never disabled. */
+    val canCalibrate: Boolean = false,
 ) {
     public companion object {
         public fun of(
@@ -422,6 +428,9 @@ public data class LotDetail(
                         )
                     },
                 historyUnavailable = ready.historyUnavailable,
+                canCalibrate =
+                    !stale && role >= SiteRole.Administrator &&
+                        lot.sensors.any { it.calibratable && it.sensorId != null },
             )
         }
 

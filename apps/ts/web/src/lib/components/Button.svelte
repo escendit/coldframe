@@ -11,11 +11,13 @@
     /** While true the label is replaced in place by `workingLabel`, with no animated indicator. */
     working?: boolean;
     workingLabel?: string;
+    /** Not available yet (a step waiting for its Reading); the label stays. */
+    disabled?: boolean;
     id?: string;
     onclick?: (event: MouseEvent) => void;
   }
 
-  let { label, variant = 'primary', type = 'button', href, reload = false, working = false, workingLabel, id, onclick }: Props = $props();
+  let { label, variant = 'primary', type = 'button', href, reload = false, working = false, workingLabel, disabled = false, id, onclick }: Props = $props();
 
   const text = $derived(working && workingLabel !== undefined ? workingLabel : label);
 
@@ -40,7 +42,7 @@
     <span class="cf-button__label">{text}</span>
   </a>
 {:else}
-  <button {id} class="cf-button cf-button--{variant}" {type} aria-disabled={working ? 'true' : undefined} onclick={click}>
+  <button {id} class="cf-button cf-button--{variant}" {type} {disabled} aria-disabled={working ? 'true' : undefined} onclick={click}>
     <span class="cf-button__label">{text}</span>
   </button>
 {/if}
@@ -96,6 +98,13 @@
 
   .cf-button--ghost:hover {
     background: var(--cf-color-layer-01);
+  }
+
+  .cf-button:disabled {
+    background: var(--cf-color-layer-01);
+    border-color: var(--cf-color-border-strong);
+    color: var(--cf-color-text-secondary);
+    cursor: not-allowed;
   }
 
   .cf-button[aria-disabled='true'] {

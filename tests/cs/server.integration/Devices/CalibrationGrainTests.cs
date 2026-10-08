@@ -63,6 +63,27 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
     }
 
     [Fact]
+    public async Task TheRecentReadingsAreTheSensorsOwnNewestFirstAndBoundedBySince()
+    {
+        var (node, soil) = await DeclaredNodeAsync();
+        var first = await StoreSoilAsync(node, 3000);
+        var second = await StoreSoilAsync(node, 1200);
+        var secondAt = Now;
+        var third = await StoreSoilAsync(node, 2000);
+        var readings = identity.SiloServices.GetRequiredService<SensorReadings>();
+
+        var all = await readings.RecentAsync(soil, Now.AddHours(-1), 50, Ct);
+
+        // The two setup Readings of the declaring wakes come first, then ours, newest first; the Sensor's own only.
+        Assert.Equal([third, second, first], all.Take(3).Select(reading => reading.ReadingSeq));
+        Assert.Equal([2000L, 1200L, 3000L], all.Take(3).Select(reading => reading.RawValue));
+
+        // Bounded by time and by count.
+        Assert.Equal([third], (await readings.RecentAsync(soil, secondAt.AddMilliseconds(1), 50, Ct)).Select(reading => reading.ReadingSeq));
+        Assert.Equal([third, second], (await readings.RecentAsync(soil, Now.AddHours(-1), 2, Ct)).Select(reading => reading.ReadingSeq));
+    }
+
+    [Fact]
     public async Task ADryPointAloneIsKeptAndTheWetOneCompletesItInEitherOrder()
     {
         var (node, soil) = await DeclaredNodeAsync();
