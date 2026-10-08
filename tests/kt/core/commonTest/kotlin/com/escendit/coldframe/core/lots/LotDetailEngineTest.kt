@@ -7,7 +7,9 @@ import com.escendit.coldframe.core.api.LotHistoryDayDto
 import com.escendit.coldframe.core.api.LotHistoryDto
 import com.escendit.coldframe.core.api.NodeStatusDto
 import com.escendit.coldframe.core.api.SensorReadingDto
+import com.escendit.coldframe.core.api.SensorThresholdsDto
 import com.escendit.coldframe.core.api.SiteDto
+import com.escendit.coldframe.core.api.ThresholdSideDto
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
 import com.escendit.coldframe.core.sites.FakeSitesApi
@@ -30,6 +32,7 @@ class FakeLotDetailApi : LotDetailApi {
     var historyFailure: ApiFailure? = null
     val pages = mutableMapOf<String?, LotHistoryDto>()
     val calls = mutableListOf<String>()
+    var thresholds: ApiResult<SensorThresholdsDto> = ApiResult.Failed(ApiFailure.NotFound)
 
     override suspend fun getLot(
         siteId: String,
@@ -50,6 +53,14 @@ class FakeLotDetailApi : LotDetailApi {
         historyFailure?.let { return ApiResult.Failed(it) }
         return pages[cursor]?.let { ApiResult.Ok(it.copy(quantity = quantity)) }
             ?: ApiResult.Failed(ApiFailure.NotFound)
+    }
+
+    override suspend fun getSensorThresholds(
+        siteId: String,
+        sensorId: String,
+    ): ApiResult<SensorThresholdsDto> {
+        calls += "thresholds $sensorId"
+        return thresholds
     }
 }
 
@@ -451,5 +462,101 @@ class LotDetailEngineTest {
             val failed = snapshotOf(engine.state.value, clock)
             assertEquals("failed", failed.surface)
             assertEquals("notFound", failed.notice)
+        }
+
+    private val soilDetail =
+        detail.copy(
+            sensors =
+                listOf(
+                    SensorReadingDto(
+                        "soil_moisture",
+                        40.0,
+                        "%",
+                        "2026-10-06T07:00:00.000Z",
+                        "11111111-1111-7111-8111-111111111111",
+                        true,
+                    ),
+                ),
+        )
+
+    @Test
+    fun uxDr5OpeningALotReadsTheSoilSensorsThresholdsForTheChartBand() =
+        runTest {
+            api.lot = soilDetail
+            api.pages[null] = LotHistoryDto("s", "%", listOf(LotHistoryDayDto("2026-10-06", 20.0, 50.0, 30)))
+            api.thresholds =
+                ApiResult.Ok(
+                    SensorThresholdsDto("%", ThresholdSideDto("override", 30.0), ThresholdSideDto("override", 70.0)),
+                )
+            val engine = start()
+
+            engine.open("t", "Tomatoes")
+            runCurrent()
+
+            assertEquals(
+                SoilThresholds("11111111-1111-7111-8111-111111111111", 30, 70),
+                engine.ready().soilThresholds,
+            )
+            assertTrue(api.calls.any { it.startsWith("thresholds ") })
+        }
+
+    @Test
+    fun uxDr5AFailedThresholdsReadLeavesTheDetailLiveWithoutAHighLine() =
+        runTest {
+            api.lot = soilDetail
+            api.pages[null] = LotHistoryDto("s", "%", listOf(LotHistoryDayDto("2026-10-06", 20.0, 50.0, 30)))
+            val engine = start()
+
+            engine.open("t", "Tomatoes")
+            runCurrent()
+
+            assertNull(engine.ready().soilThresholds)
+            assertNull(engine.ready().staleReason)
+        }
+
+    @Test
+    fun uxDr5ARefreshReadsTheThresholdsAgainSoASavedChangeMovesTheBand() =
+        runTest {
+            api.lot = soilDetail
+            api.pages[null] = LotHistoryDto("s", "%", listOf(LotHistoryDayDto("2026-10-06", 20.0, 50.0, 30)))
+            api.thresholds =
+                ApiResult.Ok(SensorThresholdsDto("%", ThresholdSideDto("override", 30.0), ThresholdSideDto("cleared")))
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            assertNull(engine.ready().soilThresholds?.highPercent)
+
+            api.thresholds =
+                ApiResult.Ok(
+                    SensorThresholdsDto("%", ThresholdSideDto("override", 25.0), ThresholdSideDto("override", 80.0)),
+                )
+            engine.refresh()
+            runCurrent()
+
+            assertEquals(25, engine.ready().soilThresholds?.lowPercent)
+            assertEquals(80, engine.ready().soilThresholds?.highPercent)
+        }
+
+    @Test
+    fun uxDr5AFailedRereadAfterASaveDropsTheOldBandInsteadOfDrawingIt() =
+        runTest {
+            api.lot = soilDetail
+            api.pages[null] = LotHistoryDto("s", "%", listOf(LotHistoryDayDto("2026-10-06", 20.0, 50.0, 30)))
+            api.thresholds =
+                ApiResult.Ok(
+                    SensorThresholdsDto("%", ThresholdSideDto("override", 30.0), ThresholdSideDto("override", 70.0)),
+                )
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            assertEquals(70, engine.ready().soilThresholds?.highPercent)
+
+            // The high was cleared and saved, but the read that follows fails: the old 70 must not stay on the chart.
+            api.thresholds = ApiResult.Failed(ApiFailure.Unreachable)
+            engine.refresh()
+            runCurrent()
+
+            assertNull(engine.ready().soilThresholds)
+            assertNull(engine.ready().staleReason)
         }
 }

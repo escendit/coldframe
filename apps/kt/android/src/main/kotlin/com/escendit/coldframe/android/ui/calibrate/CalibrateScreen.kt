@@ -312,6 +312,14 @@ private fun Confirmation(
         style = Typography.bodyLg.textStyle(),
         color = colors.textPrimary,
     )
+    // The Lot's Thresholds are the next step (the core's `offersThresholds`).
+    if (state.offersThresholds) {
+        ColdframeButton(
+            label = stringResource(R.string.thresholds_next),
+            onClick = { actions.setThresholds(state.lotId, state.lotName) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
     ColdframeButton(
         label = stringResource(R.string.add_node_done),
         onClick = actions.close,

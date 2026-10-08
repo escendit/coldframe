@@ -189,14 +189,18 @@ public struct SensorCellPresentation: Equatable, Sendable, Identifiable {
   public let number: String
   public let unit: SensorUnitKind
   public let measuredAt: Date?
+  /// The Sensor a tap on the cell opens Thresholds for; nil when the Server sent none.
+  public let sensorId: String?
 
   public init(
-    quantity: SensorQuantityKind, number: String, unit: SensorUnitKind, measuredAt: Date?
+    quantity: SensorQuantityKind, number: String, unit: SensorUnitKind, measuredAt: Date?,
+    sensorId: String? = nil
   ) {
     self.quantity = quantity
     self.number = number
     self.unit = unit
     self.measuredAt = measuredAt
+    self.sensorId = sensorId
   }
 
   public var id: SensorQuantityKind { quantity }
@@ -265,10 +269,13 @@ public struct ChartBarPresentation: Equatable, Sendable, Identifiable {
   public let readingCount: Int
   /// 0...1 of the axis, as the core scaled it; 0 for a gap.
   public let fraction: Double
+  /// The day's low is under the low Threshold: drawn solid in `chart-bar-below-low`, a cue that
+  /// is not colour alone (UX-DR5, UX-DR32).
+  public let belowLow: Bool
 
   public init(
     day: String, dayStart: Date, present: Bool, low: String, high: String, readingCount: Int,
-    fraction: Double
+    fraction: Double, belowLow: Bool = false
   ) {
     self.day = day
     self.dayStart = dayStart
@@ -277,9 +284,28 @@ public struct ChartBarPresentation: Equatable, Sendable, Identifiable {
     self.high = high
     self.readingCount = readingCount
     self.fraction = fraction
+    self.belowLow = belowLow
   }
 
   public var id: String { day }
+}
+
+/// The Threshold band of the chart (UX-DR5): the `chart-band` zone from the low line up to the
+/// high line, the 2 px low line and the 1 px dashed `chart-high-line`. The core sends it only for
+/// soil moisture in `%` with a low Threshold. `highFraction` is nil without a high, and then the
+/// band runs to the top.
+public struct ChartBandPresentation: Equatable, Sendable {
+  public let lowPercent: String
+  public let highPercent: String
+  public let lowFraction: Double
+  public let highFraction: Double?
+
+  public init(lowPercent: String, highPercent: String, lowFraction: Double, highFraction: Double?) {
+    self.lowPercent = lowPercent
+    self.highPercent = highPercent
+    self.lowFraction = lowFraction
+    self.highFraction = highFraction
+  }
 }
 
 /// The History chart (UX-DR32, UX-DR33): 30 daily bars of the picked quantity's daily low,
@@ -295,11 +321,13 @@ public struct HistoryChartPresentation: Equatable, Sendable {
   public let lowestDay: String
   public let highest: String
   public let highestDay: String
+  /// The Threshold band, nil unless soil moisture in `%` has a low Threshold.
+  public let band: ChartBandPresentation?
 
   public init(
     quantity: SensorQuantityKind, unit: SensorUnitKind, bars: [ChartBarPresentation],
     daysWithReadings: Int, lowest: String, lowestDay: String, highest: String = "",
-    highestDay: String = ""
+    highestDay: String = "", band: ChartBandPresentation? = nil
   ) {
     self.quantity = quantity
     self.unit = unit
@@ -309,7 +337,16 @@ public struct HistoryChartPresentation: Equatable, Sendable {
     self.lowestDay = lowestDay
     self.highest = highest
     self.highestDay = highestDay
+    self.band = band
   }
+
+  /// "solid bar = below 30 %": the legend of the band, nil without one (UX-DR5).
+  public func legend(_ context: CopyContext) -> String? {
+    band.map { context.text(.lotDetailChartLegend, .text($0.lowPercent)) }
+  }
+
+  /// The days whose daily low is under the low Threshold.
+  public var belowLowBars: [ChartBarPresentation] { bars.filter(\.belowLow) }
 
   /// The UTC calendar day as "6 Oct" (history days are UTC dates and are written as such).
   public func dayText(_ date: Date, _ context: CopyContext) -> String {
@@ -330,6 +367,10 @@ public struct HistoryChartPresentation: Equatable, Sendable {
     let day = dayText(bar.dayStart, context)
     guard bar.present else { return day }
     let low = context.resolve(unit.copy(bar.low))
+    if bar.belowLow, let band {
+      return context.text(
+        .lotDetailChartReadoutBelowLow, .text(day), .text(low), .text(band.lowPercent))
+    }
     if quantity.showsRange {
       return context.text(
         .lotDetailChartReadoutRange, .text(day), .text(low),
@@ -345,9 +386,19 @@ public struct HistoryChartPresentation: Equatable, Sendable {
     guard daysWithReadings > 0, !lowest.isEmpty,
       let lowestBar = bars.first(where: { $0.day == lowestDay })
     else { return context.text(.lotDetailChartSummaryEmpty, .text(name)) }
-    return context.text(
+    let base = context.text(
       .lotDetailChartSummary, .text(name), .text(context.resolve(unit.copy(lowest))),
       .text(dayText(lowestBar.dayStart, context)), .number(daysWithReadings))
+    // With a Threshold band the summary also names the days below the low line (UX-DR33).
+    guard let band else { return base }
+    let days = belowLowBars.map { dayText($0.dayStart, context) }
+    let below =
+      days.isEmpty
+      ? context.text(.lotDetailChartSummaryNeverBelow, .text(band.lowPercent))
+      : context.text(
+        .lotDetailChartSummaryBelowLow, .text(band.lowPercent),
+        .text(days.joined(separator: ", ")))
+    return base + " " + below
   }
 }
 
@@ -403,6 +454,13 @@ public struct LotDetailPresentation: Equatable, Sendable {
   public let canAddNode: Bool
   /// Calibrate shows: Administrators and Owners on a live Lot with a Sensor that can be calibrated.
   public let canCalibrate: Bool
+  /// Set Thresholds shows (UX-DR84): Administrators and Owners on a live Lot with a Sensor.
+  public let canSetThresholds: Bool
+  /// The Thresholds are shown, read-only for a Member: a live Lot with a Sensor.
+  public let canViewThresholds: Bool
+  /// The soil Sensor's low and high Threshold in percent; nil without one.
+  public let thresholdLowPercent: Int?
+  public let thresholdHighPercent: Int?
   /// Nil while stale or without a Node; empty is "No Readings yet."
   public let sensors: [SensorCellPresentation]?
   public let device: DeviceCellsPresentation?
@@ -417,6 +475,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
     stale: Bool = false, refreshing: Bool = false, fetchedAt: Date? = nil,
     staleAge: StaleAgePresentation = StaleAgePresentation(days: 0, hours: 0, minutes: 0),
     noNode: Bool = false, canAddNode: Bool = false, canCalibrate: Bool = false,
+    canSetThresholds: Bool = false, canViewThresholds: Bool = false,
+    thresholdLowPercent: Int? = nil, thresholdHighPercent: Int? = nil,
     sensors: [SensorCellPresentation]? = nil,
     device: DeviceCellsPresentation? = nil, quantities: [SensorQuantityKind] = [],
     picked: SensorQuantityKind? = nil, historyUnavailable: Bool = false,
@@ -432,6 +492,10 @@ public struct LotDetailPresentation: Equatable, Sendable {
     self.noNode = noNode
     self.canAddNode = canAddNode
     self.canCalibrate = canCalibrate
+    self.canSetThresholds = canSetThresholds
+    self.canViewThresholds = canViewThresholds
+    self.thresholdLowPercent = thresholdLowPercent
+    self.thresholdHighPercent = thresholdHighPercent
     self.sensors = sensors
     self.device = device
     self.quantities = quantities
@@ -441,6 +505,19 @@ public struct LotDetailPresentation: Equatable, Sendable {
   }
 
   public static let idle = LotDetailPresentation(surface: .idle)
+
+  /// The Thresholds control: "Set Thresholds" for an editor, "View Thresholds" for a Member; nil
+  /// where the core offers none (hidden, never disabled, UX-DR84).
+  public var thresholdsAction: L10n? {
+    guard canViewThresholds, !noNode else { return nil }
+    return canSetThresholds ? .thresholdsActionSet : .thresholdsActionView
+  }
+
+  /// The Sensor a tap on this cell opens Thresholds for, only where Thresholds are offered.
+  public func thresholdsSensorId(for cell: SensorCellPresentation) -> String? {
+    guard thresholdsAction != nil, let id = cell.sensorId, !id.isEmpty else { return nil }
+    return id
+  }
 
   /// The Sensor picker shows with more than one Sensor.
   public var showsPicker: Bool { quantities.count > 1 && picked != nil }
@@ -479,7 +556,12 @@ public struct LotDetailPresentation: Equatable, Sendable {
     chartQuantity: String?, chartUnit: String?, barDays: [String], barDayEpochMs: [Int64],
     barPresent: [Bool], barLows: [String], barHighs: [String], barCounts: [Int],
     barFractions: [Double], chartDaysWithReadings: Int, chartLowest: String,
-    chartLowestDay: String, chartHighest: String, chartHighestDay: String
+    chartLowestDay: String, chartHighest: String, chartHighestDay: String,
+    canSetThresholds: Bool = false, canViewThresholds: Bool = false,
+    thresholdLowPercent: String = "", thresholdHighPercent: String = "", sensorIds: [String] = [],
+    chartHasBand: Bool = false, chartBandLowPercent: String = "",
+    chartBandHighPercent: String = "", chartBandLowFraction: Double = 0,
+    chartBandHighFraction: Double = 0, barBelowLow: [Bool] = [], chartBelowLowDays: [String] = []
   ) {
     let name = lotName ?? ""
     switch surface {
@@ -524,7 +606,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
         else { return nil }
         return SensorCellPresentation(
           quantity: quantity, number: sensorNumbers[index], unit: unit,
-          measuredAt: Self.date(sensorMeasuredAts[index]))
+          measuredAt: Self.date(sensorMeasuredAts[index]),
+          sensorId: index < sensorIds.count && !sensorIds[index].isEmpty ? sensorIds[index] : nil)
       } : nil
     let device: DeviceCellsPresentation? =
       hasDevice
@@ -546,9 +629,15 @@ public struct LotDetailPresentation: Equatable, Sendable {
             day: barDays[$0],
             dayStart: Date(timeIntervalSince1970: Double(barDayEpochMs[$0]) / 1000),
             present: barPresent[$0], low: barLows[$0], high: barHighs[$0],
-            readingCount: barCounts[$0], fraction: barFractions[$0])
+            readingCount: barCounts[$0], fraction: barFractions[$0],
+            belowLow: $0 < barBelowLow.count && barBelowLow[$0])
         }, daysWithReadings: chartDaysWithReadings, lowest: chartLowest,
-        lowestDay: chartLowestDay, highest: chartHighest, highestDay: chartHighestDay)
+        lowestDay: chartLowestDay, highest: chartHighest, highestDay: chartHighestDay,
+        band: chartHasBand
+          ? ChartBandPresentation(
+            lowPercent: chartBandLowPercent, highPercent: chartBandHighPercent,
+            lowFraction: chartBandLowFraction,
+            highFraction: chartBandHighPercent.isEmpty ? nil : chartBandHighFraction) : nil)
     }
     self.init(
       surface: .ready, lotId: lotId, hero: hero, stale: stale, refreshing: refreshing,
@@ -556,8 +645,11 @@ public struct LotDetailPresentation: Equatable, Sendable {
         ? Date(timeIntervalSince1970: Double(fetchedAtEpochMs) / 1000) : nil,
       staleAge: StaleAgePresentation(
         days: staleAgeDays, hours: staleAgeHours, minutes: staleAgeMinutes),
-      noNode: noNode, canAddNode: canAddNode, canCalibrate: canCalibrate, sensors: sensors,
-      device: device,
+      noNode: noNode, canAddNode: canAddNode, canCalibrate: canCalibrate,
+      canSetThresholds: canSetThresholds, canViewThresholds: canViewThresholds,
+      thresholdLowPercent: Int(thresholdLowPercent),
+      thresholdHighPercent: Int(thresholdHighPercent),
+      sensors: sensors, device: device,
       quantities: quantities.compactMap(SensorQuantityKind.init(rawValue:)),
       picked: picked.flatMap(SensorQuantityKind.init(rawValue:)),
       historyUnavailable: historyUnavailable, chart: chart)

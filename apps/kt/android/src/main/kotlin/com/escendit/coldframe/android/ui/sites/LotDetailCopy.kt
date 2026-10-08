@@ -148,6 +148,15 @@ class LotDetailCopy(
     ): String {
         val day = chartDay(bar.dayEpochMs)
         val low = bar.lowNumber ?: return day
+        val band = chart.band
+        if (bar.belowLow && band != null) {
+            return text(
+                R.string.lot_detail_chart_readout_below_low,
+                day,
+                value(low, chart.unit),
+                band.lowPercent.toString(),
+            )
+        }
         return if (chart.quantity.showsRange) {
             text(
                 R.string.lot_detail_chart_readout_range,
@@ -160,21 +169,42 @@ class LotDetailCopy(
         }
     }
 
-    /** The chart's text alternative (UX-DR98): the quantity, the lowest day and how many days have Readings. */
+    /**
+     * The chart's text alternative (UX-DR98): the quantity, the lowest day and how many days have Readings; with a
+     * Threshold band also the days below the low Threshold (UX-DR33), so a below-low day is never told by colour alone.
+     */
     fun chartSummary(chart: HistoryChart): String {
         val name = quantity(chart.quantity)
         val lowest = chart.lowestNumber
         val lowestDay = chart.bars.firstOrNull { it.day == chart.lowestDay }
         if (lowest == null || lowestDay == null) return text(R.string.lot_detail_chart_summary_empty, name)
-        return resources.getQuantityString(
-            R.plurals.lot_detail_chart_summary,
-            chart.daysWithReadings,
-            name,
-            value(lowest, chart.unit),
-            chartDay(lowestDay.dayEpochMs),
-            chart.daysWithReadings,
-        )
+        val summary =
+            resources.getQuantityString(
+                R.plurals.lot_detail_chart_summary,
+                chart.daysWithReadings,
+                name,
+                value(lowest, chart.unit),
+                chartDay(lowestDay.dayEpochMs),
+                chart.daysWithReadings,
+            )
+        val band = chart.band ?: return summary
+        val below = chart.bars.filter { it.belowLow }
+        val tail =
+            if (below.isEmpty()) {
+                text(R.string.lot_detail_chart_summary_never_below, band.lowPercent.toString())
+            } else {
+                text(
+                    R.string.lot_detail_chart_summary_below_low,
+                    band.lowPercent.toString(),
+                    below.joinToString(", ") { chartDay(it.dayEpochMs) },
+                )
+            }
+        return "$summary $tail"
     }
+
+    /** The legend under a chart with a band: "solid bar = below 30 %"; `null` without one. */
+    fun chartLegend(chart: HistoryChart): String? =
+        chart.band?.let { text(R.string.lot_detail_chart_legend, it.lowPercent.toString()) }
 }
 
 /** Lot detail's words for the phone's locale, told against [now] in [zone]. */

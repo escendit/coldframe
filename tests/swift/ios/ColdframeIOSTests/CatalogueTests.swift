@@ -105,6 +105,7 @@ private let coveredUxDrs: [String: [Int]] = [
     12, 17, 18, 19, 20, 24, 77, 79, 80, 97, 98, 99, 106, 107, 112, 128, 129,
   ],
   "4.8 Lot detail with history and Device status": [27, 28, 29, 30, 32, 33, 63, 78, 98],
+  "5.4 Set Thresholds in the app and see them on the chart": [5, 32, 33, 45, 69, 84, 91],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -124,5 +125,18 @@ func uxDrCoverage() throws {
     for id in ids {
       #expect(named.contains(id), "UX-DR\(id) of story \(story) has no test named after it")
     }
+  }
+}
+
+@Test("UX-DR124 UX-DR91 the Threshold copy is in the catalogue with its placeholders")
+func thresholdCopy() throws {
+  let entries = try Catalogue.entries()
+  #expect(entries["thresholds_low_not_below_high"] == "Low must stay below high.")
+  #expect(
+    entries["thresholds_notice_forbidden"]
+      == "You can't change this on %1$@. Ask an Owner or Administrator.")
+  #expect(entries["lot_detail_chart_legend"] == "solid bar = below %1$@ %%")
+  for kind in ThresholdsNoticeKind.allCases {
+    #expect(entries[kind.message.rawValue] != nil, "\(kind)")
   }
 }

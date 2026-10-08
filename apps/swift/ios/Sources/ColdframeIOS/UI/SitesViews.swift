@@ -204,6 +204,7 @@
     let onAddHub: () -> Void
     let onAddNode: (String) -> Void
     let onCalibrate: (String, String) -> Void
+    let onSetThresholds: (String, String, String) -> Void
     let lotDetail: LotDetailPresentation
     let lotDetailActions: LotDetailActions
     let onOpenDevices: () -> Void
@@ -221,6 +222,7 @@
       actions: SitesActions, lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
       onAddNode: @escaping (String) -> Void = { _ in },
       onCalibrate: @escaping (String, String) -> Void = { _, _ in },
+      onSetThresholds: @escaping (String, String, String) -> Void = { _, _, _ in },
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       onOpenDevices: @escaping () -> Void = {},
       now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
@@ -232,6 +234,7 @@
       self.onAddHub = onAddHub
       self.onAddNode = onAddNode
       self.onCalibrate = onCalibrate
+      self.onSetThresholds = onSetThresholds
       self.lotDetail = lotDetail
       self.lotDetailActions = lotDetailActions
       self.onOpenDevices = onOpenDevices
@@ -271,8 +274,8 @@
         // The core reads the Lot while the destination is on screen and forgets it on leaving.
         LotDetailView(
           presentation: lotDetail, siteName: presentation.siteName, actions: lotDetailActions,
-          onAddNode: onAddNode, onCalibrate: onCalibrate, onOpenDevices: onOpenDevices, now: now,
-          timeZone: timeZone
+          onAddNode: onAddNode, onCalibrate: onCalibrate, onSetThresholds: onSetThresholds,
+          onOpenDevices: onOpenDevices, now: now, timeZone: timeZone
         )
         .navigationTitle(lot.name)
         .onAppear { lotDetailActions.open(lot.id, lot.name) }

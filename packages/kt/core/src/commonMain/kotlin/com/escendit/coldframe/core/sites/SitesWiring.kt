@@ -15,6 +15,8 @@ import com.escendit.coldframe.core.setup.NodeSetupEngine
 import com.escendit.coldframe.core.setup.SetupRadio
 import com.escendit.coldframe.core.signin.CoreConfig
 import com.escendit.coldframe.core.signin.SignInEngine
+import com.escendit.coldframe.core.thresholds.ThresholdsApi
+import com.escendit.coldframe.core.thresholds.ThresholdsEngine
 import com.russhwolf.settings.Settings
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
@@ -68,6 +70,27 @@ public object SitesWiring {
         sites: SitesEngine,
         scope: CoroutineScope,
     ): CalibrateEngine = CalibrateEngine(api = api, sites = sites, scope = scope)
+
+    /**
+     * Thresholds of one Lot's Sensors, following the current Site of [sites]. A saved change makes [lotDetail] and
+     * [lots] read again, so the chart band and the tile move at once.
+     */
+    public fun thresholds(
+        api: ThresholdsApi,
+        sites: SitesEngine,
+        scope: CoroutineScope,
+        lotDetail: LotDetailEngine? = null,
+        lots: LotsEngine? = null,
+    ): ThresholdsEngine =
+        ThresholdsEngine(
+            api = api,
+            sites = sites,
+            scope = scope,
+            onSaved = {
+                lotDetail?.refresh()
+                lots?.load()
+            },
+        )
 
     /** The Devices engine, following the current Site of [sites]. */
     public fun devices(

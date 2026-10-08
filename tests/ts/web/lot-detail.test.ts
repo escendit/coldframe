@@ -59,9 +59,9 @@ interface PageData {
   staleSince: string | null;
 }
 
-function page(data: Partial<PageData> & { lot?: Lot | null; role?: Site['role'] }, context: { histories?: Record<string, LotHistory>; hubId?: string | null } = {}): string {
+function page(data: Partial<PageData> & { lot?: Lot | null; role?: Site['role'] }, context: { histories?: Record<string, LotHistory>; hubId?: string | null; thresholds?: unknown } = {}): string {
   const site = { ...home, role: data.role ?? 'Owner' };
-  const detail = data.lot === null ? null : { lot: data.lot ?? ok, histories: context.histories ?? { soil_moisture: history }, hubId: context.hubId ?? null };
+  const detail = data.lot === null ? null : { lot: data.lot ?? ok, histories: context.histories ?? { soil_moisture: history }, hubId: context.hubId ?? null, thresholds: context.thresholds ?? null };
   const props = {
     data: {
       user: { displayName: 'Simon', initials: 'S' },
@@ -202,12 +202,74 @@ describe('History chart', () => {
     expect(historyChart({ ...history, days: [{ day: '2026-08-01', low: 1, high: 2, readingCount: 1 }] }, 'soil_moisture', now, 'en').bars).toEqual([]);
   });
 
-  test('UX-DR32 every bar is normal-style: an outline, drawn from tokens, with no below-low style', () => {
+  test('UX-DR32 without a Threshold every bar is normal-style: an outline, drawn from tokens only', () => {
     const body = render(HistoryChartView, { props: { chart: historyChart(history, 'soil_moisture', now, 'en') } }).body;
     expect(body.match(/<rect class="cf-chart__bar/gu)).toHaveLength(3);
     const source = read(`${webSrc}/lib/components/HistoryChart.svelte`);
     expect(source).toContain('var(--cf-color-chart-bar)');
-    expect(source).not.toMatch(/below-low|chart-band|animation|transition/u);
+    expect(source).not.toMatch(/animation|transition/u);
+    expect(source).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/iu);
+    // No Threshold and a raw History: no band, no low line, no below-low bar, no legend.
+    expect(body).not.toMatch(/cf-chart__band|cf-chart__low-line|cf-chart__bar--below-low|solid bar/u);
+  });
+
+  const percentHistory: LotHistory = {
+    quantity: 'soil_moisture',
+    unit: '%',
+    days: [
+      { day: '2026-10-04', low: 20, high: 60, readingCount: 50 },
+      { day: '2026-10-05', low: 45, high: 65, readingCount: 96 },
+      { day: '2026-10-06', low: 30, high: 55, readingCount: 30 },
+    ],
+  };
+  const band = { low: 30, high: 70 };
+
+  test('UX-DR5 UX-DR32 a percent History with a Threshold draws the band between low and high and marks the days whose low is below low', () => {
+    const chart = historyChart(percentHistory, 'soil_moisture', now, 'en', band);
+    expect(chart.band).toEqual({ low: 0.3, high: 0.7 });
+    expect(chart.bars.map((bar) => [bar.day, bar.height, bar.belowLow])).toEqual([['2026-10-04', 0.2, true], ['2026-10-05', 0.45, false], ['2026-10-06', 0.3, false]]);
+    expect(chart.legend).toBe('solid bar = below 30 %');
+    expect(chart.lowPercent).toBe(30);
+  });
+
+  test('UX-DR5 UX-DR33 the readout and the accessible summary speak percentages and name the below-low days', () => {
+    const chart = historyChart(percentHistory, 'soil_moisture', now, 'en', band);
+    expect(chart.bars[0]?.readout).toBe('Oct 4: lowest 20 %, below 30 %');
+    expect(chart.latest?.readout).toBe('Oct 6: lowest 30 %');
+    expect(chart.summary).toBe('Soil moisture, 30 days, lowest 20 % on Oct 4, 3 days with Readings. Below 30 % on Oct 4.');
+    const none = historyChart({ ...percentHistory, days: percentHistory.days.slice(1) }, 'soil_moisture', now, 'en', band);
+    expect(none.summary).toContain('Never below 30 %.');
+  });
+
+  test('UX-DR5 a high is optional: without one the band runs to the top and no high line is drawn', () => {
+    const chart = historyChart(percentHistory, 'soil_moisture', now, 'en', { low: 30, high: null });
+    expect(chart.band).toEqual({ low: 0.3, high: null });
+    const body = render(HistoryChartView, { props: { chart } }).body;
+    expect(body).toContain('cf-chart__band');
+    expect(body).not.toContain('cf-chart__high-line');
+  });
+
+  test('UX-DR5 the band is drawn only when the History unit is percent for soil moisture', () => {
+    expect(historyChart(history, 'soil_moisture', now, 'en', band).band).toBeNull();
+    expect(historyChart(history, 'soil_moisture', now, 'en', band).legend).toBeNull();
+    expect(historyChart(history, 'soil_moisture', now, 'en', band).bars.every((bar) => !bar.belowLow)).toBe(true);
+    const temperature: LotHistory = { quantity: 'air_temperature', unit: '°C', days: [{ day: '2026-10-06', low: 11.6, high: 18.2, readingCount: 40 }] };
+    expect(historyChart(temperature, 'air_temperature', now, 'en', band).band).toBeNull();
+    expect(historyChart(percentHistory, 'soil_moisture', now, 'en', null).band).toBeNull();
+  });
+
+  test('UX-DR5 UX-DR32 the chart draws the band, a 2 px low line, a dashed 1 px high line and solid below-low bars, from tokens, with the legend', () => {
+    const body = render(HistoryChartView, { props: { chart: historyChart(percentHistory, 'soil_moisture', now, 'en', band) } }).body;
+    expect(body).toContain('cf-chart__band');
+    expect(body).toContain('cf-chart__low-line');
+    expect(body).toContain('cf-chart__high-line');
+    expect(body.match(/cf-chart__bar--below-low/gu)).toHaveLength(1);
+    expect(text(body)).toContain('solid bar = below 30 %');
+    const source = read(`${webSrc}/lib/components/HistoryChart.svelte`);
+    for (const token of ['--cf-color-chart-band', '--cf-color-chart-high-line', '--cf-color-chart-bar-below-low']) {
+      expect(source).toContain(`var(${token})`);
+    }
+    expect(source).toMatch(/stroke-dasharray/u);
     expect(source).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/iu);
   });
 
@@ -376,5 +438,45 @@ describe('Lot detail Calibrate entry (Story 5.2)', () => {
   test('a Member sees no Calibrate, and neither does a Lot without a calibratable Sensor', () => {
     expect(page({ lot: calibratable, role: 'Member' })).not.toContain('/calibrate');
     expect(page({ lot: needsCalibration, role: 'Owner' })).not.toContain('/calibrate');
+  });
+});
+
+describe('Thresholds on Lot detail', () => {
+  const soilWithId: SensorReading[] = [{ quantity: 'soil_moisture', value: 40, unit: '%', measuredAt: '2026-10-06T07:02:00.000Z', sensorId: '0192a000-0000-7000-8000-0000000000aa', calibratable: true }];
+  const calibrated = lot('ok', { node, sensors: soilWithId, moisturePercent: 40, lowThresholdPercent: 30 });
+  const thresholds = { unit: '%', low: { kind: 'default', value: 30 }, high: { kind: 'override', value: 70 } };
+
+  test('UX-DR45 an Owner reaches Thresholds from Lot detail and from the Sensor cell', () => {
+    const body = page({ lot: calibrated }, { thresholds, histories: { soil_moisture: { quantity: 'soil_moisture', unit: '%', days: [] } } });
+    expect(text(body)).toContain('Set Thresholds');
+    expect(body).toContain(`href="/garden/${lotId}/thresholds"`);
+    expect(body).toMatch(/<a[^>]*class="cf-cell__link[^"]*"[^>]*href="\/garden\/[^"]*\/thresholds#sensor-0192a000-0000-7000-8000-0000000000aa"/u);
+  });
+
+  test('UX-DR84 a Member sees the Thresholds read-only: the values and a view link, no edit wording', () => {
+    const body = page({ lot: calibrated, role: 'Member' }, { thresholds });
+    expect(text(body)).toContain('Soil moisture: low 30 %, high 70 %');
+    expect(text(body)).toContain('View Thresholds');
+    expect(text(body)).not.toContain('Set Thresholds');
+  });
+
+  test('UX-DR5 Lot detail passes the Threshold to the chart only for a percent History', () => {
+    const percent: LotHistory = { quantity: 'soil_moisture', unit: '%', days: [{ day: '2026-10-06', low: 20, high: 50, readingCount: 9 }] };
+    expect(page({ lot: calibrated }, { thresholds, histories: { soil_moisture: percent } })).toContain('cf-chart__band');
+    expect(page({ lot: calibrated }, { thresholds, histories: { soil_moisture: history } })).not.toContain('cf-chart__band');
+  });
+
+  test('the Lot detail read also reads the soil Sensor Thresholds, and a failure of that read does not fail the detail', async () => {
+    const server = fakeServer((request) => {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith('/thresholds')) {
+        return problemResponse(503, 'unavailable');
+      }
+      return path.endsWith('/history') ? jsonResponse(200, history) : jsonResponse(200, calibrated);
+    });
+    const data = await loadLotDetail(locals, home, lotId, new FakeCookies(), null, { serverUrl, fetch: server.fetch, lastGood: createLastGoodStore() });
+    expect(server.seen.some((request) => request.path.endsWith('/thresholds'))).toBe(true);
+    expect(data.notice).toBeNull();
+    expect(data.detail?.thresholds).toBeNull();
   });
 });

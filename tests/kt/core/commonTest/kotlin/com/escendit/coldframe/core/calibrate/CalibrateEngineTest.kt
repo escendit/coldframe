@@ -320,6 +320,17 @@ class CalibrateEngineTest {
             assertEquals(3000L to 1200L, ready.dryRaw to ready.wetRaw)
             assertTrue(ready.waitingForPercent)
             assertNull(ready.percent)
+            // Story 5.4: the confirmation leads on to Thresholds for the same Lot.
+            assertTrue(ready.offersThresholds)
+            assertTrue(snapshotOf(ready).offersThresholds)
+        }
+
+    @Test
+    fun story54OnlyTheConfirmationOffersThresholds() =
+        runTest {
+            val engine = opened()
+
+            assertFalse(engine.ready().offersThresholds)
         }
 
     @Test

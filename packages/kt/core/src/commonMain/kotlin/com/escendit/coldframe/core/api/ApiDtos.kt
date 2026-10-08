@@ -227,6 +227,32 @@ public data class CalibrateSensorRequestDto(
     val wet: CalibrationPointDto? = null,
 )
 
+/** `ThresholdSide` and `ThresholdSideRequest`: [kind] is `default`, `override` or `cleared`; [value] is in the display unit. */
+@Serializable
+public data class ThresholdSideDto(
+    val kind: String,
+    val value: Double? = null,
+)
+
+/**
+ * `SensorThresholds` (`getSensorThresholds`): the Thresholds in force in the display [unit] (a calibrating Sensor:
+ * whole percent 0 to 100). [proposedLow] is the Server's suggestion for a Sensor with no default low, never a high.
+ */
+@Serializable
+public data class SensorThresholdsDto(
+    val unit: String,
+    val low: ThresholdSideDto,
+    val high: ThresholdSideDto,
+    val proposedLow: Double? = null,
+)
+
+/** `SetSensorThresholdsRequest`: a side that is absent stays as it is. */
+@Serializable
+public data class SetSensorThresholdsRequestDto(
+    val low: ThresholdSideDto? = null,
+    val high: ThresholdSideDto? = null,
+)
+
 /** `ProblemDetails` (RFC 9457). */
 @Serializable
 public data class ProblemDto(

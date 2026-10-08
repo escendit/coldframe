@@ -38,7 +38,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,6 +68,7 @@ import com.escendit.coldframe.android.ui.components.styledText
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
+import com.escendit.coldframe.core.lots.ChartBand
 import com.escendit.coldframe.core.lots.ChartBar
 import com.escendit.coldframe.core.lots.DeviceCells
 import com.escendit.coldframe.core.lots.HeroValueKind
@@ -87,6 +90,9 @@ import java.time.ZoneId
 /** Marks the History chart for tests. */
 const val HISTORY_CHART_TAG = "history-chart"
 
+/** Marks the Set Thresholds / View Thresholds control for tests. */
+const val THRESHOLDS_ACTION_TAG = "thresholds-action"
+
 /** The chart's plot height. */
 private const val CHART_HEIGHT_DP = 120
 
@@ -98,8 +104,8 @@ private const val TICK_MILLIS = 60_000L
  * History chart with its Sensor picker, a 2-up row of Device cells, in that order; the rows wrap
  * to one per row from font scale 1.5. The core's [LotDetail] decides everything that is shown:
  * which note, value, cells and bars apply, every number and the stale state. This screen draws it
- * with the words of [LotDetailCopy]. There is no admin strip yet: Thresholds, Calibrate and Pause
- * have no destination before Epics 5 and 8.
+ * with the words of [LotDetailCopy]. Calibrate and Set Thresholds (read-only "View Thresholds" for a
+ * Member) lead to their own screens; Pause has no destination before Epic 8.
  *
  * - Stale mode (UX-DR79): the stale header on top, the hero without a value, and no Sensor or
  *   Device cell: no live value is drawn.
@@ -118,6 +124,7 @@ fun LotDetailScreen(
     events: Flow<LotsEvent> = emptyFlow(),
     onAddNode: (lotId: String) -> Unit = {},
     onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
+    onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit = { _, _, _ -> },
     onOpenDevices: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
@@ -160,6 +167,7 @@ fun LotDetailScreen(
                             actions = actions,
                             onAddNode = onAddNode,
                             onCalibrate = onCalibrate,
+                            onThresholds = onThresholds,
                             onOpenDevices = onOpenDevices,
                         )
                     }
@@ -230,6 +238,7 @@ private fun ReadyDetail(
     actions: LotDetailActions,
     onAddNode: (lotId: String) -> Unit,
     onCalibrate: (lotId: String, name: String) -> Unit,
+    onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit,
     onOpenDevices: () -> Unit,
 ) {
     val oneColumn = LocalDensity.current.fontScale >= ONE_COLUMN_FONT_SCALE
@@ -249,11 +258,38 @@ private fun ReadyDetail(
             variant = ButtonVariant.Secondary,
         )
     }
+    // Set Thresholds is the core's answer: Admin+ on a live Lot with a Sensor, hidden, never disabled (UX-DR84). A Member
+    // gets "View Thresholds": the same screen, read-only, with no edit control.
+    if (detail.canViewThresholds) {
+        ColdframeButton(
+            label =
+                stringResource(
+                    if (detail.canSetThresholds) R.string.thresholds_action_set else R.string.thresholds_action_view,
+                ),
+            onClick = { onThresholds(state.lot.id, state.lot.name, null) },
+            variant = ButtonVariant.Secondary,
+            modifier = Modifier.testTag(THRESHOLDS_ACTION_TAG),
+        )
+    }
     if (detail.noNode) {
         NoNode(detail, state.lot.id, onAddNode)
         return
     }
-    detail.sensors?.let { SensorCells(it, copy, oneColumn) }
+    detail.sensors?.let { cells ->
+        SensorCells(
+            cells,
+            copy,
+            oneColumn,
+            onOpen =
+                if (detail.canViewThresholds) {
+                    { sensorId ->
+                        onThresholds(state.lot.id, state.lot.name, sensorId)
+                    }
+                } else {
+                    null
+                },
+        )
+    }
     HistorySection(detail, copy, actions)
     detail.device?.let { DeviceSection(it, copy, oneColumn, onOpenDevices) }
 }
@@ -465,6 +501,7 @@ private fun SensorCells(
     cells: List<SensorCell>,
     copy: LotDetailCopy,
     oneColumn: Boolean,
+    onOpen: ((sensorId: String) -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.TILE_GAP.dp)) {
         SectionHeading(stringResource(R.string.lot_detail_sensors))
@@ -481,6 +518,8 @@ private fun SensorCells(
                     value = copy.value(cell.number, cell.unit),
                     meta = copy.reading(cell.measuredAtEpochMs),
                     modifier = modifier,
+                    // A tap on a Sensor cell opens that Sensor's Threshold column.
+                    onClick = cell.sensorId?.let { id -> onOpen?.let { open -> { open(id) } } },
                 )
             }
         }
@@ -570,8 +609,10 @@ private fun HistorySection(
 
 /**
  * The History chart (UX-DR32, UX-DR33): one 1 dp outlined bar per day for 30 days, the day's low
- * scaled by the core; a day without Readings is a gap, never zero. There is no Threshold, so every
- * bar has the normal style. Tapping or dragging selects a day and shows its readout (the low,
+ * scaled by the core; a day without Readings is a gap, never zero. With a Threshold band (soil
+ * moisture in %, UX-DR5) it draws the `chart-band` zone, a 2 dp low line and a 1 dp dashed
+ * `chart-high-line`, and a day whose low is under the low Threshold is a solid `chart-bar-below-low`
+ * bar, with the legend "solid bar = below N %". Tapping or dragging selects a day and shows its readout (the low,
  * and for temperature, humidity and air also the range) as text; the whole chart is one element
  * whose label is the text summary (UX-DR98). Nothing animates.
  */
@@ -590,6 +631,8 @@ fun HistoryChartView(
     fun indexAt(x: Float): Int = ((x / width) * bars.size).toInt().coerceIn(0, bars.size - 1)
     val barColor = colors.chartBar
     val axis = colors.borderSubtle
+    val band = chart.band
+    val legend = copy.chartLegend(chart)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.STEP_3.dp)) {
         Box(
             modifier =
@@ -611,8 +654,20 @@ fun HistoryChartView(
                     }.semantics {
                         contentDescription = summary
                         role = Role.Image
-                    }.drawBehind { drawChart(bars, selected, barColor, axis) },
+                    }.drawBehind {
+                        drawChart(
+                            bars,
+                            selected,
+                            barColor,
+                            axis,
+                            band,
+                            Bands(colors.chartBand, colors.primaryText, colors.chartHighLine, colors.chartBarBelowLow),
+                        )
+                    },
         )
+        if (legend != null) {
+            Text(text = legend, style = Typography.helper.textStyle(), color = colors.textSecondary)
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 text = copy.chartDay(bars.first().dayEpochMs),
@@ -642,22 +697,52 @@ private fun DrawScope.drawChart(
     selected: Int,
     barColor: Color,
     axis: Color,
+    band: ChartBand?,
+    inks: Bands,
 ) {
     val slot = size.width / bars.size
     val gap = slot * BAR_GAP
+    val plot = size.height - 2.dp.toPx()
+
+    // The Threshold band (UX-DR5): from the low line up to the high line, or to the top without a high.
+    if (band != null) {
+        val bottom = size.height - plot * band.lowFraction.toFloat()
+        val top = band.highFraction?.let { size.height - plot * it.toFloat() } ?: 0f
+        drawRect(inks.band, topLeft = Offset(0f, top), size = Size(size.width, (bottom - top).coerceAtLeast(0f)))
+    }
     drawLine(axis, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
     bars.forEachIndexed { index, bar ->
         if (!bar.present) return@forEachIndexed
-        val height = (size.height - 2.dp.toPx()) * bar.fraction.toFloat()
+        val height = plot * bar.fraction.toFloat()
         val stroke = (if (index == selected) 2.dp else 1.dp).toPx()
-        drawRect(
-            color = barColor,
-            topLeft = Offset(index * slot + gap / 2 + stroke / 2, size.height - height + stroke / 2),
-            size = Size((slot - gap - stroke).coerceAtLeast(1f), (height - stroke).coerceAtLeast(1f)),
-            style = Stroke(stroke),
-        )
+        val topLeft = Offset(index * slot + gap / 2 + stroke / 2, size.height - height + stroke / 2)
+        val barSize = Size((slot - gap - stroke).coerceAtLeast(1f), (height - stroke).coerceAtLeast(1f))
+        if (bar.belowLow) {
+            // A day whose low is under the low Threshold is a solid bar: a cue that is not colour alone (UX-DR32).
+            drawRect(inks.belowLow, topLeft, barSize, style = Fill)
+            if (index == selected) drawRect(inks.low, topLeft, barSize, style = Stroke(stroke))
+        } else {
+            drawRect(color = barColor, topLeft = topLeft, size = barSize, style = Stroke(stroke))
+        }
+    }
+    if (band != null) {
+        val lowY = size.height - plot * band.lowFraction.toFloat()
+        drawLine(inks.low, Offset(0f, lowY), Offset(size.width, lowY), 2.dp.toPx())
+        band.highFraction?.let { fraction ->
+            val highY = size.height - plot * fraction.toFloat()
+            val dash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
+            drawLine(inks.high, Offset(0f, highY), Offset(size.width, highY), 1.dp.toPx(), pathEffect = dash)
+        }
     }
 }
+
+/** The colours the band is drawn with, resolved once per frame from the theme's tokens. */
+private class Bands(
+    val band: Color,
+    val low: Color,
+    val high: Color,
+    val belowLow: Color,
+)
 
 /** The share of a day's slot that stays empty between two bars. */
 private const val BAR_GAP = 0.2f

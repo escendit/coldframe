@@ -95,12 +95,17 @@ public sealed class LotStateTests
     }
 
     [Fact]
-    public void TheServerNeverSendsAPercentageOrAThreshold()
+    public void TheServerSendsAPercentageAndALowThresholdOnlyForACalibratedLot()
     {
         var sent = typeof(LotResponse).GetProperties().Select(property => property.Name);
 
-        Assert.DoesNotContain("MoisturePercent", sent);
-        Assert.DoesNotContain("LowThresholdPercent", sent);
+        Assert.Contains("MoisturePercent", sent);
+        Assert.Contains("LowThresholdPercent", sent);
+
+        // A Lot whose newest soil-moisture Reading has no Calibration carries neither (Story 5.4).
+        var uncalibrated = new LotResponse("lot", "Tomatoes", "ok", "2026-10-06T07:00:00.000Z");
+        Assert.Null(uncalibrated.MoisturePercent);
+        Assert.Null(uncalibrated.LowThresholdPercent);
     }
 
     [Theory]

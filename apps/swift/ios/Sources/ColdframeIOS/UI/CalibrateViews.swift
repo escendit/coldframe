@@ -44,6 +44,8 @@
     let presentation: CalibratePresentation
     let siteName: String
     let actions: CalibrateActions
+    /// Opens Thresholds for the Lot just calibrated: its id, name and no Sensor cell.
+    let onSetThresholds: (String, String, String) -> Void
     let now: () -> Date
     let timeZone: TimeZone
     @AccessibilityFocusState private var titleFocused: Bool
@@ -52,12 +54,14 @@
 
     public init(
       presentation: CalibratePresentation, siteName: String,
-      actions: CalibrateActions = .none, now: @escaping () -> Date = { Date() },
-      timeZone: TimeZone = .current
+      actions: CalibrateActions = .none,
+      onSetThresholds: @escaping (String, String, String) -> Void = { _, _, _ in },
+      now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
     ) {
       self.presentation = presentation
       self.siteName = siteName
       self.actions = actions
+      self.onSetThresholds = onSetThresholds
       self.now = now
       self.timeZone = timeZone
     }
@@ -202,6 +206,10 @@
         Text(verbatim: presentation.statusText.string).role(Typography.bodyLg)
           .foregroundStyle(palette.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
+        // Right after Calibration: on to the low Threshold of the same Lot (Story 5.4).
+        if presentation.offersThresholds, let lotId = presentation.lotId {
+          PrimaryButton(.thresholdsNext) { onSetThresholds(lotId, presentation.lotName, "") }
+        }
         PrimaryButton(.addNodeDone, variant: .secondary, action: actions.close)
       }
     }

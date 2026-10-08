@@ -64,11 +64,19 @@ public data class LotDetailSnapshot(
     val canAddNode: Boolean,
     /** Calibrate shows on Lot detail: Admin+ on a live Lot with a calibratable Sensor. */
     val canCalibrate: Boolean,
+    /** Set Thresholds shows (Admin+); a Member with [canViewThresholds] sees them read-only. */
+    val canSetThresholds: Boolean,
+    val canViewThresholds: Boolean,
+    /** The soil Sensor's low and high Threshold in percent, empty without one. */
+    val thresholdLowPercent: String,
+    val thresholdHighPercent: String,
     val hasSensors: Boolean,
     val sensorQuantities: List<String>,
     val sensorNumbers: List<String>,
     val sensorUnits: List<String>,
     val sensorMeasuredAts: List<String>,
+    /** The Sensor each cell opens Thresholds for, empty when the Server sent none. */
+    val sensorIds: List<String>,
     val hasDevice: Boolean,
     val deviceNodeId: String,
     val deviceBattery: String,
@@ -93,6 +101,16 @@ public data class LotDetailSnapshot(
     val chartLowestDay: String,
     val chartHighest: String,
     val chartHighestDay: String,
+    /** The Threshold band (soil moisture in `%` with a low Threshold): [chartHasBand], the lines as 0..1 fractions and percent. */
+    val chartHasBand: Boolean,
+    val chartBandLowPercent: String,
+    val chartBandHighPercent: String,
+    val chartBandLowFraction: Double,
+    val chartBandHighFraction: Double,
+    /** Per bar: the day's low is under the low Threshold (a solid bar). */
+    val barBelowLow: List<Boolean>,
+    /** The days (`yyyy-MM-dd`) with a low under the low Threshold, for the accessible summary. */
+    val chartBelowLowDays: List<String>,
 )
 
 private fun Enum<*>.key(): String = name.replaceFirstChar { it.lowercase() }
@@ -175,11 +193,16 @@ public fun snapshotOf(
         noNode = detail?.noNode == true,
         canAddNode = site?.let { DevicesState.canAddNode(it.role) } == true,
         canCalibrate = detail?.canCalibrate == true,
+        canSetThresholds = detail?.canSetThresholds == true,
+        canViewThresholds = detail?.canViewThresholds == true,
+        thresholdLowPercent = detail?.thresholdLowPercent.text(),
+        thresholdHighPercent = detail?.thresholdHighPercent.text(),
         hasSensors = detail?.sensors != null,
         sensorQuantities = detail?.sensors?.map { it.quantity.camel() }.orEmpty(),
         sensorNumbers = detail?.sensors?.map { it.number }.orEmpty(),
         sensorUnits = detail?.sensors?.map { it.unit.key() }.orEmpty(),
         sensorMeasuredAts = detail?.sensors?.map { it.measuredAtEpochMs.text() }.orEmpty(),
+        sensorIds = detail?.sensors?.map { it.sensorId.orEmpty() }.orEmpty(),
         hasDevice = detail?.device != null,
         deviceNodeId = detail?.device?.nodeId.orEmpty(),
         deviceBattery = detail?.device?.batteryPercent.text(),
@@ -209,5 +232,12 @@ public fun snapshotOf(
         chartLowestDay = chart?.lowestDay.orEmpty(),
         chartHighest = chart?.highestNumber.orEmpty(),
         chartHighestDay = chart?.highestDay.orEmpty(),
+        chartHasBand = chart?.band != null,
+        chartBandLowPercent = chart?.band?.lowPercent.text(),
+        chartBandHighPercent = chart?.band?.highPercent.text(),
+        chartBandLowFraction = chart?.band?.lowFraction ?: 0.0,
+        chartBandHighFraction = chart?.band?.highFraction ?: 0.0,
+        barBelowLow = bars.map { it.belowLow },
+        chartBelowLowDays = chart?.belowLowDays.orEmpty(),
     )
 }

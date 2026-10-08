@@ -5167,6 +5167,369 @@
           }
         }
       }
+    },
+    "lot_detail_chart_legend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solid bar = below %1$@ %%"
+          }
+        }
+      }
+    },
+    "lot_detail_chart_readout_below_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: lowest %2$@, below %3$@ %%"
+          }
+        }
+      }
+    },
+    "lot_detail_chart_summary_below_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Below %1$@ %% on %2$@."
+          }
+        }
+      }
+    },
+    "lot_detail_chart_summary_never_below": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never below %1$@ %%."
+          }
+        }
+      }
+    },
+    "thresholds_action_set": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Thresholds"
+          }
+        }
+      }
+    },
+    "thresholds_action_view": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Thresholds"
+          }
+        }
+      }
+    },
+    "thresholds_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thresholds for %1$@"
+          }
+        }
+      }
+    },
+    "thresholds_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "thresholds_saving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving…"
+          }
+        }
+      }
+    },
+    "thresholds_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        }
+      }
+    },
+    "thresholds_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        }
+      }
+    },
+    "thresholds_low_for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low for %1$@"
+          }
+        }
+      }
+    },
+    "thresholds_high_for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High for %1$@"
+          }
+        }
+      }
+    },
+    "thresholds_slider_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low Threshold of %1$@"
+          }
+        }
+      }
+    },
+    "thresholds_slider_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High Threshold of %1$@"
+          }
+        }
+      }
+    },
+    "thresholds_add_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add high"
+          }
+        }
+      }
+    },
+    "thresholds_clear_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear high"
+          }
+        }
+      }
+    },
+    "thresholds_turn_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Alerts"
+          }
+        }
+      }
+    },
+    "thresholds_turn_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off Alerts"
+          }
+        }
+      }
+    },
+    "thresholds_alerts_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerts are off"
+          }
+        }
+      }
+    },
+    "thresholds_no_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no high"
+          }
+        }
+      }
+    },
+    "thresholds_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now %1$@"
+          }
+        }
+      }
+    },
+    "thresholds_no_reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Reading yet"
+          }
+        }
+      }
+    },
+    "thresholds_low_not_below_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low must stay below high."
+          }
+        }
+      }
+    },
+    "thresholds_low_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set a low before adding a high."
+          }
+        }
+      }
+    },
+    "thresholds_read_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only an Owner or Administrator can change Thresholds."
+          }
+        }
+      }
+    },
+    "thresholds_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Thresholds"
+          }
+        }
+      }
+    },
+    "thresholds_no_sensors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Lot has no Sensors yet."
+          }
+        }
+      }
+    },
+    "thresholds_notice_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Server did not accept these Thresholds. Nothing was changed. Check that Low is below High, then save again."
+          }
+        }
+      }
+    },
+    "thresholds_notice_forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't change this on %1$@. Ask an Owner or Administrator."
+          }
+        }
+      }
+    },
+    "thresholds_notice_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no such Sensor. Nothing was changed. Go back to the Lot and open Thresholds again."
+          }
+        }
+      }
+    },
+    "thresholds_notice_not_saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not saved. The Server could not be reached, so your edits are kept here. Try again."
+          }
+        }
+      }
+    },
+    "thresholds_notice_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong, and nothing was changed. Try again."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

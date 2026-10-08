@@ -16,17 +16,23 @@ class CalibrateActions(
     val retry: () -> Unit = {},
     val pick: (readingSeq: Long) -> Unit = {},
     val record: () -> Unit = {},
+    /** After Calibration: Set Thresholds for the same Lot (Story 5.4); the shell closes Calibrate and opens Thresholds. */
+    val setThresholds: (lotId: String, name: String) -> Unit = { _, _ -> },
 ) {
     companion object {
         val None = CalibrateActions()
 
-        fun of(engine: CalibrateEngine): CalibrateActions =
+        fun of(
+            engine: CalibrateEngine,
+            setThresholds: (lotId: String, name: String) -> Unit = { _, _ -> },
+        ): CalibrateActions =
             CalibrateActions(
                 open = engine::open,
                 close = engine::close,
                 retry = engine::retry,
                 pick = engine::pick,
                 record = engine::record,
+                setThresholds = setThresholds,
             )
     }
 }

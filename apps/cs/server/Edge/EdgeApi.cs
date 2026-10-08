@@ -71,10 +71,8 @@ public sealed record RenameLotRequest(string? Name);
 /// <param name="Removed"><see langword="true"/> for a removed Lot; omitted otherwise.</param>
 /// <param name="Node">The Lot's Node with its battery and last seen; sent only by <c>GET /sites/{siteId}/lots/{lotId}</c> while the Lot holds a Node.</param>
 /// <param name="Sensors">The newest Reading of each Sensor of the Node, converted; sent with <paramref name="Node"/>.</param>
-/// <remarks>
-/// The contract's <c>moisturePercent</c> and <c>lowThresholdPercent</c> are not here: nothing produces them
-/// before Calibration (Epic 5) and Threshold Alerts (Epic 6), so the Server never sends them.
-/// </remarks>
+/// <param name="MoisturePercent">The soil moisture of the newest Reading in percent (a multiple of 5), sent only when that Reading was stored with a Calibration.</param>
+/// <param name="LowThresholdPercent">The effective low Threshold of that soil-moisture Sensor in percent, sent with <paramref name="MoisturePercent"/> when the Sensor has one.</param>
 public sealed record LotResponse(
     string Id,
     string Name,
@@ -86,7 +84,9 @@ public sealed record LotResponse(
     string? PausedUntil = null,
     bool? Removed = null,
     NodeStatusResponse? Node = null,
-    IReadOnlyList<SensorReadingResponse>? Sensors = null);
+    IReadOnlyList<SensorReadingResponse>? Sensors = null,
+    int? MoisturePercent = null,
+    int? LowThresholdPercent = null);
 
 /// <summary>
 /// A Lot's Node as Lot detail returns it.
@@ -589,12 +589,13 @@ public static partial class EdgeApi
     private static async Task<IResult> ListLotsAsync(
         string siteId,
         HttpContext httpContext,
-        [FromServices] LotsReadModel lots)
+        [FromServices] LotsReadModel lots,
+        [FromServices] IGrainFactory grains)
     {
         var canonical = SiteAccessHandler.Canonicalize(siteId)!;
         var views = await lots.ListLotsAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
 
-        return TypedResults.Ok(new LotListResponse([.. views.Select(ToLotResponse)]));
+        return TypedResults.Ok(new LotListResponse(await WithLowThresholdsAsync(views, grains, httpContext.RequestAborted).ConfigureAwait(false)));
     }
 
     private static async Task<IResult> CreateLotAsync(
@@ -657,7 +658,7 @@ public static partial class EdgeApi
             return LotNotFound();
         }
 
-        var response = ToLotResponse(view);
+        var response = (await WithLowThresholdsAsync([view], grains, httpContext.RequestAborted).ConfigureAwait(false))[0];
 
         if (await detail.FindClaimAsync(canonicalSite, canonicalLot!, httpContext.RequestAborted).ConfigureAwait(false) is not { } claim)
         {
@@ -676,6 +677,40 @@ public static partial class EdgeApi
                 report is null ? null : ToServerTime(report.MeasuredAt)),
             Sensors = await ToSensorReadingsAsync(readings, grains, httpContext.RequestAborted).ConfigureAwait(false),
         });
+    }
+
+    // The percentage and its low Threshold belong to the list and the detail; a create or rename answer carries neither.
+    // The low Threshold comes from the Sensor grain (AD-19) and only for a Lot that shows a percentage; the grains are
+    // asked once per Lot and all at the same time. A Sensor that cannot be described shows no Threshold line.
+    private static async Task<IReadOnlyList<LotResponse>> WithLowThresholdsAsync(
+        IReadOnlyList<LotView> views,
+        IGrainFactory grains,
+        CancellationToken cancellationToken)
+    {
+        var lows = await Task.WhenAll(views.Select(view => EffectiveLowPercentAsync(view, grains, cancellationToken))).ConfigureAwait(false);
+
+        return [.. views.Select((view, index) => ToLotResponse(view) with { MoisturePercent = view.MoisturePercent, LowThresholdPercent = lows[index] })];
+    }
+
+    private static async Task<int?> EffectiveLowPercentAsync(LotView view, IGrainFactory grains, CancellationToken cancellationToken)
+    {
+        if (view is not { MoisturePercent: not null, SoilSensorId: { } sensorId })
+        {
+            return null;
+        }
+
+        try
+        {
+            var snapshot = await grains.GetGrain<ISensorGrain>(sensorId.ToString("D")).Describe(cancellationToken).ConfigureAwait(false);
+
+            return snapshot is { Specification.Calibration: true, Low.Value: { } low } ? (int)low : null;
+        }
+#pragma warning disable CA1031 // One Sensor that cannot be described must not fail the whole Lot list or detail.
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+#pragma warning restore CA1031
+        {
+            return null;
+        }
     }
 
     private static async Task<IReadOnlyList<SensorReadingResponse>> ToSensorReadingsAsync(
@@ -797,19 +832,28 @@ public static partial class EdgeApi
             .HistoryAsync(claim.NodeId, quantity, since, end, after, limit, httpContext.RequestAborted)
             .ConfigureAwait(false);
 
+        // A window with any calibrated soil-moisture Reading is in percent (AD-14: the Server converts, the band is in
+        // percent), and then only counts the Readings that have a Calibration: a day of raw counts cannot sit beside
+        // it. The window decides, not the page, so every page of a paged History has the same unit. A window without
+        // one is raw as before. The cursor still names the last day of the page.
+        var inPercent = quantity == "soil_moisture"
+            && await detail.HasCalibratedAsync(claim.NodeId, quantity, since, end, httpContext.RequestAborted).ConfigureAwait(false);
+
         return TypedResults.Ok(new LotHistoryResponse(
             quantity,
-            unit,
-            [.. days.Select(day => ToHistoryDay(quantity, day))],
+            inPercent ? "%" : unit,
+            [.. days.Where(day => !inPercent || day.CalibratedCount > 0).Select(day => ToHistoryDay(quantity, day, inPercent))],
             hasMore ? LotDetailReadModel.EncodeCursor(days[^1].Day) : null));
     }
 
-    private static LotHistoryDayResponse ToHistoryDay(string quantity, StoredDay day) =>
-        new(
-            day.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            SensorConversion.Convert(quantity, day.Low)!.Value.Value,
-            SensorConversion.Convert(quantity, day.High)!.Value.Value,
-            day.ReadingCount);
+    private static LotHistoryDayResponse ToHistoryDay(string quantity, StoredDay day, bool inPercent) =>
+        inPercent
+            ? new(day.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), day.CalibratedLow!.Value, day.CalibratedHigh!.Value, day.CalibratedCount)
+            : new(
+                day.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                SensorConversion.Convert(quantity, day.Low)!.Value.Value,
+                SensorConversion.Convert(quantity, day.High)!.Value.Value,
+                day.ReadingCount);
 
     // One value, or null when the parameter is absent or repeated.
     private static string? SingleValue(IQueryCollection query, string name) =>

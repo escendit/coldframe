@@ -61,6 +61,8 @@ export interface SensorCell {
   readonly value: string;
   /** When it was taken. */
   readonly time: string | null;
+  /** The Sensor ID, which names the Sensor's Thresholds (Story 5.4). */
+  readonly sensorId?: string;
 }
 
 /** The Sensor cells, in the Server's order. Stale mode keeps the label and drops the value (UX-DR19). */
@@ -68,8 +70,9 @@ export function sensorCells(sensors: readonly SensorReading[], context: TileCont
   return sensors.map((sensor) => ({
     quantity: sensor.quantity,
     label: quantityName(sensor.quantity),
-    value: context.staleSince === null ? formatValue(sensor.quantity, sensor.value, context.locale) : '—',
+    value: context.staleSince === null ? (sensor.quantity === 'soil_moisture' && sensor.unit === '%' ? t('lotDetail.value.percent', { value: formatNumber(sensor.value, context.locale) }) : formatValue(sensor.quantity, sensor.value, context.locale)) : '—',
     time: context.staleSince === null ? formatWhen(new Date(sensor.measuredAt), context.now, context.locale, context.timeZone) : null,
+    ...(sensor.sensorId === undefined ? {} : { sensorId: sensor.sensorId }),
   }));
 }
 
@@ -220,6 +223,20 @@ export interface ChartBar {
   readonly height: number;
   /** "5 Oct: lowest raw 1840", or "5 Oct: 12 °C to 18 °C". */
   readonly readout: string;
+  /** The day's low is under the low Threshold: drawn solid in the below-low token (UX-DR32). */
+  readonly belowLow: boolean;
+}
+
+/** The Thresholds the chart draws: the Server's low and optional high, in the History's percent. */
+export interface ChartThreshold {
+  readonly low: number | null;
+  readonly high: number | null;
+}
+
+/** The band as fractions of the chart height, 0 (bottom) to 1 (top). */
+export interface ChartBand {
+  readonly low: number;
+  readonly high: number | null;
 }
 
 export interface HistoryChart {
@@ -232,6 +249,12 @@ export interface HistoryChart {
   readonly summary: string;
   /** The bar shown in the readout before anything is picked: the newest day. */
   readonly latest: ChartBar | null;
+  /** The Threshold band; only for a soil-moisture History in percent with a low Threshold. */
+  readonly band: ChartBand | null;
+  /** The low Threshold in percent when the band is drawn. */
+  readonly lowPercent: number | null;
+  /** "solid bar = below 30 %" when the band is drawn. */
+  readonly legend: string | null;
 }
 
 function utcDay(date: Date): string {
@@ -246,33 +269,49 @@ function dayDate(day: string, locale: string): string {
  * The 30 UTC days ending on the day of `now`, with a bar for each day the Server listed. The
  * Server's `low` is the bar; temperature, humidity and gas also give `high` in the readout.
  */
-export function historyChart(history: LotHistory | undefined, quantity: SensorQuantity, now: Date, locale: string): HistoryChart {
+export function historyChart(history: LotHistory | undefined, quantity: SensorQuantity, now: Date, locale: string, threshold: ChartThreshold | null = null): HistoryChart {
   const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const slots = Array.from({ length: historyDays }, (_unused, index) => utcDay(new Date(end - (historyDays - 1 - index) * 86_400_000)));
   const days = (history?.days ?? []).filter((day) => slots.includes(day.day));
+  // The band is drawn only for a soil-moisture History the Server sent in percent (UX-DR5); a raw History has no band.
+  const percent = quantity === 'soil_moisture' && history?.unit === '%';
+  const lowPercent = percent && threshold?.low !== null && threshold?.low !== undefined ? threshold.low : null;
   const lows = days.map((day) => day.low);
-  const floor = Math.min(0, ...lows);
-  const ceiling = Math.max(0, ...lows);
+  // A percent chart sits on the fixed 0-100 scale, so the band and the bars share one axis.
+  const floor = percent ? 0 : Math.min(0, ...lows);
+  const ceiling = percent ? 100 : Math.max(0, ...lows);
   const span = ceiling - floor;
   const bars = days.map((day): ChartBar => {
     const date = dayDate(day.day, locale);
-    const readout =
-      quantity === 'soil_moisture'
-        ? t('lotDetail.chart.readoutLow', { date, value: formatValue(quantity, day.low, locale) })
+    const belowLow = lowPercent !== null && day.low < lowPercent;
+    const value = percent ? t('lotDetail.value.percent', { value: formatNumber(day.low, locale) }) : formatValue(quantity, day.low, locale);
+    const readout = belowLow
+      ? t('lotDetail.chart.readoutBelowLow', { date, value, percent: formatNumber(lowPercent, locale) })
+      : quantity === 'soil_moisture'
+        ? t('lotDetail.chart.readoutLow', { date, value })
         : t('lotDetail.chart.readoutRange', { date, low: formatValue(quantity, day.low, locale), high: formatValue(quantity, day.high, locale) });
-    return { slot: slots.indexOf(day.day), day: day.day, date, low: day.low, high: day.high, height: span === 0 ? 1 : (day.low - floor) / span, readout };
+    return { slot: slots.indexOf(day.day), day: day.day, date, low: day.low, high: day.high, height: span === 0 ? 1 : (day.low - floor) / span, readout, belowLow };
   });
   const lowest = bars.reduce<ChartBar | null>((best, bar) => (best === null || bar.low < best.low ? bar : best), null);
   const name = quantityName(quantity);
-  const summary =
+  const lowestText = lowest === null ? '' : percent ? t('lotDetail.value.percent', { value: formatNumber(lowest.low, locale) }) : formatValue(quantity, lowest.low, locale);
+  let summary =
     lowest === null
       ? t('lotDetail.chart.summaryEmpty', { quantity: name })
-      : t('lotDetail.chart.summary', { quantity: name, value: formatValue(quantity, lowest.low, locale), date: lowest.date, count: bars.length });
+      : t('lotDetail.chart.summary', { quantity: name, value: lowestText, date: lowest.date, count: bars.length });
+  if (lowPercent !== null && lowest !== null) {
+    const below = bars.filter((bar) => bar.belowLow).map((bar) => bar.date);
+    const shown = formatNumber(lowPercent, locale);
+    summary += ` ${below.length === 0 ? t('lotDetail.chart.summaryNeverBelow', { percent: shown }) : t('lotDetail.chart.summaryBelowLow', { percent: shown, days: below.join(', ') })}`;
+  }
   return {
     quantity,
     bars,
     axis: { start: dayDate(slots[0] ?? '', locale), end: dayDate(slots[slots.length - 1] ?? '', locale) },
     summary,
     latest: bars[bars.length - 1] ?? null,
+    band: lowPercent === null ? null : { low: lowPercent / 100, high: threshold?.high === null || threshold?.high === undefined ? null : threshold.high / 100 },
+    lowPercent,
+    legend: lowPercent === null ? null : t('lotDetail.chart.legend', { percent: formatNumber(lowPercent, locale) }),
   };
 }

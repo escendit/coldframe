@@ -80,6 +80,15 @@ final class CoreLotDetailService: LotDetailService {
       barFractions: snapshot.barFractions.map { $0.doubleValue },
       chartDaysWithReadings: Int(snapshot.chartDaysWithReadings),
       chartLowest: snapshot.chartLowest, chartLowestDay: snapshot.chartLowestDay,
-      chartHighest: snapshot.chartHighest, chartHighestDay: snapshot.chartHighestDay)
+      chartHighest: snapshot.chartHighest, chartHighestDay: snapshot.chartHighestDay,
+      canSetThresholds: snapshot.canSetThresholds, canViewThresholds: snapshot.canViewThresholds,
+      thresholdLowPercent: snapshot.thresholdLowPercent,
+      thresholdHighPercent: snapshot.thresholdHighPercent, sensorIds: snapshot.sensorIds,
+      chartHasBand: snapshot.chartHasBand, chartBandLowPercent: snapshot.chartBandLowPercent,
+      chartBandHighPercent: snapshot.chartBandHighPercent,
+      chartBandLowFraction: snapshot.chartBandLowFraction,
+      chartBandHighFraction: snapshot.chartBandHighFraction,
+      barBelowLow: snapshot.barBelowLow.map { $0.boolValue },
+      chartBelowLowDays: snapshot.chartBelowLowDays)
   }
 }

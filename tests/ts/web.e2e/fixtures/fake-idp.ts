@@ -71,6 +71,8 @@ export interface FakeLot {
   readonly sensors?: readonly FakeSensorReading[];
   /** Daily history per quantity, as `GET /sites/{id}/lots/{id}/history` returns it. */
   readonly history?: Readonly<Record<string, readonly FakeHistoryDay[]>>;
+  /** Story 5.4: the History unit per quantity when it is not the raw default (soil moisture in `%` once calibrated). */
+  readonly historyUnits?: Readonly<Record<string, string>>;
 }
 
 /** A Node's health as `Lot.node` carries it. */
@@ -123,6 +125,24 @@ export interface FakeHistoryDay {
   readonly low: number;
   readonly high: number;
   readonly readingCount: number;
+}
+
+/** A Sensor's Thresholds as `GET /sites/{id}/sensors/{id}/thresholds` returns them (Story 5.4). */
+export interface FakeThresholds {
+  readonly sensorId: string;
+  readonly siteId: string;
+  readonly unit: '%' | '°C' | 'kΩ' | 'raw';
+  readonly low: { readonly kind: 'default' | 'override' | 'cleared'; readonly value?: number };
+  readonly high: { readonly kind: 'default' | 'override' | 'cleared'; readonly value?: number };
+  readonly proposedLow?: number;
+  /** Answer the next PUT with this status instead (a Server that cannot save: 503). */
+  readonly failNextPut?: number;
+}
+
+/** One `PUT …/thresholds` the fake Server received. */
+export interface FakeThresholdsPut {
+  readonly sensorId: string;
+  readonly body: unknown;
 }
 
 /** Which reads of the fake Server fail: none, the Sites and the Lots, or the Lots only. */
@@ -228,6 +248,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let lotPosts: FakeSitePost[] = [];
   let calibrations: FakeCalibration[] = [];
   let calibrationPosts: FakeCalibrationPost[] = [];
+  let thresholds: FakeThresholds[] = [];
+  let thresholdPuts: FakeThresholdsPut[] = [];
   const createdLots = new Map<string, FakeLot>();
   let devices: FakeDevice[] = [];
   let deviceActions: FakeDeviceAction[] = [];
@@ -313,6 +335,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       deviceActions = [];
       calibrations = Array.isArray(body.calibrations) ? (body.calibrations as FakeCalibration[]) : [];
       calibrationPosts = [];
+      thresholds = Array.isArray(body.thresholds) ? (body.thresholds as FakeThresholds[]) : [];
+      thresholdPuts = [];
       devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
       failing = 'none';
       lotReads = 0;
@@ -324,7 +348,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       return;
     }
     if (path === '/control/sites') {
-      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts });
+      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts, thresholds, thresholdPuts });
       return;
     }
     // Story 5.2: a new stored Reading of a Sensor arrives, and the Lot's Sensors as the Lot detail shows them change.
@@ -338,6 +362,13 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     if (path === '/control/lot-sensors' && request.method === 'POST') {
       const body = await readJson(request);
       lots = lots.map((lot) => (lot.id === body.lotId ? { ...lot, sensors: body.sensors as FakeSensorReading[] } : lot));
+      send(response, 200, {});
+      return;
+    }
+    // Story 5.4: fields of a Lot change, as when its first calibrated Reading is stored.
+    if (path === '/control/lot-fields' && request.method === 'POST') {
+      const body = await readJson(request);
+      lots = lots.map((lot) => (lot.id === body.lotId ? { ...lot, ...(body.fields as Partial<FakeLot>) } : lot));
       send(response, 200, {});
       return;
     }
@@ -523,7 +554,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
           request.socket.destroy();
           return;
         }
-        send(response, 200, { quantity, unit: units[quantity], days: lot.history?.[quantity] ?? [] });
+        send(response, 200, { quantity, unit: lot.historyUnits?.[quantity] ?? units[quantity], days: lot.history?.[quantity] ?? [] });
       }
       return;
     }
@@ -587,6 +618,75 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         return;
       }
       send(response, 200, stateOf(next));
+      return;
+    }
+
+    // Story 5.4: a Sensor's Thresholds (Member reads) and setting them (Administrator).
+    const thresholdsMatch = /^\/sites\/([^/]+)\/sensors\/([^/]+)\/thresholds$/u.exec(path);
+    if (thresholdsMatch !== null) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(thresholdsMatch[1] ?? '');
+      const sensorId = decodeURIComponent(thresholdsMatch[2] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      const entry = thresholds.find((candidate) => candidate.sensorId === sensorId && candidate.siteId === siteId);
+      const viewOf = (value: FakeThresholds): Record<string, unknown> => ({
+        unit: value.unit,
+        low: value.low,
+        high: value.high,
+        ...(value.proposedLow === undefined || value.low.value !== undefined ? {} : { proposedLow: value.proposedLow }),
+      });
+      if (request.method === 'GET') {
+        if (entry === undefined) {
+          problem(response, 404, 'sensor-not-found');
+          return;
+        }
+        send(response, 200, viewOf(entry));
+        return;
+      }
+      if (site.role === 'Member') {
+        problem(response, 403, 'forbidden');
+        return;
+      }
+      if (entry === undefined) {
+        problem(response, 404, 'sensor-not-found');
+        return;
+      }
+      const body = await readJson(request);
+      thresholdPuts = [...thresholdPuts, { sensorId, body }];
+      if (entry.failNextPut !== undefined) {
+        const failure = entry.failNextPut;
+        thresholds = thresholds.map((candidate) => (candidate === entry ? { ...candidate, failNextPut: undefined } : candidate));
+        problem(response, failure, 'unavailable');
+        return;
+      }
+      const sideOf = (sent: unknown, kept: FakeThresholds['low']): FakeThresholds['low'] => {
+        const side = sent as { kind?: string; value?: number } | undefined;
+        if (side === undefined) {
+          return kept;
+        }
+        return side.kind === 'override' ? { kind: 'override', value: side.value } : { kind: side.kind as 'default' | 'cleared' };
+      };
+      const request_ = body as { low?: unknown; high?: unknown };
+      const next: FakeThresholds = { ...entry, low: sideOf(request_.low, entry.low), high: sideOf(request_.high, entry.high) };
+      if (next.high.value !== undefined && (next.low.value === undefined || next.low.value >= next.high.value)) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      thresholds = thresholds.map((candidate) => (candidate === entry ? next : candidate));
+      // The Lot of that Sensor shows the new low, as the Server's Lot detail does.
+      lots = lots.map((lot) =>
+        lot.sensors?.some((sensor) => sensor.sensorId === sensorId) === true && lot.moisturePercent !== undefined
+          ? { ...lot, ...(next.low.value === undefined ? {} : { lowThresholdPercent: next.low.value }) }
+          : lot,
+      );
+      send(response, 200, viewOf(next));
       return;
     }
 

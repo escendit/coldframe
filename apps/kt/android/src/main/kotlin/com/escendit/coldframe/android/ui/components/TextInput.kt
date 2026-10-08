@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
@@ -55,6 +58,10 @@ fun TextInput(
     helper: String? = null,
     error: String? = null,
     password: Boolean = false,
+    singleLine: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    onFocusChange: (Boolean) -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var revealed by rememberSaveable { mutableStateOf(false) }
@@ -82,6 +89,9 @@ fun TextInput(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
+                keyboardOptions = keyboardOptions,
+                keyboardActions = keyboardActions,
+                singleLine = singleLine,
                 textStyle = Typography.bodyLg.textStyle().copy(color = colors.textPrimary),
                 cursorBrush = SolidColor(colors.textPrimary),
                 visualTransformation =
@@ -96,6 +106,7 @@ fun TextInput(
                     Modifier
                         .weight(1f)
                         .padding(vertical = Spacing.STEP_4.dp)
+                        .onFocusChanged { onFocusChange(it.isFocused) }
                         .semantics {
                             contentDescription = label
                             if (error != null) error(error)

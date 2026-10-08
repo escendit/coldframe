@@ -76,9 +76,10 @@ is planned today.
   that status. The supporting fields are present only where they apply: `lastReadingAt` (the newest
   `measured_at` of the Node's Readings since it was put in the Lot), `unknownCause` (`node` or `hub`,
   only for `unknown`), `pausedBy` (`device` and/or `site`, only for `paused`) and `pausedUntil` (the
-  latest end of the Pause sources, absent when any of them has no end). `moisturePercent` and
-  `lowThresholdPercent` are part of the contract, but the Server sends them only once Calibration
-  (Epic 5) and Threshold Alerts (Epic 6) exist. Clients render these fields; they never compute a
+  latest end of the Pause sources, absent when any of them has no end). `moisturePercent` (a multiple
+  of 5) and `lowThresholdPercent` (the soil Sensor's effective low Threshold) are sent by the list and by
+  Lot detail when the newest soil-moisture Reading was stored under a Calibration (Story 5.4); the low is
+  absent when the Sensor has none. Clients render these fields; they never compute a
   status and never re-sort the list.
 - **Lot detail and history.** `GET /sites/{siteId}/lots/{lotId}` alone also carries `node` (the Node's
   `deviceId`, `batteryPercent`, `charging` and `lastSeenAt` from its newest device report) and
@@ -86,7 +87,8 @@ is planned today.
   values: soil moisture is the raw count (`unit: raw`), or, for a Reading stored under a Calibration (Story 5.1),
   a percentage rounded to the nearest 5 (`unit: %`),
   temperature is in `°C`, humidity in `%`, gas resistance in `kΩ`. `GET /sites/{siteId}/lots/{lotId}/history`
-  returns one entry per UTC day with Readings (`low`, `high`, `readingCount`), ascending, paged by
+  returns one entry per UTC day with Readings (`low`, `high`, `readingCount`), ascending (for soil moisture a
+  page with Readings stored under a Calibration is in `unit: %`, from those Readings only, Story 5.4), paged by
   `from`/`to`, `limit` and an opaque `cursor`. Devices list items of Nodes add `lotName`,
   `batteryPercent` and `charging`.
 - **Calibration.** `POST /sites/{siteId}/sensors/{sensorId}/calibration` takes `{dry?: {readingSeq}, wet?:

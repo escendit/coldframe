@@ -5,6 +5,7 @@ import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotHistoryDayDto
 import com.escendit.coldframe.core.api.LotHistoryDto
+import com.escendit.coldframe.core.api.SensorThresholdsDto
 import com.escendit.coldframe.core.lots.LotsEngine.Companion.toSummary
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesEngine
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlin.math.roundToInt
 import kotlin.time.Clock
 
 /** The Lot detail calls; [com.escendit.coldframe.core.api.ColdframeApi] in the apps. */
@@ -41,6 +43,12 @@ public interface LotDetailApi {
         quantity: String,
         cursor: String?,
     ): ApiResult<LotHistoryDto>
+
+    /** `getSensorThresholds` (Member): the soil Sensor's Thresholds for the chart band; a failed read draws no high line. */
+    public suspend fun getSensorThresholds(
+        siteId: String,
+        sensorId: String,
+    ): ApiResult<SensorThresholdsDto> = ApiResult.Failed(ApiFailure.Unexpected)
 }
 
 /** The history of one quantity as read: [unit] and the [days] of all pages, ascending. */
@@ -48,6 +56,16 @@ public data class LotHistory(
     val quantity: SensorQuantity,
     val unit: SensorUnit,
     val days: List<LotHistoryDayDto>,
+)
+
+/**
+ * The soil Sensor's Thresholds in whole percent, read with the Member-readable `getSensorThresholds` for the chart band
+ * (Story 5.4); [lowPercent] and [highPercent] are `null` for a side with none.
+ */
+public data class SoilThresholds(
+    val sensorId: String,
+    val lowPercent: Int?,
+    val highPercent: Int?,
 )
 
 /** Why Lot detail could not be read and there is nothing to show. */
@@ -97,6 +115,8 @@ public sealed interface LotDetailState {
         val fetchedAtEpochMs: Long,
         val staleReason: StaleReason?,
         val refreshing: Boolean,
+        /** The soil Sensor's Thresholds for the chart band; `null` until read, and when the read failed. */
+        val soilThresholds: SoilThresholds? = null,
     ) : LotDetailState {
         val stale: Boolean get() = staleReason != null
     }
@@ -262,11 +282,44 @@ public class LotDetailEngine(
                 fetchedAtEpochMs = fetchedAt,
                 staleReason = null,
                 refreshing = false,
+                soilThresholds = kept?.soilThresholds,
             )
         cache.store(siteId, dto, history.values.map { it.toDto() }, fetchedAt)
         if (kept?.staleReason == StaleReason.Unreachable) mutableEvents.tryEmit(LotsEvent.LeftStale(siteId))
         // History is a daily aggregate that moves on every Reading, so it is read again with the Lot.
         if (picked != null) loadHistory(siteId, lot.id, picked, started)
+        lot.sensors
+            .firstOrNull { it.quantity == SensorQuantity.SoilMoisture && it.calibratable && it.sensorId != null }
+            ?.sensorId
+            ?.let { loadThresholds(siteId, it, started) }
+    }
+
+    // The band's high line needs the Thresholds; a failed read leaves the chart without them (never the page), so
+    // values that may no longer match the Server (a Threshold just cleared) are never drawn.
+    private fun loadThresholds(
+        siteId: String,
+        sensorId: String,
+        started: Int,
+    ) {
+        scope.launch {
+            val result = api.getSensorThresholds(siteId, sensorId)
+            if (started != generation) return@launch
+            val current = mutableState.value as? LotDetailState.Ready ?: return@launch
+            val dto = (result as? ApiResult.Ok)?.value
+            mutableState.value =
+                current.copy(
+                    soilThresholds =
+                        if (dto == null || SensorUnit.fromServer(dto.unit) != SensorUnit.Percent) {
+                            null
+                        } else {
+                            SoilThresholds(
+                                sensorId,
+                                dto.low.value?.roundToInt(),
+                                dto.high.value?.roundToInt(),
+                            )
+                        },
+                )
+        }
     }
 
     private fun lotSite(state: LotDetailState): SiteSummary? =

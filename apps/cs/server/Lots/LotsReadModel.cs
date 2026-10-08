@@ -1,3 +1,4 @@
+using Coldframe.Server.Sensors;
 using Npgsql;
 
 namespace Coldframe.Server.Lots;
@@ -17,6 +18,11 @@ namespace Coldframe.Server.Lots;
 /// <param name="UnknownCause"><c>node</c> or <c>hub</c> for an <c>unknown</c> Lot; otherwise <see langword="null"/>.</param>
 /// <param name="PausedBy">The Pause sources of a <c>paused</c> Lot, <c>device</c> before <c>site</c>; otherwise <see langword="null"/>.</param>
 /// <param name="PausedUntil">When the Pause of a <c>paused</c> Lot ends, or <see langword="null"/> when it has no end.</param>
+/// <param name="MoisturePercent">
+/// The soil moisture of the newest soil-moisture Reading since the Lot took its Node, in percent of the Calibration
+/// that Reading was stored with; <see langword="null"/> when there is none or it was stored without a Calibration.
+/// </param>
+/// <param name="SoilSensorId">The Sensor ID of that Reading, which names the Sensor whose low Threshold the Lot shows.</param>
 public sealed record LotView(
     string LotId,
     string Name,
@@ -26,7 +32,9 @@ public sealed record LotView(
     DateTimeOffset? LastReadingAt = null,
     string? UnknownCause = null,
     IReadOnlyList<string>? PausedBy = null,
-    DateTimeOffset? PausedUntil = null);
+    DateTimeOffset? PausedUntil = null,
+    int? MoisturePercent = null,
+    Guid? SoilSensorId = null);
 
 /// <summary>
 /// Reads the lots projection. Edge API handlers read Lots only from here; grains never read it.
@@ -45,8 +53,16 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
     private const string ListSql =
         """
         SELECT l.lot_id, l.name, l.removed_at IS NOT NULL, l.status, l.status_since, l.unknown_cause, l.paused_by, l.paused_until,
-               (SELECT max(r.measured_at) FROM readings r WHERE r.device_id = l.claimed_by AND r.measured_at >= l.claimed_at)
+               (SELECT max(r.measured_at) FROM readings r WHERE r.device_id = l.claimed_by AND r.measured_at >= l.claimed_at),
+               s.sensor_id, s.raw_value, s.dry_raw, s.wet_raw
         FROM lots l
+        LEFT JOIN LATERAL (
+            SELECT r.sensor_id, r.raw_value, c.dry_raw, c.wet_raw
+            FROM readings r
+            LEFT JOIN calibrations c ON c.calibration_id = r.calibration_id
+            WHERE r.device_id = l.claimed_by AND r.quantity = 'soil_moisture' AND r.measured_at >= l.claimed_at
+            ORDER BY r.measured_at DESC
+            LIMIT 1) s ON true
         WHERE l.site_id = @site_id AND l.removed_at IS NULL
         ORDER BY array_position(@status_order, l.status), l.created_at, l.lot_id
         """;
@@ -54,8 +70,16 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
     private const string FindSql =
         """
         SELECT l.lot_id, l.name, l.removed_at IS NOT NULL, l.status, l.status_since, l.unknown_cause, l.paused_by, l.paused_until,
-               (SELECT max(r.measured_at) FROM readings r WHERE r.device_id = l.claimed_by AND r.measured_at >= l.claimed_at)
+               (SELECT max(r.measured_at) FROM readings r WHERE r.device_id = l.claimed_by AND r.measured_at >= l.claimed_at),
+               s.sensor_id, s.raw_value, s.dry_raw, s.wet_raw
         FROM lots l
+        LEFT JOIN LATERAL (
+            SELECT r.sensor_id, r.raw_value, c.dry_raw, c.wet_raw
+            FROM readings r
+            LEFT JOIN calibrations c ON c.calibration_id = r.calibration_id
+            WHERE r.device_id = l.claimed_by AND r.quantity = 'soil_moisture' AND r.measured_at >= l.claimed_at
+            ORDER BY r.measured_at DESC
+            LIMIT 1) s ON true
         WHERE l.site_id = @site_id AND l.lot_id = @lot_id
         """;
 
@@ -107,8 +131,12 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
             : null;
     }
 
-    private static async Task<LotView> ReadAsync(NpgsqlDataReader reader, CancellationToken cancellationToken) =>
-        new(
+    private static async Task<LotView> ReadAsync(NpgsqlDataReader reader, CancellationToken cancellationToken)
+    {
+        // The newest soil-moisture Reading is a percentage only when it was stored with a Calibration whose points are projected.
+        var calibrated = !await reader.IsDBNullAsync(11, cancellationToken).ConfigureAwait(false);
+
+        return new(
             reader.GetString(0),
             reader.GetString(1),
             reader.GetString(3),
@@ -117,5 +145,8 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
             await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(8),
             await reader.IsDBNullAsync(5, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(5),
             await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<string[]>(6),
-            await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(7));
+            await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(7),
+            calibrated ? CalibrationMath.Percent(reader.GetInt64(10), reader.GetInt64(11), reader.GetInt64(12)) : null,
+            await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(9));
+    }
 }

@@ -3,6 +3,21 @@
   import Foundation
   import SwiftUI
 
+  extension View {
+    /// A modal over the shell: full screen on iOS. `fullScreenCover` does not exist on macOS, where
+    /// the package is only built and rendered for tests, so a sheet stands in there.
+    @ViewBuilder
+    fileprivate func coverOrSheet<Content: View>(
+      isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+      #if os(iOS)
+        fullScreenCover(isPresented: isPresented, content: content)
+      #else
+        sheet(isPresented: isPresented, content: content)
+      #endif
+    }
+  }
+
   /// The Sign-in surface (UX-DR59, UX-DR60): the signature radial gradient behind a card with
   /// the Coldframe mark and SIGN IN. No Server field; the view holds no input (AD-23).
   public struct SignInView: View {
@@ -70,6 +85,7 @@
     let onAddHub: () -> Void
     let onAddNode: (String?) -> Void
     let onCalibrate: (String, String) -> Void
+    let onSetThresholds: (String, String, String) -> Void
     let devices: DevicesPresentation
     let devicesActions: DevicesActions
     let lotDetail: LotDetailPresentation
@@ -87,6 +103,7 @@
       lotsActions: LotsActions = .none, onAddHub: @escaping () -> Void = {},
       onAddNode: @escaping (String?) -> Void = { _ in },
       onCalibrate: @escaping (String, String) -> Void = { _, _ in },
+      onSetThresholds: @escaping (String, String, String) -> Void = { _, _, _ in },
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       selection: Binding<AppTab>? = nil
@@ -106,6 +123,7 @@
       self.onAddHub = onAddHub
       self.onAddNode = onAddNode
       self.onCalibrate = onCalibrate
+      self.onSetThresholds = onSetThresholds
     }
 
     public var body: some View {
@@ -144,7 +162,8 @@
           GardenView(
             presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
             onAddHub: onAddHub, onAddNode: { onAddNode($0) }, onCalibrate: onCalibrate,
-            lotDetail: lotDetail, lotDetailActions: lotDetailActions,
+            onSetThresholds: onSetThresholds, lotDetail: lotDetail,
+            lotDetailActions: lotDetailActions,
             onOpenDevices: { selection.wrappedValue = .devices }
           )
         } else {
@@ -281,6 +300,8 @@
     let lotDetailActions: LotDetailActions
     let calibrate: CalibratePresentation
     let calibrateActions: CalibrateActions
+    let thresholds: ThresholdsPresentation
+    let thresholdsActions: ThresholdsActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
@@ -296,8 +317,11 @@
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       nodeSetup: NodeSetupPresentation = .closed, nodeSetupActions: NodeSetupActions = .none,
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
-      calibrate: CalibratePresentation = .idle, calibrateActions: CalibrateActions = .none
+      calibrate: CalibratePresentation = .idle, calibrateActions: CalibrateActions = .none,
+      thresholds: ThresholdsPresentation = .idle, thresholdsActions: ThresholdsActions = .none
     ) {
+      self.thresholds = thresholds
+      self.thresholdsActions = thresholdsActions
       self.calibrate = calibrate
       self.calibrateActions = calibrateActions
       self.lotDetail = lotDetail
@@ -351,7 +375,12 @@
         CreateSiteView(presentation: form, actions: sitesActions)
       case .garden(let garden, _) where calibrate.isOpen:
         CalibrateView(
-          presentation: calibrate, siteName: garden.siteName, actions: calibrateActions)
+          presentation: calibrate, siteName: garden.siteName, actions: calibrateActions,
+          onSetThresholds: { lotId, name, sensorId in
+            // Right after Calibration: leave it and open Thresholds of the same Lot.
+            calibrateActions.close()
+            thresholdsActions.open(lotId, name, sensorId)
+          })
       case .garden(_, _) where hubSetup.isOpen:
         AddHubFlowView(presentation: hubSetup, actions: hubSetupActions)
       case .garden(_, _) where nodeSetup.isOpen:
@@ -361,10 +390,22 @@
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut, garden: garden,
           sitesActions: sitesActions, lots: lots, lotsActions: lotsActions,
           onAddHub: hubSetupActions.open, onAddNode: nodeSetupActions.open,
-          onCalibrate: calibrateActions.open, devices: devices,
+          onCalibrate: calibrateActions.open, onSetThresholds: thresholdsActions.open,
+          devices: devices,
           devicesActions: devicesActions, lotDetail: lotDetail,
           lotDetailActions: lotDetailActions, selection: $tab
         )
+        // Thresholds is a modal over the shell, so the open Lot detail stays and reads again once saved.
+        .coverOrSheet(
+          isPresented: Binding(
+            get: { thresholds.isOpen }, set: { if !$0 { thresholdsActions.close() } })
+        ) {
+          ThresholdsView(
+            presentation: thresholds, siteName: garden.siteName, actions: thresholdsActions
+          )
+          .environment(\.palette, ColdframePalette(isDark: isDark))
+          .preferredColorScheme(theme.forcedDark.map { $0 ? .dark : .light })
+        }
         .sheet(
           isPresented: Binding(
             get: { creating != nil }, set: { if !$0 { sitesActions.cancelNewSite() } })
@@ -390,6 +431,7 @@
     @Published public private(set) var nodeSetup = NodeSetupPresentation.closed
     @Published public private(set) var lotDetail = LotDetailPresentation.idle
     @Published public private(set) var calibrate = CalibratePresentation.idle
+    @Published public private(set) var thresholds = ThresholdsPresentation.idle
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -399,13 +441,16 @@
     public let nodeSetupService: NodeSetupService?
     public let lotDetailService: LotDetailService?
     public let calibrateService: CalibrateService?
+    public let thresholdsService: ThresholdsService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
       lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
       devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
-      lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil
+      lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil,
+      thresholds: ThresholdsService? = nil
     ) {
+      self.thresholdsService = thresholds
       self.calibrateService = calibrate
       self.lotDetailService = lotDetail
       self.devicesService = devices
@@ -434,6 +479,7 @@
       devices?.observe { [weak self] in self?.devices = $0 }
       nodeSetup?.observe { [weak self] in self?.nodeSetup = $0 }
       calibrate?.observe { [weak self] in self?.calibrate = $0 }
+      thresholds?.observe { [weak self] in self?.thresholds = $0 }
     }
 
     private static func announce(_ event: LotsEventPresentation) {
@@ -455,6 +501,11 @@
     /// The Calibrate actions for the views; nothing happens without a service.
     public var calibrateActions: CalibrateActions {
       calibrateService.map(CalibrateActions.init(service:)) ?? .none
+    }
+
+    /// The Thresholds actions for the views; nothing happens without a service.
+    public var thresholdsActions: ThresholdsActions {
+      thresholdsService.map(ThresholdsActions.init(service:)) ?? .none
     }
 
     /// The Add a Hub actions for the views; nothing happens without a service.
