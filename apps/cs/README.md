@@ -125,6 +125,8 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
 | `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | The Sensor's Calibration state and its recent stored Readings with their `readingSeq` (Story 5.2, see [Calibration](#calibration)) |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Saves the dry and/or wet point of a Sensor's Calibration (Story 5.1, see [Calibration](#calibration)): 200 with where the Calibration stands |
+| `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | A Sensor's Thresholds, read-only, with the proposed low (Story 5.3, see [Thresholds](#thresholds)) |
+| `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` | `Administrator` | Sets one or both sides of a Sensor's Thresholds: 200 with the Thresholds in force |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 | `POST /device/ingest` | `Device` | A Hub relays sealed Node frames: `Device(hubId).AuthenticateRelay(…)`, then `Device(nodeId).Ingest(…)` per frame; 200 `{results: [{status, downlink?}]}` |
 
@@ -364,7 +366,7 @@ A paused or unassigned Node declares too; only Readings pass the Pause gate.
 | --- | --- |
 | `sensor.declared` `{deviceId, slot, specification, declaredAt}` | The first declaration. Both Thresholds follow the Specification's defaults |
 | `sensor.specification-changed` `{specification, changedAt}` | A declaration with another Specification for the same slot and quantity. The same Specification journals nothing |
-| `sensor.thresholds-changed` `{low, high, changedAt}` | Never yet: Thresholds have no API until Story 5.3. Tests seed it |
+| `sensor.thresholds-changed` `{low, high, changedAt}` | An Administrator changed a side of the Thresholds ([Thresholds](#thresholds)); never for a request that changes nothing. Story 6.1 reads it as a new evaluation epoch |
 | `sensor.calibration-point-recorded` `{point, readingSeq, rawValue, recordedAt}` | One point (`Dry` or `Wet`) of a Calibration was saved and the other is missing ([Calibration](#calibration)) |
 | `sensor.calibrated` `{calibrationId, dryRaw, wetRaw, calibratedAt}` | Both points are known and distinct: the new Calibration in force |
 | `sensor.calibration-delivered` `{calibrationId, deliveredAt}` | The Device grain acknowledged the Calibration as in force |
@@ -376,7 +378,7 @@ the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
   reads the Specification's default, which may be absent. A declaration replaces the Specification
   only: an override keeps its value and a cleared side stays cleared. `ISensorGrain.Describe` returns
   the Specification and each side's kind and effective value, or `null` for a Sensor that was never
-  declared. Nothing validates Thresholds yet, and no endpoint or read model shows a Sensor.
+  declared. Setting them is [Thresholds](#thresholds).
 - **A new quantity at a slot is a new Sensor**, because the Sensor ID changes. The old Sensor's stream
   is left as it is, and the Device's Sensor list holds only the Sensors of the last accepted set.
 - **Undeclared slots.** A Reading whose slot and quantity are not in the Device's Sensor list (sent
@@ -437,6 +439,31 @@ stored Readings newest first (`readingSeq`, `rawValue`, `measuredAt`), which are
 partitions of that window; `readings` is empty for a Sensor whose Specification has no Calibration. Each Sensor of
 the Lot detail's `sensors` also carries `sensorId` and `calibratable` (its Specification says `calibration: true`,
 read from the Sensor grain), so a client finds the Sensor to calibrate without another call.
+
+### Thresholds
+
+`GET` and `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` (Story 5.3; `GET` Member and up, `PUT`
+Administrator and up, so a Member reads and gets 403 on a change). The Sensor grain is the only validator and
+writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
+
+1. A side of the request is `{kind: default | override | cleared, value?}`; a side that is absent stays as it is,
+   and a body with neither side is 400 `validation`. `override` needs a value, `default` and `cleared` refuse one.
+2. `SensorGrain.SetThresholds` checks the **effective** values after the change (a side in `default` reads the
+   Specification's default). A Sensor is *alerting* exactly when its effective low exists, so: a high without a low
+   is refused, the low must be strictly below the high, an empty high is allowed and never alerts, and clearing both
+   sides leaves the Sensor watched only. A calibrating Sensor (`calibration: true`) takes and gives whole percent 0
+   to 100 whatever its Calibration (Threshold percentages never change on recalibration); any other Sensor takes
+   values within its Specification's range. A refusal journals nothing and is 400 `validation`.
+3. A change journals `sensor.thresholds-changed`, which Story 6.1 treats as a new evaluation epoch. A request that
+   leaves both sides as they are (the same kinds and overrides) journals nothing and still answers 200.
+   A Specification redeclaration never replaces an override or a cleared side.
+4. The API speaks display units (AD-14), the grain stores the Specification unit: `%` for a calibrating Sensor,
+   milli-°C to `°C`, milli-% to `%`, Ω to `kΩ`. The Edge refuses a written value finer than the stored unit (5.0004 °C), and a
+   fractional percent for a calibrating Sensor, and the grain refuses a value outside the range.
+5. `GET` answers `{unit, low: {kind, value?}, high: {kind, value?}, proposedLow?}`. `proposedLow` is
+   `Min + 20 % x (Max - Min)` of the Sensor's range (20 for a calibrating Sensor), integer arithmetic, only when the
+   Specification has no default low; there is never a proposed high. It is computed on read and never journaled
+   until an Administrator saves it as an override.
 
 ### Moving and unassigning a Node
 

@@ -120,6 +120,21 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             HttpStatusCode.NotFound,
             SensorNotFoundAsync);
 
+        // Thresholds (Story 5.3): a Member reads (404 here, the Sensor is unknown) but its PUT is a 403.
+        _samples["GET /sites/{siteId}/sensors/{sensorId}/thresholds"] = new(
+            (server, siteId, cancellationToken) =>
+                server.GetAsync(new Uri($"/sites/{siteId}/sensors/{Guid.NewGuid()}/thresholds", UriKind.Relative), cancellationToken),
+            HttpStatusCode.NotFound,
+            SensorNotFoundAsync);
+        _samples["PUT /sites/{siteId}/sensors/{sensorId}/thresholds"] = new(
+            async (server, siteId, cancellationToken) =>
+                await server.PutAsJsonAsync(
+                    new Uri($"/sites/{siteId}/sensors/{Guid.NewGuid()}/thresholds", UriKind.Relative),
+                    new { low = new { kind = "override", value = 25 } },
+                    cancellationToken),
+            HttpStatusCode.NotFound,
+            SensorNotFoundAsync);
+
         // Each call gets a fresh Lot of the Site it targets, so a removal never meets a removed Lot.
         _samples["GET /sites/{siteId}/lots/{lotId}"] = new(
             async (server, siteId, cancellationToken) =>

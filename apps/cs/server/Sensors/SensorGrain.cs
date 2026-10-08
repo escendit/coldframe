@@ -87,6 +87,32 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
                 : null);
 
     /// <inheritdoc />
+    public Task<SensorThresholds?> GetThresholds(CancellationToken cancellationToken = default) =>
+        Task.FromResult(CurrentThresholds());
+
+    /// <inheritdoc />
+    public async Task<SetSensorThresholdsResult> SetThresholds(SetSensorThresholds request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (State.Specification is not { } specification)
+        {
+            return new SetSensorThresholdsResult(SensorThresholdsOutcome.NotDeclared);
+        }
+
+        var change = ThresholdRules.Evaluate(specification, State.Low, State.High, request.Low, request.High);
+
+        // A refusal and a request that changes nothing journal nothing: only a real change is a new evaluation epoch.
+        if (change.Outcome == SensorThresholdsOutcome.Changed)
+        {
+            RaiseEvent(new SensorThresholdsChanged(change.Low, change.High, Clock.GetUtcNow()));
+            await ConfirmEvents();
+        }
+
+        return new SetSensorThresholdsResult(change.Outcome, CurrentThresholds());
+    }
+
+    /// <inheritdoc />
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         await base.OnActivateAsync(cancellationToken);
@@ -201,6 +227,15 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
             }
         }
     }
+
+    private SensorThresholds? CurrentThresholds() =>
+        State.Specification is { } specification
+            ? new SensorThresholds(
+                specification,
+                new ThresholdSetting(State.Low.Kind, State.EffectiveLow),
+                new ThresholdSetting(State.High.Kind, State.EffectiveHigh),
+                ThresholdRules.ProposedLow(specification))
+            : null;
 
     private Task<SensorCalibrationResult> ResultAsync(bool delivered) =>
         Task.FromResult(new SensorCalibrationResult(

@@ -21,6 +21,8 @@ The REST contract, written before the code that serves it (AD-10):
 | `POST /sites/{siteId}/devices/{deviceId}/unassign` | `Administrator` | Story 4.9 |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.1 |
 | `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.2 |
+| `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | Story 5.3 |
+| `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` | `Administrator` | Story 5.3 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
@@ -98,6 +100,14 @@ is planned today.
   `{calibrated, calibrationId?, dry?, wet?, pendingDry?, pendingWet?, readings}`, where `readings` are the Sensor's
   recent stored Readings (`readingSeq`, `rawValue`, `measuredAt`), newest first. Each Lot detail Sensor carries
   `sensorId` and `calibratable` (its Specification says `calibration: true`).
+- **Thresholds.** `GET /sites/{siteId}/sensors/{sensorId}/thresholds` (Member, read-only) answers 200 `{unit, low:
+  {kind, value?}, high: {kind, value?}, proposedLow?}`: `kind` is `default`, `override` or `cleared`, `value` the
+  effective Threshold in the display unit (`%` for a calibrating Sensor, whole percent 0 to 100, otherwise `°C`, `%`
+  or `kΩ`), `proposedLow` `Min + 20 % x (Max - Min)` when the Specification has no default low (never a proposed
+  high). `PUT` (Administrator) takes `{low?, high?}` with sides `{kind, value?}` (an absent side stays) and answers
+  the same 200, also when nothing changed (then nothing is saved); 400 `validation` for a high without a low, a low
+  not below the high, a malformed side or a value out of range, 403 for a Member, 404 `sensor-not-found`. A saved
+  change starts a new evaluation epoch for Threshold Alerts.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

@@ -48,6 +48,28 @@ public interface ISensorGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("calibrate")]
     Task<SensorCalibrationResult> Calibrate(CalibrateSensor request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the Sensor's Thresholds with the low the Server proposes, or <see langword="null"/> when the Sensor
+    /// was never declared (Story 5.3).
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("get-thresholds")]
+    Task<SensorThresholds?> GetThresholds(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets one or both sides of the Sensor's Thresholds (Story 5.3, AD-19). The Sensor grain is the only
+    /// validator and writer. A side that is <see langword="null"/> stays as it is. On the effective values after
+    /// the change: a high needs a low (a Sensor alerts exactly when its effective low exists), the low must be
+    /// strictly below the high, and an empty high never alerts. A calibrating Sensor takes whole percent 0 to 100,
+    /// any other Sensor values within its Specification's range, in the Specification's unit. A change journals
+    /// <see cref="SensorThresholdsChanged"/>, a new evaluation epoch for Story 6.1; a request that leaves both
+    /// sides as they are, and a refusal, journal nothing.
+    /// </summary>
+    /// <param name="request">The sides to set.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-thresholds")]
+    Task<SetSensorThresholdsResult> SetThresholds(SetSensorThresholds request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -345,3 +367,87 @@ public sealed record SensorCalibrationResult(
     [property: Id(1)] SensorCalibration? Calibration = null,
     [property: Id(2)] long? PendingDryRaw = null,
     [property: Id(3)] long? PendingWetRaw = null);
+
+/// <summary>
+/// The Thresholds an Administrator sets; a side that is <see langword="null"/> stays as it is (Story 5.3).
+/// </summary>
+/// <param name="Low">The low side from now on: <see cref="ThresholdKind.Override"/> with a value, or a kind without one.</param>
+/// <param name="High">The high side from now on.</param>
+[GenerateSerializer]
+[Alias("coldframe.set-sensor-thresholds")]
+public sealed record SetSensorThresholds(
+    [property: Id(0)] ThresholdSetting? Low = null,
+    [property: Id(1)] ThresholdSetting? High = null);
+
+/// <summary>
+/// A Sensor's Thresholds as the grain holds them (Story 5.3).
+/// </summary>
+/// <param name="Specification">The Specification in force.</param>
+/// <param name="Low">The low side: its kind and effective value, in the Specification's unit (percent for a calibrating Sensor).</param>
+/// <param name="High">The high side: its kind and effective value.</param>
+/// <param name="ProposedLow">
+/// The low the Server proposes, or <see langword="null"/> when the Specification has a default low. It is
+/// <c>Min + 20 % x (Max - Min)</c> of the range (20 percent for a calibrating Sensor), a read-time convenience
+/// that is never journaled until an Administrator saves it. There is never a proposed high.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-thresholds")]
+public sealed record SensorThresholds(
+    [property: Id(0)] SensorSpecification Specification,
+    [property: Id(1)] ThresholdSetting Low,
+    [property: Id(2)] ThresholdSetting High,
+    [property: Id(3)] long? ProposedLow = null);
+
+/// <summary>
+/// How <see cref="ISensorGrain.SetThresholds"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.sensor-thresholds-outcome")]
+public enum SensorThresholdsOutcome
+{
+    /// <summary>
+    /// The Thresholds changed and <see cref="SensorThresholdsChanged"/> was journaled.
+    /// </summary>
+    Changed = 0,
+
+    /// <summary>
+    /// The request leaves both sides as they are. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Sensor was never declared. Nothing was journaled.
+    /// </summary>
+    NotDeclared = 2,
+
+    /// <summary>
+    /// A side is not <c>Default</c>, <c>Override</c> with a value or <c>Cleared</c>. Nothing was journaled.
+    /// </summary>
+    MalformedSide = 3,
+
+    /// <summary>
+    /// An override is outside 0 to 100 (a calibrating Sensor) or outside the Specification's range. Nothing was journaled.
+    /// </summary>
+    OutOfRange = 4,
+
+    /// <summary>
+    /// The Thresholds would have a high and no low. Nothing was journaled.
+    /// </summary>
+    LowRequired = 5,
+
+    /// <summary>
+    /// The low would not be strictly below the high. Nothing was journaled.
+    /// </summary>
+    LowNotBelowHigh = 6,
+}
+
+/// <summary>
+/// The result of <see cref="ISensorGrain.SetThresholds"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+/// <param name="Thresholds">The Thresholds in force after the call; <see langword="null"/> for a Sensor never declared.</param>
+[GenerateSerializer]
+[Alias("coldframe.set-sensor-thresholds-result")]
+public sealed record SetSensorThresholdsResult(
+    [property: Id(0)] SensorThresholdsOutcome Outcome,
+    [property: Id(1)] SensorThresholds? Thresholds = null);

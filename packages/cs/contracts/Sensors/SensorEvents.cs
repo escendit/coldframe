@@ -35,8 +35,9 @@ public sealed record SensorSpecificationChanged(
 
 /// <summary>
 /// The Sensor's Thresholds were set (AD-19): each side is <see cref="ThresholdKind.Default"/>,
-/// <see cref="ThresholdKind.Override"/> with its value, or <see cref="ThresholdKind.Cleared"/>. Setting
-/// Thresholds arrives with Story 5.3; until then only fixtures and tests write it.
+/// <see cref="ThresholdKind.Override"/> with its value, or <see cref="ThresholdKind.Cleared"/>. The Sensor
+/// grain journals it when an Administrator changes the Thresholds (Story 5.3) and only when a side really
+/// changes; Story 6.1 reads it as a new evaluation epoch.
 /// </summary>
 /// <param name="Low">The low side from now on.</param>
 /// <param name="High">The high side from now on.</param>

@@ -221,6 +221,41 @@ public sealed record CalibrationResponse(
     CalibrationPointResponse? PendingWet = null);
 
 /// <summary>
+/// One side of the body of <c>PUT /sites/{siteId}/sensors/{sensorId}/thresholds</c>.
+/// </summary>
+/// <param name="Kind"><c>default</c>, <c>override</c> or <c>cleared</c>.</param>
+/// <param name="Value">The value in display units; only with <c>override</c>.</param>
+public sealed record ThresholdSideRequest(string? Kind, decimal? Value = null);
+
+/// <summary>
+/// The body of <c>PUT /sites/{siteId}/sensors/{sensorId}/thresholds</c>: at least one side; a side that is
+/// absent stays as it is.
+/// </summary>
+/// <param name="Low">The low side.</param>
+/// <param name="High">The high side.</param>
+public sealed record SetThresholdsRequest(ThresholdSideRequest? Low, ThresholdSideRequest? High);
+
+/// <summary>
+/// One side of a Sensor's Thresholds as the Edge API returns it.
+/// </summary>
+/// <param name="Kind"><c>default</c>, <c>override</c> or <c>cleared</c>.</param>
+/// <param name="Value">The effective Threshold in display units; omitted when the side has none.</param>
+public sealed record ThresholdSideResponse(string Kind, decimal? Value = null);
+
+/// <summary>
+/// A Sensor's Thresholds as the Edge API returns them (Story 5.3).
+/// </summary>
+/// <param name="Unit">The display unit of every value: <c>%</c>, <c>°C</c>, <c>kΩ</c> or <c>raw</c>.</param>
+/// <param name="Low">The low side.</param>
+/// <param name="High">The high side.</param>
+/// <param name="ProposedLow">The low the Server proposes; omitted when the Specification has a default low. There is no proposed high.</param>
+public sealed record ThresholdsResponse(
+    string Unit,
+    ThresholdSideResponse Low,
+    ThresholdSideResponse High,
+    decimal? ProposedLow = null);
+
+/// <summary>
 /// A Device as the Edge API returns it.
 /// </summary>
 /// <param name="Id">The Device ID.</param>
@@ -391,6 +426,14 @@ public static partial class EdgeApi
 
         endpoints.MapGet("/sites/{siteId}/sensors/{sensorId}/calibration", GetSensorCalibrationAsync)
             .WithName("getSensorCalibration")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapGet("/sites/{siteId}/sensors/{sensorId}/thresholds", GetSensorThresholdsAsync)
+            .WithName("getSensorThresholds")
+            .RequireSiteRole(SiteRole.Member);
+
+        endpoints.MapPut("/sites/{siteId}/sensors/{sensorId}/thresholds", SetSensorThresholdsAsync)
+            .WithName("setSensorThresholds")
             .RequireSiteRole(SiteRole.Administrator);
 
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
@@ -1479,6 +1522,173 @@ public static partial class EdgeApi
             state.PendingDry,
             state.PendingWet));
     }
+
+    private static async Task<IResult> GetSensorThresholdsAsync(
+        string siteId,
+        string sensorId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        if (await FindSiteSensorAsync(siteId, sensorId, grains, httpContext.RequestAborted).ConfigureAwait(false) is not { } found
+            || await found.Grain.GetThresholds(httpContext.RequestAborted).ConfigureAwait(false) is not { } thresholds)
+        {
+            return SensorNotFound();
+        }
+
+        return TypedResults.Ok(ToThresholdsResponse(thresholds));
+    }
+
+    private static async Task<IResult> SetSensorThresholdsAsync(
+        string siteId,
+        string sensorId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<SetThresholdsRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (request is not { } body || (body.Low is null && body.High is null))
+        {
+            return InvalidThresholds("Send a JSON body with low and/or high, each {kind: default | override | cleared, value?}.");
+        }
+
+        if (await FindSiteSensorAsync(siteId, sensorId, grains, httpContext.RequestAborted).ConfigureAwait(false) is not { } found)
+        {
+            return SensorNotFound();
+        }
+
+        var specification = found.Snapshot.Specification;
+        if (!TryStoredSide(body.Low, specification, out var low) || !TryStoredSide(body.High, specification, out var high))
+        {
+            return InvalidThresholds(
+                specification.Calibration
+                    ? "A side is default, override with a whole percent from 0 to 100, or cleared. Nothing changed."
+                    : "A side is default, override with a value the Sensor can report, or cleared. Nothing changed.");
+        }
+
+        var result = await found.Grain
+            .SetThresholds(new SetSensorThresholds(low, high), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    /// <summary>
+    /// Maps the Sensor grain's answer to a Threshold change to the HTTP response: 200 with the Thresholds in force
+    /// (also when nothing changed), 404 <c>sensor-not-found</c> for a Sensor never declared, or 400
+    /// <c>validation</c> with what was wrong and that nothing changed.
+    /// </summary>
+    internal static IResult ToHttpResult(SetSensorThresholdsResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Outcome switch
+        {
+            SensorThresholdsOutcome.Changed or SensorThresholdsOutcome.Unchanged when result.Thresholds is { } thresholds =>
+                TypedResults.Ok(ToThresholdsResponse(thresholds)),
+            SensorThresholdsOutcome.NotDeclared => SensorNotFound(),
+            SensorThresholdsOutcome.MalformedSide => InvalidThresholds("A side is default, override with a value, or cleared. Nothing changed."),
+            SensorThresholdsOutcome.OutOfRange => InvalidThresholds("Choose a value the Sensor can report (a calibrating Sensor: a whole percent from 0 to 100). Nothing changed."),
+            SensorThresholdsOutcome.LowRequired => InvalidThresholds("A high Threshold needs a low one. Set a low or clear the high. Nothing changed."),
+            SensorThresholdsOutcome.LowNotBelowHigh => InvalidThresholds("Low must stay below high. Lower the low or raise the high. Nothing changed."),
+            _ => throw new InvalidOperationException($"Unexpected Threshold outcome {result.Outcome}."),
+        };
+    }
+
+    private static IResult InvalidThresholds(string detail) =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The Thresholds are not valid.",
+            detail);
+
+    // Display units to the Specification's unit (a calibrating Sensor: percent, whole). false when the side is unreadable.
+    private static bool TryStoredSide(ThresholdSideRequest? side, SensorSpecification specification, out ThresholdSetting? stored)
+    {
+        stored = null;
+        if (side is null)
+        {
+            return true;
+        }
+
+        ThresholdKind kind;
+        switch (side.Kind)
+        {
+            case "default":
+                kind = ThresholdKind.Default;
+                break;
+            case "override":
+                kind = ThresholdKind.Override;
+                break;
+            case "cleared":
+                kind = ThresholdKind.Cleared;
+                break;
+            default:
+                return false;
+        }
+
+        if (side.Value is not { } display)
+        {
+            stored = new ThresholdSetting(kind);
+            return true;
+        }
+
+        var factor = DisplayFactor(specification);
+        if (Math.Abs(display) > MaximumDisplayValue || (specification.Calibration && display != decimal.Truncate(display)))
+        {
+            return false;
+        }
+
+        // A value finer than the stored unit does not convert exactly: refused, never rounded.
+        var scaled = display * factor;
+        if (scaled != decimal.Truncate(scaled))
+        {
+            return false;
+        }
+
+        stored = new ThresholdSetting(kind, (long)scaled);
+        return true;
+    }
+
+    private const decimal MaximumDisplayValue = 1_000_000_000_000m;
+
+    // How many stored units make one display unit: a calibrating Sensor is percent already.
+    private static decimal DisplayFactor(SensorSpecification specification) =>
+        specification.Calibration ? 1m : specification.Unit switch
+        {
+            SensorUnit.MilliDegreeCelsius or SensorUnit.MilliPercent or SensorUnit.Ohm => 1000m,
+            _ => 1m,
+        };
+
+    private static string DisplayUnit(SensorSpecification specification) =>
+        specification.Calibration ? "%" : specification.Unit switch
+        {
+            SensorUnit.MilliDegreeCelsius => "°C",
+            SensorUnit.MilliPercent => "%",
+            SensorUnit.Ohm => "kΩ",
+            _ => "raw",
+        };
+
+    private static ThresholdsResponse ToThresholdsResponse(SensorThresholds thresholds)
+    {
+        var factor = DisplayFactor(thresholds.Specification);
+
+        // Dividing by a decimal with many places drops trailing zeros: 25 and not 25.000.
+        decimal? Shown(long? stored) => stored is { } value ? value / factor / 1.0000000000000000000000000000m : null;
+
+        return new ThresholdsResponse(
+            DisplayUnit(thresholds.Specification),
+            new ThresholdSideResponse(KindName(thresholds.Low.Kind), Shown(thresholds.Low.Value)),
+            new ThresholdSideResponse(KindName(thresholds.High.Kind), Shown(thresholds.High.Value)),
+            Shown(thresholds.ProposedLow));
+    }
+
+    private static string KindName(ThresholdKind kind) => kind switch
+    {
+        ThresholdKind.Default => "default",
+        ThresholdKind.Override => "override",
+        _ => "cleared",
+    };
 
     private static readonly TimeSpan CalibrationReadingWindow = TimeSpan.FromDays(2);
 
