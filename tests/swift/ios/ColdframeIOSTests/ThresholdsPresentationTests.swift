@@ -158,7 +158,8 @@ func thresholdEditorControls() throws {
 
   #expect(editor.showsAddHigh(try #require(editor.columns.first)))
   #expect(!editor.showsAddHigh(watched))
-  #expect(thresholds(columns: [withHigh]).showsClearHigh(thresholds(columns: [withHigh]).columns[0]))
+  let shown = thresholds(columns: [withHigh])
+  #expect(shown.showsClearHigh(shown.columns[0]))
   #expect(editor.alertsToggle(try #require(editor.columns.first)) == .thresholdsTurnOff)
   #expect(editor.alertsToggle(watched) == .thresholdsTurnOn)
   // The Server's proposal for a Sensor without a default, never a proposed high.
@@ -198,7 +199,9 @@ func thresholdActionsReachTheService() {
     func close() { calls.append("close") }
     func retry() { calls.append("retry") }
     func setLowText(sensorId: String, text: String) { calls.append("lowText \(sensorId) \(text)") }
-    func setHighText(sensorId: String, text: String) { calls.append("highText \(sensorId) \(text)") }
+    func setHighText(sensorId: String, text: String) {
+      calls.append("highText \(sensorId) \(text)")
+    }
     func setLow(sensorId: String, value: Double) { calls.append("low \(sensorId) \(value)") }
     func setHigh(sensorId: String, value: Double) { calls.append("high \(sensorId) \(value)") }
     func addHigh(sensorId: String) { calls.append("addHigh \(sensorId)") }

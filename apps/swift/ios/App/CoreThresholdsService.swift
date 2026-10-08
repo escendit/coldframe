@@ -47,7 +47,9 @@ final class CoreThresholdsService: ThresholdsService {
 
   func retry() { core.retry() }
 
-  func setLowText(sensorId: String, text: String) { core.setLowText(sensorId: sensorId, text: text) }
+  func setLowText(sensorId: String, text: String) {
+    core.setLowText(sensorId: sensorId, text: text)
+  }
 
   func setHighText(sensorId: String, text: String) {
     core.setHighText(sensorId: sensorId, text: text)

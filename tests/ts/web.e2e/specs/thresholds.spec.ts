@@ -123,7 +123,8 @@ test.describe('Thresholds in the app', () => {
       await largestText(page);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Thresholds for Tomatoes');
       await expect(page.locator('.cf-threshold__no-high').first()).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
+      // Nothing is edited yet, so there is nothing to save.
+      await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
       await axeClean(page, `Thresholds (${theme})`);
       await nothingClipped(page, `Thresholds (${theme})`);
       await expect(page).toHaveScreenshot(`thresholds-modal-${theme}.png`, { fullPage: true });

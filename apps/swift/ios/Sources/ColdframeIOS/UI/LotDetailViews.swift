@@ -474,7 +474,8 @@
         }
         drawing.stroke(
           Path(rect),
-          with: .color(palette.color(bar.belowLow ? ColorTokens.chartBarBelowLow : ColorTokens.chartBar)),
+          with: .color(
+            palette.color(bar.belowLow ? ColorTokens.chartBarBelowLow : ColorTokens.chartBar)),
           lineWidth: stroke)
       }
       if let band = chart.band {

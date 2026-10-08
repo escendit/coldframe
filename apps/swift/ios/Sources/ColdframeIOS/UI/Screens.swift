@@ -3,6 +3,21 @@
   import Foundation
   import SwiftUI
 
+  extension View {
+    /// A modal over the shell: full screen on iOS. `fullScreenCover` does not exist on macOS, where
+    /// the package is only built and rendered for tests, so a sheet stands in there.
+    @ViewBuilder
+    fileprivate func coverOrSheet<Content: View>(
+      isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+      #if os(iOS)
+        fullScreenCover(isPresented: isPresented, content: content)
+      #else
+        sheet(isPresented: isPresented, content: content)
+      #endif
+    }
+  }
+
   /// The Sign-in surface (UX-DR59, UX-DR60): the signature radial gradient behind a card with
   /// the Coldframe mark and SIGN IN. No Server field; the view holds no input (AD-23).
   public struct SignInView: View {
@@ -147,7 +162,8 @@
           GardenView(
             presentation: garden, lots: lots, actions: sitesActions, lotsActions: lotsActions,
             onAddHub: onAddHub, onAddNode: { onAddNode($0) }, onCalibrate: onCalibrate,
-            onSetThresholds: onSetThresholds, lotDetail: lotDetail, lotDetailActions: lotDetailActions,
+            onSetThresholds: onSetThresholds, lotDetail: lotDetail,
+            lotDetailActions: lotDetailActions,
             onOpenDevices: { selection.wrappedValue = .devices }
           )
         } else {
@@ -380,7 +396,7 @@
           lotDetailActions: lotDetailActions, selection: $tab
         )
         // Thresholds is a modal over the shell, so the open Lot detail stays and reads again once saved.
-        .fullScreenCover(
+        .coverOrSheet(
           isPresented: Binding(
             get: { thresholds.isOpen }, set: { if !$0 { thresholdsActions.close() } })
         ) {

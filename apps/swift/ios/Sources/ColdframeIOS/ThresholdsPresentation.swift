@@ -214,12 +214,13 @@ public struct ThresholdsPresentation: Equatable, Sendable {
       self.init(surface: .idle)
       return
     }
-    let count = [
+    let counts: [Int] = [
       sensorIds.count, quantities.count, units.count, lows.count, highs.count, originalLows.count,
       originalHighs.count, proposedLows.count, currents.count, steps.count, trackMins.count,
       trackMaxs.count, draggables.count, alerting.count, lowMustStayBelowHigh.count,
       lowRequired.count, offersProposal.count,
-    ].min() ?? 0
+    ]
+    let count = counts.min() ?? 0
     let columns: [ThresholdColumnPresentation] = (0..<count).compactMap { index in
       guard let quantity = SensorQuantityKind(rawValue: quantities[index]),
         let unit = SensorUnitKind(rawValue: units[index])
