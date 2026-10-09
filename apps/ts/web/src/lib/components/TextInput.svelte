@@ -6,7 +6,7 @@
     id: string;
     label: string;
     value?: string;
-    type?: 'text' | 'password' | 'email';
+    type?: 'text' | 'password' | 'email' | 'time';
     helper?: string;
     /** The reason the value is invalid; replaces the helper and marks the field invalid. */
     invalid?: string | null;

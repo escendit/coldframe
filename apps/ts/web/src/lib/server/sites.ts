@@ -97,7 +97,7 @@ export async function listSites(locals: Locals, dependencies: SitesDependencies 
   return 'ok' in result ? { ok: result.ok.sites } : result;
 }
 
-/** Creates a Site with the caller as Owner. The body is `{name}` only; the time zone stays here. */
+/** Creates a Site with the caller as Owner. The body is `{name}` only; the time zone is the User's and goes to their own settings. */
 export function createSite(locals: Locals, name: string, idempotencyKey: string, dependencies: SitesDependencies = {}): Promise<SitesResult<Site>> {
   return call(locals, dependencies, (client) =>
     client.POST('/sites', {

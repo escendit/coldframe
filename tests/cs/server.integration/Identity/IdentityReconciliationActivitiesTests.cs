@@ -101,6 +101,79 @@ public sealed class IdentityReconciliationActivitiesTests(IdentityCluster identi
     }
 
     [Fact]
+    public async Task EveryRunHandsTheSitesReminderCadenceToItsMembersWithTheMembership()
+    {
+        var (siteId, ownerId) = await CreateSiteAsync();
+
+        // The Site holds the cadence, but no member was handed it (a fan-out that never ran).
+        await identity.Site(siteId).SetReminderCadence(ReminderCadence.Every2Days, Ct);
+        Assert.Equal(ReminderCadence.Daily, (await identity.User(ownerId).GetSiteNotificationSettings(siteId, Ct)).ResolvedReminderCadence);
+
+        // A member who joins afterwards gets it with the Membership, and the Owner is repaired on the way.
+        var u = NewUserId();
+        identity.PhaseTwo.ConsoleAddMember(siteId, u, "member");
+        await RunAsync(MembershipEvent("CREATE", siteId, u));
+
+        Assert.Equal(ReminderCadence.Every2Days, (await identity.User(u).GetSiteNotificationSettings(siteId, Ct)).ResolvedReminderCadence);
+        Assert.Equal(ReminderCadence.Every2Days, (await identity.User(ownerId).GetSiteNotificationSettings(siteId, Ct)).ResolvedReminderCadence);
+        Assert.Equal(["user.site-membership-changed", "user.site-reminder-cadence-synced"], await identity.AliasesAsync($"user/{u}"));
+
+        // A duplicate delivery hands the same cadence again and journals nothing.
+        await RunAsync(MembershipEvent("CREATE", siteId, u));
+        Assert.Equal(2, (await identity.AliasesAsync($"user/{u}")).Count);
+    }
+
+    [Fact]
+    public async Task AMemberWhoLeavesLosesTheirMuteTheirCadenceAndTheSitesCadence()
+    {
+        var (siteId, _) = await CreateSiteAsync();
+        await identity.Site(siteId).SetReminderCadence(ReminderCadence.Every2Days, Ct);
+        var u = NewUserId();
+        identity.PhaseTwo.ConsoleAddMember(siteId, u, "member");
+        await RunAsync(MembershipEvent("CREATE", siteId, u));
+        await identity.User(u).SetSiteNotificationSettings(siteId, muted: true, ReminderCadence.Every2Days, Ct);
+
+        identity.PhaseTwo.ConsoleRemoveMember(siteId, u);
+        await RunAsync(MembershipEvent("DELETE", siteId, u));
+
+        Assert.Equal(
+            new UserSiteNotificationSettings(false, null, ReminderCadence.Daily),
+            await identity.User(u).GetSiteNotificationSettings(siteId, Ct));
+
+        // A later run does not hand a former member the cadence back.
+        await RunAsync(MembershipEvent("DELETE", siteId, u));
+        Assert.Equal(ReminderCadence.Daily, (await identity.User(u).GetSiteNotificationSettings(siteId, Ct)).ResolvedReminderCadence);
+    }
+
+    [Fact]
+    public async Task ADeletedSiteHandsNoMemberItsReminderCadence()
+    {
+        var (siteId, ownerId) = await CreateSiteAsync();
+        var u = NewUserId();
+        identity.PhaseTwo.ConsoleAddMember(siteId, u, "member");
+        await RunAsync(MembershipEvent("CREATE", siteId, u));
+        Assert.Equal(SiteReminderCadenceOutcome.Changed, (await identity.Site(siteId).SetReminderCadence(ReminderCadence.Every2Days, Ct)).Outcome);
+
+        identity.PhaseTwo.ConsoleDelete(siteId);
+        await RunAsync(OrganizationEvent("DELETE", $"orgs/{siteId}"));
+
+        // The deleted Site keeps its members and its cadence; neither reaches a User grain any more.
+        var settled = new UserSiteNotificationSettings(false, null, ReminderCadence.Daily);
+        Assert.Equal(settled, await identity.User(ownerId).GetSiteNotificationSettings(siteId, Ct));
+        Assert.Equal(settled, await identity.User(u).GetSiteNotificationSettings(siteId, Ct));
+        var owner = await identity.AliasesAsync($"user/{ownerId}");
+        var member = await identity.AliasesAsync($"user/{u}");
+        Assert.DoesNotContain("user.site-reminder-cadence-synced", owner);
+        Assert.DoesNotContain("user.site-reminder-cadence-synced", member);
+
+        // A second run adds no event to either User's stream.
+        await RunAsync(OrganizationEvent("DELETE", $"orgs/{siteId}"));
+
+        Assert.Equal(owner, await identity.AliasesAsync($"user/{ownerId}"));
+        Assert.Equal(member, await identity.AliasesAsync($"user/{u}"));
+    }
+
+    [Fact]
     public async Task ADeletedSiteLeavesEveryMembersSiteSet()
     {
         var (siteId, ownerId) = await CreateSiteAsync();

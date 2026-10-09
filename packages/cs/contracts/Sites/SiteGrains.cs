@@ -29,6 +29,59 @@ public interface IUserGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("sync-site-membership")]
     Task SyncSiteMembership(string siteId, SiteRole? role, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the User's own notification settings (Story 6.3): the Notification Window and the time zone.
+    /// A User without any change has the default window and no time zone. Journals nothing.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("get-notification-settings")]
+    Task<UserNotificationSettings> GetNotificationSettings(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes the User's own notification settings (Story 6.3). Each accepted change is one event; a value
+    /// that is already in force journals nothing. A chosen time zone always wins; a detected one is kept only
+    /// while the User has chosen none. A window that is not valid refuses the whole request.
+    /// </summary>
+    /// <param name="update">What to change; the time zones are already validated.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("update-notification-settings")]
+    Task<UpdateNotificationSettingsResult> UpdateNotificationSettings(UpdateNotificationSettings update, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the User's own notification settings for a Site (Story 6.3). Journals nothing.
+    /// </summary>
+    /// <param name="siteId">The Site ID.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("get-site-notification-settings")]
+    Task<UserSiteNotificationSettings> GetSiteNotificationSettings(string siteId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the User's own mute and Reminder cadence for a Site (Story 6.3). Each value that changes is one
+    /// event; a value already in force journals nothing. The caller has checked the Membership (the Edge
+    /// policy), so the grain does not ask for one.
+    /// </summary>
+    /// <param name="siteId">The Site ID.</param>
+    /// <param name="muted">Whether the User mutes the Site.</param>
+    /// <param name="reminderCadence">The User's own cadence; <see langword="null"/> to use the Site setting.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-site-notification-settings")]
+    Task<UserSiteNotificationSettings> SetSiteNotificationSettings(
+        string siteId,
+        bool muted,
+        ReminderCadence? reminderCadence,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records the Reminder cadence of a Site the User is a member of, as the Site grain holds it (Story 6.3).
+    /// Idempotent: journals only when the cadence differs from the one the User grain resolves for the Site
+    /// setting (<see cref="ReminderCadence.Daily"/> while it never heard of one).
+    /// </summary>
+    /// <param name="siteId">The Site ID.</param>
+    /// <param name="cadence">The Site's Reminder cadence.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("sync-site-reminder-cadence")]
+    Task SyncSiteReminderCadence(string siteId, ReminderCadence cadence, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -137,7 +190,202 @@ public interface ISiteGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("open-alerts")]
     Task<IReadOnlyList<SiteAlert>> OpenAlerts(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the Site's Reminder cadence (Story 6.3): <see cref="ReminderCadence.Daily"/> until it was
+    /// changed, <see langword="null"/> for a Site that is not <see cref="SiteLifecycle.Active"/>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("get-reminder-cadence")]
+    Task<ReminderCadence?> GetReminderCadence(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the Reminder cadence of an <see cref="SiteLifecycle.Active"/> Site (Story 6.3) and journals
+    /// <see cref="SiteReminderCadenceChanged"/>; the cadence already in force journals nothing. The result
+    /// names the members, because the Site grain never calls User grains: the caller hands them the cadence.
+    /// </summary>
+    /// <param name="cadence">The cadence.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-reminder-cadence")]
+    Task<SiteReminderCadenceResult> SetReminderCadence(ReminderCadence cadence, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// How often a Reminder repeats while a Threshold Alert stays open (Story 6.3). There is no "never".
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.reminder-cadence")]
+public enum ReminderCadence
+{
+    /// <summary>
+    /// Once per day: the default of a Site.
+    /// </summary>
+    Daily = 0,
+
+    /// <summary>
+    /// Every 2 days.
+    /// </summary>
+    Every2Days = 1,
+}
+
+/// <summary>
+/// A daily Notification Window as wall-clock minutes since midnight in the User's time zone (Story 6.3). It
+/// lies within one day: a window across midnight does not exist.
+/// </summary>
+/// <param name="FromMinutes">When the window opens, 0 to 1438.</param>
+/// <param name="ToMinutes">When the window closes, after <paramref name="FromMinutes"/>, at most 1439.</param>
+[GenerateSerializer]
+[Alias("coldframe.notification-window")]
+public sealed record NotificationWindow([property: Id(0)] int FromMinutes, [property: Id(1)] int ToMinutes)
+{
+    /// <summary>
+    /// The last minute of a day, 23:59.
+    /// </summary>
+    public const int LastMinute = (24 * 60) - 1;
+
+    /// <summary>
+    /// When a window closes that names only its start: 22:00.
+    /// </summary>
+    public const int DefaultToMinutes = 22 * 60;
+
+    /// <summary>
+    /// The window of a User who never changed it: 07:00 to 22:00.
+    /// </summary>
+    public static NotificationWindow Default { get; } = new(7 * 60, DefaultToMinutes);
+
+    /// <summary>
+    /// Whether both times are minutes of one day and the window opens before it closes.
+    /// </summary>
+    public bool IsValid => FromMinutes >= 0 && FromMinutes < ToMinutes && ToMinutes <= LastMinute;
+}
+
+/// <summary>
+/// A User's own notification settings (Story 6.3).
+/// </summary>
+/// <param name="Window">The Notification Window.</param>
+/// <param name="TimeZone">The IANA time zone the User chose, else the detected one, else <see langword="null"/>.</param>
+/// <param name="TimeZoneConfirmed">Whether the User chose <paramref name="TimeZone"/>.</param>
+[GenerateSerializer]
+[Alias("coldframe.user-notification-settings")]
+public sealed record UserNotificationSettings(
+    [property: Id(0)] NotificationWindow Window,
+    [property: Id(1)] string? TimeZone,
+    [property: Id(2)] bool TimeZoneConfirmed);
+
+/// <summary>
+/// A change to a User's own notification settings. A part that is <see langword="null"/> stays as it is.
+/// </summary>
+/// <param name="Window">The new Notification Window.</param>
+/// <param name="TimeZone">The IANA time zone the User chose.</param>
+/// <param name="DetectedTimeZone">The IANA time zone a device or browser reports.</param>
+[GenerateSerializer]
+[Alias("coldframe.update-notification-settings")]
+public sealed record UpdateNotificationSettings(
+    [property: Id(0)] NotificationWindow? Window = null,
+    [property: Id(1)] string? TimeZone = null,
+    [property: Id(2)] string? DetectedTimeZone = null);
+
+/// <summary>
+/// How a change to a User's notification settings ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.notification-settings-outcome")]
+public enum NotificationSettingsOutcome
+{
+    /// <summary>
+    /// At least one value changed and was journaled.
+    /// </summary>
+    Changed = 0,
+
+    /// <summary>
+    /// Every value was in force already. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The window does not open before it closes within one day. Nothing was journaled.
+    /// </summary>
+    InvalidWindow = 2,
+
+    /// <summary>
+    /// A time zone is empty or longer than <see cref="UserNotificationLimits.MaxTimeZoneLength"/>. Nothing was journaled.
+    /// </summary>
+    InvalidTimeZone = 3,
+}
+
+/// <summary>
+/// The limits of a User's notification settings.
+/// </summary>
+public static class UserNotificationLimits
+{
+    /// <summary>
+    /// The longest time zone ID.
+    /// </summary>
+    public const int MaxTimeZoneLength = 64;
+}
+
+/// <summary>
+/// The result of <see cref="IUserGrain.UpdateNotificationSettings"/>: the outcome and the settings in force.
+/// </summary>
+/// <param name="Outcome">How the change ended.</param>
+/// <param name="Settings">The settings in force afterwards.</param>
+[GenerateSerializer]
+[Alias("coldframe.update-notification-settings-result")]
+public sealed record UpdateNotificationSettingsResult(
+    [property: Id(0)] NotificationSettingsOutcome Outcome,
+    [property: Id(1)] UserNotificationSettings Settings);
+
+/// <summary>
+/// A User's own notification settings for one Site (Story 6.3).
+/// </summary>
+/// <param name="Muted">Whether the User muted the Site.</param>
+/// <param name="ReminderCadence">The User's own cadence; <see langword="null"/> when the User uses the Site setting.</param>
+/// <param name="ResolvedReminderCadence">
+/// The cadence the User grain reminds at: the User's own, else the Site's as the grain last heard it, else
+/// <see cref="Sites.ReminderCadence.Daily"/>.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.user-site-notification-settings")]
+public sealed record UserSiteNotificationSettings(
+    [property: Id(0)] bool Muted,
+    [property: Id(1)] ReminderCadence? ReminderCadence,
+    [property: Id(2)] ReminderCadence ResolvedReminderCadence);
+
+/// <summary>
+/// How a change of a Site's Reminder cadence ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.site-reminder-cadence-outcome")]
+public enum SiteReminderCadenceOutcome
+{
+    /// <summary>
+    /// The Site has the new cadence in its journal.
+    /// </summary>
+    Changed = 0,
+
+    /// <summary>
+    /// The Site already had the cadence. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>. Nothing changed.
+    /// </summary>
+    NotFound = 2,
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.SetReminderCadence"/>.
+/// </summary>
+/// <param name="Outcome">How the change ended.</param>
+/// <param name="Cadence">The Site's cadence afterwards.</param>
+/// <param name="Members">The User IDs of the Site's members, who are to be handed the cadence.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-reminder-cadence-result")]
+public sealed record SiteReminderCadenceResult(
+    [property: Id(0)] SiteReminderCadenceOutcome Outcome,
+    [property: Id(1)] ReminderCadence Cadence,
+    [property: Id(2)] IReadOnlyList<string> Members);
 
 /// <summary>
 /// How a Site creation ended.
@@ -253,13 +501,15 @@ public enum SiteReconciliationOutcome
 /// <param name="Lifecycle">The Site's lifecycle.</param>
 /// <param name="Members">Each member's Role, by User ID.</param>
 /// <param name="FormerMembers">The User IDs that held a Role on the Site and hold none now.</param>
+/// <param name="ReminderCadence">The Site's Reminder cadence, which every member's User grain is handed (Story 6.3).</param>
 [GenerateSerializer]
 [Alias("coldframe.site-reconciliation-result")]
 public sealed record SiteReconciliationResult(
     [property: Id(0)] SiteReconciliationOutcome Outcome,
     [property: Id(1)] SiteLifecycle Lifecycle,
     [property: Id(2)] IReadOnlyDictionary<string, SiteRole> Members,
-    [property: Id(3)] IReadOnlyList<string> FormerMembers);
+    [property: Id(3)] IReadOnlyList<string> FormerMembers,
+    [property: Id(4)] ReminderCadence ReminderCadence = ReminderCadence.Daily);
 
 /// <summary>
 /// What a Keycloak event says about an Organization.

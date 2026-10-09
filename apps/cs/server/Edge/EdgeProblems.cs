@@ -94,6 +94,12 @@ public static class EdgeProblems
     public const string CalibrationNotDelivered = "urn:coldframe:problem:calibration-not-delivered";
 
     /// <summary>
+    /// 503: the Site holds its Reminder cadence, but not every member's User grain was handed it; the same
+    /// request again finishes it.
+    /// </summary>
+    public const string ReminderCadenceNotDelivered = "urn:coldframe:problem:reminder-cadence-not-delivered";
+
+    /// <summary>
     /// Creates the Problem Details of a type.
     /// </summary>
     public static ProblemDetails Create(int status, string type, string title, string? detail = null) =>

@@ -45,6 +45,34 @@
     }
 
     public static let none = SitesActions()
+
+    /// What the time-zone confirm panel asks, on Create Site.
+    var timeZone: TimeZoneActions {
+      TimeZoneActions(
+        confirm: confirmTimeZone, change: changeTimeZone, pick: pickTimeZone,
+        zones: availableTimeZones)
+    }
+  }
+
+  /// What the time-zone confirm panel asks of the core, on Create Site and on My notifications
+  /// alike.
+  @MainActor
+  public struct TimeZoneActions {
+    public var confirm: () -> Void
+    public var change: () -> Void
+    public var pick: (String) -> Void
+    /// Every IANA zone ID, for Change.
+    public var zones: () -> [String]
+
+    public init(
+      confirm: @escaping () -> Void = {}, change: @escaping () -> Void = {},
+      pick: @escaping (String) -> Void = { _ in }, zones: @escaping () -> [String] = { [] }
+    ) {
+      self.confirm = confirm
+      self.change = change
+      self.pick = pick
+      self.zones = zones
+    }
   }
 
   /// The Sites could not be read: the notice, with Try again unless it is a certificate failure.
@@ -97,7 +125,7 @@
               value: Binding(get: { presentation.name }, set: { actions.setName($0) }),
               helper: presentation.nameError == nil ? L10n.createSiteNameHelper.string : nil,
               error: presentation.nameError?.message.string)
-            TimeZonePanel(presentation: presentation.timeZone, actions: actions)
+            TimeZonePanel(presentation: presentation.timeZone, actions: actions.timeZone)
             if let notice = presentation.notice {
               InlineNotice(
                 message: notice.createMessage, announcement: notice.announcement,
@@ -123,11 +151,13 @@
     }
   }
 
-  /// The time-zone confirm panel: a dashed `support-warning` box with Confirm and Change; Change
-  /// opens a searchable list of IANA zone IDs.
+  /// The time-zone confirm panel (UX-DR48, UX-DR61), on Create Site and on My notifications: a
+  /// dashed `support-warning` box with Confirm and Change; Change opens a searchable list of IANA
+  /// zone IDs. Without a zone to propose it says so and shows the list at once. While a choice
+  /// is on its way the buttons wait.
   struct TimeZonePanel: View {
     let presentation: TimeZonePanelPresentation
-    let actions: SitesActions
+    let actions: TimeZoneActions
     @State private var query = ""
     @Environment(\.palette) private var palette
 
@@ -135,19 +165,23 @@
       VStack(alignment: .leading, spacing: Spacing.step4) {
         L10n.timeZoneLegend.text.role(Typography.body).foregroundStyle(palette.textSecondary)
           .accessibilityAddTraits(.isHeader)
-        Text(verbatim: presentation.sentence.string(presentation.zone))
+        Text(verbatim: presentation.sentenceCopy.string)
           .role(Typography.bodyLg).foregroundStyle(palette.textPrimary)
           .fixedSize(horizontal: false, vertical: true)
         L10n.timeZoneHelper.text.role(Typography.helper).foregroundStyle(palette.textHelper)
           .fixedSize(horizontal: false, vertical: true)
-        if presentation.changing {
+        if presentation.showsList {
           zoneList
         } else {
           HStack(spacing: Spacing.step3) {
             if presentation.showsConfirm {
-              PrimaryButton(.timeZoneConfirm, variant: .secondary, action: actions.confirmTimeZone)
+              PrimaryButton(
+                .timeZoneConfirm, variant: .secondary, isEnabled: !presentation.working,
+                action: actions.confirm)
             }
-            PrimaryButton(.timeZoneChange, variant: .ghost, action: actions.changeTimeZone)
+            PrimaryButton(
+              .timeZoneChange, variant: .ghost, isEnabled: !presentation.working,
+              action: actions.change)
           }
         }
       }
@@ -160,7 +194,7 @@
     }
 
     private var zoneList: some View {
-      let matches = TimeZonePanelPresentation.filter(actions.availableTimeZones(), query: query)
+      let matches = TimeZonePanelPresentation.filter(actions.zones(), query: query)
       return VStack(alignment: .leading, spacing: Spacing.step3) {
         TextInputField(
           label: L10n.timeZoneFilter.string, value: $query,
@@ -171,13 +205,14 @@
         LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(matches, id: \.self) { zone in
             Button {
-              actions.pickTimeZone(zone)
+              actions.pick(zone)
             } label: {
               Text(verbatim: zone).role(Typography.bodyLg).foregroundStyle(palette.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: TouchTarget.minimum, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(presentation.working)
             .overlay(alignment: .bottom) {
               Rectangle().fill(palette.borderSubtle).frame(height: 1)
             }

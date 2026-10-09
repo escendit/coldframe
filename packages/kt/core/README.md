@@ -150,5 +150,48 @@ Devices). A kind this app does not know, and a Threshold Alert without a side or
 know, is a Health row with `help`. An Alert carries no value and no Threshold (DW-88). For Swift, `IosAlerts`
 (`IosSignIn.alerts`) observes a flat `AlertsSnapshot` of parallel `alert…` lists.
 
+**My notifications (Story 6.3).** `notifications/NotificationSettingsEngine` is My notifications over
+`GET`/`PATCH /me/notification-settings` and `GET`/`PUT /sites/{siteId}/notification-settings`
+(`NotificationSettingsApi`). It reads when the session becomes signed in and on every `load` (the shells call it
+on every entry of the surface), and follows the current Site; without one only the window and the time zone are
+read. Every value is the Server's.
+
+- **Notification Window.** `NotificationSettingsState.Ready.window` is what the Server holds, `draft` what the
+  control shows (`"HH:mm"`, 24 h). `setWindowFrom` / `setWindowTo` edit the draft, `saveWindow` sends both times.
+  `canSaveWindow` gates Save on "changed" and "starts before it ends" (`windowOutOfOrder`); the Server stays the
+  only validator.
+- **Time zone.** `NotificationTimeZone.detected` is the proposal: the device's zone, else the zone the Server
+  stored as detected, else none (the User picks from the list). `chosen` is the zone the User chose, as the Server
+  holds it; the confirm panel shows until there is one. `confirmTimeZone` and `pickTimeZone` send `timeZone`.
+- **Hand-over of the device zone (DW-23).** On the first read of a session, while the Server holds no chosen
+  zone: a zone kept in `DeviceChoices.timeZone` (`timeZone.chosen`, confirmed on Create Site) is sent as
+  `timeZone` and removed once the Server answered, a 400 included; it stays when the Server did not answer (no
+  response, a 5xx, a certificate failure) and the next read sends it. Without a kept zone the device's zone goes
+  as `detectedTimeZone`, unless the Server already holds that one. A zone chosen on the Server wins: the kept one
+  is dropped and nothing is sent. The kept zone is also removed at sign-out and on a 401 (`SitesEngine.forget`).
+  Create Site hands a confirmed or picked zone to this engine, which sends it as `timeZone`; `POST /sites` carries
+  no zone. The Create Site panel then names the zone the Server holds.
+- **Mute and my Reminder cadence.** `SiteNotificationSettings` of the current Site: `muted`, `reminderCadence`
+  (`null` is "Use Site setting") and `siteReminderCadence` for the helper. Every `PUT` carries both values,
+  because the Server reads a missing cadence as "use Site setting".
+- **Changes.** The switch and the segmented choice apply at once and the window has Save. One change is sent at a
+  time, and the state already shows it (`working`). A change that was not saved puts its control back at the
+  Server's value with a `NotificationSettingsNotice` and its `NotificationControl`; `retry` sends it again when
+  the notice has `tryAgain`. A 401 ends the session. A failed load is `Failed` with its notice.
+
+**Site Reminder cadence (Story 6.3).** `lots/LotsEngine` carries it for Site settings over
+`GET`/`PUT /sites/{siteId}/reminder-cadence` (`SiteReminderCadenceApi`): `LotsState.Ready.reminderCadence`
+(`SiteReminderCadence`: the Server's `value`, `null` until it is read, and a `pending` pick). It is read with
+every read of the Lots and never kept on the device. `SiteSettings.canSetReminderCadence` is true for an Owner or
+Administrator; `setReminderCadence` shows the pick at once and puts the Server's value back when it was not saved,
+with `LotsNoticeKind.ReminderCadenceNotSaved` and `retryReminderCadence`, which sends the same pick again. After a
+503 `reminder-cadence-not-delivered` the Site holds the pick, so the control keeps showing it with the same notice,
+and Try again repairs a cadence that reached only some members.
+
+For Swift, `IosNotificationSettings` (`IosSignIn.notifications`) observes a flat `NotificationSettingsSnapshot`,
+and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetReminderCadence` and
+`actionNoticeTryAgain` with `IosLots.setReminderCadence` / `retryReminderCadence`.
+
 Absent until later epics: no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7), no Health
-Alert is produced by the Server (Epic 7), and no notification, Reminder or live update (Stories 6.3 to 6.6).
+Alert is produced by the Server (Epic 7), and no delivery, Reminder scheduling, push token, permission prompt or
+live update (Stories 6.4 to 6.6).

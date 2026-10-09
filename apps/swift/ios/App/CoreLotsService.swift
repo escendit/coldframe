@@ -61,6 +61,10 @@ final class CoreLotsService: LotsService {
       removeWorking: snapshot.removeWorking,
       actionNotice: snapshot.actionNotice,
       actionNoticeSubject: snapshot.actionNoticeSubject,
+      actionNoticeTryAgain: snapshot.actionNoticeTryAgain,
+      canSetReminderCadence: snapshot.canSetReminderCadence,
+      reminderCadence: snapshot.reminderCadence,
+      reminderCadenceWorking: snapshot.reminderCadenceWorking,
       stale: snapshot.stale, refreshing: snapshot.refreshing,
       fetchedAtEpochMs: snapshot.fetchedAtEpochMs,
       staleAgeDays: Int(snapshot.staleAgeDays), staleAgeHours: Int(snapshot.staleAgeHours),
@@ -107,4 +111,10 @@ final class CoreLotsService: LotsService {
   func confirmRemove() { core.confirmRemove() }
 
   func cancelRemove() { core.cancelRemove() }
+
+  func setReminderCadence(_ cadence: ReminderCadenceKind) {
+    core.setReminderCadence(cadence: cadence.rawValue)
+  }
+
+  func retryReminderCadence() { core.retryReminderCadence() }
 }

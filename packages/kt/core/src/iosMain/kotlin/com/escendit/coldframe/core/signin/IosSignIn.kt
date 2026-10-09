@@ -6,6 +6,7 @@ import com.escendit.coldframe.core.calibrate.IosCalibrate
 import com.escendit.coldframe.core.devices.IosDevices
 import com.escendit.coldframe.core.lots.IosLotDetail
 import com.escendit.coldframe.core.lots.IosLots
+import com.escendit.coldframe.core.notifications.IosNotificationSettings
 import com.escendit.coldframe.core.setup.IosHubSetup
 import com.escendit.coldframe.core.setup.IosNodeSetup
 import com.escendit.coldframe.core.setup.IosRadioState
@@ -56,7 +57,7 @@ public class IosSignIn private constructor(
     /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
     public val sites: IosSites = IosSites(sitesEngine, scope)
 
-    private val lotsEngine = SitesWiring.lots(api, sitesEngine, settings, scope)
+    private val lotsEngine = SitesWiring.lots(api, sitesEngine, settings, scope, cadence = api)
     private val lotDetailEngine = SitesWiring.lotDetail(api, sitesEngine, settings, scope)
     private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope)
     private val calibrateEngine = SitesWiring.calibrate(api, sitesEngine, scope)
@@ -67,6 +68,14 @@ public class IosSignIn private constructor(
 
     /** The Lots of the current Site and Site settings; reloads whenever the current Site changes. */
     public val lots: IosLots = IosLots(lotsEngine, scope)
+
+    /**
+     * My notifications: the Notification Window, the time zone, and the mute and my Reminder cadence of the
+     * current Site. It reads when the session starts and hands the device's zone to the Server; Swift calls
+     * `load` on every entry of the surface.
+     */
+    public val notifications: IosNotificationSettings =
+        IosNotificationSettings(SitesWiring.notifications(api, sitesEngine, engine, settings, scope), scope)
 
     /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history. */
     public val lotDetail: IosLotDetail = IosLotDetail(lotDetailEngine, scope)

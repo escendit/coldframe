@@ -1,6 +1,22 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FailingReads, FakeAlert, FakeCalibration, FakeCalibrationPost, FakeCalibrationReading, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, FakeThresholds, FakeThresholdsPut, Mode } from '../fixtures/fake-idp.ts';
+import type {
+  FailingReads,
+  FakeAlert,
+  FakeCalibration,
+  FakeCalibrationPost,
+  FakeCalibrationReading,
+  FakeDevice,
+  FakeDeviceAction,
+  FakeLot,
+  FakeNotificationsSeed,
+  FakeNotificationsState,
+  FakeSite,
+  FakeSitePost,
+  FakeThresholds,
+  FakeThresholdsPut,
+  Mode,
+} from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -77,6 +93,25 @@ export async function setAlerts(alerts: readonly FakeAlert[], alertsStatus: numb
 export async function alertReads(): Promise<number> {
   const response = await fetch(`${idpOrigin}/control/alerts`);
   return ((await response.json()) as { alertReads: number }).alertReads;
+}
+
+/**
+ * Seeds the fake Server's notification settings (the user's own, per Site, and the Sites' cadences) and the
+ * status its next write answers. A field left out is the default; `resetSites` resets them all.
+ */
+export async function setNotifications(seed: FakeNotificationsSeed = {}): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/notifications`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(seed),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** The fake Server's notification settings, and every write to them since they were last seeded. */
+export async function serverNotifications(): Promise<FakeNotificationsState> {
+  const response = await fetch(`${idpOrigin}/control/notifications`);
+  return (await response.json()) as FakeNotificationsState;
 }
 
 /** A new stored Reading of a Sensor arrives at the fake Server. */
@@ -156,7 +191,7 @@ export const copy = {
 } as const;
 
 /** Pages of this story, by path, that need a signed-in session. */
-export const shellPages = ['/garden', '/alerts', '/devices', '/members', '/settings', '/settings/site', '/settings/appearance', '/sites/new'] as const;
+export const shellPages = ['/garden', '/alerts', '/devices', '/members', '/settings', '/settings/notifications', '/settings/site', '/settings/appearance', '/sites/new'] as const;
 
 /** Sets the theme cookie for the app origin before a page loads. */
 export async function useTheme(page: Page, theme: 'light' | 'dark', origin: string): Promise<void> {

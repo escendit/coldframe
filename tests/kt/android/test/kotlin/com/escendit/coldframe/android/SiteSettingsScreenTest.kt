@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasNoClickAction
@@ -35,6 +37,8 @@ import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.RemoveLotConfirmation
 import com.escendit.coldframe.core.lots.RenameLotForm
 import com.escendit.coldframe.core.lots.SiteNameForm
+import com.escendit.coldframe.core.lots.SiteReminderCadence
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.NameError
 import com.escendit.coldframe.core.sites.SiteRole
@@ -70,6 +74,8 @@ class SiteSettingsScreenTest {
             askRemove = { calls += "askRemove $it" },
             confirmRemove = { calls += "confirmRemove" },
             cancelRemove = { calls += "cancelRemove" },
+            setReminderCadence = { calls += "cadence $it" },
+            retryReminderCadence = { calls += "retryCadence" },
         )
 
     private val tomatoes = LotSummary("lot-t", "Tomatoes", LotStatus.NoNode)
@@ -115,7 +121,7 @@ class SiteSettingsScreenTest {
     // Navigation
 
     @Test
-    fun `UX-DR74 Site settings is the first Settings row and names the current Site`() {
+    fun `UX-DR74 Site settings is a Settings row above Appearance and names the current Site`() {
         show(ready())
 
         compose.onNodeWithText("Settings").performClick()
@@ -301,6 +307,64 @@ class SiteSettingsScreenTest {
         for (control in listOf("RENAME SITE", "CREATE LOT", "RENAME LOT", "REMOVE LOT")) {
             compose.onAllNodesWithText(control).assertCountEquals(0)
         }
+    }
+
+    // Reminders (UX-DR50)
+
+    private fun withCadence(
+        role: SiteRole,
+        value: ReminderCadence? = ReminderCadence.Daily,
+        notice: LotsNotice? = null,
+    ) = ready(role, notice = notice).copy(reminderCadence = SiteReminderCadence(value))
+
+    @Test
+    fun `UX-DR50 an Owner and an Administrator pick the Site's Reminder cadence, Daily or Every 2 days`() {
+        openSiteSettings(withCadence(SiteRole.Administrator))
+
+        compose.onNode(isHeading().and(hasText("Reminders"))).assertExists()
+        compose.onNodeWithText("Reminder cadence").assertExists()
+        compose.onNodeWithText("DAILY").assertIsSelected()
+        compose.onNodeWithText("EVERY 2 DAYS").assertIsNotSelected()
+        compose.onAllNodesWithText("USE SITE SETTING").assertCountEquals(0)
+        compose.onAllNodesWithText("NEVER").assertCountEquals(0)
+
+        compose.onNodeWithText("EVERY 2 DAYS").performScrollTo().performClick()
+        assertEquals(listOf("cadence Every2Days"), calls)
+
+        lots =
+            withCadence(
+                SiteRole.Owner,
+            ).copy(reminderCadence = SiteReminderCadence(ReminderCadence.Daily, ReminderCadence.Every2Days))
+        compose.onNodeWithText("EVERY 2 DAYS").assertIsSelected()
+    }
+
+    @Test
+    fun `UX-DR84 UX-DR50 a Member sees the Site's Reminder cadence as text and no control`() {
+        openSiteSettings(withCadence(SiteRole.Member, ReminderCadence.Every2Days))
+
+        compose.onNode(isHeading().and(hasText("Reminders"))).assertExists()
+        compose.onNode(hasText("Every 2 days").and(hasNoClickAction())).assertExists()
+        compose.onAllNodesWithText("EVERY 2 DAYS").assertCountEquals(0)
+        compose.onAllNodesWithText("DAILY").assertCountEquals(0)
+        compose.onAllNodesWithText("Only Owners and Administrators can change Lots.").assertCountEquals(1)
+    }
+
+    @Test
+    fun `UX-DR50 until the Site's cadence is read there is no Reminders section`() {
+        openSiteSettings(withCadence(SiteRole.Owner, value = null))
+
+        compose.onAllNodesWithText("Reminders").assertCountEquals(0)
+        compose.onAllNodesWithText("DAILY").assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR50 a Site cadence that was not saved says so with Try again`() {
+        openSiteSettings(withCadence(SiteRole.Owner, notice = LotsNotice(LotsNoticeKind.ReminderCadenceNotSaved)))
+
+        compose.onNodeWithText("The Reminder cadence was not saved. Try again.").assertExists()
+        compose.onNodeWithText("DAILY").assertIsSelected()
+        compose.onNodeWithText("TRY AGAIN").performScrollTo().performClick()
+        assertEquals(listOf("retryCadence"), calls)
     }
 
     @Test

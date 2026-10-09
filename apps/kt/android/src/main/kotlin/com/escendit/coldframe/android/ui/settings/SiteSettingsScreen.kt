@@ -30,8 +30,11 @@ import com.escendit.coldframe.android.ui.components.ColdframeButton
 import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.components.PrimaryButton
+import com.escendit.coldframe.android.ui.components.Segment
+import com.escendit.coldframe.android.ui.components.SegmentedChoice
 import com.escendit.coldframe.android.ui.components.TextInput
 import com.escendit.coldframe.android.ui.components.styledText
+import com.escendit.coldframe.android.ui.notifications.label
 import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.loadMessage
 import com.escendit.coldframe.android.ui.sites.lotMessage
@@ -39,17 +42,20 @@ import com.escendit.coldframe.android.ui.sites.message
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.core.lots.LotSummary
+import com.escendit.coldframe.core.lots.LotsNoticeKind
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.RemoveLotConfirmation
 import com.escendit.coldframe.core.lots.RenameLotForm
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
 /**
- * Site settings (UX-DR74, UX-DR84): one surface for the Site name and its Lots. The Owner
- * renames the Site; Owners and Administrators create, rename (in a dialog) and remove (after a
- * dialog naming the Lot) Lots. Members see the name and the Lots read-only with one notice;
- * controls a Role cannot use are hidden, not disabled. Lots keep the Server's order.
+ * Site settings (UX-DR74, UX-DR84): one surface for the Site name, its Lots and its Reminders. The
+ * Owner renames the Site; Owners and Administrators create, rename (in a dialog) and remove (after
+ * a dialog naming the Lot) Lots and pick the Site's Reminder cadence (UX-DR50). Members see the
+ * name, the Lots and the cadence read-only with one notice; controls a Role cannot use are hidden,
+ * not disabled. Lots keep the Server's order.
  */
 @Composable
 fun SiteSettingsScreen(
@@ -97,7 +103,8 @@ private fun Ready(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(Spacing.GUTTER_MOBILE.dp),
         verticalArrangement = Arrangement.spacedBy(Spacing.STEP_6.dp),
     ) {
-        state.notice?.let { notice ->
+        // The Reminder cadence notice sits with its control, in Reminders.
+        state.notice?.takeIf { it.kind != LotsNoticeKind.ReminderCadenceNotSaved }?.let { notice ->
             InlineNotice(
                 message = stringResource(notice.kind.message(), notice.subject.orEmpty()),
                 announcement = Announcement.Assertive,
@@ -156,9 +163,62 @@ private fun Ready(
             }
         }
         LotList(state.lots, editable = settings.canEditLots, actions = actions)
+        // Not known until the Server has answered: then there is nothing to show or to change.
+        state.reminderCadence.shown?.let { cadence ->
+            Reminders(cadence, editable = settings.canSetReminderCadence, state = state, actions = actions)
+        }
     }
     state.renaming?.let { RenameLotDialog(it, actions) }
     state.removing?.let { RemoveLotDialog(it, actions) }
+}
+
+/**
+ * Reminders (UX-DR50): the Site's Reminder cadence, "Daily" or "Every 2 days" and never "Never". An
+ * Owner or Administrator picks it and it applies at once; a Member reads it as text (UX-DR84).
+ */
+@Composable
+private fun Reminders(
+    cadence: ReminderCadence,
+    editable: Boolean,
+    state: LotsState.Ready,
+    actions: LotsActions,
+) {
+    val colors = Coldframe.colors
+    Text(
+        text = stringResource(R.string.site_settings_reminders),
+        style = Typography.section.textStyle(),
+        color = colors.textPrimary,
+        modifier = Modifier.semantics { heading() },
+    )
+    if (editable) {
+        SegmentedChoice(
+            label = stringResource(R.string.site_settings_reminder_cadence),
+            segments = ReminderCadence.entries.map { Segment(it, stringResource(it.label())) },
+            selected = cadence,
+            onSelect = actions.setReminderCadence,
+            helper = stringResource(R.string.site_settings_reminder_cadence_helper),
+        )
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.STEP_3.dp)) {
+            Text(
+                text = stringResource(R.string.site_settings_reminder_cadence),
+                style = Typography.body.textStyle(),
+                color = colors.textSecondary,
+            )
+            Text(
+                text = stringResource(cadence.label()),
+                style = Typography.bodyLg.textStyle(),
+                color = colors.textPrimary,
+            )
+        }
+    }
+    state.notice?.takeIf { it.kind == LotsNoticeKind.ReminderCadenceNotSaved }?.let { notice ->
+        InlineNotice(
+            message = stringResource(notice.kind.message()),
+            action = NoticeActionUi(stringResource(R.string.notice_try_again), actions.retryReminderCadence),
+            announcement = Announcement.Assertive,
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

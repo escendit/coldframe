@@ -3,7 +3,8 @@
  * the web app's flow — discovery, JWKS, authorize (auto-approve form), token with a PKCE S256
  * check and refresh, end-session — and doubles as the Coldframe Server: `/.well-known/healthz`
  * and an in-memory Site and Lot API (`GET`/`POST /sites`, `PATCH /sites/{id}`, the
- * `/sites/{id}/lots` routes) plus the Devices list (`GET /sites/{id}/devices`). Control endpoints
+ * `/sites/{id}/lots` routes) plus the Devices list (`GET /sites/{id}/devices`) and the notification
+ * settings (`/me/notification-settings`, `/sites/{id}/notification-settings`, `/sites/{id}/reminder-cadence`). Control endpoints
  * switch failure modes, list every token it issued, and reset or seed the Sites, Lots (a Lot can
  * be seeded as holding a Node, or with a whole status as the Server would compute it) and Devices
  * (the list can be seeded to fail). `POST /control/reads` makes the Sites and Lots reads fail
@@ -145,6 +146,79 @@ export interface FakeThresholdsPut {
   readonly body: unknown;
 }
 
+/** The caller's own notification settings, as `GET /me/notification-settings` returns them (Story 6.3). */
+export interface FakeNotificationSettings {
+  readonly window: { readonly from: string; readonly to: string };
+  readonly timeZone?: string;
+  readonly timeZoneConfirmed: boolean;
+}
+
+export type FakeReminderCadence = 'daily' | 'every2Days';
+
+/** The caller's own settings for one Site; a Site without an entry is not muted and uses the Site setting. */
+export interface FakeSiteNotificationSettings {
+  readonly siteId: string;
+  readonly muted: boolean;
+  readonly reminderCadence?: FakeReminderCadence;
+}
+
+/** A Site's Reminder cadence; a Site without an entry is daily. */
+export interface FakeSiteCadence {
+  readonly siteId: string;
+  readonly cadence: FakeReminderCadence;
+}
+
+/** One write to a notification-settings route the fake Server received. */
+export interface FakeNotificationWrite {
+  readonly method: string;
+  readonly path: string;
+  readonly body: unknown;
+}
+
+/** The status the next write to each resource answers instead of saving; then it answers again. */
+export interface FakeNotificationFailures {
+  readonly mine?: number;
+  readonly site?: number;
+  readonly cadence?: number;
+}
+
+/** What `POST /control/notifications` seeds; a field left out goes back to its default. */
+export interface FakeNotificationsSeed {
+  readonly settings?: FakeNotificationSettings;
+  readonly siteSettings?: readonly FakeSiteNotificationSettings[];
+  readonly cadences?: readonly FakeSiteCadence[];
+  readonly failNext?: FakeNotificationFailures;
+}
+
+/** What `GET /control/notifications` answers. */
+export interface FakeNotificationsState {
+  readonly settings: FakeNotificationSettings;
+  readonly siteSettings: readonly FakeSiteNotificationSettings[];
+  readonly cadences: readonly FakeSiteCadence[];
+  readonly writes: readonly FakeNotificationWrite[];
+}
+
+const defaultNotificationSettings: FakeNotificationSettings = { window: { from: '07:00', to: '22:00' }, timeZoneConfirmed: false };
+
+const wallClock = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/u;
+
+function isCadence(value: unknown): value is FakeReminderCadence {
+  return value === 'daily' || value === 'every2Days';
+}
+
+/** True for an IANA zone this runtime knows, as the Server checks the zones it is sent. */
+function knownZone(value: unknown): value is string {
+  if (typeof value !== 'string' || value === '' || value.length > 64) {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Which reads of the fake Server fail: none, the Sites and the Lots, or the Lots only. */
 export type FailingReads = 'none' | 'all' | 'lots';
 
@@ -276,6 +350,12 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let alertsStatus: number | null = null;
   /** How many times the Alerts of any Site were asked for since the last reset. */
   let alertReads = 0;
+  /** Story 6.3: the one user's notification settings, per-Site settings and the Sites' cadences. */
+  let notificationSettings: FakeNotificationSettings = defaultNotificationSettings;
+  let siteNotificationSettings: FakeSiteNotificationSettings[] = [];
+  let siteCadences: FakeSiteCadence[] = [];
+  let notificationWrites: FakeNotificationWrite[] = [];
+  let notificationFailures: FakeNotificationFailures = {};
   /** Reads that drop the connection instead of answering. */
   let failing: FailingReads = 'none';
   /** How many times the Lots of any Site were asked for since the last reset. */
@@ -362,6 +442,11 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       alerts = [];
       alertsStatus = null;
       alertReads = 0;
+      notificationSettings = defaultNotificationSettings;
+      siteNotificationSettings = [];
+      siteCadences = [];
+      notificationWrites = [];
+      notificationFailures = {};
       failing = 'none';
       lotReads = 0;
       posts = [];
@@ -386,6 +471,22 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     }
     if (path === '/control/alerts') {
       send(response, 200, { alerts, alertReads });
+      return;
+    }
+    // Story 6.3: seeds the notification settings and the next failure of a write; `POST /control/sites` resets them.
+    if (path === '/control/notifications' && request.method === 'POST') {
+      const body = (await readJson(request)) as FakeNotificationsSeed;
+      notificationSettings = body.settings ?? defaultNotificationSettings;
+      siteNotificationSettings = [...(body.siteSettings ?? [])];
+      siteCadences = [...(body.cadences ?? [])];
+      notificationFailures = body.failNext ?? {};
+      notificationWrites = [];
+      send(response, 200, {});
+      return;
+    }
+    if (path === '/control/notifications') {
+      const state: FakeNotificationsState = { settings: notificationSettings, siteSettings: siteNotificationSettings, cadences: siteCadences, writes: notificationWrites };
+      send(response, 200, state);
       return;
     }
     // Story 5.2: a new stored Reading of a Sensor arrives, and the Lot's Sensors as the Lot detail shows them change.
@@ -768,6 +869,133 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
           : lot,
       );
       send(response, 200, viewOf(next));
+      return;
+    }
+
+    // Story 6.3: the caller's own Notification Window and time zone. The first path that names no Site.
+    if (path === '/me/notification-settings') {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      if (request.method === 'GET') {
+        send(response, 200, notificationSettings);
+        return;
+      }
+      const body = await readJson(request);
+      notificationWrites = [...notificationWrites, { method: 'PATCH', path, body }];
+      if (notificationFailures.mine !== undefined) {
+        const status = notificationFailures.mine;
+        notificationFailures = { ...notificationFailures, mine: undefined };
+        problem(response, status, 'unavailable');
+        return;
+      }
+      const window = body.window as { from?: unknown; to?: unknown } | undefined;
+      let next = notificationSettings;
+      if (window !== undefined) {
+        const from = window.from;
+        const to = window.to ?? '22:00';
+        if (typeof from !== 'string' || typeof to !== 'string' || !wallClock.test(from) || !wallClock.test(to) || from >= to) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        next = { ...next, window: { from, to } };
+      }
+      if (body.timeZone !== undefined) {
+        if (!knownZone(body.timeZone)) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        // The User's own choice always wins.
+        next = { ...next, timeZone: body.timeZone, timeZoneConfirmed: true };
+      }
+      if (body.detectedTimeZone !== undefined) {
+        if (!knownZone(body.detectedTimeZone)) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        // Kept only while the User has chosen none.
+        next = next.timeZoneConfirmed ? next : { ...next, timeZone: body.detectedTimeZone };
+      }
+      if (window === undefined && body.timeZone === undefined && body.detectedTimeZone === undefined) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      notificationSettings = next;
+      send(response, 200, notificationSettings);
+      return;
+    }
+
+    // Story 6.3: the caller's mute and cadence for a Site (Member), and the Site's cadence (Member reads, Administrator sets).
+    const notificationsMatch = /^\/sites\/([^/]+)\/(notification-settings|reminder-cadence)$/u.exec(path);
+    if (notificationsMatch !== null) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(notificationsMatch[1] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      const cadenceOf = (): FakeReminderCadence => siteCadences.find((entry) => entry.siteId === siteId)?.cadence ?? 'daily';
+      if (notificationsMatch[2] === 'reminder-cadence') {
+        if (request.method === 'GET') {
+          send(response, 200, { cadence: cadenceOf() });
+          return;
+        }
+        if (site.role === 'Member') {
+          problem(response, 403, 'forbidden');
+          return;
+        }
+        const body = await readJson(request);
+        notificationWrites = [...notificationWrites, { method: 'PUT', path, body }];
+        if (!isCadence(body.cadence)) {
+          problem(response, 400, 'validation');
+          return;
+        }
+        const failure = notificationFailures.cadence;
+        notificationFailures = { ...notificationFailures, cadence: undefined };
+        if (failure !== undefined && failure !== 503) {
+          problem(response, failure, 'unavailable');
+          return;
+        }
+        // The Site keeps the cadence even when a member was not reached (503): repeating the request repairs it.
+        siteCadences = [...siteCadences.filter((entry) => entry.siteId !== siteId), { siteId, cadence: body.cadence }];
+        if (failure === 503) {
+          problem(response, 503, 'reminder-cadence-not-delivered');
+          return;
+        }
+        send(response, 200, { cadence: body.cadence });
+        return;
+      }
+      const viewOf = (): Record<string, unknown> => {
+        const own = siteNotificationSettings.find((entry) => entry.siteId === siteId);
+        return { muted: own?.muted ?? false, ...(own?.reminderCadence === undefined ? {} : { reminderCadence: own.reminderCadence }), siteReminderCadence: cadenceOf() };
+      };
+      if (request.method === 'GET') {
+        send(response, 200, viewOf());
+        return;
+      }
+      const body = await readJson(request);
+      notificationWrites = [...notificationWrites, { method: 'PUT', path, body }];
+      if (notificationFailures.site !== undefined) {
+        const status = notificationFailures.site;
+        notificationFailures = { ...notificationFailures, site: undefined };
+        problem(response, status, 'unavailable');
+        return;
+      }
+      if (typeof body.muted !== 'boolean' || (body.reminderCadence !== undefined && !isCadence(body.reminderCadence))) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      // Both values are replaced: a missing cadence means "use the Site setting".
+      siteNotificationSettings = [
+        ...siteNotificationSettings.filter((entry) => entry.siteId !== siteId),
+        { siteId, muted: body.muted, ...(isCadence(body.reminderCadence) ? { reminderCadence: body.reminderCadence } : {}) },
+      ];
+      send(response, 200, viewOf());
       return;
     }
 

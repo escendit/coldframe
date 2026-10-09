@@ -40,7 +40,10 @@ import com.escendit.coldframe.core.lots.LotSummary
 import com.escendit.coldframe.core.lots.LotsOverview
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.SiteNameForm
+import com.escendit.coldframe.core.lots.SiteReminderCadence
 import com.escendit.coldframe.core.lots.StaleReason
+import com.escendit.coldframe.core.notifications.NotificationSettingsState
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
@@ -210,6 +213,90 @@ class SnapshotTest {
             ThemePreference.Light,
             siteSettings = true,
         )
+
+    // Story 6.3: My notifications, and the Reminders section of Site settings, in a window that holds the whole surface.
+
+    private fun notifications(
+        name: String,
+        state: NotificationSettingsState,
+        theme: ThemePreference,
+    ) {
+        compose.setContent {
+            AtFontScale(2f) {
+                ColdframeRoot(
+                    state = SignInState.SignedIn("Simon"),
+                    sites = readySites(),
+                    theme = theme,
+                    onSignIn = {},
+                    onSignOut = {},
+                    onSelectTheme = {},
+                    lots = lotsOf(SiteRole.Owner),
+                    notifications = state,
+                )
+            }
+        }
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("My notifications").performClick()
+        compose.onNode(isHeading().and(hasText("My notifications"))).assertExists()
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR72 UX-DR47 UX-DR49 UX-DR50 My notifications with a Site, zone not confirmed, light, font scale 2`() =
+        notifications("my-notifications-light", NotificationStates.unconfirmed, ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR72 UX-DR47 UX-DR49 UX-DR50 My notifications with a Site, zone not confirmed, dark, font scale 2`() =
+        notifications("my-notifications-dark", NotificationStates.unconfirmed, ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR72 UX-DR48 My notifications without a Site, zone confirmed, light, font scale 2`() =
+        notifications(
+            "my-notifications-no-site-light",
+            NotificationStates.confirmedWithoutSite,
+            ThemePreference.Light,
+        )
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR72 UX-DR48 My notifications without a Site, zone confirmed, dark, font scale 2`() =
+        notifications("my-notifications-no-site-dark", NotificationStates.confirmedWithoutSite, ThemePreference.Dark)
+
+    private fun reminders(
+        name: String,
+        role: SiteRole,
+        theme: ThemePreference,
+    ) = snapshot(
+        name,
+        readySites(homeSite(role)),
+        theme,
+        lots = lotsOf(role).copy(reminderCadence = SiteReminderCadence(ReminderCadence.Every2Days)),
+        siteSettings = true,
+    )
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR50 UX-DR74 Site settings with Reminders for an Owner, light, font scale 2`() =
+        reminders("site-settings-reminders-light", SiteRole.Owner, ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR50 UX-DR74 Site settings with Reminders for an Owner, dark, font scale 2`() =
+        reminders("site-settings-reminders-dark", SiteRole.Owner, ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR50 UX-DR84 Site settings with Reminders read-only for a Member, light, font scale 2`() =
+        reminders("site-settings-reminders-member-light", SiteRole.Member, ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR50 UX-DR84 Site settings with Reminders read-only for a Member, dark, font scale 2`() =
+        reminders("site-settings-reminders-member-dark", SiteRole.Member, ThemePreference.Dark)
 
     private val devicesNow = Instant.parse("2026-10-06T07:04:00Z")
     private val seenAt = Instant.parse("2026-10-06T07:02:00Z").toEpochMilli()
@@ -918,6 +1005,9 @@ class SnapshotTest {
 
         /** Lot detail in one column at font scale 2. */
         const val HUGE = "w411dp-h3600dp-mdpi"
+
+        /** My notifications, and Site settings down to its Reminders, at font scale 2. */
+        const val NOTIFICATIONS = "w411dp-h2600dp-mdpi"
     }
 
     // Thresholds (Story 5.4): the editor, a Member's read-only view and the failures, light and dark, font scale 2.

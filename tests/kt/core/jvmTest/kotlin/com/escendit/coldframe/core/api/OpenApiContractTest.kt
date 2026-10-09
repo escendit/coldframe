@@ -391,4 +391,112 @@ class OpenApiContractTest {
         assertNotNull(properties["moisturePercent"])
         assertNotNull(properties["lowThresholdPercent"])
     }
+
+    @Test
+    fun story63TheNotificationSettingsOperationsExistWithTheirMinimumRoles() {
+        val expected =
+            listOf(
+                Triple("/me/notification-settings", "get", "getMyNotificationSettings") to "Authenticated",
+                Triple("/me/notification-settings", "patch", "updateMyNotificationSettings") to "Authenticated",
+                Triple("/sites/{siteId}/notification-settings", "get", "getSiteNotificationSettings") to "Member",
+                Triple("/sites/{siteId}/notification-settings", "put", "setSiteNotificationSettings") to "Member",
+                Triple("/sites/{siteId}/reminder-cadence", "get", "getSiteReminderCadence") to "Member",
+                Triple("/sites/{siteId}/reminder-cadence", "put", "setSiteReminderCadence") to "Administrator",
+            )
+        for ((key, role) in expected) {
+            val (path, method, id) = key
+            val operation = operation(path, method)
+            assertEquals(id, operation["operationId"]!!.jsonPrimitive.content)
+            assertEquals(role, operation["x-coldframe-minimum-role"]!!.jsonPrimitive.content, id)
+            val parameters = if (operation["parameters"] == null) emptyList() else parameterNames(operation)
+            assertEquals(if (path.startsWith("/sites")) listOf("siteId") else emptyList(), parameters, id)
+            assertNotNull(operation["responses"]!!.jsonObject["200"], id)
+            assertNotNull(operation["responses"]!!.jsonObject["401"], id)
+        }
+        val setCadence = operation("/sites/{siteId}/reminder-cadence", "put")["responses"]!!.jsonObject
+        for (status in listOf(
+            "400",
+            "403",
+            "404",
+            "503",
+        )) {
+            assertNotNull(setCadence[status], "setSiteReminderCadence $status")
+        }
+        assertNotNull(operation("/me/notification-settings", "patch")["responses"]!!.jsonObject["400"])
+    }
+
+    @Test
+    fun story63TheNotificationSettingsDtosMirrorTheContractAndCarryEveryProperty() {
+        val mirrors =
+            listOf(
+                "NotificationSettings" to NotificationSettingsDto.serializer().descriptor,
+                "NotificationWindow" to NotificationWindowDto.serializer().descriptor,
+                "UpdateNotificationSettingsRequest" to UpdateNotificationSettingsRequestDto.serializer().descriptor,
+                "SiteNotificationSettings" to SiteNotificationSettingsDto.serializer().descriptor,
+                "SetSiteNotificationSettingsRequest" to SetSiteNotificationSettingsRequestDto.serializer().descriptor,
+                "SiteReminderCadence" to SiteReminderCadenceDto.serializer().descriptor,
+            )
+        for ((name, descriptor) in mirrors) {
+            assertMirrors(name, descriptor)
+            assertEquals(
+                schema(name)["properties"]!!.jsonObject.keys,
+                (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
+                name,
+            )
+        }
+    }
+
+    @Test
+    fun story63TheWindowOfAnUpdateRequiresOnlyFrom() {
+        val window =
+            schema("UpdateNotificationSettingsRequest")["properties"]!!
+                .jsonObject["window"]!!
+                .jsonObject
+        val descriptor = NotificationWindowRequestDto.serializer().descriptor
+        val names = (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }
+        assertEquals(window["properties"]!!.jsonObject.keys, names.toSet())
+        assertEquals(listOf("from"), window["required"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(
+            listOf("from"),
+            (0 until descriptor.elementsCount).filterNot { descriptor.isElementOptional(it) }.map { names[it] },
+        )
+    }
+
+    @Test
+    fun story63TheReminderCadencesAndTheNotDeliveredProblemAreTheContractValues() {
+        assertEquals(
+            com.escendit.coldframe.core.notifications.ReminderCadence.entries
+                .map { it.key },
+            schema("ReminderCadence")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        val types =
+            schema("ProblemDetails")["properties"]!!
+                .jsonObject["type"]!!
+                .jsonObject["x-extensible-enum"]!!
+                .jsonArray
+                .map { it.jsonPrimitive.content }
+        assertTrue(ColdframeApi.PROBLEM_REMINDER_CADENCE_NOT_DELIVERED in types)
+        val pattern =
+            schema("NotificationWindow")["properties"]!!
+                .jsonObject["from"]!!
+                .jsonObject["pattern"]!!
+                .jsonPrimitive.content
+        for (time in listOf("00:00", "07:00", "23:59")) {
+            assertTrue(Regex(pattern).matches(time), time)
+            assertNotNull(
+                com.escendit.coldframe.core.notifications.NotificationWindow
+                    .minutesOf(time),
+                time,
+            )
+        }
+        for (time in listOf("7:00", "24:00", "07:60")) {
+            assertTrue(!Regex(pattern).matches(time), time)
+            assertEquals(
+                null,
+                com.escendit.coldframe.core.notifications.NotificationWindow
+                    .minutesOf(time),
+                time,
+            )
+        }
+    }
 }

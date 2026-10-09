@@ -15,7 +15,14 @@
 
 <h1 class="cf-page-title">{t('settings.title')}</h1>
 
+<!-- Settings index: My notifications sits above Site settings (UX-DR72). -->
 <ul class="cf-settings">
+  <li>
+    <a class="cf-settings__row" href="/settings/notifications">
+      <span class="cf-settings__name">{t('settings.myNotifications')}</span>
+      <span class="cf-settings__helper">{t('settings.myNotificationsHelper')}</span>
+    </a>
+  </li>
   {#if data.currentSite !== null}
     <li>
       <a class="cf-settings__row" href="/settings/site">

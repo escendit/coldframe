@@ -66,6 +66,30 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         ["GET /sites/{siteId}/alerts"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/alerts", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),
+
+        // Notification settings (Story 6.3). The matrix Users' grains hold no Membership of the matrix Sites, so
+        // the per-Site settings must not ask the User grain for one: the policy is the only gate.
+        ["GET /me/notification-settings"] = new(
+            (server, _, cancellationToken) => server.GetAsync(new Uri("/me/notification-settings", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
+        ["PATCH /me/notification-settings"] = new(
+            (server, _, cancellationToken) =>
+                server.PatchAsJsonAsync(new Uri("/me/notification-settings", UriKind.Relative), new { window = new { from = "07:00" } }, cancellationToken),
+            HttpStatusCode.OK),
+        ["GET /sites/{siteId}/notification-settings"] = new(
+            (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/notification-settings", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
+        ["PUT /sites/{siteId}/notification-settings"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PutAsJsonAsync(new Uri($"/sites/{siteId}/notification-settings", UriKind.Relative), new { muted = true }, cancellationToken),
+            HttpStatusCode.OK),
+        ["GET /sites/{siteId}/reminder-cadence"] = new(
+            (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/reminder-cadence", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
+        ["PUT /sites/{siteId}/reminder-cadence"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PutAsJsonAsync(new Uri($"/sites/{siteId}/reminder-cadence", UriKind.Relative), new { cadence = "every2Days" }, cancellationToken),
+            HttpStatusCode.OK),
         ["GET /sites/{siteId}/lots"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/lots", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),

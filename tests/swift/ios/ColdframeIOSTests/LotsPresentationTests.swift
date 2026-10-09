@@ -16,7 +16,9 @@ private func lots(
   renamingLotId: String? = nil, renameDraft: String = "", renameError: String? = nil,
   renameWorking: Bool = false,
   removingLotId: String? = nil, removingLotName: String? = nil, removeWorking: Bool = false,
-  actionNotice: String? = nil, actionNoticeSubject: String? = nil
+  actionNotice: String? = nil, actionNoticeSubject: String? = nil,
+  actionNoticeTryAgain: Bool = false, canSetReminderCadence: Bool = true,
+  reminderCadence: String = "daily", reminderCadenceWorking: Bool = false
 ) -> LotsPresentation {
   LotsPresentation(
     surface: surface, notice: notice, siteId: siteId, siteName: siteName, role: role,
@@ -28,11 +30,15 @@ private func lots(
     renamingLotId: renamingLotId, renameDraft: renameDraft, renameError: renameError,
     renameWorking: renameWorking,
     removingLotId: removingLotId, removingLotName: removingLotName, removeWorking: removeWorking,
-    actionNotice: actionNotice, actionNoticeSubject: actionNoticeSubject)
+    actionNotice: actionNotice, actionNoticeSubject: actionNoticeSubject,
+    actionNoticeTryAgain: actionNoticeTryAgain, canSetReminderCadence: canSetReminderCadence,
+    reminderCadence: reminderCadence, reminderCadenceWorking: reminderCadenceWorking)
 }
 
 private func member() -> LotsPresentation {
-  lots(role: "member", canRenameSite: false, canEditLots: false, readOnlyNotice: true)
+  lots(
+    role: "member", canRenameSite: false, canEditLots: false, readOnlyNotice: true,
+    canSetReminderCadence: false)
 }
 
 @Test("UX-DR20 a failed Lot load replaces the grid with the Sites load notice")
@@ -198,4 +204,74 @@ func forbiddenRace() throws {
   #expect(
     try Catalogue.entries()["site_settings_forbidden"]
       == "You can't change this on %@. Ask an Owner or Administrator.")
+}
+
+@Test("UX-DR50 Site settings has Reminders: Owners and Administrators pick Daily or Every 2 days")
+func siteReminderCadence() throws {
+  let owner = try #require(lots().siteSettings?.reminders)
+  let admin = try #require(
+    lots(role: "administrator", canRenameSite: false, reminderCadence: "every2Days")
+      .siteSettings?.reminders)
+  let working = try #require(lots(reminderCadenceWorking: true).siteSettings?.reminders)
+
+  #expect(owner.canEdit)
+  #expect(owner.cadence == .daily)
+  #expect(owner.segments.map(\.value) == [.daily, .every2Days])
+  #expect(owner.segments.map(\.label) == [.remindersDaily, .remindersEvery2Days])
+  #expect(owner.segments.filter(\.isSelected).map(\.value) == [.daily])
+  #expect(admin.canEdit)
+  #expect(admin.segments.filter(\.isSelected).map(\.value) == [.every2Days])
+  #expect(working.working)
+  let entries = try Catalogue.entries()
+  #expect(entries["site_settings_reminders"] == "Reminders")
+  #expect(entries["site_settings_reminder_cadence"] == "Reminder cadence")
+  #expect(
+    entries["site_settings_reminder_cadence_helper"]
+      == "How often a Reminder repeats while a Threshold Alert stays open.")
+}
+
+@Test("UX-DR50 Reminders is absent until the Server has answered with a cadence this client knows")
+func siteReminderCadenceUnknown() {
+  #expect(lots(reminderCadence: "").siteSettings?.reminders == nil)
+  #expect(lots(reminderCadence: "never").siteSettings?.reminders == nil)
+  // The existing callers that say nothing about Reminders show none.
+  #expect(Overview.lots().siteSettings?.reminders == nil)
+}
+
+@Test("UX-DR84 a Member reads the Site Reminder cadence as text: the control is hidden")
+func memberReadsReminderCadence() throws {
+  let reminders = try #require(member().siteSettings?.reminders)
+
+  #expect(!reminders.canEdit)
+  #expect(reminders.cadence == .daily)
+  #expect(reminders.cadence.label == .remindersDaily)
+  #expect(member().siteSettings?.readOnlyNotice == .siteSettingsReadOnly)
+  let views = try Repo.text("apps/swift/ios/Sources/ColdframeIOS/UI/SiteSettingsViews.swift")
+  let drawn = try #require(
+    views.components(separatedBy: "private func reminders(").last?
+      .components(separatedBy: "private func row(").first)
+  #expect(drawn.contains("if reminders.canEdit {"))
+  #expect(!drawn.contains(".disabled("))
+}
+
+@Test("UX-DR50 a Site Reminder cadence that was not saved says so in Reminders, with Try again")
+func siteReminderCadenceNotSaved() throws {
+  let settings = try #require(
+    lots(actionNotice: "reminderCadenceNotSaved", actionNoticeTryAgain: true).siteSettings)
+  let claimed = try #require(
+    lots(actionNotice: "lotClaimed", actionNoticeSubject: "Tomatoes").siteSettings)
+
+  #expect(settings.notice == .reminderCadenceNotSaved)
+  #expect(settings.remindersNotice == .reminderCadenceNotSaved)
+  #expect(settings.remindersNoticeTryAgain)
+  // It sits with its control, not above the Lots.
+  #expect(settings.generalNotice == nil)
+  #expect(
+    LotsActionNoticeKind.reminderCadenceNotSaved.message == .siteSettingsReminderCadenceNotSaved)
+  #expect(!LotsActionNoticeKind.reminderCadenceNotSaved.takesSubject)
+  #expect(claimed.generalNotice == .lotClaimed)
+  #expect(claimed.remindersNotice == nil)
+  #expect(
+    try Catalogue.entries()["site_settings_reminder_cadence_not_saved"]
+      == "The Reminder cadence was not saved. Try again.")
 }

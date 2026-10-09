@@ -65,20 +65,26 @@ public enum NameErrorKind: String, CaseIterable, Sendable {
   }
 }
 
-/// The time-zone confirm panel (UX-DR61): the detected zone proposed with Confirm and Change;
-/// a zone the user confirmed or picked is named instead and never replaced by detection.
+/// The time-zone confirm panel (UX-DR48, UX-DR61), on Create Site and on My notifications: the
+/// detected zone proposed with Confirm and Change; a zone the user confirmed or picked is named
+/// instead and never replaced by detection. Without a zone to propose it says so and shows the
+/// list at once.
 public struct TimeZonePanelPresentation: Equatable, Sendable {
+  /// The proposal; empty when there is none.
   public let detected: String
   public let chosen: String?
   public let changing: Bool
+  /// A choice is on its way to the Server: the buttons wait.
+  public let working: Bool
 
-  public init(detected: String, chosen: String?, changing: Bool) {
+  public init(detected: String, chosen: String?, changing: Bool, working: Bool = false) {
     self.detected = detected
     self.chosen = chosen
     self.changing = changing
+    self.working = working
   }
 
-  /// The zone the panel names.
+  /// The zone the panel names; empty when there is none to propose.
   public var zone: String { chosen ?? detected }
 
   public var isConfirmed: Bool { chosen != nil }
@@ -86,8 +92,16 @@ public struct TimeZonePanelPresentation: Equatable, Sendable {
   /// "Is your time zone …?" until confirmed, then "Your time zone is ….".
   public var sentence: L10n { isConfirmed ? .timeZoneChosen : .timeZoneQuestion }
 
-  /// Confirm shows only while the proposal waits for the user.
-  public var showsConfirm: Bool { !isConfirmed && !changing }
+  /// The sentence with its zone, or "Your time zone could not be detected. …" without one.
+  public var sentenceCopy: Copy {
+    zone.isEmpty ? Copy(.timeZoneUnknown) : Copy(sentence, .text(zone))
+  }
+
+  /// Confirm shows only while a proposal waits for the user.
+  public var showsConfirm: Bool { !isConfirmed && !changing && !zone.isEmpty }
+
+  /// The searchable list shows after Change, and at once when there is nothing to propose.
+  public var showsList: Bool { changing || zone.isEmpty }
 
   /// Zones whose ID contains every word of `query`, ignoring case and treating `_` and `/` as
   /// spaces; the OS order is kept.

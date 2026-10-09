@@ -2,7 +2,9 @@ import { fail, type ActionFailure } from '@sveltejs/kit';
 import type { Lot } from '@coldframe/api-client';
 import { checkLotName, type LotsNotice, type SiteSettingsAction, type SiteSettingsFailure, type SiteSettingsNotice, type SiteSettingsSuccess } from '$lib/lots';
 import { checkSiteName, type Site } from '$lib/sites';
+import { isReminderCadence, type ReminderCadence } from '$lib/notifications';
 import { newIdempotencyKey } from './create-site';
+import { getSiteReminderCadence, setSiteReminderCadence } from './notifications';
 import { createLot, listLots, removeLot, renameLot } from './lots';
 import { signedOutRedirect } from './shell';
 import { renameSite, type SitesDependencies, type SitesError } from './sites';
@@ -14,6 +16,9 @@ export interface SiteSettingsData {
   readonly lotsNotice: LotsNotice | null;
   /** The Idempotency-Key of the next Create Lot attempt; a new one on every load after success. */
   readonly createKey: string;
+  /** The Site's Reminder cadence; null without a Site or when it could not be read. */
+  readonly reminderCadence: ReminderCadence | null;
+  readonly reminderCadenceNotice: LotsNotice | null;
 }
 
 /**
@@ -38,8 +43,25 @@ export async function loadLots(
   return { lots: [], lotsNotice: result.error === 'unreachable' || result.error === 'certificate' ? result.error : 'unavailable' };
 }
 
+/** The Site's Reminder cadence (a Member may read it). A 401 signs out; any other failure is a notice in its place. */
+async function loadReminderCadence(locals: Locals, site: Site | null, dependencies: SitesDependencies): Promise<Pick<SiteSettingsData, 'reminderCadence' | 'reminderCadenceNotice'>> {
+  if (site === null) {
+    return { reminderCadence: null, reminderCadenceNotice: null };
+  }
+  const result = await getSiteReminderCadence(locals, site.id, dependencies);
+  if ('ok' in result) {
+    return isReminderCadence(result.ok.cadence) ? { reminderCadence: result.ok.cadence, reminderCadenceNotice: null } : { reminderCadence: null, reminderCadenceNotice: 'unavailable' };
+  }
+  if (result.error === 'unauthorized') {
+    signedOutRedirect();
+  }
+  return { reminderCadence: null, reminderCadenceNotice: result.error === 'unreachable' || result.error === 'certificate' ? result.error : 'unavailable' };
+}
+
+/** Site settings: the Lots and the Site's Reminder cadence, read at the same time. */
 export async function loadSiteSettings(locals: Locals, site: Site | null, dependencies: SitesDependencies = {}): Promise<SiteSettingsData> {
-  return { ...(await loadLots(locals, site, dependencies)), createKey: newIdempotencyKey() };
+  const [lots, cadence] = await Promise.all([loadLots(locals, site, dependencies), loadReminderCadence(locals, site, dependencies)]);
+  return { ...lots, ...cadence, createKey: newIdempotencyKey() };
 }
 
 function text(form: FormData, name: string): string {
@@ -61,7 +83,12 @@ function noticeOf(action: SiteSettingsAction, error: Exclude<SitesError, 'unauth
     case 'notFound':
       return action === 'renameLot' || action === 'removeLot' ? 'lotNotFound' : 'siteNotFound';
     case 'unavailable':
-      // Only a Site rename waits on Keycloak; for Lots a 503 is just an error from the Server.
+      // Only a Site rename waits on Keycloak; for Lots a 503 is just an error from the Server. For the
+      // Reminder cadence the contract's 503 is a save that did not reach every member: the Site holds the
+      // cadence, and sending it again repairs it.
+      if (action === 'setReminderCadence') {
+        return 'cadenceNotDelivered';
+      }
       return action === 'renameSite' ? 'unavailable' : 'unexpected';
     case 'unexpected':
       return 'unexpected';
@@ -78,6 +105,7 @@ const statusOf: Readonly<Record<SiteSettingsNotice, number>> = {
   unexpected: 502,
   unreachable: 502,
   certificate: 502,
+  cadenceNotDelivered: 503,
 };
 
 /**
@@ -95,13 +123,19 @@ export async function siteSettingsAction(
   const siteName = text(form, 'siteName');
   const lotId = action === 'renameLot' || action === 'removeLot' ? text(form, 'lotId') : null;
   const lotName = lotId === null ? null : text(form, 'lotName');
-  const name = action === 'removeLot' ? '' : text(form, 'name');
+  const cadence = action === 'setReminderCadence' ? text(form, 'cadence') : null;
+  const name = action === 'removeLot' || action === 'setReminderCadence' ? '' : text(form, 'name');
   const submittedKey = text(form, 'idempotencyKey');
   const idempotencyKey = action !== 'createLot' ? null : validKey.test(submittedKey) ? submittedKey : newIdempotencyKey();
   const failure = (status: number, fields: Partial<SiteSettingsFailure>): ActionFailure<SiteSettingsFailure> =>
-    fail(status, { action, lotId, name, nameError: null, notice: null, siteName, lotName, idempotencyKey, ...fields });
+    fail(status, { action, lotId, name, nameError: null, notice: null, siteName, lotName, idempotencyKey, cadence, ...fields });
 
-  if (action !== 'removeLot') {
+  if (action === 'setReminderCadence') {
+    // There is no "never" (UX-DR50): anything but the two cadences is not sent.
+    if (!isReminderCadence(cadence)) {
+      return failure(400, { notice: 'unexpected' });
+    }
+  } else if (action !== 'removeLot') {
     const nameError = action === 'renameSite' ? checkSiteName(name) : checkLotName(name);
     if (nameError !== null) {
       return failure(400, { nameError });
@@ -119,6 +153,8 @@ export async function siteSettingsAction(
         return renameLot(locals, siteId, lotId ?? '', trimmed, dependencies);
       case 'removeLot':
         return removeLot(locals, siteId, lotId ?? '', dependencies);
+      case 'setReminderCadence':
+        return setSiteReminderCadence(locals, siteId, isReminderCadence(cadence) ? cadence : 'daily', dependencies);
     }
   })();
 
@@ -129,7 +165,7 @@ export async function siteSettingsAction(
     return signedOutRedirect();
   }
   if (result.error === 'validation') {
-    return failure(400, { nameError: 'invalid' });
+    return action === 'setReminderCadence' ? failure(400, { notice: 'unexpected' }) : failure(400, { nameError: 'invalid' });
   }
   const notice = noticeOf(action, result.error);
   // A reused key gets a new one; every other failure retries with the same key.

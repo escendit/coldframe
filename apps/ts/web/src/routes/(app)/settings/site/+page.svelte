@@ -4,10 +4,13 @@
   import Button from '$lib/components/Button.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
   import Modal from '$lib/components/Modal.svelte';
+  import RetryNotice from '$lib/components/RetryNotice.svelte';
+  import SegmentedChoice from '$lib/components/SegmentedChoice.svelte';
   import TextInput from '$lib/components/TextInput.svelte';
   import { announce } from '$lib/announcer.svelte';
   import { t, type MessageKey } from '$lib/i18n';
   import { lotsNoticeOf, siteSettingsOf, type Lot, type SiteSettingsAction, type SiteSettingsFailure, type SiteSettingsNotice } from '$lib/lots';
+  import { cadenceLabel, isReminderCadence, reminderCadences } from '$lib/notifications';
   import type { NameError } from '$lib/sites';
   import type { PageProps } from './$types';
 
@@ -43,7 +46,25 @@
     createLot: 'siteSettings.createLotUnexpected',
     renameLot: 'siteSettings.renameLotUnexpected',
     removeLot: 'siteSettings.removeLotUnexpected',
+    setReminderCadence: 'siteSettings.setReminderCadenceUnexpected',
   };
+
+  /** Site Reminder cadence (UX-DR50): Daily or Every 2 days; there is no "never". */
+  const cadenceOptions = reminderCadences.map((cadence) => ({ value: cadence, label: t(cadenceLabel[cadence]) }));
+
+  /** Set when the Site cadence could not be read; only a certificate failure has no Try again. */
+  const cadenceNotice = $derived.by(() => {
+    switch (data.reminderCadenceNotice) {
+      case 'unreachable':
+        return { message: t('notice.unreachable'), tryAgain: true };
+      case 'certificate':
+        return { message: t('notice.certificate'), tryAgain: false };
+      case 'unavailable':
+        return { message: t('siteSettings.reminderCadenceUnavailable'), tryAgain: true };
+      default:
+        return null;
+    }
+  });
 
   function noticeText(action: SiteSettingsAction, notice: SiteSettingsNotice, siteName: string, lotName: string | null): string {
     const lot = lotName ?? '';
@@ -65,6 +86,7 @@
       case 'certificate':
         return t('notice.certificate');
       case 'unexpected':
+      case 'cadenceNotDelivered':
         return t(unexpected[action]);
     }
   }
@@ -164,6 +186,50 @@
     {:else}
       <p class="cf-site-settings__label">{t('createSite.name')}</p>
       <p class="cf-site-settings__value" data-site-name>{site.name}</p>
+    {/if}
+  </section>
+
+  <section class="cf-site-settings__section" aria-labelledby="cf-site-settings-reminders">
+    <h2 id="cf-site-settings-reminders" class="cf-section-title">{t('siteSettings.reminders')}</h2>
+    {#if cadenceNotice !== null}
+      <InlineNotice
+        id="cf-reminder-cadence-load-notice"
+        message={cadenceNotice.message}
+        action={cadenceNotice.tryAgain ? { label: t('notice.tryAgain'), href: '/settings/site', reload: true } : null}
+      />
+    {:else if data.reminderCadence !== null}
+      {#if access.canSetReminderCadence}
+        <!-- Applies at once: each segment submits. The value shown is always the Site's own: the loaded one, or
+             the pick itself after a 503 that saved it on the Site without reaching every member. -->
+        {@const cadenceHeld = failureOf('setReminderCadence')}
+        <form class="cf-site-settings__form" method="POST" action="?/setReminderCadence" use:enhance={submitting('setReminderCadence')}>
+          <input type="hidden" name="siteId" value={site.id} />
+          <input type="hidden" name="siteName" value={site.name} />
+          <SegmentedChoice
+            id="cf-site-cadence"
+            name="cadence"
+            label={t('siteSettings.reminderCadence')}
+            helper={t('siteSettings.reminderCadenceHelper')}
+            options={cadenceOptions}
+            value={cadenceHeld?.notice === 'cadenceNotDelivered' && isReminderCadence(cadenceHeld.cadence) ? cadenceHeld.cadence : data.reminderCadence}
+          />
+        </form>
+        {@const cadenceFailure = failureOf('setReminderCadence')}
+        {#if cadenceFailure !== null && cadenceFailure.notice !== null}
+          {@const message = noticeText('setReminderCadence', cadenceFailure.notice, cadenceFailure.siteName, null)}
+          <!-- Try again sends the same cadence: after a 503 that is what reaches the members it missed. -->
+          <RetryNotice
+            id="cf-reminder-cadence"
+            {message}
+            action={cadenceFailure.notice === 'unexpected' || cadenceFailure.notice === 'unreachable' || cadenceFailure.notice === 'cadenceNotDelivered' ? '?/setReminderCadence' : null}
+            fields={{ siteId: site.id, siteName: site.name, cadence: cadenceFailure.cadence ?? '' }}
+            submitting={submitting('setReminderCadence')}
+          />
+        {/if}
+      {:else}
+        <p class="cf-site-settings__label">{t('siteSettings.reminderCadence')}</p>
+        <p class="cf-site-settings__value" data-reminder-cadence>{t(cadenceLabel[data.reminderCadence])}</p>
+      {/if}
     {/if}
   </section>
 

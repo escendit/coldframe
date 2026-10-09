@@ -128,6 +128,12 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | A Sensor's Thresholds, read-only, with the proposed low (Story 5.3, see [Thresholds](#thresholds)) |
 | `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` | `Administrator` | Sets one or both sides of a Sensor's Thresholds: 200 with the Thresholds in force |
 | `GET /sites/{siteId}/alerts` | `Member` | A page of the Site's Alerts from the alerts projection (Story 6.2, see [The Alerts list](#the-alerts-list)): 200 `{alerts, openCount, nextCursor?}` |
+| `GET /me/notification-settings` | any authenticated User | The caller's Notification Window and time zone from the User grain (Story 6.3, see [Notification settings](#notification-settings)): 200 `{window: {from, to}, timeZone?, timeZoneConfirmed}` |
+| `PATCH /me/notification-settings` | any authenticated User | Changes the window, the chosen zone and/or the detected zone: 200 with the settings in force |
+| `GET /sites/{siteId}/notification-settings` | `Member` | The caller's own mute and Reminder cadence for the Site, with the Site's cadence: 200 `{muted, reminderCadence?, siteReminderCadence}` |
+| `PUT /sites/{siteId}/notification-settings` | `Member` | Sets the caller's own mute and Reminder cadence for the Site: 200 with the settings in force |
+| `GET /sites/{siteId}/reminder-cadence` | `Member` | The Site's Reminder cadence from the Site grain: 200 `{cadence}` |
+| `PUT /sites/{siteId}/reminder-cadence` | `Administrator` | Sets the Site's Reminder cadence and hands it to every member's User grain: 200 `{cadence}`, 503 `reminder-cadence-not-delivered` when a member was not reached |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 | `POST /device/ingest` | `Device` | A Hub relays sealed Node frames: `Device(hubId).AuthenticateRelay(…)`, then `Device(nodeId).Ingest(…)` per frame; 200 `{results: [{status, downlink?}]}` |
 
@@ -189,7 +195,9 @@ Everything lives in `server/Identity/Reconciliation/`.
 5. The activity then calls `SyncSiteMembership` on the User grain of every current and former member,
    with `null` for former members and for a deleted Site. It does so on every run, so a retry finishes a
    fan-out that was cut short. The Site grain never calls User grains, so nothing can deadlock with Create
-   Site.
+   Site. With the Membership every current member is handed the Site's Reminder cadence
+   (`SyncSiteReminderCadence`, [Notification settings](#notification-settings)); `null` for a former
+   member drops what that User had set for the Site.
 
 The event is only a trigger: duplicates, echoes of the Server's own writes and events out of order diff
 to nothing, and any later event on the Site repairs a lost one.
@@ -484,7 +492,8 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 ### Alerts
 
 A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Clients
-read them from [the Alerts list](#the-alerts-list) (Story 6.2); notifications are Stories 6.3 to 6.6. Three grains
+read them from [the Alerts list](#the-alerts-list) (Story 6.2); when a User may be notified is set in
+[Notification settings](#notification-settings) (Story 6.3), and delivery is Stories 6.4 to 6.6. Three grains
 take part, through grain calls and the journal only (AD-5):
 
 1. **The Device grain hands out Readings.** After a frame is committed (step 9 of `DeviceGrain.Ingest` in
@@ -588,6 +597,62 @@ quantity, lotId, lotName, deviceId, openedAt, closedAt?, reason?}`: no value, no
 
 The projector is not caught up inside the Alert grain: an Alert shows in the list after the next hint or poll
 (`JournalOptions.PollInterval`).
+
+### Notification settings
+
+Story 6.3 persists when Coldframe may notify a User; nothing is delivered before Story 6.4. There is no
+read model and no migration: the handlers read the grains, as for Thresholds.
+
+| Setting | Owner | Default | Event |
+| --- | --- | --- | --- |
+| Notification Window | `user/{sub}` | 07:00 to 22:00 | `user.notification-window-changed` `{fromMinutes, toMinutes, changedAt}` |
+| Time zone, detected | `user/{sub}` | none | `user.time-zone-detected` `{timeZone, detectedAt}` |
+| Time zone, chosen | `user/{sub}` | none | `user.time-zone-chosen` `{timeZone, chosenAt}` |
+| Mute, per Site | `user/{sub}` | not muted | `user.site-mute-changed` `{siteId, muted, changedAt}` |
+| My Reminder cadence, per Site | `user/{sub}` | unset (use the Site's) | `user.site-reminder-cadence-changed` `{siteId, cadence?, changedAt}` |
+| The Site's cadence as the User grain holds it | `user/{sub}` | none (reads as daily) | `user.site-reminder-cadence-synced` `{siteId, cadence}` |
+| The Site's Reminder cadence | `site/{id}` | `Daily` | `site.reminder-cadence-changed` `{cadence, changedAt}` |
+
+Every accepted change is one event on the grain that owns it, with the time from `Clock`; a value that is
+already in force journals nothing, and every write answers 200 with the state in force.
+
+- **Window.** `"HH:mm"` (24 h) in the contract, wall-clock minutes since midnight in the events
+  (`NotificationWindow`). `from` must be before `to` within one day: a window across midnight does not exist,
+  and `24:00` is no time. `to` omitted in a request means 22:00. `EdgeValidation.NormalizeNotificationWindow`
+  parses, and the User grain checks `NotificationWindow.IsValid` again.
+- **Time zone.** `timeZone` in a request is the User's own choice: it always wins, and only it sets
+  `timeZoneConfirmed`. `detectedTimeZone` is what a device or browser reports; it is journaled only while the
+  User has chosen none, the newest one replacing the last, and it never replaces a chosen zone. It gives
+  Story 6.4 a zone before the User confirms. A zone is an IANA ID the Server's tz database knows, written as
+  the database writes it, at most 64 characters (`TimeZoneProposal.IsKnown`:
+  `TimeZoneInfo.TryFindSystemTimeZoneById` with `HasIanaId`); a Windows ID is refused. The Server image
+  (`aspnet:10.0.12`, Ubuntu) ships `tzdata`.
+- **The proposal.** Detection only proposes. While no zone is chosen, `timeZone` in an answer is the first
+  known zone of: the `detectedTimeZone` of this request, the detected zone the User grain holds, and what
+  `IIpTimeZoneLookup` (`server/Notifications/`) finds for the caller's address
+  (`TimeZoneProposal.ResolveAsync`). The registered lookup, `NoIpTimeZoneLookup`, knows no zone: the Server
+  bundles no GeoIP database and calls no geolocation service, and on a home network an address says nothing.
+  A deployment that has a lookup registers its own `IIpTimeZoneLookup` before `AddEdgeApi()`. A looked-up
+  zone is never journaled. The clients put the device or browser zone first, so the whole order is device,
+  stored, IP, none (the User picks from the list).
+- **Per Site.** Mute, my cadence and the copy of the Site's cadence are kept per Site in the User grain and
+  are dropped by `user.site-membership-changed` with no Role. The Edge policy checks the Membership from the
+  identity projection; the User grain asks for none, because it may not have heard of one. For the same
+  reason `SyncSiteMembership(siteId, null)` journals the end of a Membership the grain never held when it
+  holds settings for that Site. Another User's stream is never touched.
+- **The Site's cadence** is its own resource on the Site grain (`ISiteGrain.GetReminderCadence`,
+  `SetReminderCadence`). `siteReminderCadence` in `/sites/{siteId}/notification-settings` is read from the
+  Site grain too, so a client never shows a stale copy.
+- **Fan-out without a cycle.** The Site grain never calls User grains. `PUT /sites/{siteId}/reminder-cadence`
+  goes through `SiteReminderCadenceFanOut.SetAsync` (`server/Notifications/`): it writes the Site grain,
+  which answers with its members, then calls `IUserGrain.SyncSiteReminderCadence` for each. It does so also
+  when the Site already had the cadence, so the same request again repairs a fan-out that failed halfway; a
+  member that could not be reached answers 503 `reminder-cadence-not-delivered` with the Site's cadence
+  saved. Reconciliation hands the cadence out as well (step 5 of
+  [Reconciliation from Keycloak](#reconciliation-from-keycloak)), which is how a new member gets it. A User
+  grain that never heard a cadence for a Site treats it as daily, so handing out `Daily` journals nothing.
+- **Resolution.** The User grain reminds at its own cadence for the Site, else the Site's as it was last
+  handed it, else daily (`UserSiteNotifications.ResolvedReminderCadence`). Story 6.4 reads it there.
 
 ### Moving and unassigning a Node
 

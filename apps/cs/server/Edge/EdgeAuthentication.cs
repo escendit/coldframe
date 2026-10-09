@@ -1,7 +1,9 @@
 using System.Text.Json.Serialization;
+using Coldframe.Server.Notifications;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Coldframe.Server.Edge;
 
@@ -58,6 +60,10 @@ public static class EdgeAuthentication
             ?? new EdgeIdentityOptions();
 
         builder.Services.AddProblemDetails();
+
+        // The last resort of time-zone detection (Story 6.3). The default knows no zone; a deployment that has
+        // a lookup registers it first.
+        builder.Services.TryAddSingleton<IIpTimeZoneLookup, NoIpTimeZoneLookup>();
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());

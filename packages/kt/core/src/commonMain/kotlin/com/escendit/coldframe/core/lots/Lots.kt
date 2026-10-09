@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.lots
 
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.sites.NameError
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SiteSummary
@@ -110,13 +111,15 @@ public sealed interface LotsEvent {
 
 /**
  * What a Role may do in Site settings (UX-DR74, UX-DR84): only an Owner renames the Site;
- * Owners and Administrators create, rename and remove Lots; a Member sees everything read-only
- * with one notice. Controls a Role cannot use are hidden, not disabled.
+ * Owners and Administrators create, rename and remove Lots and set the Site's Reminder cadence
+ * (UX-DR50); a Member sees everything read-only with one notice. Controls a Role cannot use are
+ * hidden, not disabled.
  */
 public data class SiteSettings(
     val canRenameSite: Boolean,
     val canEditLots: Boolean,
     val readOnlyNotice: Boolean,
+    val canSetReminderCadence: Boolean = canEditLots,
 ) {
     public companion object {
         public fun of(role: SiteRole): SiteSettings =
@@ -126,6 +129,20 @@ public data class SiteSettings(
                 readOnlyNotice = role == SiteRole.Member,
             )
     }
+}
+
+/**
+ * The Site's Reminder cadence in Site settings (UX-DR50). [value] is what the Server holds, `null`
+ * until it is read (the section then shows nothing). [pending] is a pick on its way: [shown]
+ * already names it, and it goes back to [value] when it was not saved.
+ */
+public data class SiteReminderCadence(
+    val value: ReminderCadence?,
+    val pending: ReminderCadence? = null,
+) {
+    val shown: ReminderCadence? get() = pending ?: value
+
+    val working: Boolean get() = pending != null
 }
 
 /** The Site name field in Site settings. */
@@ -177,9 +194,20 @@ public enum class LotsNoticeKind {
 
     /** 422 on Create Lot: nothing was created; the next attempt uses a new key. */
     KeyReused,
+
+    /**
+     * The Site's Reminder cadence was not saved, or was saved but did not reach every member (503
+     * `reminder-cadence-not-delivered`). The control is back at the Server's value; Try again sends
+     * the pick again, which also repairs a cadence that reached only some.
+     */
+    ReminderCadenceNotSaved,
     Unreachable,
     Certificate,
     Unexpected,
+    ;
+
+    /** Only the Reminder cadence notice carries Try again ([LotsEngine.retryReminderCadence]). */
+    public val tryAgain: Boolean get() = this == ReminderCadenceNotSaved
 }
 
 /** An Inline notice in Site settings; [subject] is the Site name for [LotsNoticeKind.Forbidden], the Lot name for [LotsNoticeKind.LotClaimed]. */
@@ -216,7 +244,7 @@ public sealed interface LotsState {
      *
      * [fetchedAtEpochMs] is the time of the last successful refresh ("as of", "Last data").
      * [staleReason] is set while the Lots are not live; [refreshing] while a read is on its way
-     * over the shown Lots.
+     * over the shown Lots. [reminderCadence] is the Site's Reminder cadence.
      */
     public data class Ready(
         val site: SiteSummary,
@@ -229,6 +257,7 @@ public sealed interface LotsState {
         val fetchedAtEpochMs: Long = 0,
         val staleReason: StaleReason? = null,
         val refreshing: Boolean = false,
+        val reminderCadence: SiteReminderCadence = SiteReminderCadence(null),
     ) : LotsState {
         val settings: SiteSettings get() = SiteSettings.of(site.role)
         val siteId: String get() = site.id

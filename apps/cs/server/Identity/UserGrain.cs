@@ -8,7 +8,9 @@ namespace Coldframe.Server.Identity;
 /// A User, keyed by the OIDC <c>sub</c>. Creates Sites idempotently per key (AD-3): it persists the
 /// request before calling Keycloak, creates the tagged Phase Two Organization, and hands the Site to
 /// its Site grain. It creates the Organization and writes nothing else to Keycloak (AD-1). It also holds
-/// the User's Role on each Site, as the Site grains report it.
+/// the User's Role on each Site, as the Site grains report it, and the User's notification settings
+/// (Story 6.3): the Notification Window, the time zone, and per Site the mute, the User's own Reminder
+/// cadence and a copy of the Site's.
 /// </summary>
 [GrainType("user")]
 public sealed partial class UserGrain(
@@ -96,13 +98,151 @@ public sealed partial class UserGrain(
 
         SiteRole? current = State.Sites.TryGetValue(siteId, out var held) ? held : null;
 
-        if (current == role)
+        // A User may hold settings for a Site whose Membership this grain never heard of (the Edge policy
+        // reads the projection): the end of the Membership is journaled then too, which drops them.
+        if (current == role && (role is not null || !State.SiteNotifications.ContainsKey(siteId)))
         {
             return;
         }
 
         RaiseEvent(new SiteMembershipChanged(siteId, role));
         await ConfirmEvents();
+    }
+
+    /// <inheritdoc />
+    public Task<UserNotificationSettings> GetNotificationSettings(CancellationToken cancellationToken = default) =>
+        Task.FromResult(Settings());
+
+    /// <inheritdoc />
+    public async Task<UpdateNotificationSettingsResult> UpdateNotificationSettings(
+        UpdateNotificationSettings update,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        // Everything is checked before anything is journaled: a refusal changes nothing.
+        if (update.Window is { IsValid: false })
+        {
+            return new UpdateNotificationSettingsResult(NotificationSettingsOutcome.InvalidWindow, Settings());
+        }
+
+        if (!IsTimeZone(update.TimeZone) || !IsTimeZone(update.DetectedTimeZone))
+        {
+            return new UpdateNotificationSettingsResult(NotificationSettingsOutcome.InvalidTimeZone, Settings());
+        }
+
+        var now = Clock.GetUtcNow();
+        var changed = false;
+
+        if (update.Window is { } window && window != State.NotificationWindow)
+        {
+            RaiseEvent(new NotificationWindowChanged(window.FromMinutes, window.ToMinutes, now));
+            changed = true;
+        }
+
+        if (update.TimeZone is { } chosen)
+        {
+            if (!string.Equals(State.ChosenTimeZone, chosen, StringComparison.Ordinal))
+            {
+                RaiseEvent(new TimeZoneChosen(chosen, now));
+                changed = true;
+            }
+        }
+        else if (update.DetectedTimeZone is { } detected
+            && State.ChosenTimeZone is null
+            && !string.Equals(State.DetectedTimeZone, detected, StringComparison.Ordinal))
+        {
+            // Only a proposal: it never replaces a zone the User chose, and never confirms one.
+            RaiseEvent(new TimeZoneDetected(detected, now));
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await ConfirmEvents();
+        }
+
+        return new UpdateNotificationSettingsResult(
+            changed ? NotificationSettingsOutcome.Changed : NotificationSettingsOutcome.Unchanged,
+            Settings());
+    }
+
+    /// <inheritdoc />
+    public Task<UserSiteNotificationSettings> GetSiteNotificationSettings(string siteId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        return Task.FromResult(SiteSettings(siteId));
+    }
+
+    /// <inheritdoc />
+    public async Task<UserSiteNotificationSettings> SetSiteNotificationSettings(
+        string siteId,
+        bool muted,
+        ReminderCadence? reminderCadence,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        if (reminderCadence is { } requested && !Enum.IsDefined(requested))
+        {
+            throw new ArgumentOutOfRangeException(nameof(reminderCadence), reminderCadence, "Unknown Reminder cadence.");
+        }
+
+        var current = State.SiteNotificationsOf(siteId);
+        var now = Clock.GetUtcNow();
+        var changed = false;
+
+        if (current.Muted != muted)
+        {
+            RaiseEvent(new SiteMuteChanged(siteId, muted, now));
+            changed = true;
+        }
+
+        if (current.ReminderCadence != reminderCadence)
+        {
+            RaiseEvent(new PersonalReminderCadenceChanged(siteId, reminderCadence, now));
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await ConfirmEvents();
+        }
+
+        return SiteSettings(siteId);
+    }
+
+    /// <inheritdoc />
+    public async Task SyncSiteReminderCadence(string siteId, ReminderCadence cadence, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        if (!Enum.IsDefined(cadence))
+        {
+            throw new ArgumentOutOfRangeException(nameof(cadence), cadence, "Unknown Reminder cadence.");
+        }
+
+        // A Site the grain never heard a cadence of reminds daily, so daily is no change for it.
+        if ((State.SiteNotificationsOf(siteId).SiteReminderCadence ?? ReminderCadence.Daily) == cadence)
+        {
+            return;
+        }
+
+        RaiseEvent(new SiteReminderCadenceSynced(siteId, cadence));
+        await ConfirmEvents();
+    }
+
+    private static bool IsTimeZone(string? timeZone) =>
+        timeZone is null || (timeZone.Length is > 0 and <= UserNotificationLimits.MaxTimeZoneLength && !string.IsNullOrWhiteSpace(timeZone));
+
+    private UserNotificationSettings Settings() =>
+        new(State.NotificationWindow, State.TimeZone, State.ChosenTimeZone is not null);
+
+    private UserSiteNotificationSettings SiteSettings(string siteId)
+    {
+        var settings = State.SiteNotificationsOf(siteId);
+        return new UserSiteNotificationSettings(settings.Muted, settings.ReminderCadence, settings.ResolvedReminderCadence);
     }
 
     private static SiteCreationResult Created(SiteCreation creation) =>

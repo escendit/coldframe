@@ -24,6 +24,12 @@ The REST contract, written before the code that serves it (AD-10):
 | `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | Story 5.3 |
 | `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` | `Administrator` | Story 5.3 |
 | `GET /sites/{siteId}/alerts` | `Member` | Story 6.2 |
+| `GET /me/notification-settings` | `Authenticated` | Story 6.3 |
+| `PATCH /me/notification-settings` | `Authenticated` | Story 6.3 |
+| `GET /sites/{siteId}/notification-settings` | `Member` | Story 6.3 |
+| `PUT /sites/{siteId}/notification-settings` | `Member` | Story 6.3 |
+| `GET /sites/{siteId}/reminder-cadence` | `Member` | Story 6.3 |
+| `PUT /sites/{siteId}/reminder-cadence` | `Administrator` | Story 6.3 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
@@ -55,7 +61,8 @@ is planned today.
   Site: moving or unassigning an unknown Device, a Hub or a Device of another Site), `ingest-unavailable` (503, no frame of an
   ingest envelope could be committed), `sensor-not-found` (404, no such Sensor on a Node of this Site),
   `calibration-not-delivered` (503, the Calibration is saved but the Node's Device grain has not acknowledged it
-  yet; the Server keeps delivering it). Enrolling a Node with a `lotId` answers
+  yet; the Server keeps delivering it), `reminder-cadence-not-delivered` (503, the Site holds the Reminder
+  cadence but not every member was handed it; send the request again). Enrolling a Node with a `lotId` answers
   `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
   when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an
   `x-extensible-enum`.
@@ -111,6 +118,16 @@ is planned today.
   the same 200, also when nothing changed (then nothing is saved); 400 `validation` for a high without a low, a low
   not below the high, a malformed side or a value out of range, 403 for a Member, 404 `sensor-not-found`. A saved
   change starts a new evaluation epoch for Threshold Alerts.
+- **Notification settings** (Story 6.3). `GET`/`PATCH /me/notification-settings` is the caller's own
+  `{window: {from, to}, timeZone?, timeZoneConfirmed}`; it is the first path that names no Site. Times are
+  `"HH:mm"` (24 h) wall-clock in the User's zone; the default window is 07:00 to 22:00, `to` omitted in a
+  request means 22:00, and `from` must be before `to`. In a request `timeZone` is the User's choice and always
+  wins; `detectedTimeZone` is kept only while the User has chosen none. A zone is an IANA ID the Server knows
+  (at most 64 characters); anything else, a Windows ID included, is 400 `validation`.
+  `GET`/`PUT /sites/{siteId}/notification-settings` is the caller's own `{muted, reminderCadence?,
+  siteReminderCadence}` for that Site (`reminderCadence` absent = use the Site setting), and
+  `GET`/`PUT /sites/{siteId}/reminder-cadence` the Site's `{cadence}`. `ReminderCadence` is `daily` or
+  `every2Days`. Every write answers 200 with the state in force, also when nothing changed.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

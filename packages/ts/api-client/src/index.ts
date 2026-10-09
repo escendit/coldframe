@@ -41,6 +41,13 @@ export type AlertList = components['schemas']['AlertList'];
 export type AlertKind = components['schemas']['AlertKind'];
 export type AlertSide = components['schemas']['AlertSide'];
 export type AlertCloseReason = components['schemas']['AlertCloseReason'];
+export type NotificationSettings = components['schemas']['NotificationSettings'];
+export type NotificationWindow = components['schemas']['NotificationWindow'];
+export type UpdateNotificationSettingsRequest = components['schemas']['UpdateNotificationSettingsRequest'];
+export type SiteNotificationSettings = components['schemas']['SiteNotificationSettings'];
+export type SetSiteNotificationSettingsRequest = components['schemas']['SetSiteNotificationSettingsRequest'];
+export type ReminderCadence = components['schemas']['ReminderCadence'];
+export type SiteReminderCadence = components['schemas']['SiteReminderCadence'];
 export type ProblemDetails = components['schemas']['ProblemDetails'];
 
 export type ColdframeClient = Client<paths>;

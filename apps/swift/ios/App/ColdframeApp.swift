@@ -16,7 +16,8 @@ struct ColdframeApp: App {
       lotDetail: CoreLotDetailService(core: signIn.lotDetail),
       calibrate: CoreCalibrateService(core: signIn.calibrate),
       thresholds: CoreThresholdsService(core: signIn.thresholds),
-      alerts: CoreAlertsService(core: signIn.alerts))
+      alerts: CoreAlertsService(core: signIn.alerts),
+      notifications: CoreNotificationSettingsService(core: signIn.notifications))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -45,7 +46,9 @@ struct ColdframeApp: App {
         thresholds: model.thresholds,
         thresholdsActions: model.thresholdsActions,
         alerts: model.alerts,
-        alertsActions: model.alertsActions
+        alertsActions: model.alertsActions,
+        notifications: model.notifications,
+        notificationsActions: model.notificationsActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active {

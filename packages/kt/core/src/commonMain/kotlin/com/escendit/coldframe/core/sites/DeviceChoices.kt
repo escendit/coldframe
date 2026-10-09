@@ -3,8 +3,10 @@ package com.escendit.coldframe.core.sites
 import com.russhwolf.settings.Settings
 
 /**
- * Choices kept on this device only: the current Site and the time zone the user confirmed or
- * picked. The time zone waits here until the Notification Window story sends it to the User.
+ * Choices kept on this device: the current Site, and the time zone the User confirmed or picked
+ * on Create Site until the Server has it. The notification settings engine sends [timeZone] once
+ * as the User's choice and removes it when the Server answered; it is also removed at sign-out
+ * (Story 6.3, DW-23). Afterwards the zone is read from the Server.
  */
 public class DeviceChoices(
     internal val settings: Settings,

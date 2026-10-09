@@ -11,6 +11,9 @@ import com.escendit.coldframe.core.lots.LotDetailApi
 import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.lots.LotsEngine
+import com.escendit.coldframe.core.notifications.NotificationSettingsApi
+import com.escendit.coldframe.core.notifications.NotificationSettingsEngine
+import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.setup.HubSetupEngine
 import com.escendit.coldframe.core.setup.NodeSetupEngine
@@ -23,7 +26,7 @@ import com.russhwolf.settings.Settings
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
 
-/** Builds the Sites, Lots, Devices and Alerts engines over the Server API, with tokens from the sign-in engine. */
+/** Builds the Sites, Lots, Devices, Alerts and notification settings engines over the Server API, with tokens from the sign-in engine. */
 public object SitesWiring {
     public fun engine(
         config: CoreConfig,
@@ -49,14 +52,36 @@ public object SitesWiring {
 
     /**
      * The Lots engine, following the current Site of [sites]. It keeps the last good Lots of
-     * each Site in [settings] (keys `lots.lastGood.‹siteId›`) and decides stale mode.
+     * each Site in [settings] (keys `lots.lastGood.‹siteId›`) and decides stale mode. With
+     * [cadence] its Site settings read and set the Site's Reminder cadence.
      */
     public fun lots(
         api: LotsApi,
         sites: SitesEngine,
         settings: Settings,
         scope: CoroutineScope,
-    ): LotsEngine = LotsEngine(api = api, sites = sites, settings = settings, scope = scope)
+        cadence: SiteReminderCadenceApi?,
+    ): LotsEngine = LotsEngine(api = api, sites = sites, settings = settings, scope = scope, cadenceApi = cadence)
+
+    /**
+     * My notifications, following the session of [signIn] and the current Site of [sites]. [settings] are the
+     * ones the Sites engine was built with: the zone confirmed on Create Site waits there until it is handed
+     * to the Server.
+     */
+    public fun notifications(
+        api: NotificationSettingsApi,
+        sites: SitesEngine,
+        signIn: SignInEngine,
+        settings: Settings,
+        scope: CoroutineScope,
+    ): NotificationSettingsEngine =
+        NotificationSettingsEngine(
+            api = api,
+            sites = sites,
+            choices = DeviceChoices(settings),
+            scope = scope,
+            signIn = signIn.state,
+        )
 
     /** Lot detail, following the current Site of [sites]; keeps the last good detail of each Lot in [settings]. */
     public fun lotDetail(

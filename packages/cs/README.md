@@ -46,6 +46,13 @@ Nothing here reads the clock: `DateTime.UtcNow` and its relatives fail the build
 | `SiteOwnerlessEditRefused(KeptOwners)` | `site.ownerless-edit-refused` | Keycloak shows no Owner; the listed Owners keep Owner (once per episode) |
 | `SiteOwnerlessEditResolved()` | `site.ownerless-edit-resolved` | Keycloak shows an Owner again; the episode is over |
 | `SiteMembershipChanged(SiteId, Role)` | `user.site-membership-changed` | The User's Role on a Site; `null` when the User left it or it was deleted |
+| `NotificationWindowChanged(FromMinutes, ToMinutes, ChangedAt)` | `user.notification-window-changed` | The User's Notification Window, wall-clock minutes since midnight (Story 6.3) |
+| `TimeZoneDetected(TimeZone, DetectedAt)` | `user.time-zone-detected` | A device or browser reported a zone while the User had chosen none |
+| `TimeZoneChosen(TimeZone, ChosenAt)` | `user.time-zone-chosen` | The User chose a zone; a detected one never replaces it |
+| `SiteMuteChanged(SiteId, Muted, ChangedAt)` | `user.site-mute-changed` | The User muted a Site or ended the mute; only this User is affected |
+| `PersonalReminderCadenceChanged(SiteId, Cadence, ChangedAt)` | `user.site-reminder-cadence-changed` | The User's own Reminder cadence for a Site; `null` uses the Site setting |
+| `SiteReminderCadenceSynced(SiteId, Cadence)` | `user.site-reminder-cadence-synced` | The User grain's copy of a Site's Reminder cadence changed |
+| `SiteReminderCadenceChanged(Cadence, ChangedAt)` | `site.reminder-cadence-changed` | The Site's Reminder cadence, `Daily` until changed |
 
 `SiteRole` is ordered `Owner > Administrator > Member` (compare with `>=`); `SiteLifecycle` is
 `Uncreated`, `Active`, `Deleted`. `IUserGrain` (key: `sub`) and `ISiteGrain` (key: Site ID) return
@@ -61,6 +68,15 @@ returns `SiteReconciliationResult(Outcome, Lifecycle, Members, FormerMembers)` w
 `IUserGrain.SyncSiteMembership(siteId, role)`, which journals only a change. A `RosterExpectation` is
 what a Keycloak event says the roster now shows: `OrganizationAbsent`, `MemberPresent`,
 `MemberAbsent`, `RoleHeld` or `RoleNotHeld`, with the User and the Role it is about.
+
+Notification settings (Story 6.3) add `ReminderCadence` (`Daily`, `Every2Days`) and `NotificationWindow`
+(wall-clock minutes of one day, `Default` 07:00 to 22:00). `IUserGrain` has `GetNotificationSettings`,
+`UpdateNotificationSettings(UpdateNotificationSettings)` (window, chosen zone, detected zone; outcome
+`Changed`, `Unchanged`, `InvalidWindow` or `InvalidTimeZone`), `GetSiteNotificationSettings(siteId)`,
+`SetSiteNotificationSettings(siteId, muted, cadence?)` and `SyncSiteReminderCadence(siteId, cadence)`.
+`ISiteGrain` has `GetReminderCadence()` and `SetReminderCadence(cadence)`, whose
+`SiteReminderCadenceResult(Outcome, Cadence, Members)` names the members to hand the cadence to, as
+`SiteReconciliationResult.ReminderCadence` does for a reconciliation.
 
 ## Devices
 

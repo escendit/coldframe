@@ -3,7 +3,8 @@
 
   interface Action {
     readonly label: string;
-    readonly href: string;
+    /** Where the action leads. Without it the action submits the form the notice sits in. */
+    readonly href?: string;
     /** Full page load (the action leaves the SvelteKit router). */
     readonly reload?: boolean;
   }
@@ -22,7 +23,11 @@
   <p class="cf-inline-notice__message">{message}</p>
   {#if action !== null}
     <div class="cf-inline-notice__action">
-      <Button variant="ghost" label={action.label} href={action.href} reload={action.reload ?? false} />
+      {#if action.href === undefined}
+        <Button variant="ghost" type="submit" label={action.label} />
+      {:else}
+        <Button variant="ghost" label={action.label} href={action.href} reload={action.reload ?? false} />
+      {/if}
     </div>
   {/if}
 </div>

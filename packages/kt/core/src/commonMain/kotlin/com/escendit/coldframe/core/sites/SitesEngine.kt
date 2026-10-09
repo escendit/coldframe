@@ -64,6 +64,10 @@ public class SitesEngine(
     private val cache = SitesCache(choices.settings)
     private val sessionEnded = mutableListOf<() -> Unit>()
 
+    /** The zone the User chose, as the Server holds it; Create Site names it instead of asking again. */
+    private var serverTimeZone: String? = null
+    private var timeZoneChosen: ((String) -> Unit)? = null
+
     init {
         scope.launch {
             // A sign-out clears what this device kept; a start that is still restoring does not.
@@ -147,13 +151,35 @@ public class SitesEngine(
     }
 
     /**
-     * The session is over: nothing kept on this device outlives it. The session is bumped in the
-     * same step as the clear, so an answer of the ended session that lands afterwards stores nothing.
+     * Runs [action] with every zone confirmed or picked on Create Site. The notification settings
+     * engine sends it to the Server as the User's choice (Story 6.3, DW-23).
+     */
+    internal fun onTimeZoneChosen(action: (String) -> Unit) {
+        timeZoneChosen = action
+    }
+
+    /**
+     * The zone the User chose, as the Server holds it (`null` while none is chosen). Create Site
+     * shows it as chosen from now on; the Server's zone replaces what an open form shows.
+     */
+    internal fun timeZoneFromServer(zoneId: String?) {
+        serverTimeZone = zoneId
+        if (zoneId != null) {
+            updateForm { if (it.working) it else it.copy(timeZone = it.timeZone.copy(chosen = zoneId)) }
+        }
+    }
+
+    /**
+     * The session is over: nothing kept on this device outlives it, the zone waiting for the
+     * Server included. The session is bumped in the same step as the clear, so an answer of the
+     * ended session that lands afterwards stores nothing.
      */
     internal fun forget() {
         session++
         loadingSession = NOT_LOADING
         cache.clear()
+        choices.timeZone = null
+        serverTimeZone = null
         sessionEnded.forEach { it() }
     }
 
@@ -183,13 +209,21 @@ public class SitesEngine(
         updateForm { if (it.working) it else it.copy(name = name, nameError = null) }
     }
 
-    /** Confirm on the panel: the detected zone becomes the user's choice on this device. */
+    /**
+     * Confirm on the panel: the shown zone becomes the User's choice. It is kept on this device
+     * until the Server has it ([onTimeZoneChosen]).
+     */
     public fun confirmTimeZone() {
+        val zone = currentForm()?.timeZone?.shown ?: return
+        choose(zone)
+    }
+
+    private fun choose(zoneId: String) {
         updateForm { form ->
-            val zone = form.timeZone.shown
-            choices.timeZone = zone
-            form.copy(timeZone = form.timeZone.copy(chosen = zone, changing = false))
+            choices.timeZone = zoneId
+            form.copy(timeZone = form.timeZone.copy(chosen = zoneId, changing = false))
         }
+        timeZoneChosen?.invoke(zoneId)
     }
 
     /** Change on the panel: shows the searchable list. */
@@ -199,11 +233,8 @@ public class SitesEngine(
 
     /** A zone picked from the list; unknown IDs are ignored. */
     public fun pickTimeZone(zoneId: String) {
-        if (zoneId !in availableZones) return
-        updateForm { form ->
-            choices.timeZone = zoneId
-            form.copy(timeZone = form.timeZone.copy(chosen = zoneId, changing = false))
-        }
+        if (zoneId !in availableZones || currentForm() == null) return
+        choose(zoneId)
     }
 
     /** Create Site. An invalid name shows its reason and sends nothing. Ignored while working. */
@@ -333,7 +364,12 @@ public class SitesEngine(
             working = false,
             notice = null,
             idempotencyKey = newKey(),
-            timeZone = TimeZoneProposal(detected = detectTimeZone(), chosen = choices.timeZone, changing = false),
+            timeZone =
+                TimeZoneProposal(
+                    detected = detectTimeZone(),
+                    chosen = serverTimeZone ?: choices.timeZone,
+                    changing = false,
+                ),
             cancellable = cancellable,
         )
 
@@ -375,6 +411,7 @@ public class SitesEngine(
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
                 ApiFailure.CalibrationNotDelivered,
+                ApiFailure.ReminderCadenceNotDelivered,
                 ApiFailure.Unexpected,
                 -> SitesNotice.Unexpected
             }

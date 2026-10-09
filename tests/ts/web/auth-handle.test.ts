@@ -1,6 +1,6 @@
 import { isRedirect, redirect, type Handle, type RequestEvent } from '@sveltejs/kit';
 import { describe, expect, test } from 'vitest';
-import { createAuthHandle, oidcRoutes, sessionMarkerCookie, signinUrl } from '$lib/server/auth-handle';
+import { createAuthHandle, oidcRoutes, sessionMarkerCookie, signinUrl, timeZoneCookieName, timeZoneHandOverCookieName } from '$lib/server/auth-handle';
 import type { Failure } from '$lib/server/failures';
 import { fakeEvent, fetchFailed, pageResolve } from './fakes.ts';
 
@@ -100,6 +100,30 @@ describe('auth handle', () => {
     await expectRedirect(() => handle({ event, resolve: pageResolve() }), idp);
     expect(markerWrites(event)).toEqual([expect.objectContaining({ value: '' })]);
     expect(event.locals.sessionEnded).not.toBe(true);
+  });
+
+  test('UX-DR93 deliberate sign-out removes the time zone and its hand-over mark, and writes neither when absent', async () => {
+    const idp = 'http://idp.example/end-session?state=1';
+    const { handle } = setup(() => Promise.resolve(new Response(null, { status: 307, headers: { Location: idp } })), { identity: signedIn });
+    const zoneWrites = (event: { cookies: { writes: { name: string; value: string }[] } }) =>
+      event.cookies.writes.filter((write) => write.name === timeZoneCookieName || write.name === timeZoneHandOverCookieName);
+
+    const held = fakeEvent(`${oidcRoutes.signout}?redirect_uri=/signin`, {
+      [sessionMarkerCookie]: '1',
+      [timeZoneCookieName]: 'Europe/Zurich',
+      [timeZoneHandOverCookieName]: 'user-1',
+    });
+    await expectRedirect(() => handle({ event: held, resolve: pageResolve() }), idp);
+    expect(zoneWrites(held).map((write) => [write.name, write.value])).toEqual([
+      [timeZoneCookieName, ''],
+      [timeZoneHandOverCookieName, ''],
+    ]);
+    expect(held.cookies.get(timeZoneCookieName)).toBeUndefined();
+    expect(held.cookies.get(timeZoneHandOverCookieName)).toBeUndefined();
+
+    const bare = fakeEvent(`${oidcRoutes.signout}?redirect_uri=/signin`, { [sessionMarkerCookie]: '1' });
+    await expectRedirect(() => handle({ event: bare, resolve: pageResolve() }), idp);
+    expect(zoneWrites(bare)).toEqual([]);
   });
 
   test('UX-DR92 cancelled at Keycloak (access_denied) returns to Sign in without a notice', async () => {

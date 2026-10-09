@@ -63,6 +63,108 @@ public sealed class UserStateTests
         Assert.Equal(new Dictionary<string, SiteRole> { ["site-1"] = SiteRole.Administrator }, state.Sites);
     }
 
+    [Fact]
+    public void WithoutAnyEventTheWindowIs0700To2200AndThereIsNoTimeZone()
+    {
+        var state = new UserState();
+
+        Assert.Equal(new NotificationWindow(420, 1320), state.NotificationWindow);
+        Assert.Equal(NotificationWindow.Default, state.NotificationWindow);
+        Assert.Null(state.TimeZone);
+        Assert.Null(state.ChosenTimeZone);
+        Assert.Empty(state.SiteNotifications);
+        Assert.Equal(new UserSiteNotifications(false, null, null), state.SiteNotificationsOf("site-1"));
+        Assert.Equal(ReminderCadence.Daily, state.SiteNotificationsOf("site-1").ResolvedReminderCadence);
+    }
+
+    [Fact]
+    public void TheWindowFollowsItsLastChange()
+    {
+        var state = new UserState();
+
+        state.Apply(new NotificationWindowChanged(390, 1320, RequestedAt));
+        state.Apply(new NotificationWindowChanged(480, 1260, RequestedAt));
+
+        Assert.Equal(new NotificationWindow(480, 1260), state.NotificationWindow);
+    }
+
+    [Fact]
+    public void ADetectedZoneIsTheZoneUntilOneIsChosenAndNeverReplacesTheChosenOne()
+    {
+        var state = new UserState();
+
+        state.Apply(new TimeZoneDetected("Europe/Zurich", RequestedAt));
+        Assert.Equal(("Europe/Zurich", null), (state.TimeZone, state.ChosenTimeZone));
+
+        state.Apply(new TimeZoneChosen("Europe/Vienna", RequestedAt));
+        Assert.Equal(("Europe/Vienna", "Europe/Vienna"), (state.TimeZone, state.ChosenTimeZone));
+
+        // A detection journaled by an older Server, or replayed out of intent, still cannot win.
+        state.Apply(new TimeZoneDetected("America/New_York", RequestedAt));
+        Assert.Equal("Europe/Vienna", state.TimeZone);
+    }
+
+    [Fact]
+    public void MuteAndCadenceArePerSite()
+    {
+        var state = new UserState();
+
+        state.Apply(new SiteMuteChanged("site-1", true, RequestedAt));
+        state.Apply(new PersonalReminderCadenceChanged("site-2", ReminderCadence.Every2Days, RequestedAt));
+
+        Assert.Equal(new UserSiteNotifications(Muted: true), state.SiteNotificationsOf("site-1"));
+        Assert.Equal(new UserSiteNotifications(ReminderCadence: ReminderCadence.Every2Days), state.SiteNotificationsOf("site-2"));
+        Assert.Equal(UserSiteNotifications.None, state.SiteNotificationsOf("site-3"));
+    }
+
+    [Fact]
+    public void TheCadenceResolvesAsMyOwnThenTheSitesThenDaily()
+    {
+        var state = new UserState();
+        Assert.Equal(ReminderCadence.Daily, state.SiteNotificationsOf("site-1").ResolvedReminderCadence);
+
+        state.Apply(new SiteReminderCadenceSynced("site-1", ReminderCadence.Every2Days));
+        Assert.Equal(ReminderCadence.Every2Days, state.SiteNotificationsOf("site-1").ResolvedReminderCadence);
+
+        state.Apply(new PersonalReminderCadenceChanged("site-1", ReminderCadence.Daily, RequestedAt));
+        Assert.Equal(ReminderCadence.Daily, state.SiteNotificationsOf("site-1").ResolvedReminderCadence);
+
+        state.Apply(new PersonalReminderCadenceChanged("site-1", null, RequestedAt));
+        Assert.Equal(ReminderCadence.Every2Days, state.SiteNotificationsOf("site-1").ResolvedReminderCadence);
+    }
+
+    [Fact]
+    public void ASiteBackAtItsDefaultsKeepsNoEntry()
+    {
+        var state = new UserState();
+
+        state.Apply(new SiteMuteChanged("site-1", true, RequestedAt));
+        state.Apply(new SiteMuteChanged("site-1", false, RequestedAt));
+
+        Assert.Empty(state.SiteNotifications);
+    }
+
+    [Fact]
+    public void WhenTheMembershipEndsTheMuteTheCadenceAndTheSitesCadenceAreGone()
+    {
+        var state = new UserState();
+        state.Apply(new SiteMembershipChanged("site-1", SiteRole.Member));
+        state.Apply(new SiteMembershipChanged("site-2", SiteRole.Member));
+        state.Apply(new SiteMuteChanged("site-1", true, RequestedAt));
+        state.Apply(new PersonalReminderCadenceChanged("site-1", ReminderCadence.Every2Days, RequestedAt));
+        state.Apply(new SiteReminderCadenceSynced("site-1", ReminderCadence.Every2Days));
+        state.Apply(new SiteMuteChanged("site-2", true, RequestedAt));
+
+        state.Apply(new SiteMembershipChanged("site-1", null));
+
+        Assert.Equal(UserSiteNotifications.None, state.SiteNotificationsOf("site-1"));
+        Assert.Equal(["site-2"], state.SiteNotifications.Keys);
+
+        // A changed Role is no end of the Membership.
+        state.Apply(new SiteMembershipChanged("site-2", SiteRole.Administrator));
+        Assert.True(state.SiteNotificationsOf("site-2").Muted);
+    }
+
     private static UserState Completed()
     {
         var state = new UserState();

@@ -1736,7 +1736,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Used for your Notification Window on this phone."
+            "value": "Used for your Notification Window."
           }
         }
       }
@@ -5813,6 +5813,358 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@, since %2$@, closed %3$@"
+          }
+        }
+      }
+    },
+    "settings_notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My notifications"
+          }
+        }
+      }
+    },
+    "settings_notifications_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Window, time zone, mute and Reminders"
+          }
+        }
+      }
+    },
+    "time_zone_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your time zone could not be detected. Choose it from the list."
+          }
+        }
+      }
+    },
+    "site_settings_reminders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders"
+          }
+        }
+      }
+    },
+    "site_settings_reminder_cadence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder cadence"
+          }
+        }
+      }
+    },
+    "site_settings_reminder_cadence_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How often a Reminder repeats while a Threshold Alert stays open."
+          }
+        }
+      }
+    },
+    "site_settings_reminder_cadence_not_saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Reminder cadence was not saved. Try again."
+          }
+        }
+      }
+    },
+    "notifications_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My notifications"
+          }
+        }
+      }
+    },
+    "notifications_window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Window"
+          }
+        }
+      }
+    },
+    "notifications_window_from": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From"
+          }
+        }
+      }
+    },
+    "notifications_window_to": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To"
+          }
+        }
+      }
+    },
+    "notifications_window_range": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ to %2$@"
+          }
+        }
+      }
+    },
+    "notifications_window_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside this window, anything waits for one summary at %1$@."
+          }
+        }
+      }
+    },
+    "notifications_window_not_before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The start must be before the end."
+          }
+        }
+      }
+    },
+    "notifications_window_from_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window starts at"
+          }
+        }
+      }
+    },
+    "notifications_window_to_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window ends at"
+          }
+        }
+      }
+    },
+    "notifications_window_set_time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set time"
+          }
+        }
+      }
+    },
+    "notifications_window_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "notifications_window_saving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving…"
+          }
+        }
+      }
+    },
+    "notifications_window_saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved."
+          }
+        }
+      }
+    },
+    "notifications_mute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mute %1$@"
+          }
+        }
+      }
+    },
+    "notifications_mute_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you stop getting notifications from %1$@."
+          }
+        }
+      }
+    },
+    "notifications_cadence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Reminder cadence"
+          }
+        }
+      }
+    },
+    "notifications_cadence_use_site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Site setting"
+          }
+        }
+      }
+    },
+    "notifications_cadence_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site setting: %1$@"
+          }
+        }
+      }
+    },
+    "notifications_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Server couldn't read your notification settings. Nothing was changed."
+          }
+        }
+      }
+    },
+    "notifications_notice_not_saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not saved: your Server could not be reached. Nothing was changed."
+          }
+        }
+      }
+    },
+    "notifications_notice_invalid_window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Server did not accept this window. Nothing was changed."
+          }
+        }
+      }
+    },
+    "notifications_notice_invalid_time_zone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Server does not know this time zone. Nothing was changed. Choose another one."
+          }
+        }
+      }
+    },
+    "notifications_notice_site_gone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is no longer one of your Sites. Nothing was changed."
+          }
+        }
+      }
+    },
+    "reminders_daily": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily"
+          }
+        }
+      }
+    },
+    "reminders_every_2_days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every 2 days"
           }
         }
       }

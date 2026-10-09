@@ -94,6 +94,17 @@ describe('SegmentedChoice and ThemeSwitcher', () => {
     expect(pressed.indexOf('data-icon="checkmark"')).toBeLessThan(pressed.indexOf('Every 2 days'));
   });
 
+  test('UX-DR36 UX-DR50 with a name each segment submits its value in a form, and the selected one stays pressed', () => {
+    const { body } = render(SegmentedChoice, { props: { label: 'Reminder cadence', options, value: 'a', name: 'cadence', helper: 'Site setting: Daily' } });
+    expect(count(body, /<button[^>]*type="submit"[^>]*name="cadence"/u)).toBe(2);
+    expect(body).toMatch(/<button[^>]*name="cadence"[^>]*value="a"[^>]*aria-pressed="true"/u);
+    expect(body).toMatch(/<button[^>]*name="cadence"[^>]*value="b"[^>]*aria-pressed="false"/u);
+    expect(body).toContain('Site setting: Daily');
+    // Without a name it stays a set of plain buttons.
+    const plain = render(SegmentedChoice, { props: { label: 'Theme', options, value: 'a', onchange: () => undefined } }).body;
+    expect(count(plain, /type="submit"/u)).toBe(0);
+  });
+
   test('UX-DR53 UX-DR15 Theme switcher offers System, Light and Dark with the current one selected', () => {
     const { body } = render(ThemeSwitcher, { props: { value: 'system' } });
     for (const label of ['System', 'Light', 'Dark']) {
@@ -111,6 +122,12 @@ describe('InlineNotice', () => {
     expect(body).toContain('reach your Coldframe Server');
     expect(count(body, /<a /u) + count(body, /<button/u)).toBe(1);
     expect(body).not.toMatch(/close|dismiss/iu);
+  });
+
+  test('UX-DR56 an action without a link submits the form the notice sits in', () => {
+    const { body } = render(InlineNotice, { props: { message: t('notifications.notice.notSaved'), action: { label: t('notice.tryAgain') } } });
+    expect(count(body, /<a /u)).toBe(0);
+    expect(body).toMatch(/<button[^>]*type="submit"[^>]*>\s*<span[^>]*>Try again<\/span>/u);
   });
 
   test('UX-DR56 UX-DR92 the certificate notice has no action', () => {
@@ -264,6 +281,8 @@ describe('web platform structure', () => {
       'FirstRunSteps',
       'TimeZonePanel',
       'LotTiles',
+      'NotificationWindow',
+      'Toggle',
     ]) {
       expect(existsSync(join(webSrc, 'lib/components', `${name}.svelte`)), name).toBe(true);
     }
