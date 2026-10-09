@@ -319,13 +319,13 @@ public sealed class SiteReconciliationTests(IdentityCluster identity) : IClassFi
         await user.SyncSiteMembership("site-b", null, Ct);
 
         Assert.Equal(new Dictionary<string, SiteRole> { ["site-a"] = SiteRole.Member }, await identity.UserSitesAsync(userId));
-        Assert.Equal(["user.site-membership-changed"], await identity.AliasesAsync($"user/{userId}"));
+        Assert.Equal(["user.site-membership-changed", "user.site-alerts-pulled"], await identity.AliasesAsync($"user/{userId}"));
 
         await user.SyncSiteMembership("site-a", SiteRole.Administrator, Ct);
         await user.SyncSiteMembership("site-a", null, Ct);
 
         Assert.Empty(await identity.UserSitesAsync(userId));
-        Assert.Equal(3, (await identity.AliasesAsync($"user/{userId}")).Count);
+        Assert.Equal(4, (await identity.AliasesAsync($"user/{userId}")).Count);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

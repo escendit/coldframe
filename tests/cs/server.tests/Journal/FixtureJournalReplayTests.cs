@@ -208,6 +208,17 @@ public sealed class FixtureJournalReplayTests
             user.SiteNotificationsOf("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"));
         Assert.Equal(ReminderCadence.Every2Days, Assert.IsType<SiteState>(states["site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"]).ReminderCadence);
 
+        // Delivery timing (Story 6.4): the Site was pulled; one Alert was learned by pull and dropped, the other
+        // told at night, held, released by the morning summary and reminded two days later, at the cadence in
+        // force (the Site's, every 2 days), counted from its own due-at.
+        Assert.Empty(user.PendingPulls);
+        Assert.Null(user.WindowOpensAt);
+        var tracked = Assert.Single(user.TrackedAlerts.Values);
+        Assert.Equal(
+            (secondAlert, new DateTimeOffset(2026, 10, 11, 21, 30, 0, TimeSpan.Zero), false, (DateTimeOffset?)null),
+            (tracked.Alert.AlertId, tracked.PreviousDueAt, tracked.OpeningPending, tracked.HeldFrom));
+        Assert.Equal(new DateTimeOffset(2026, 10, 13, 21, 30, 0, TimeSpan.Zero), user.DueAt(tracked));
+
         var former = Assert.IsType<UserState>(states["user/8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
         Assert.Empty(former.Sites);
     }

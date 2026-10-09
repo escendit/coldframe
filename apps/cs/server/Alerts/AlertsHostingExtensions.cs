@@ -5,7 +5,8 @@ namespace Coldframe.Server.Alerts;
 /// <summary>
 /// Registers the Alerts: the alerts projector and its read model (Story 6.2). The Alert grain (Story 6.1) is
 /// found with the other grains and needs no service of its own: it reaches the Site grain through grain calls
-/// and the journal alone (AD-5). The Notifier seam (Story 6.4) is registered here when it arrives.
+/// and the journal alone (AD-5). The Notifier seam (Story 6.4) is registered by
+/// <see cref="Notifications.NotificationsHostingExtensions"/>.
 /// </summary>
 public static class AlertsHostingExtensions
 {

@@ -82,6 +82,30 @@ public interface IUserGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("sync-site-reminder-cadence")]
     Task SyncSiteReminderCadence(string siteId, ReminderCadence cadence, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the User that an Alert opened on a Site (Story 6.4). Only the Alert grain calls it, for every member
+    /// its Site grain named, again until it returns. Idempotent: an Alert the User already tracks journals
+    /// nothing, and a Site that is not in the User's own Site set is acknowledged and nothing is stored (the
+    /// pull on joining covers it). Otherwise the User grain journals <see cref="AlertTracked"/> and the Alert
+    /// is due at once; the User grain alone decides when the notification is sent.
+    /// </summary>
+    /// <param name="siteId">The Site the Alert opened on.</param>
+    /// <param name="alert">The Alert that opened.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("alert-opened")]
+    Task AlertOpened(string siteId, SiteAlert alert, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the User that an Alert closed (Story 6.4). Only the Alert grain calls it, again until it returns.
+    /// Idempotent: an Alert the User does not track journals nothing; otherwise the User grain journals
+    /// <see cref="AlertDropped"/>, which also drops what was held for it. Closing never notifies.
+    /// </summary>
+    /// <param name="siteId">The Site the Alert was opened on.</param>
+    /// <param name="alertId">The Alert that closed.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("alert-closed")]
+    Task AlertClosed(string siteId, Guid alertId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -164,24 +188,26 @@ public interface ISiteGrain : IGrainWithStringKey
     /// Records that an Alert opened on the Site (Story 6.1). Only the Alert grain calls it, again until it
     /// returns. Idempotent: an Alert the Site already lists journals nothing; otherwise the Site journals
     /// <see cref="SiteAlertOpened"/>. A Site that is not <see cref="SiteLifecycle.Active"/> keeps no Alerts and
-    /// journals nothing. The Site grain never calls User grains.
+    /// journals nothing. The Site grain never calls User grains: the answer names the Site's current members, and
+    /// the Alert grain tells each member's User grain (Story 6.4).
     /// </summary>
     /// <param name="alert">The Alert that opened.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("alert-opened")]
-    Task AlertOpened(SiteAlert alert, CancellationToken cancellationToken = default);
+    Task<SiteAlertReportResult> AlertOpened(SiteAlert alert, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records that an Alert closed (Story 6.1). Only the Alert grain calls it, after the Site acknowledged the
     /// open, again until it returns. Idempotent: an Alert the Site does not list journals nothing; otherwise
-    /// the Site journals <see cref="SiteAlertClosed"/>.
+    /// the Site journals <see cref="SiteAlertClosed"/>. The answer names the Site's current members either way,
+    /// whom the Alert grain tells (Story 6.4).
     /// </summary>
     /// <param name="alertId">The Alert that closed.</param>
     /// <param name="reason">Why it closed.</param>
     /// <param name="closedAt">When it closed.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("alert-closed")]
-    Task AlertClosed(Guid alertId, AlertCloseReason reason, DateTimeOffset closedAt, CancellationToken cancellationToken = default);
+    Task<SiteAlertReportResult> AlertClosed(Guid alertId, AlertCloseReason reason, DateTimeOffset closedAt, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the Site's open Alerts, oldest first, from the state the grain replays from its own stream
@@ -699,3 +725,21 @@ public sealed record SiteAlert(
     [property: Id(5)] string DeviceId,
     [property: Id(6)] string Quantity,
     [property: Id(7)] DateTimeOffset OpenedAt);
+
+/// <summary>
+/// The Site grain's answer to an Alert report (Story 6.4): the Site knows the open or the close, and these are
+/// the members the Alert grain is to tell, because the Site grain never calls User grains.
+/// </summary>
+/// <param name="Members">
+/// The User IDs of the Site's current members, in ordinal order; empty for a Site that is not
+/// <see cref="SiteLifecycle.Active"/>.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.site-alert-report-result")]
+public sealed record SiteAlertReportResult([property: Id(0)] IReadOnlyList<string> Members)
+{
+    /// <summary>
+    /// The answer of a Site that has nobody to tell.
+    /// </summary>
+    public static SiteAlertReportResult Nobody { get; } = new([]);
+}

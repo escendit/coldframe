@@ -17,10 +17,12 @@ namespace Coldframe.Server.Alerts;
 /// </para>
 /// <para>
 /// Fan-out (AD-5: grain calls and the journal only): every open and close is reported to the Site grain of the
-/// Alert, the open before the close. The Site's acknowledgement is journaled as <see cref="AlertSiteNotified"/>;
-/// until then the report is made again from state, by a grain timer while the grain is active, by the
-/// <c>report-alert</c> reminder, on activation, and whenever the Sensor repeats its call. The Site grain is
-/// idempotent, so a report made twice changes nothing.
+/// Alert, the open before the close. The Site grain never calls User grains, so it answers with its members and
+/// this grain tells each member's User grain (Story 6.4). The report is journaled as
+/// <see cref="AlertSiteNotified"/> only once the Site and every member answered; until then it is made again
+/// from state, by a grain timer while the grain is active, by the <c>report-alert</c> reminder, on activation,
+/// and whenever the Sensor repeats its call. The Site grain and the User grains are idempotent, so a report made
+/// twice changes nothing and notifies nobody twice.
 /// </para>
 /// </remarks>
 [GrainType("alert")]
@@ -175,9 +177,9 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
         }
     }
 
-    // Tells the Site grain what it has not acknowledged yet, the open before the close, and journals each
-    // acknowledgement before the next report. Never throws: a failure leaves the report pending, and the timer,
-    // the reminder, the next activation and the Sensor's next call try again.
+    // Tells the Site grain and its members' User grains what they have not all acknowledged yet, the open before
+    // the close, and journals each acknowledgement before the next report. Never throws: a failure leaves the
+    // report pending, and the timer, the reminder, the next activation and the Sensor's next call try again.
     private async Task<bool> ReportAsync()
     {
         if (!State.ReportPending || State.SiteId is not { } siteId)
@@ -193,10 +195,11 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
 
             if (!State.OpenReported)
             {
+                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId!, State.SensorId, State.DeviceId!, State.Quantity!, State.OpenedAt);
+
                 // Not cancelled by the caller: the journaled Alert is reported until the Site holds it.
-                await site.AlertOpened(
-                    new SiteAlert(alertId, State.Kind, State.Side, State.LotId!, State.SensorId, State.DeviceId!, State.Quantity!, State.OpenedAt),
-                    CancellationToken.None);
+                var acknowledged = await site.AlertOpened(alert, CancellationToken.None);
+                await TellMembersAsync(acknowledged.Members, user => user.AlertOpened(siteId, alert, CancellationToken.None));
 
                 RaiseEvent(new AlertSiteNotified(AlertLifecycle.Open, Clock.GetUtcNow()));
                 await ConfirmEvents();
@@ -204,7 +207,8 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
 
             if (State.Lifecycle == AlertLifecycle.Closed && !State.CloseReported)
             {
-                await site.AlertClosed(alertId, State.Reason ?? AlertCloseReason.Recovered, State.ClosedAt ?? Clock.GetUtcNow(), CancellationToken.None);
+                var acknowledged = await site.AlertClosed(alertId, State.Reason ?? AlertCloseReason.Recovered, State.ClosedAt ?? Clock.GetUtcNow(), CancellationToken.None);
+                await TellMembersAsync(acknowledged.Members, user => user.AlertClosed(siteId, alertId, CancellationToken.None));
 
                 RaiseEvent(new AlertSiteNotified(AlertLifecycle.Closed, Clock.GetUtcNow()));
                 await ConfirmEvents();
@@ -221,6 +225,33 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
 
         await StopReportingAsync();
         return true;
+    }
+
+    // Tells every member's User grain, also after one of them failed, so that a member who cannot be reached
+    // delays nobody else. Throws when any failed: the report then stays pending and is made again, which the
+    // members who answered ignore.
+    private async Task TellMembersAsync(IReadOnlyList<string> members, Func<IUserGrain, Task> tell)
+    {
+        List<Exception>? failures = null;
+
+        foreach (var userId in members)
+        {
+            try
+            {
+                await tell(GrainFactory.GetGrain<IUserGrain>(userId));
+            }
+#pragma warning disable CA1031 // Whatever kept a User grain from answering, the others are still told.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        if (failures is not null)
+        {
+            throw new AggregateException($"{failures.Count} of {members.Count} members were not told about Alert {AlertId}.", failures);
+        }
     }
 
     // The timer and the reminder are created together, once; later ticks touch neither. Awaited in the grain turn.

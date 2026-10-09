@@ -1,3 +1,4 @@
+using Coldframe.Server.Notifications;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -20,6 +21,12 @@ internal static class ServiceDefaultsExtensions
     private const string OrleansMeter = "Microsoft.Orleans";
     private const string OtlpEndpointKey = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
+    /// <summary>
+    /// The meters the Server exports besides the instrumentation's own: Orleans, and Coldframe's notifications
+    /// meter, which records when each notification fell due and was sent (Story 6.4).
+    /// </summary>
+    internal static readonly string[] ExportedMeters = [OrleansMeter, Notifier.MeterName];
+
     public static WebApplicationBuilder AddServiceDefaults(this WebApplicationBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -34,7 +41,7 @@ internal static class ServiceDefaultsExtensions
             .AddOpenTelemetry()
             .WithDefaultMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
-                .AddMeter(OrleansMeter))
+                .AddMeter(ExportedMeters))
             .WithDefaultTracing(builder.Environment, tracing => tracing
                 .AddAspNetCoreInstrumentation()
                 .AddSource(OrleansActivitySource));

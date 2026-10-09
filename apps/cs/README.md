@@ -165,8 +165,9 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
    the caller as a member with role `owner`, journals `site.created` and `site.membership-granted`, and
    runs `CatchUpAsync` on the identity projector before it returns, so the next request sees the
    Membership (read-your-writes). It is the only writer of Memberships and Roles.
-4. `UserGrain` journals `user.site-creation-completed` and `user.site-membership-changed` (Owner). The same
-   key returns the same result for 24 h.
+4. `UserGrain` journals `user.site-creation-completed` and `user.site-membership-changed` (Owner), then pulls
+   the new Site's open Alerts like any User who joins a Site (`user.site-alerts-pulled`,
+   [Delivery timing](#delivery-timing)). The same key returns the same result for 24 h.
 
 ### Reconciliation from Keycloak
 
@@ -197,7 +198,8 @@ Everything lives in `server/Identity/Reconciliation/`.
    fan-out that was cut short. The Site grain never calls User grains, so nothing can deadlock with Create
    Site. With the Membership every current member is handed the Site's Reminder cadence
    (`SyncSiteReminderCadence`, [Notification settings](#notification-settings)); `null` for a former
-   member drops what that User had set for the Site.
+   member drops what that User had set for the Site. A User grain that is handed a Site it did not hold pulls
+   that Site's open Alerts, and one whose Membership ended drops them ([Delivery timing](#delivery-timing)).
 
 The event is only a trigger: duplicates, echoes of the Server's own writes and events out of order diff
 to nothing, and any later event on the Site repairs a lost one.
@@ -493,8 +495,9 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 
 A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Clients
 read them from [the Alerts list](#the-alerts-list) (Story 6.2); when a User may be notified is set in
-[Notification settings](#notification-settings) (Story 6.3), and delivery is Stories 6.4 to 6.6. Three grains
-take part, through grain calls and the journal only (AD-5):
+[Notification settings](#notification-settings) (Story 6.3), each member's User grain decides when to notify
+([Delivery timing](#delivery-timing), Story 6.4), and the channels are Stories 6.5 and 6.6. Three grains
+open and close an Alert, through grain calls and the journal only (AD-5):
 
 1. **The Device grain hands out Readings.** After a frame is committed (step 9 of `DeviceGrain.Ingest` in
    [Ingesting Node frames](#ingesting-node-frames-step-by-step)) it calls `ISensorGrain.Evaluate` for every
@@ -543,13 +546,18 @@ take part, through grain calls and the journal only (AD-5):
    caller of the call itself, so a client, another grain or another Sensor is refused and the Alert stays open. The
    reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`; only `recovered` is produced
    before Epics 7 and 8.
-7. **The Site's open Alerts.** The Alert grain reports each open and close to its Site grain
-   (`ISiteGrain.AlertOpened`, `AlertClosed`), the open before the close, and journals the acknowledgement as
-   `alert.site-notified`; until then it reports again, on a 5 s grain timer, by the `report-alert` reminder, on
-   activation and whenever the Sensor repeats its call (the Sensor counts an Alert as delivered only once its Site
-   knows it). The Site grain journals `site.alert-opened` and `site.alert-closed`, once per Alert, and answers
-   `ISiteGrain.OpenAlerts()` (oldest first) from the state it replays from its own stream; it never calls User
-   grains and never reads a read model (AD-1). A Site that is not `Active` keeps no Alerts.
+7. **The Site's open Alerts and its members.** The Alert grain reports each open and close to its Site grain
+   (`ISiteGrain.AlertOpened`, `AlertClosed`), the open before the close. The Site grain journals
+   `site.alert-opened` and `site.alert-closed`, once per Alert, and answers with its current members
+   (`SiteAlertReportResult.Members`); it never calls User grains and never reads a read model (AD-1). The Alert
+   grain then tells every member's User grain (`IUserGrain.AlertOpened`, `AlertClosed`,
+   [Delivery timing](#delivery-timing)), all of them even when one fails, and journals the acknowledgement as
+   `alert.site-notified` only when the Site and every member answered. Until then it reports again, on a 5 s
+   grain timer, by the `report-alert` reminder, on activation and whenever the Sensor repeats its call (the
+   Sensor counts an Alert as delivered only once its Site and the members know it); the Site grain and the User
+   grains ignore what they already hold, so nobody is notified twice. `ISiteGrain.OpenAlerts()` answers the
+   open Alerts (oldest first) from the state the Site grain replays from its own stream. A Site that is not
+   `Active` keeps no Alerts and names no members.
 
 Streak, side, episode, the open Alert and every pending delivery are journaled state, so a silo restart loses
 none of them. A moved Node's open Alert follows its Device to the new Lot until three Readings recover; closing on
@@ -600,8 +608,8 @@ The projector is not caught up inside the Alert grain: an Alert shows in the lis
 
 ### Notification settings
 
-Story 6.3 persists when Coldframe may notify a User; nothing is delivered before Story 6.4. There is no
-read model and no migration: the handlers read the grains, as for Thresholds.
+Story 6.3 persists when Coldframe may notify a User; [Delivery timing](#delivery-timing) (Story 6.4) acts on
+it. There is no read model and no migration: the handlers read the grains, as for Thresholds.
 
 | Setting | Owner | Default | Event |
 | --- | --- | --- | --- |
@@ -652,7 +660,100 @@ already in force journals nothing, and every write answers 200 with the state in
   [Reconciliation from Keycloak](#reconciliation-from-keycloak)), which is how a new member gets it. A User
   grain that never heard a cadence for a Site treats it as daily, so handing out `Daily` journals nothing.
 - **Resolution.** The User grain reminds at its own cadence for the Site, else the Site's as it was last
-  handed it, else daily (`UserSiteNotifications.ResolvedReminderCadence`). Story 6.4 reads it there.
+  handed it, else daily (`UserSiteNotifications.ResolvedReminderCadence`, `ReminderIntervalRule.Resolve`).
+
+### Delivery timing
+
+Story 6.4: the User grain (`server/Identity/UserGrain.cs`) is the only place that decides when to notify. The
+Notifier and its channels never filter, delay or schedule. Nothing here has an endpoint or a read model.
+
+**How the User grain learns of Alerts.** Three ways, all idempotent:
+
+| How | When | Opening notification |
+| --- | --- | --- |
+| Told: `IUserGrain.AlertOpened(siteId, alert)`, `AlertClosed(siteId, alertId)` | The Alert grain's report loop, for every member the Site grain named (step 7 of [Alerts](#alerts)) | Yes: due at once |
+| Pulled: `ISiteGrain.OpenAlerts()` | `SyncSiteMembership` (or Create Site) hands it a Site it did not hold; repeated on every wake until the Site answered | No |
+| Reconciled: `ISiteGrain.OpenAlerts()` for every Site in its set | The first wake after every activation: adds what it missed, drops what the Site no longer lists | No |
+
+A report for a Site that is not in the User's own Site set is acknowledged and nothing is stored; the pull
+covers it once the Membership arrives. A changed Role is no join. When the Membership ends
+(`user.site-membership-changed` without a Role) the Site's Alerts, held deliveries and deadlines are gone
+with it. A pull that fails never fails the activation or the Membership sync.
+
+| Event on `user/{sub}` | Journaled when |
+| --- | --- |
+| `user.alert-tracked` `{siteId, alert, told, remindFrom, trackedAt}` | The grain learned of an open Alert. `told` says whether an opening notification is due (at `remindFrom`); otherwise `remindFrom` is the last `openedAt + n × interval` not after `trackedAt` |
+| `user.alert-dropped` `{alertId, droppedAt}` | The Alert closed, or a reconciliation found the Site no longer lists it. Never notifies |
+| `user.delivery-held` `{siteId, alertId, dueAt, windowOpensAt}` | A delivery fell due outside the Notification Window; `windowOpensAt` is the window-opening due-at |
+| `user.notification-sent` `{siteId, kind, alertIds, dueAt, sentAt}` | The Notifier returned for an `Alert`, a `Reminder` or a `Summary` |
+| `user.site-alerts-pulled` `{siteId, pulledAt}` | The Site answered the pull that a new Membership started |
+
+**Deadlines are journaled state (AD-6).** `UserState` keeps one `TrackedAlert` per open Alert: its previous
+due-at, whether the opening notification is still pending, and when the first held delivery fell due. The next
+due-at is the opening's own due-at, else `previous due-at + interval` (`UserState.DueAt`), so a cadence change
+re-schedules from the previous due-at without an event of its own, and Reminders stay anchored to their due-at,
+never to the time something was sent or summarised. `UserState.WindowOpensAt` is the window-opening due-at
+while anything is held. All of it is rebuilt from the stream; there is no snapshot, so each delivery is one
+event.
+
+**A wake** (`WakeAsync`) makes the pending pulls and reconciliations, then processes everything overdue:
+
+1. Every Alert of a Site that is not muted whose due-at has passed, oldest first. Overdue Reminders collapse
+   into the last one (`ReminderIntervalRule.LastAtOrBefore`), so the next is due after now.
+2. A due-at inside the Notification Window, while the window is still open now, is handed to the Notifier as
+   one `alert` or `reminder` notification. A due-at outside it, one found only after the window closed
+   (nothing woke the grain in between), or one for an Alert that already has a held delivery, journals
+   `user.delivery-held`: nothing is sent at night.
+3. While the window is open now, every Site with held deliveries gets one `summary`: one entry per Alert that
+   is still open, however many of its deliveries were held, oldest Alert first, with `heldFrom` the first held
+   due-at. Its `dueAt` is the journaled window opening; held deliveries wait for the window as it is now, so a
+   changed window or zone is followed at the next wake. An Alert that closed while held was dropped and has no
+   entry, and a Site with nothing left gets no summary.
+
+The grain is woken by the `deliver-notifications` Orleans reminder (period 1 min) and by a grain timer (first
+after 1 s, then every 5 s) while it is active; both exist only while the grain tracks an Alert or has a pull
+pending. `IUserGrain.AlertOpened` only journals and returns: it sends nothing itself, so the Alert grain's
+report and an ingest do not wait for a channel. A wake does wait for the Notifier, and the grain's other calls
+queue behind it, so a channel bounds its own time. Every wake and every activation processes everything overdue: a summary due at
+07:00 is sent by the first wake after a restart across 07:00, once. Time comes only from `Clock`.
+
+- **The window** is `NotificationWindowRule` (`server/Notifications/`), pure: wall-clock minutes evaluated
+  with `TimeZoneInfo` in the User's zone (chosen, else detected, else UTC; an ID the tz database does not know
+  reads as UTC). The opening stays at its local time across daylight-saving changes; a start the clocks skip
+  opens at the first valid instant after it, a start that occurs twice at its first occurrence.
+- **Reminders** are `ReminderIntervalRule`, pure: `Daily` is 24 h, `Every2Days` 48 h, the cadence is the User's
+  own, else the Site's as the grain holds it, else daily. A Health Alert (any kind that is not `Threshold`;
+  none exists before Epic 7) uses `max(resolved, 24 h)`.
+- **Mute.** A muted Site has nothing due and nothing held: its deliveries are discarded, also the ones held
+  when it is muted, without an event. `user.site-mute-changed` to unmuted moves every deadline that passed
+  meanwhile to the last `due-at + n × interval` not after the unmute, so the Reminder advanced all the while
+  and unmuting starts no catch-up. Other Users are not affected.
+- **At-least-once.** `user.notification-sent` is journaled only after the Notifier returned. When it throws
+  (no channel delivered), the delivery stays due (or held) and the next wake hands it over again, so a channel
+  must tolerate the same notification twice.
+
+**The Notifier seam** (`server/Notifications/`, registered by `AddNotifications()`):
+`INotifier.SendAsync(Notification)` takes `{userId, siteId, kind: Alert | Reminder | Summary, dueAt, heldFrom?,
+entries}`, each entry `{alertId, kind, side?, lotId, sensorId, deviceId, quantity, openedAt}`
+(`packages/cs/contracts/Notifications/`). It carries identifiers and the facts the grains hold; names, values
+and wording belong to the channels. The one implementation, `Notifier`, stamps `sentAt` from the
+`TimeProvider`, calls every registered `INotificationChannel` in registration order and returns `sentAt`. A
+channel that throws is logged (`Warning`, EventId 2, `NotificationChannelFailed`) and the others are still
+called; the send fails only when every channel threw. It
+then writes one `Information` log entry (EventId 1, `NotificationSent`, category
+`Coldframe.Server.Notifications.Notifier`) with the structured fields `Kind`, `UserId`, `SiteId`, `Entries`,
+`DueAt` and `SentAt`, and records on the meter `Coldframe.Server.Notifications`, which the service defaults
+export: the counter `coldframe.notifications.sent` and the histogram `coldframe.notifications.delay`
+(`sentAt - dueAt` in seconds), both tagged `kind`. A delivery is sent within a minute of `dueAt`; the
+histogram shows when it is not. Three cases are late by design: a send repeated after the Notifier failed, a
+Reminder whose due-at moved into the past because the cadence was shortened, and a delivery that fell due
+while nothing could wake the grain (the silo was down).
+
+**Add a channel** (Stories 6.5 and 6.6): implement `INotificationChannel.SendAsync(notification, sentAt, …)`
+and register it with `services.AddSingleton<INotificationChannel, TChannel>()`. No channel ships with the
+seam; without one the Notifier still logs and records every notification. A channel only delivers and writes
+the text, and bounds its own time. It throws when it could not deliver; the other channels are still called,
+and the User grain repeats the send only when no channel delivered.
 
 ### Moving and unassigning a Node
 
