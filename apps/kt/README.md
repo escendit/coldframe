@@ -57,3 +57,28 @@ is selected ask "Stop setting up Node 7C19? Nothing is saved on the Node." The c
 no battery or Sensor count (neither the advert nor the Node's identity carries them), and the
 outcome shows no Sensors or Calibrate action yet (see `deferred-work.md` DW-55 to DW-58). At font
 scale 1.5 and larger the two Devices header actions stack, so the heading keeps its width.
+
+## Alerts (Story 6.2)
+
+The Alerts tab (`ui/alerts/`) renders the core's `AlertsState`: "Threshold Alerts", then "Health
+Alerts", then "Closed" (the last 7 days), each in the Server's order; a group without rows is not
+shown. Without an open Alert it says "No open Alerts.", followed by Closed when it has rows. A
+failed load shows the notice with Try again and no rows.
+
+- **Row** (`AlertRow.kt`, DESIGN.md `alert-row-*`): needs water is the only solid orange row;
+  another Threshold Alert is `layer-01` with a 2 dp `border-strong` outline and an arrow for its
+  side; a Health Alert is hatched and dashed with its text on a plate; a closed Alert is an outline
+  in `text-secondary` whose eyebrow ends in "closed 06:40". Which variant, icon and eyebrow a row
+  has is the core's answer; `AlertsCopy.kt` only turns it into the catalogue's words. A row shows no
+  value and no Threshold.
+- **One tap target.** A row is one button of at least 48 dp with one spoken label ("Tomatoes needs
+  water, since 05:45"; a closed one adds "closed 06:40") and no other action. Threshold and
+  uncalibrated rows switch to the Garden tab and open Lot detail there, so Back returns to the
+  overview; silent and battery rows open the Devices tab.
+- **Tab label.** "Alerts · 5" while the current Site has 5 open Alerts, spoken "Alerts, 5 open";
+  "Alerts" otherwise, also while loading and after a failed load. The core reads the Alerts when a
+  Site becomes current, `MainActivity` reads them again on every foreground, and the shell on
+  every entry of the tab; pull-to-refresh shows the `primary` bar of the Site overview.
+
+Health Alerts have no producer before Epic 7: their rows are built and tested from fixtures
+(`tests/kt/android/test/.../AlertFixtures.kt`).

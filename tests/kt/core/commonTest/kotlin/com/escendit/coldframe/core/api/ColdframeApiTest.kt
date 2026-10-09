@@ -265,6 +265,76 @@ class ColdframeApiTest {
         }
 
     @Test
+    fun uxDr25ListAlertsReadsAPageWithTheOpenCountAndPassesTheCursorUnchanged() =
+        runTest {
+            answer = {
+                respond(
+                    """{"alerts":[""" +
+                        """{"id":"al1","kind":"threshold","side":"low","quantity":"soil_moisture","lotId":"l1",""" +
+                        """"lotName":"Tomatoes","deviceId":"7c19000000000001",""" +
+                        """"openedAt":"2026-10-09T05:45:00.000Z"},""" +
+                        """{"id":"al2","kind":"silent","quantity":"soil_moisture","lotId":"l2","lotName":"Beans",""" +
+                        """"deviceId":"7c19000000000002","openedAt":"2026-10-08T05:45:00.000Z",""" +
+                        """"closedAt":"2026-10-08T06:40:00.000Z","reason":"recovered","later":1}],""" +
+                        """"openCount":5,"nextCursor":"djE6b3Blbg"}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listAlerts("a", "a b/c")
+
+            assertEquals(
+                ApiResult.Ok(
+                    AlertListDto(
+                        listOf(
+                            AlertDto(
+                                id = "al1",
+                                kind = "threshold",
+                                quantity = "soil_moisture",
+                                lotId = "l1",
+                                lotName = "Tomatoes",
+                                deviceId = "7c19000000000001",
+                                openedAt = "2026-10-09T05:45:00.000Z",
+                                side = "low",
+                            ),
+                            AlertDto(
+                                id = "al2",
+                                kind = "silent",
+                                quantity = "soil_moisture",
+                                lotId = "l2",
+                                lotName = "Beans",
+                                deviceId = "7c19000000000002",
+                                openedAt = "2026-10-08T05:45:00.000Z",
+                                closedAt = "2026-10-08T06:40:00.000Z",
+                                reason = "recovered",
+                            ),
+                        ),
+                        openCount = 5,
+                        nextCursor = "djE6b3Blbg",
+                    ),
+                ),
+                result,
+            )
+            val request = requests.single()
+            assertEquals(HttpMethod.Get, request.method)
+            assertEquals("/sites/a/alerts", request.url.encodedPath)
+            assertEquals("a b/c", request.url.parameters["cursor"])
+            assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+        }
+
+    @Test
+    fun uxDr25TheFirstPageOfAlertsSendsNoCursorAndAnEmptySiteReadsEmpty() =
+        runTest {
+            answer = { respond("""{"alerts":[],"openCount":0}""", HttpStatusCode.OK, json) }
+
+            val result = api().listAlerts("a", null)
+
+            assertEquals(ApiResult.Ok(AlertListDto(emptyList(), 0)), result)
+            assertEquals("https://server.example/sites/a/alerts", requests.single().url.toString())
+        }
+
+    @Test
     fun uxDr84ListDevicesWithoutARoleIsForbiddenAndAnUnknownSiteIsNotFound() =
         runTest {
             answer = { respond(problem("forbidden"), HttpStatusCode.Forbidden, problem) }

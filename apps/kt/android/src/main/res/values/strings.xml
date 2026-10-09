@@ -41,6 +41,34 @@
   <string name="devices_add_node">Add a Node</string>
   <string name="devices_unreachable">Can\'t reach your Server.</string>
 
+  <!-- Story 6.2: Alerts. -->
+  <string name="nav_alerts_count">Alerts · %1$d</string>
+  <string name="alerts_group_threshold">Threshold Alerts</string>
+  <string name="alerts_group_health">Health Alerts</string>
+  <string name="alerts_group_closed">Closed</string>
+  <string name="alerts_empty">No open Alerts.</string>
+  <string name="alerts_unreachable">Can\'t reach your Server.</string>
+  <string name="alert_eyebrow_needs_water">Needs water</string>
+  <string name="alert_eyebrow_below_low">Threshold Alert · below low</string>
+  <string name="alert_eyebrow_above_high">Threshold Alert · above high</string>
+  <string name="alert_eyebrow_health">Health Alert</string>
+  <string name="alert_eyebrow_open">%1$s · %2$s</string>
+  <string name="alert_eyebrow_closed">%1$s · closed %2$s</string>
+  <string name="alert_title_needs_water">%1$s needs water</string>
+  <string name="alert_title_too_wet">%1$s too wet</string>
+  <string name="alert_title_too_low">%1$s %2$s too low</string>
+  <string name="alert_title_too_high">%1$s %2$s too high</string>
+  <string name="alert_title_silent">Node on Lot \'%1$s\' silent</string>
+  <string name="alert_title_battery">Node battery low on Lot \'%1$s\'</string>
+  <string name="alert_title_uncalibrated">Soil Sensor on Lot \'%1$s\' needs Calibration</string>
+  <string name="alert_title_unknown">Health Alert on Lot \'%1$s\'</string>
+  <string name="alert_quantity_soil_moisture">soil moisture</string>
+  <string name="alert_quantity_air_temperature">temperature</string>
+  <string name="alert_quantity_relative_humidity">humidity</string>
+  <string name="alert_quantity_gas_resistance">air (gas)</string>
+  <string name="alert_spoken_open">%1$s, since %2$s</string>
+  <string name="alert_spoken_closed">%1$s, since %2$s, closed %3$s</string>
+
   <string name="settings_site_settings">Site settings</string>
   <string name="settings_site_settings_helper">Name and Lots of %1$s</string>
   <string name="settings_appearance">Appearance</string>

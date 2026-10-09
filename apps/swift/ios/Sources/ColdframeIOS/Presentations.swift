@@ -68,6 +68,17 @@ public enum AppTab: String, CaseIterable, Hashable, Sendable {
     }
   }
 
+  /// The label in the tab bar: "Alerts · 5" on the Alerts tab while Alerts are open (UX-DR64),
+  /// the plain label otherwise.
+  public func labelCopy(openAlerts: Int) -> Copy {
+    self == .alerts && openAlerts > 0 ? Copy(.navAlertsCount, .number(openAlerts)) : Copy(label)
+  }
+
+  /// What VoiceOver says for the tab: "Alerts, 5 open" while Alerts are open.
+  public func spokenCopy(openAlerts: Int) -> Copy {
+    self == .alerts && openAlerts > 0 ? Copy(.countOpenAlerts, .number(openAlerts)) : Copy(label)
+  }
+
   /// The selected tab is exposed as selected (the native tab bar adds the button trait).
   public func traits(selected: AppTab) -> Set<ControlTrait> {
     self == selected ? [.button, .selected] : [.button]

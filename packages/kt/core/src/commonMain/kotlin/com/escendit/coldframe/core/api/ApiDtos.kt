@@ -261,3 +261,34 @@ public data class ProblemDto(
     val status: Int? = null,
     val detail: String? = null,
 )
+
+/**
+ * `Alert`: an Alert of the Site. [kind] is the extensible `AlertKind` (`threshold`, `silent`,
+ * `battery`, `uncalibrated`, or one this app does not know yet); [side] is `low` or `high` on a
+ * Threshold Alert; [quantity] is a `SensorQuantity`. [closedAt] and [reason] are absent while the
+ * Alert is open. It carries no value and no Threshold.
+ */
+@Serializable
+public data class AlertDto(
+    val id: String,
+    val kind: String,
+    val quantity: String,
+    val lotId: String,
+    val lotName: String,
+    val deviceId: String,
+    val openedAt: String,
+    val side: String? = null,
+    val closedAt: String? = null,
+    val reason: String? = null,
+)
+
+/**
+ * `AlertList`: a page of the Site's Alerts, open newest first, then closed newest first.
+ * [openCount] is every open Alert of the Site whatever the page; [nextCursor] only when more follow.
+ */
+@Serializable
+public data class AlertListDto(
+    val alerts: List<AlertDto>,
+    val openCount: Int,
+    val nextCursor: String? = null,
+)

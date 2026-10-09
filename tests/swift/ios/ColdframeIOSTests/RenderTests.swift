@@ -968,4 +968,77 @@
     #expect(renders(calibrateView(confirm), dark: dark))
     #expect(rendersAtDefaultSize(calibrateView(confirm), dark: dark))
   }
+
+  /// The Alerts tab at the clock of `Overview`, so the times it writes do not depend on the machine.
+  @MainActor
+  private func alertsView(_ alerts: AlertsPresentation) -> some View {
+    NavigationStack {
+      AlertsView(
+        presentation: alerts, now: { Overview.context.now },
+        timeZone: Overview.context.timeZone)
+    }
+  }
+
+  @Test(
+    "UX-DR64 UX-DR25 UX-DR26 Alerts renders every row variant in its groups: Threshold, Health, Closed",
+    arguments: [false, true])
+  @MainActor
+  func alertsEveryVariantRenders(dark: Bool) {
+    let alerts = AlertsFixture.alerts()
+    #expect(Set(alerts.rows.map(\.variant)).count == 4)
+    #expect(alerts.groups.map(\.kind) == [.threshold, .health, .closed])
+    #expect(rendersAtDefaultSize(alertsView(alerts), dark: dark))
+    #expect(renders(alertsView(alerts), dark: dark))
+  }
+
+  @Test(
+    "UX-DR25 UX-DR26 UX-DR99 each Alert row variant renders on its own",
+    arguments: [false, true])
+  @MainActor
+  func eachAlertRowRenders(dark: Bool) throws {
+    for alert in AlertsFixture.every {
+      let row = try AlertsFixture.row(alert)
+      #expect(renders(AlertRowView(row: row, context: .catalogue()), dark: dark), "\(alert.id)")
+    }
+  }
+
+  @Test("UX-DR82 Alerts without Alerts renders No open Alerts.", arguments: [false, true])
+  @MainActor
+  func alertsEmptyRenders(dark: Bool) {
+    #expect(renders(alertsView(AlertsFixture.alerts([])), dark: dark))
+    #expect(L10n.alertsEmpty.string == "No open Alerts.")
+  }
+
+  @Test(
+    "UX-DR82 Alerts with only closed Alerts renders No open Alerts. then Closed",
+    arguments: [false, true])
+  @MainActor
+  func alertsOnlyClosedRenders(dark: Bool) {
+    let alerts = AlertsFixture.alerts([AlertsFixture.closedNeedsWater, AlertsFixture.closedSilent])
+    #expect(alerts.showsEmpty)
+    #expect(renders(alertsView(alerts), dark: dark))
+  }
+
+  @Test("UX-DR64 Alerts after a failed load renders the notice", arguments: [false, true])
+  @MainActor
+  func alertsFailedRenders(dark: Bool) {
+    let failed = AlertsFixture.alerts(surface: "failed", notice: "unreachable")
+    #expect(renders(alertsView(failed), dark: dark))
+  }
+
+  @Test(
+    "UX-DR64 UX-DR109 the tab shell renders with Alerts selected and the count on its tab",
+    arguments: [false, true])
+  @MainActor
+  func shellWithAlertsRenders(dark: Bool) {
+    let alerts = AlertsFixture.alerts()
+    #expect(
+      renders(
+        AppTabView(
+          theme: .system, onSelectTheme: { _ in }, onSignOut: {}, selection: .constant(.alerts),
+          alerts: alerts),
+        dark: dark))
+    #expect(AppTab.alerts.labelCopy(openAlerts: alerts.openCount).string == "Alerts · 8")
+    #expect(AppTab.alerts.spokenCopy(openAlerts: 5).string == "Alerts, 5 open")
+  }
 #endif

@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.escendit.coldframe.android.ui.alerts.AlertsActions
+import com.escendit.coldframe.android.ui.alerts.AlertsScreen
 import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotDetailScreen
 import com.escendit.coldframe.android.ui.sites.LotTiles
@@ -24,6 +26,9 @@ import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.sites.rememberOverviewCopy
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
+import com.escendit.coldframe.core.alerts.AlertSummary
+import com.escendit.coldframe.core.alerts.AlertsNotice
+import com.escendit.coldframe.core.alerts.AlertsState
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.calibrate.CalibrateState
 import com.escendit.coldframe.core.devices.DevicesState
@@ -477,6 +482,134 @@ class SnapshotTest {
             fontScale = 2f,
             scrollTo = "Lots",
         )
+
+    /**
+     * The Alerts surface alone, whole: every row of [state] at once, on a window tall enough to hold
+     * them (the surface scrolls, so the shell's window shows only the first rows).
+     */
+    private fun alerts(
+        name: String,
+        state: AlertsState,
+        theme: ThemePreference,
+        fontScale: Float = 1f,
+    ) {
+        compose.setContent {
+            AtFontScale(fontScale) {
+                ColdframeTheme(isDark = theme == ThemePreference.Dark) {
+                    Box(Modifier.testTag("alerts").background(Coldframe.colors.background)) {
+                        AlertsScreen(
+                            alerts = state,
+                            actions = AlertsActions.None,
+                            onOpenLot = { _, _ -> },
+                            onOpenDevices = {},
+                            now = { AlertFixtures.now },
+                            zone = ZoneOffset.UTC,
+                            fill = false,
+                        )
+                    }
+                }
+            }
+        }
+        compose.assertNothingOverflows(name)
+        val surface = compose.onNodeWithTag("alerts")
+        val window = compose.activity.window.decorView.height
+        assertTrue(surface.fetchSemanticsNode().size.height < window, "$name fits its window of $window px")
+        surface.captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    private fun alertsOf(rows: List<AlertSummary>) = AlertFixtures.ready(rows)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR25 UX-DR64 UX-DR14 every Alert row variant in both groups and Closed, light`() =
+        alerts("alerts-light", AlertFixtures.ready(), ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR25 UX-DR64 UX-DR14 every Alert row variant in both groups and Closed, dark`() =
+        alerts("alerts-dark", AlertFixtures.ready(), ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR25 UX-DR96 the Threshold Alert rows, light, font scale 2`() =
+        alerts("alerts-threshold-large-light", alertsOf(AlertFixtures.threshold), ThemePreference.Light, 2f)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR25 UX-DR96 the Threshold Alert rows, dark, font scale 2`() =
+        alerts("alerts-threshold-large-dark", alertsOf(AlertFixtures.threshold), ThemePreference.Dark, 2f)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR25 UX-DR96 the Health Alert rows, light, font scale 2`() =
+        alerts("alerts-health-large-light", alertsOf(AlertFixtures.health), ThemePreference.Light, 2f)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR25 UX-DR96 the Health Alert rows, dark, font scale 2`() =
+        alerts("alerts-health-large-dark", alertsOf(AlertFixtures.health), ThemePreference.Dark, 2f)
+
+    @Test
+    fun `UX-DR82 UX-DR64 no open Alerts, light, font scale 2`() =
+        alerts("alerts-empty-light", alertsOf(emptyList()), ThemePreference.Light, 2f)
+
+    @Test
+    fun `UX-DR82 UX-DR64 no open Alerts, dark, font scale 2`() =
+        alerts("alerts-empty-dark", alertsOf(emptyList()), ThemePreference.Dark, 2f)
+
+    @Test
+    fun `UX-DR82 UX-DR64 only closed Alerts, light, font scale 2`() =
+        alerts("alerts-only-closed-light", alertsOf(AlertFixtures.closed), ThemePreference.Light, 2f)
+
+    @Test
+    fun `UX-DR82 UX-DR64 only closed Alerts, dark, font scale 2`() =
+        alerts("alerts-only-closed-dark", alertsOf(AlertFixtures.closed), ThemePreference.Dark, 2f)
+
+    @Test
+    fun `UX-DR64 Alerts that cannot be read, light, font scale 2`() =
+        alerts(
+            "alerts-failed-light",
+            AlertsState.Failed(homeSite(), AlertsNotice.Unreachable),
+            ThemePreference.Light,
+            2f,
+        )
+
+    @Test
+    fun `UX-DR64 Alerts that cannot be read, dark, font scale 2`() =
+        alerts("alerts-failed-dark", AlertsState.Failed(homeSite(), AlertsNotice.Unreachable), ThemePreference.Dark, 2f)
+
+    /** The shell on the Alerts tab: the tab label carries the open count. */
+    private fun alertsTab(
+        name: String,
+        theme: ThemePreference,
+    ) {
+        val state = alertsOf(List(5) { AlertFixtures.needsWater.copy(id = "a$it", lotName = "Tomatoes ${it + 1}") })
+        compose.setContent {
+            ColdframeRoot(
+                state = SignInState.SignedIn("Simon"),
+                sites = readySites(),
+                theme = theme,
+                onSignIn = {},
+                onSignOut = {},
+                onSelectTheme = {},
+                lots = lotsOf(SiteRole.Owner),
+                alerts = state,
+                now = { AlertFixtures.now },
+            )
+        }
+        compose.onNodeWithText("Alerts · 5").performClick()
+        compose.onNode(isHeading().and(hasText("Alerts"))).assertExists()
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    fun `UX-DR57 UX-DR64 the Alerts tab with five open Alerts reads Alerts 5, light`() =
+        alertsTab("alerts-tab-count-light", ThemePreference.Light)
+
+    @Test
+    fun `UX-DR57 UX-DR64 the Alerts tab with five open Alerts reads Alerts 5, dark`() =
+        alertsTab("alerts-tab-count-dark", ThemePreference.Dark)
 
     /**
      * The Lot grid alone, whole: every tile of [lots] at once, on a window tall enough to hold

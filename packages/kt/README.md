@@ -10,11 +10,12 @@ Kotlin libraries.
 `core/` builds for the JVM (tests), Android and iOS (`iosArm64`, `iosSimulatorArm64`, the static
 framework and XCFramework `ColdframeCore`). It runs OIDC Authorization Code + PKCE through
 `kotlin-multiplatform-oidc`, keeps the tokens in the library's store and exposes one observable
-state per concern (`SignInEngine.state`, `SitesEngine.state`, `AppearanceStore.theme`); `jvmShared`
+state per concern (`SignInEngine.state`, `SitesEngine.state`, `AlertsEngine.state`, `AppearanceStore.theme`); `jvmShared`
 holds the JVM and Android certificate classifier and time-zone lookup.
 
 `api/ColdframeApi` calls the Server (`GET /sites`, `POST /sites` with an `Idempotency-Key`,
-`PATCH /sites/{siteId}` and the Lot endpoints under `/sites/{siteId}/lots`) with the
+`PATCH /sites/{siteId}`, the Lot endpoints under `/sites/{siteId}/lots` and the paged
+`GET /sites/{siteId}/alerts`) with the
 session's access token, refreshed by `SignInEngine` when expired; a 401 signs out with the SignedOut
 notice. Results are values (`ApiResult.Ok` / `ApiResult.Failed(ApiFailure)`), never exceptions. The
 DTOs are hand-written and held to `packages/openapi/coldframe.openapi.json` by `OpenApiContractTest`.

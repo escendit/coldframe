@@ -621,6 +621,45 @@
           "404": { "$ref": "#/components/responses/LotNotFound" }
         }
       }
+    },
+    "/sites/{siteId}/alerts": {
+      "get": {
+        "operationId": "listAlerts",
+        "summary": "List the Site's Alerts",
+        "description": "One ordered list: every open Alert, newest openedAt first, then the Alerts closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. Clients show them in this order and never re-sort within a group. openCount is the number of open Alerts of the Site and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "The nextCursor of the previous page; opaque.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most Alerts in a page.",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the Site's Alerts.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AlertList" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      }
     }
   },
   "components": {
@@ -1265,6 +1304,62 @@
             "items": { "$ref": "#/components/schemas/DeviceListItem" }
           }
         }
+      },
+      "AlertKind": {
+        "type": "string",
+        "description": "What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server produces only threshold today; silent, battery and uncalibrated arrive with Epic 7.",
+        "x-extensible-enum": ["threshold", "silent", "battery", "uncalibrated"]
+      },
+      "AlertSide": {
+        "type": "string",
+        "description": "The Threshold a Threshold Alert crossed: below the low or above the high.",
+        "enum": ["low", "high"]
+      },
+      "AlertCloseReason": {
+        "type": "string",
+        "description": "Why an Alert closed.",
+        "enum": ["recovered", "paused", "unassigned", "calibrated", "removed"]
+      },
+      "Alert": {
+        "type": "object",
+        "description": "An Alert of the Site. It carries no value and no Threshold.",
+        "required": ["id", "kind", "quantity", "lotId", "lotName", "deviceId", "openedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": { "$ref": "#/components/schemas/AlertKind" },
+          "side": {
+            "allOf": [{ "$ref": "#/components/schemas/AlertSide" }],
+            "description": "Present on a Threshold Alert; absent otherwise."
+          },
+          "quantity": { "$ref": "#/components/schemas/SensorQuantity" },
+          "lotId": { "type": "string", "format": "uuid", "description": "The Lot the Alert was opened for." },
+          "lotName": { "type": "string", "description": "The current name of that Lot." },
+          "deviceId": { "$ref": "#/components/schemas/DeviceId" },
+          "openedAt": { "type": "string", "format": "date-time", "description": "When the Alert opened, ISO-8601 UTC with Z." },
+          "closedAt": { "type": "string", "format": "date-time", "description": "When the Alert closed, ISO-8601 UTC with Z; absent while it is open." },
+          "reason": {
+            "allOf": [{ "$ref": "#/components/schemas/AlertCloseReason" }],
+            "description": "Present exactly when closedAt is."
+          }
+        },
+        "examples": [
+          { "id": "0b7f2a8e-5d0c-5e1b-9d53-3d1b5f6f2a10", "kind": "threshold", "side": "low", "quantity": "soil_moisture", "lotId": "019a0c5e-0000-7000-8000-000000000001", "lotName": "Tomatoes", "deviceId": "3f2a9c0d1e4b5a67", "openedAt": "2026-10-09T05:45:00.000Z" },
+          { "id": "5e1b0b7f-2a8e-5d0c-9d53-6f2a103d1b5f", "kind": "threshold", "side": "high", "quantity": "air_temperature", "lotId": "019a0c5e-0000-7000-8000-000000000002", "lotName": "Herbs", "deviceId": "4a5b6c7d8e9f0a1b", "openedAt": "2026-10-08T12:10:00.000Z", "closedAt": "2026-10-08T14:40:00.000Z", "reason": "recovered" }
+        ]
+      },
+      "AlertList": {
+        "type": "object",
+        "required": ["alerts", "openCount"],
+        "properties": {
+          "alerts": {
+            "type": "array",
+            "description": "Open Alerts newest first, then Alerts closed in the last 7 days newest first.",
+            "items": { "$ref": "#/components/schemas/Alert" }
+          },
+          "openCount": { "type": "integer", "minimum": 0, "description": "Every open Alert of the Site, whatever the page." },
+          "nextCursor": { "type": "string", "description": "Opaque; present only when more Alerts follow." }
+        },
+        "examples": [{ "alerts": [], "openCount": 0 }]
       },
       "ProblemDetails": {
         "type": "object",

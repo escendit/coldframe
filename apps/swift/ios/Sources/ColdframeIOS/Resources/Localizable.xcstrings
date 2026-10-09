@@ -5530,6 +5530,292 @@
           }
         }
       }
+    },
+    "nav_alerts_count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerts · %1$lld"
+          }
+        }
+      }
+    },
+    "alerts_group_threshold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threshold Alerts"
+          }
+        }
+      }
+    },
+    "alerts_group_health": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health Alerts"
+          }
+        }
+      }
+    },
+    "alerts_group_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closed"
+          }
+        }
+      }
+    },
+    "alerts_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open Alerts."
+          }
+        }
+      }
+    },
+    "alerts_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Server."
+          }
+        }
+      }
+    },
+    "alert_eyebrow_needs_water": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs water"
+          }
+        }
+      }
+    },
+    "alert_eyebrow_below_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threshold Alert · below low"
+          }
+        }
+      }
+    },
+    "alert_eyebrow_above_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threshold Alert · above high"
+          }
+        }
+      }
+    },
+    "alert_eyebrow_health": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health Alert"
+          }
+        }
+      }
+    },
+    "alert_eyebrow_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "alert_eyebrow_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · closed %2$@"
+          }
+        }
+      }
+    },
+    "alert_title_needs_water": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ needs water"
+          }
+        }
+      }
+    },
+    "alert_title_too_wet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ too wet"
+          }
+        }
+      }
+    },
+    "alert_title_too_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ too low"
+          }
+        }
+      }
+    },
+    "alert_title_too_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ too high"
+          }
+        }
+      }
+    },
+    "alert_title_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node on Lot '%1$@' silent"
+          }
+        }
+      }
+    },
+    "alert_title_battery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node battery low on Lot '%1$@'"
+          }
+        }
+      }
+    },
+    "alert_title_uncalibrated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soil Sensor on Lot '%1$@' needs Calibration"
+          }
+        }
+      }
+    },
+    "alert_title_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health Alert on Lot '%1$@'"
+          }
+        }
+      }
+    },
+    "alert_quantity_soil_moisture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "soil moisture"
+          }
+        }
+      }
+    },
+    "alert_quantity_air_temperature": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "temperature"
+          }
+        }
+      }
+    },
+    "alert_quantity_relative_humidity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "humidity"
+          }
+        }
+      }
+    },
+    "alert_quantity_gas_resistance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "air (gas)"
+          }
+        }
+      }
+    },
+    "alert_spoken_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, since %2$@"
+          }
+        }
+      }
+    },
+    "alert_spoken_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, since %2$@, closed %3$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

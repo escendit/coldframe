@@ -63,6 +63,9 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         ["GET /sites/{siteId}/devices"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/devices", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),
+        ["GET /sites/{siteId}/alerts"] = new(
+            (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/alerts", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
         ["GET /sites/{siteId}/lots"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/lots", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),

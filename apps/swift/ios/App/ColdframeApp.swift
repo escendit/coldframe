@@ -15,7 +15,8 @@ struct ColdframeApp: App {
       nodeSetup: CoreNodeSetupService(core: signIn.nodeSetup),
       lotDetail: CoreLotDetailService(core: signIn.lotDetail),
       calibrate: CoreCalibrateService(core: signIn.calibrate),
-      thresholds: CoreThresholdsService(core: signIn.thresholds))
+      thresholds: CoreThresholdsService(core: signIn.thresholds),
+      alerts: CoreAlertsService(core: signIn.alerts))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -42,7 +43,9 @@ struct ColdframeApp: App {
         calibrate: model.calibrate,
         calibrateActions: model.calibrateActions,
         thresholds: model.thresholds,
-        thresholdsActions: model.thresholdsActions
+        thresholdsActions: model.thresholdsActions,
+        alerts: model.alerts,
+        alertsActions: model.alertsActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active {
@@ -51,6 +54,8 @@ struct ColdframeApp: App {
           model.lotsService?.refresh()
           // An open Lot detail reads its Lot again too; with none open this does nothing.
           model.lotDetailService?.refresh()
+          // The count on the Alerts tab is read again too, whichever tab is selected.
+          model.alertsService?.refresh()
         }
       }
     }

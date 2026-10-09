@@ -36,6 +36,11 @@ export type RenameLotRequest = components['schemas']['RenameLotRequest'];
 export type DeviceKind = components['schemas']['DeviceKind'];
 export type DeviceListItem = components['schemas']['DeviceListItem'];
 export type DeviceList = components['schemas']['DeviceList'];
+export type Alert = components['schemas']['Alert'];
+export type AlertList = components['schemas']['AlertList'];
+export type AlertKind = components['schemas']['AlertKind'];
+export type AlertSide = components['schemas']['AlertSide'];
+export type AlertCloseReason = components['schemas']['AlertCloseReason'];
 export type ProblemDetails = components['schemas']['ProblemDetails'];
 
 export type ColdframeClient = Client<paths>;

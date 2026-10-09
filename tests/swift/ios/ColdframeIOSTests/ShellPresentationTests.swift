@@ -18,6 +18,39 @@ func selectedTabTraits() {
   #expect(AppTab.alerts.traits(selected: .garden) == [.button])
 }
 
+@Test("UX-DR64 UX-DR82 the Alerts tab reads Alerts · N while N are open, spoken Alerts, N open")
+func alertsTabLabel() {
+  #expect(AppTab.alerts.labelCopy(openAlerts: 5) == Copy(.navAlertsCount, .number(5)))
+  #expect(AppTab.alerts.spokenCopy(openAlerts: 5) == Copy(.countOpenAlerts, .number(5)))
+  #expect(Catalogue.resolve(AppTab.alerts.labelCopy(openAlerts: 5)) == "Alerts · 5")
+  #expect(Catalogue.resolve(AppTab.alerts.spokenCopy(openAlerts: 5)) == "Alerts, 5 open")
+  #expect(Catalogue.resolve(AppTab.alerts.labelCopy(openAlerts: 1)) == "Alerts · 1")
+  #expect(Catalogue.resolve(AppTab.alerts.spokenCopy(openAlerts: 1)) == "Alerts, 1 open")
+}
+
+@Test("UX-DR64 without open Alerts, and on every other tab, the label carries no count")
+func tabLabelsWithoutCount() {
+  #expect(AppTab.alerts.labelCopy(openAlerts: 0) == Copy(.navAlerts))
+  #expect(AppTab.alerts.spokenCopy(openAlerts: 0) == Copy(.navAlerts))
+  #expect(AppTab.alerts.labelCopy(openAlerts: -3) == Copy(.navAlerts))
+  for tab in AppTab.allCases where tab != .alerts {
+    #expect(tab.labelCopy(openAlerts: 5) == Copy(tab.label))
+    #expect(tab.spokenCopy(openAlerts: 5) == Copy(tab.label))
+  }
+}
+
+@Test("UX-DR64 the tab count is the open count that was read: none after a failed load")
+func alertsTabCountFollowsThePresentation() {
+  let ready = AlertsFixture.alerts([AlertsFixture.needsWater], openCount: 5)
+  let failed = AlertsFixture.alerts(surface: "failed", notice: "unreachable", openCount: 5)
+
+  #expect(
+    AppTab.alerts.labelCopy(openAlerts: ready.openCount) == Copy(.navAlertsCount, .number(5)))
+  #expect(AppTab.alerts.labelCopy(openAlerts: failed.openCount) == Copy(.navAlerts))
+  let waiting = AlertsPresentation.waiting
+  #expect(AppTab.alerts.labelCopy(openAlerts: waiting.openCount) == Copy(.navAlerts))
+}
+
 @Test("UX-DR36 the selected segment carries the selected trait and a checkmark")
 func segmentTraits() {
   let segments = themeSegments(selected: .dark)

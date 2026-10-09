@@ -1,6 +1,7 @@
 package com.escendit.coldframe.core.signin
 
 import com.escendit.coldframe.core.Watch
+import com.escendit.coldframe.core.alerts.IosAlerts
 import com.escendit.coldframe.core.calibrate.IosCalibrate
 import com.escendit.coldframe.core.devices.IosDevices
 import com.escendit.coldframe.core.lots.IosLotDetail
@@ -78,6 +79,9 @@ public class IosSignIn private constructor(
 
     /** The Devices of the current Site; Swift loads it on every entry of the Devices tab. */
     public val devices: IosDevices = IosDevices(devicesEngine, scope)
+
+    /** The Alerts of the current Site, read as soon as a Site is current; Swift refreshes on foreground. */
+    public val alerts: IosAlerts = IosAlerts(SitesWiring.alerts(api, sitesEngine, scope), scope)
 
     /** Add a Node over Kable, on one Site; an assigned Node reloads the Lots and the Devices. */
     public val nodeSetup: IosNodeSetup = IosNodeSetup(nodeSetupEngine, scope)
