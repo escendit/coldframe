@@ -34,6 +34,9 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
 
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);
 
+    // How long a Node waits before it sends an unacknowledged frame again; well inside the interval.
+    private static readonly TimeSpan ResendDelay = TimeSpan.FromMinutes(1);
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private DateTimeOffset Now => identity.Time.GetUtcNow();
@@ -274,8 +277,10 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         await RestartAsync();
         await identity.Sensor(garden.Soil).Describe(Ct);
 
+        // The Site lists the Alert before the Sensor journals that it was delivered: wait for the second.
         await JournalWait.UntilAsync(
-            async () => (await identity.Site(garden.SiteId).OpenAlerts(Ct)).Count == 1,
+            async () => (await identity.Site(garden.SiteId).OpenAlerts(Ct)).Count == 1
+                && (await SensorStateAsync(garden.Soil)).PendingAlertDeliveries.Count == 0,
             "the Sensor delivered its open Alert after the restart");
         await AssertOneAlertAsync(garden);
     }
@@ -410,6 +415,127 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
 
         Assert.Empty(await EvaluationAliasesAsync(garden.Soil));
         Assert.Empty(await identity.Site(garden.SiteId).OpenAlerts(Ct));
+    }
+
+    [Fact]
+    public async Task AnUnsyncedDryReadingSentThreeTimesCountsOnceAndOpensNoAlert()
+    {
+        var garden = await CalibratedGardenAsync();
+
+        // A Node without synced time: the Server gives the Reading the receive time, which every resend moves later.
+        var (dry, measuredAt) = WakeUnsynced(garden, 20);
+        Assert.Equal(DeviceIngestStatus.Stored, (await IngestAsync(garden.Node, dry)).Status);
+        await ResendAsync(garden, dry);
+        await ResendAsync(garden, dry);
+
+        // Each resend was evaluated with the time stored at first delivery, which is not newer: a streak of one.
+        Assert.Equal(measuredAt, await KeyMeasuredAtAsync(garden, dry));
+        var streak = Assert.IsType<SensorStreakChanged>(Assert.Single(await EvaluationEventsAsync(garden.Soil)));
+        Assert.Equal((ThresholdPosition.BelowLow, 1, measuredAt), (streak.Position, streak.Count, streak.MeasuredAt));
+        Assert.Empty(await identity.Site(garden.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await identity.AliasesAsync($"alert/{AlertIds.Threshold(garden.Soil, 1)}"));
+
+        // Two more Readings of their own are still needed.
+        await ReadSoilAsync(garden, 20);
+        Assert.Empty(await identity.Site(garden.SiteId).OpenAlerts(Ct));
+        await ReadSoilAsync(garden, 20);
+        Assert.Single(await identity.Site(garden.SiteId).OpenAlerts(Ct));
+    }
+
+    [Fact]
+    public async Task AnUnsyncedReadingInRangeSentThreeTimesClosesNoAlert()
+    {
+        var garden = await CalibratedGardenAsync();
+        var alertId = await OpenLowAsync(garden);
+
+        var (recovered, _) = WakeUnsynced(garden, 40);
+        Assert.Equal(DeviceIngestStatus.Stored, (await IngestAsync(garden.Node, recovered)).Status);
+        await ResendAsync(garden, recovered);
+        await ResendAsync(garden, recovered);
+
+        Assert.Equal(AlertLifecycle.Open, (await identity.Alert(alertId).Describe(Ct))!.Lifecycle);
+        Assert.Equal(new StreakState(ThresholdSide.Low, ThresholdPosition.Within, 1), (await SensorStateAsync(garden.Soil)).Streak);
+        Assert.Equal(alertId, Assert.Single(await identity.Site(garden.SiteId).OpenAlerts(Ct)).AlertId);
+    }
+
+    [Fact]
+    public async Task AnUnsyncedReadingWhoseFirstEvaluationFailedIsEvaluatedOnceWithTheStoredTime()
+    {
+        var garden = await CalibratedGardenAsync();
+        identity.SensorFaults.FailNextEvaluations(1);
+
+        // The frame is committed, its evaluation throws: stored, not acknowledged, nothing evaluated.
+        var (dry, measuredAt) = WakeUnsynced(garden, 20);
+        var failed = await IngestAsync(garden.Node, dry);
+        Assert.Equal(DeviceIngestStatus.Retry, failed.Status);
+        Assert.Null(failed.Downlink);
+        Assert.Equal(1L, await ReadingsAsync(garden.Soil, dry));
+        Assert.Empty(await EvaluationAliasesAsync(garden.Soil));
+
+        // The resend is a duplicate that carries a later time; the Reading is evaluated with the stored one.
+        await ResendAsync(garden, dry);
+        var streak = Assert.IsType<SensorStreakChanged>(Assert.Single(await EvaluationEventsAsync(garden.Soil)));
+        Assert.Equal((ThresholdPosition.BelowLow, 1, measuredAt), (streak.Position, streak.Count, streak.MeasuredAt));
+
+        // Exactly once: another resend changes nothing.
+        await ResendAsync(garden, dry);
+        Assert.Single(await EvaluationEventsAsync(garden.Soil));
+        Assert.Empty(await identity.Site(garden.SiteId).OpenAlerts(Ct));
+    }
+
+    [Fact]
+    public async Task AReadingWhoseKeyWasStoredWithoutATimeIsEvaluatedWithTheTimeOfTheFrameThatCarriesIt()
+    {
+        var garden = await CalibratedGardenAsync();
+        identity.SensorFaults.FailNextEvaluations(1);
+        var (dry, _) = WakeUnsynced(garden, 20);
+        Assert.Equal(DeviceIngestStatus.Retry, (await IngestAsync(garden.Node, dry)).Status);
+
+        // As a key stored before reading_keys kept the time: nothing to evaluate the resend with but its own.
+        await identity.Database.ExecuteAsync(
+            "UPDATE reading_keys SET measured_at = NULL WHERE device_id = @device_id",
+            ("device_id", garden.Node.DeviceId.ToString()));
+
+        identity.Time.Advance(ResendDelay);
+        var resentAt = Now;
+        Assert.Equal(DeviceIngestStatus.Duplicate, (await IngestAsync(garden.Node, dry)).Status);
+
+        var streak = Assert.IsType<SensorStreakChanged>(Assert.Single(await EvaluationEventsAsync(garden.Soil)));
+        Assert.Equal(resentAt, streak.MeasuredAt);
+        Assert.Equal(1L, await identity.Database.ScalarAsync<long>(
+            "SELECT count(*) FROM reading_keys WHERE device_id = @device_id AND sensor_id = @sensor_id AND reading_seq = @seq AND measured_at IS NULL",
+            ("device_id", garden.Node.DeviceId.ToString()),
+            ("sensor_id", garden.Soil),
+            ("seq", (decimal)SeqOf(dry))));
+    }
+
+    [Fact]
+    public async Task AFirstDeliveryIsEvaluatedWithTheTimeItsKeyHoldsAtTheDatabasesPrecision()
+    {
+        var garden = await CalibratedGardenAsync();
+
+        // Half a microsecond more than timestamptz keeps: the time the key holds is not the one the frame came with.
+        var half = TimeSpan.FromTicks(5);
+        identity.Time.Advance(half);
+        try
+        {
+            var (dry, receivedAt) = WakeUnsynced(garden, 20);
+            Assert.Equal(DeviceIngestStatus.Stored, (await IngestAsync(garden.Node, dry)).Status);
+
+            // The first delivery is evaluated with the stored time too, so a resend, which gets the same one, is not newer.
+            var stored = await KeyMeasuredAtAsync(garden, dry);
+            Assert.NotEqual(receivedAt, stored);
+            var streak = Assert.IsType<SensorStreakChanged>(Assert.Single(await EvaluationEventsAsync(garden.Soil)));
+            Assert.Equal(stored, streak.MeasuredAt);
+
+            await ResendAsync(garden, dry);
+            Assert.Single(await EvaluationEventsAsync(garden.Soil));
+        }
+        finally
+        {
+            // Back to a whole millisecond, which a synced frame's time is, for the suites that share the clock.
+            identity.Time.Advance(TimeSpan.FromMilliseconds(1) - half);
+        }
     }
 
     [Fact]
@@ -669,6 +795,32 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         return frame;
     }
 
+    // One wake of a Node without synced time, 15 minutes after the last one and not sent yet: the Reading is taken
+    // as the frame is sealed, so the Server gives it the time it receives the frame, returned here for the first
+    // delivery.
+    private (NodeFrame Frame, DateTimeOffset MeasuredAt) WakeUnsynced(Garden garden, int percent)
+    {
+        identity.Time.Advance(Interval);
+        return (garden.Node.WakeUnsynced(garden.Node.UptimeMs, readings: [Soil(percent)]), Now);
+    }
+
+    // The Node sends a frame again a minute later: every key is known, so it is a duplicate.
+    private async Task ResendAsync(Garden garden, NodeFrame frame)
+    {
+        identity.Time.Advance(ResendDelay);
+        Assert.Equal(DeviceIngestStatus.Duplicate, (await IngestAsync(garden.Node, frame)).Status);
+    }
+
+    // The time reading_keys keeps with the soil Reading of a frame.
+    private async Task<DateTimeOffset> KeyMeasuredAtAsync(Garden garden, NodeFrame frame) =>
+        new(
+            await identity.Database.ScalarAsync<DateTime>(
+                "SELECT measured_at FROM reading_keys WHERE device_id = @device_id AND sensor_id = @sensor_id AND reading_seq = @seq",
+                ("device_id", garden.Node.DeviceId.ToString()),
+                ("sensor_id", garden.Soil),
+                ("seq", (decimal)SeqOf(frame))),
+            TimeSpan.Zero);
+
     private async Task<Downlink> ReportAsync(Garden garden, NodeFrame frame)
     {
         var result = await IngestAsync(garden.Node, frame);
@@ -705,6 +857,12 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
     private async Task<List<string>> EvaluationAliasesAsync(Guid sensorId) =>
         [.. (await identity.AliasesAsync($"sensor/{sensorId}")).Where(alias =>
             alias is "sensor.streak-changed" or "sensor.threshold-episode-opened" or "sensor.threshold-episode-closed" or "sensor.alert-delivered")];
+
+    // The same events with their payloads.
+    private async Task<List<object>> EvaluationEventsAsync(Guid sensorId) =>
+        [.. (await identity.Store.ReadStreamAsync($"sensor/{sensorId}", Ct))
+            .Select(journaled => journaled.Data)
+            .Where(data => data is SensorStreakChanged or SensorThresholdEpisodeOpened or SensorThresholdEpisodeClosed or SensorAlertDelivered)];
 
     // The Sensor grain's state, replayed from its journal stream.
     private async Task<SensorState> SensorStateAsync(Guid sensorId)

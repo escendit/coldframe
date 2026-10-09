@@ -62,12 +62,29 @@ public sealed record FrameCommit(string DeviceId, StoredReplay Replay, bool Rese
 /// </summary>
 /// <param name="NewKeys">How many Reading keys were new, the device report's included.</param>
 /// <param name="DownlinkCounter">The reserved downlink counter, when one was asked for.</param>
-public sealed record FrameCommitted(int NewKeys, ulong? DownlinkCounter);
+/// <param name="StoredMeasuredAt">
+/// The time <c>reading_keys</c> keeps with each Reading of the frame, by Sensor and <c>reading_seq</c>: the
+/// frame's own for a key that was new, the one of the first delivery for a duplicate. A key stored before the
+/// table kept the time has no entry.
+/// </param>
+public sealed record FrameCommitted(
+    int NewKeys,
+    ulong? DownlinkCounter,
+    IReadOnlyDictionary<(Guid SensorId, ulong ReadingSeq), DateTimeOffset> StoredMeasuredAt)
+{
+    /// <summary>
+    /// When a Reading of the frame was taken, as stored at its first delivery (Story 6.1): a frame that carries
+    /// a Reading again never moves its time, which for a Node without synced time differs between resends.
+    /// <paramref name="frameMeasuredAt"/>, the time of the frame at hand, only for a key that has none stored.
+    /// </summary>
+    public DateTimeOffset MeasuredAtOf(Guid sensorId, ulong readingSeq, DateTimeOffset frameMeasuredAt) =>
+        StoredMeasuredAt.TryGetValue((sensorId, readingSeq), out var stored) ? stored : frameMeasuredAt;
+}
 
 /// <summary>
 /// The ingestion tables (AD-9, AD-17): <c>readings</c>, <c>device_reports</c>, <c>reading_keys</c> and
 /// <c>device_replay</c>. Only the Device grain calls it, so the grain stays the only writer (AD-1). It never
-/// updates or deletes a Reading or a device report, and it runs no DDL (AD-22).
+/// updates or deletes a Reading, a device report or a Reading key, and it runs no DDL (AD-22).
 /// </summary>
 public class DeviceIngestionStore(NpgsqlDataSource dataSource)
 {
@@ -86,12 +103,13 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
         RETURNING downlink_counter - @reserve
         """;
 
-    // A Reading row is inserted only for a key that was new (exactly-once across partitions).
+    // A Reading row is inserted only for a key that was new (exactly-once across partitions). The key keeps the
+    // time of this first delivery; a later frame with the same key changes nothing.
     private const string InsertReadingsSql =
         """
         WITH fresh AS (
-            INSERT INTO reading_keys (device_id, sensor_id, reading_seq)
-            SELECT @device_id, reading.sensor_id, reading.reading_seq
+            INSERT INTO reading_keys (device_id, sensor_id, reading_seq, measured_at)
+            SELECT @device_id, reading.sensor_id, reading.reading_seq, @measured_at
             FROM unnest(@sensor_ids, @reading_seqs) AS reading(sensor_id, reading_seq)
             ON CONFLICT DO NOTHING
             RETURNING sensor_id, reading_seq
@@ -106,11 +124,23 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
         JOIN fresh USING (sensor_id, reading_seq)
         """;
 
+    // The time each Reading of the frame is stored with, read in the frame's transaction after its keys were
+    // written: the one just written for a new key (read back, so a first delivery and a resend see the same
+    // value at the database's precision), the one of the first delivery for a duplicate; a key stored before
+    // reading_keys kept the time has none and is left out.
+    private const string StoredMeasuredAtSql =
+        """
+        SELECT stored.sensor_id, stored.reading_seq, stored.measured_at
+        FROM reading_keys AS stored
+        JOIN unnest(@sensor_ids, @reading_seqs) AS reading(sensor_id, reading_seq) USING (sensor_id, reading_seq)
+        WHERE stored.device_id = @device_id AND stored.measured_at IS NOT NULL
+        """;
+
     private const string InsertReportSql =
         """
         WITH fresh AS (
-            INSERT INTO reading_keys (device_id, sensor_id, reading_seq)
-            VALUES (@device_id, @sensor_id, @reading_seq)
+            INSERT INTO reading_keys (device_id, sensor_id, reading_seq, measured_at)
+            VALUES (@device_id, @sensor_id, @reading_seq, @measured_at)
             ON CONFLICT DO NOTHING
             RETURNING reading_seq
         )
@@ -138,8 +168,9 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
 
     /// <summary>
     /// Commits one frame in one transaction: the replay window, the reserved downlink counter, and the rows
-    /// whose keys are new. Throws when the transaction fails, or when the stored high-water mark is above
-    /// the one being written; nothing is stored then.
+    /// whose keys are new. Returns the time each Reading of the frame is stored with, which for a frame sent
+    /// again is the one of its first delivery. Throws when the transaction fails, or when the stored high-water
+    /// mark is above the one being written; nothing is stored then.
     /// </summary>
     public virtual async Task<FrameCommitted> CommitAsync(FrameCommit commit, CancellationToken cancellationToken = default)
     {
@@ -166,6 +197,7 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
         }
 
         var newKeys = 0;
+        var storedMeasuredAt = new Dictionary<(Guid SensorId, ulong ReadingSeq), DateTimeOffset>();
         if (commit.Rows is { } rows)
         {
             if (rows.Readings.Count > 0)
@@ -185,6 +217,17 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
                     Value = rows.Readings.Select(reading => reading.CalibrationId).ToArray(),
                 });
                 newKeys += await readings.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                await using var stored = new NpgsqlCommand(StoredMeasuredAtSql, connection, transaction);
+                stored.Parameters.AddWithValue("device_id", commit.DeviceId);
+                stored.Parameters.AddWithValue("sensor_ids", rows.Readings.Select(reading => reading.SensorId).ToArray());
+                stored.Parameters.AddWithValue("reading_seqs", rows.Readings.Select(reading => (decimal)reading.ReadingSeq).ToArray());
+                await using var reader = await stored.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    storedMeasuredAt[(reader.GetGuid(0), (ulong)reader.GetDecimal(1))] =
+                        await reader.GetFieldValueAsync<DateTimeOffset>(2, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             await using var report = new NpgsqlCommand(InsertReportSql, connection, transaction);
@@ -198,7 +241,7 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
 
         await CommitTransactionAsync(transaction, cancellationToken).ConfigureAwait(false);
 
-        return new FrameCommitted(newKeys, commit.ReserveDownlink ? downlinkCounter : null);
+        return new FrameCommitted(newKeys, commit.ReserveDownlink ? downlinkCounter : null, storedMeasuredAt);
     }
 
     /// <summary>
