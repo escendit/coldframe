@@ -691,3 +691,32 @@ location: apps/cs/server/Sensors/SensorGrain.cs (Evaluate, ConfirmEvents)
 source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
 reason: Believed not to happen: JournaledGrain.State is the tentative view, which already holds the unconfirmed event, so the resend sees the episode. Not shown by a test; the same raise-then-confirm pattern is used by every journaled grain. A FaultyJournalStore test that fails one append during Evaluate would settle it.
 status: open
+
+### DW-90: On iOS, Lot detail opened from an Alert row shares one core Lot-detail state with the Garden tab's stack, and each stack opens it on appear and closes it on disappear.
+origin: spec-deferred c706c85bb051
+location: apps/swift/ios/Sources/ColdframeIOS/UI/AlertsViews.swift (navigationDestination), UI/SitesViews.swift:273-283
+source_spec: `spec-6-2-see-alerts-in-the-apps.md`
+reason: AlertsView.navigationDestination and GardenView.navigationDestination both call lotDetailActions.open on appear and close() on disappear, unguarded. With Lot detail pushed on both tabs, a tab switch may run the leaving stack's close() after the entering stack's open(), leaving the shown Lot detail idle. Whether it happens depends on SwiftUI's appear/disappear order across TabView tabs; the views do not compile on this host. Running both stacks on a simulator settles it; a guard that closes only the Lot this destination opened would fix it.
+status: open
+
+### DW-91: The contract's Alert requires quantity (and the alerts table sensor_id and quantity), which a silent or battery Health Alert of Epic 7 may not have.
+origin: spec-deferred 03bff290254a
+location: packages/openapi/coldframe.openapi.json (Alert), apps/cs/migrations/Migrations/M20261009093000CreateTableAlerts.cs
+source_spec: `spec-6-2-see-alerts-in-the-apps.md`
+reason: Alert.quantity is required in packages/openapi, alerts.quantity and alerts.sensor_id are NOT NULL, and AlertDto.quantity is a non-null String, so one item without quantity fails the whole list on a shipped mobile client. Today AlertOpened itself requires Quantity and SensorId, so the contract mirrors the Server. Whether this bites depends on how Epic 7 shapes Health Alerts; its Alert events settle it. If they carry no quantity, make the field optional before any mobile release.
+status: open
+
+### DW-92: No test shows that a foreground of the Android or iOS app reaches AlertsEngine.refresh(), nor that CoreAlertsService maps the snapshot's parallel lists to the right fields.
+origin: spec-deferred fa03752ac4b5
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/MainActivity.kt (onForeground), apps/swift/ios/App/{ColdframeApp,CoreAlertsService}.swift
+source_spec: `spec-6-2-see-alerts-in-the-apps.md`
+severity: medium
+reason: MainActivity builds the real core inline; its foreground lambda is checked only by a source-text regex in LotOverviewTest that names lots.refresh(). Removing alerts.refresh() from MainActivity.kt or ColdframeApp.swift fails no test, and swapping alertLotIds with alertLotNames in CoreAlertsService compiles and passes. The iOS App target has no test target. An executable test needs the foreground lambda extracted (Android) and a test target for apps/swift/ios/App.
+status: open
+
+### DW-93: The SwiftUI Alerts views, the Screens.swift edits, the App target wiring and the iOS render tests have never been compiled or run; only macOS CI does that.
+origin: spec-deferred 5ee2bc66370b
+location: apps/swift/ios/Sources/ColdframeIOS/UI/{AlertsViews,Screens}.swift, apps/swift/ios/App/
+source_spec: `spec-6-2-see-alerts-in-the-apps.md`
+reason: No Swift toolchain with SwiftUI exists on this host. The Linux container compiles and tests AlertsPresentation, L10n and the catalogue only. The render tests assert that an image comes out, not what it shows (DW-20). The VoiceOver label of the tab ("Alerts, N open") is set on the Label inside .tabItem, which SwiftUI may ignore; a device or UI test settles it.
+status: open
