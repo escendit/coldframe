@@ -25,6 +25,8 @@
     <ProjectReference Include="..\device-simulator\Coldframe.DeviceSimulator.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The push payload contract's examples: the delivery test compares what the stub providers receive with them. -->
+    <None Include="..\..\..\packages\asyncapi\fixtures\*.json" Link="Fixtures\asyncapi\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- The shared crypto vectors: enrolment tests use the vector root key. -->
     <None Include="..\..\..\packages\crypto-spec\vectors.json" Link="Fixtures\vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

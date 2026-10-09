@@ -130,6 +130,8 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /sites/{siteId}/alerts` | `Member` | A page of the Site's Alerts from the alerts projection (Story 6.2, see [The Alerts list](#the-alerts-list)): 200 `{alerts, openCount, nextCursor?}` |
 | `GET /me/notification-settings` | any authenticated User | The caller's Notification Window and time zone from the User grain (Story 6.3, see [Notification settings](#notification-settings)): 200 `{window: {from, to}, timeZone?, timeZoneConfirmed}` |
 | `PATCH /me/notification-settings` | any authenticated User | Changes the window, the chosen zone and/or the detected zone: 200 with the settings in force |
+| `PUT /me/push-registrations/{installationId}` | any authenticated User | Registers the caller's device for push with the User grain (Story 6.5, see [Push notifications](#push-notifications)): 204 |
+| `DELETE /me/push-registrations/{installationId}` | any authenticated User | Removes the caller's registration of that installation: 204, also when there was none |
 | `GET /sites/{siteId}/notification-settings` | `Member` | The caller's own mute and Reminder cadence for the Site, with the Site's cadence: 200 `{muted, reminderCadence?, siteReminderCadence}` |
 | `PUT /sites/{siteId}/notification-settings` | `Member` | Sets the caller's own mute and Reminder cadence for the Site: 200 with the settings in force |
 | `GET /sites/{siteId}/reminder-cadence` | `Member` | The Site's Reminder cadence from the Site grain: 200 `{cadence}` |
@@ -496,7 +498,8 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Clients
 read them from [the Alerts list](#the-alerts-list) (Story 6.2); when a User may be notified is set in
 [Notification settings](#notification-settings) (Story 6.3), each member's User grain decides when to notify
-([Delivery timing](#delivery-timing), Story 6.4), and the channels are Stories 6.5 and 6.6. Three grains
+([Delivery timing](#delivery-timing), Story 6.4), and the channels are [Push notifications](#push-notifications)
+(Story 6.5) and Story 6.6. Three grains
 open and close an Alert, through grain calls and the journal only (AD-5):
 
 1. **The Device grain hands out Readings.** After a frame is committed (step 9 of `DeviceGrain.Ingest` in
@@ -688,6 +691,8 @@ with it. A pull that fails never fails the activation or the Membership sync.
 | `user.notification-sent` `{siteId, kind, alertIds, dueAt, sentAt}` | The Notifier returned for an `Alert`, a `Reminder` or a `Summary` |
 | `user.site-alerts-pulled` `{siteId, pulledAt}` | The Site answered the pull that a new Membership started |
 
+The User stream also holds the push registrations ([Push notifications](#push-notifications)).
+
 **Deadlines are journaled state (AD-6).** `UserState` keeps one `TrackedAlert` per open Alert: its previous
 due-at, whether the opening notification is still pending, and when the first held delivery fell due. The next
 due-at is the opening's own due-at, else `previous due-at + interval` (`UserState.DueAt`), so a cadence change
@@ -729,17 +734,22 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
   meanwhile to the last `due-at + n × interval` not after the unmute, so the Reminder advanced all the while
   and unmuting starts no catch-up. Other Users are not affected.
 - **At-least-once.** `user.notification-sent` is journaled only after the Notifier returned. When it throws
-  (no channel delivered), the delivery stays due (or held) and the next wake hands it over again, so a channel
-  must tolerate the same notification twice.
+  (a channel failed and none delivered), the delivery stays due (or held) and the next wake hands it over again,
+  so a channel must tolerate the same notification twice.
 
 **The Notifier seam** (`server/Notifications/`, registered by `AddNotifications()`):
 `INotifier.SendAsync(Notification)` takes `{userId, siteId, kind: Alert | Reminder | Summary, dueAt, heldFrom?,
-entries}`, each entry `{alertId, kind, side?, lotId, sensorId, deviceId, quantity, openedAt}`
-(`packages/cs/contracts/Notifications/`). It carries identifiers and the facts the grains hold; names, values
-and wording belong to the channels. The one implementation, `Notifier`, stamps `sentAt` from the
-`TimeProvider`, calls every registered `INotificationChannel` in registration order and returns `sentAt`. A
-channel that throws is logged (`Warning`, EventId 2, `NotificationChannelFailed`) and the others are still
-called; the send fails only when every channel threw. It
+entries, registrations, timeZone?, window}`, each entry `{alertId, kind, side?, lotId, sensorId, deviceId,
+quantity, openedAt}` (`packages/cs/contracts/Notifications/`). It carries identifiers and the facts the grains
+hold; names, values and wording belong to the channels. `registrations`, `timeZone` and `window` are what only
+the User grain knows and a channel needs ([Push notifications](#push-notifications)). The one implementation,
+`Notifier`, stamps `sentAt` from the `TimeProvider`, calls every registered `INotificationChannel` in
+registration order and returns `{sentAt, invalidInstallations}`. A channel answers how many devices it
+delivered to (0 when the User has none on that channel, which is no failure) and which registrations its
+provider no longer knows. A channel that throws is logged (`Warning`, EventId 2, `NotificationChannelFailed`)
+and the others are still called; the send fails (`NotificationNotDeliveredException`) only when a channel threw
+and no channel delivered. So a provider that is down while another channel reached the User is not retried, a
+User without any device is not retried, and a User whose only phone could not be reached is. It
 then writes one `Information` log entry (EventId 1, `NotificationSent`, category
 `Coldframe.Server.Notifications.Notifier`) with the structured fields `Kind`, `UserId`, `SiteId`, `Entries`,
 `DueAt` and `SentAt`, and records on the meter `Coldframe.Server.Notifications`, which the service defaults
@@ -749,11 +759,135 @@ histogram shows when it is not. Three cases are late by design: a send repeated 
 Reminder whose due-at moved into the past because the cadence was shortened, and a delivery that fell due
 while nothing could wake the grain (the silo was down).
 
-**Add a channel** (Stories 6.5 and 6.6): implement `INotificationChannel.SendAsync(notification, sentAt, …)`
-and register it with `services.AddSingleton<INotificationChannel, TChannel>()`. No channel ships with the
-seam; without one the Notifier still logs and records every notification. A channel only delivers and writes
-the text, and bounds its own time. It throws when it could not deliver; the other channels are still called,
-and the User grain repeats the send only when no channel delivered.
+**Add a channel**: implement `INotificationChannel.SendAsync(notification, sentAt, …)` and register it with
+`services.AddSingleton<INotificationChannel, TChannel>()`. The push channels (Story 6.5) are registered by
+`AddPushChannels()`; the open web app follows in Story 6.6. Without a channel the Notifier still logs and
+records every notification. A channel only delivers and writes the text, and bounds its own time. It runs
+inside the notified User grain's turn, which is not reentrant: **a channel never calls that User grain** (the
+call would wait for itself until it times out). It answers `ChannelDelivery.Nothing` when the User has nothing
+it could send to, and throws when it could not deliver; the other channels are still called.
+
+### Push notifications
+
+Story 6.5: two channels behind the Notifier seam send a due notification to the User's phones, APNs for
+iPhones and FCM for Android phones (`server/Notifications/Push/`). They hold no timing, window, mute or cadence
+logic. What a push carries is the contract in [`packages/asyncapi`](../../packages/asyncapi), with one example
+per kind that the channel tests must equal.
+
+**Registrations belong to the User grain.** `PUT /me/push-registrations/{installationId}` (body `{platform:
+apns | fcm, token, environment?: production | sandbox}`) and `DELETE` on the same path call
+`IUserGrain.RegisterPushDevice` and `RemovePushDevice` for the caller; both answer 204, a malformed ID or body
+is 400 `validation`, and nothing reads a token back.
+
+| Event on `user/{sub}` | Journaled when |
+| --- | --- |
+| `user.push-device-registered` `{installationId, platform, token, environment?, registeredAt}` | An installation registered, or its token (or platform, or environment) changed. The same registration again journals nothing |
+| `user.push-device-removed` `{installationId, reason, removedAt}` | `Requested`: the app removed it (sign-out). `Invalid`: the provider no longer knows the token. `Replaced`: another installation of the User registered the same token, or the User had 20 registrations and this was the one registered longest ago |
+
+`environment` is required for `apns` and refused for `fcm`. One installation has one registration; a User keeps
+at most 20 (`PushRegistrationLimits`). A registration outlives a Membership: it belongs to the User, not to a
+Site.
+
+**What the grain hands over, and what comes back.** `UserGrain.SendAsync` puts the registrations (oldest
+first), the User's time zone and the Notification Window into the `Notification`. A token a provider reports as
+invalid comes back as its installation ID through the seam (`ChannelDelivery.InvalidInstallations`, then
+`NotifierResult` or `NotificationNotDeliveredException`), and the grain journals `user.push-device-removed`
+before `user.notification-sent`. The next notification is not sent to it.
+
+**One send, step by step** (`PushChannel`, the base of `ApnsChannel` and `FcmChannel`):
+
+1. No registration of the channel's platform: `ChannelDelivery.Nothing`, and nothing is looked up.
+2. `PushContentBuilder` builds the content once per notification, for both channels: the Site's name
+   (`IdentityReadModel`), each Lot's name (`LotsReadModel`; a removed Lot has none), the newest Reading of the
+   Alert's Sensor of the last 2 days with the Calibration it was stored with (`readings`, `calibrations`,
+   `SensorConversion`), and the Threshold of the side that was crossed (`ISensorGrain.GetThresholds`). All of it
+   within `Push:LookupBudget` (2 s); what was not found is left out of the text and never fails the push. A Lot
+   name that could not be read (a failure, the budget) is no removed Lot: its Alert keeps its line as "A Lot …".
+3. One request per registration, in parallel, within `Push:SendBudget` (5 s) for the whole notification. A
+   transient answer (429, 5xx, a timeout of `Push:RequestTimeout`, no connection) is tried again, at most
+   `Push:MaxAttempts` (3) times with `Push:RetryDelay` (250 ms, doubled).
+4. Delivered and invalid tokens are the answer, also when another device of the channel failed. The channel
+   throws `PushProviderException` (the status and reason, never a token; it still names the invalid tokens),
+   and the delivery stays due, only when it delivered to no device and one failed transiently. When a phone
+   has the push, a sibling that failed is logged (`PushPartlyDelivered`, `Warning`) and not sent to again: the
+   repeat would reach the phone that has it. A refusal another try does not change is logged as an error
+   (`PushRefused`) and never leaves the delivery due.
+
+`GetThresholds` is `[AlwaysInterleave]`: the Sensor grain may be awaiting that very User grain
+(`Evaluate` → `IAlertGrain.Open` → `IUserGrain.AlertOpened`) while the User grain's wake waits for the
+Threshold, and without interleaving the two would wait for each other until a call times out. It is the only
+grain a channel calls.
+
+**The text** is written by `PushText` from the English templates in `PushText.en.json` (an embedded resource;
+`{lot}`, `{value}`, `{threshold}`, `{unit}`, `{time}`, `{site}`, `{count}`):
+
+| Notification | Title | Body |
+| --- | --- | --- |
+| Low soil moisture | "Tomatoes needs water" | "~20 % in the soil, your low is 30 %." |
+| High soil moisture | "Herbs too wet" | "~65 % in the soil, your high is 60 %." |
+| Another quantity | "Tomatoes temperature below 5 °C" | "Reading 4 °C at 05:15." (the User's zone) |
+| Reminder | the Alert's title | the Alert's body with "Still": "Still ~20 % in the soil, your low is 30 %." |
+| Summary | "Home garden: 2 need water, 3 to check" | one line per Alert (its title), needs water first, then "Held overnight, 22:00–07:00" |
+
+Soil moisture is the percentage `CalibrationMath.Percent` gives, rounded to 5, with `~`. Without the value or
+the Threshold an Alert is its title only, and a Reminder says "Still open."; a quantity whose Threshold was not
+found reads "too low" or "too high". A summary counts with plural rules and leaves an empty group out, leaves
+out the line of a Lot that is gone (and sends nothing when no line is left), names the User's own window in the
+footer, and lists at most 12 Alerts, then "and 3 more": a push payload is 4 KiB.
+
+**Presentation and identity.**
+
+- APNs: `aps.thread-id` is the Site ID, `interruption-level` is `active`, `sound` is `default`, and there is no
+  `badge` key. The routing data is the object `coldframe`. Headers: `apns-push-type: alert`, `apns-priority:
+  10`, `apns-topic` (the bundle ID), `apns-collapse-id`, `apns-expiration` (24 h after `sentAt`). A `sandbox`
+  registration goes to `Push:Apns:SandboxBaseUrl`.
+- FCM: a data message with `title`, `body`, `siteName` and the routing keys, `android.priority: HIGH`,
+  `android.ttl: 86400s`. FCM's display notifications cannot set a notification group, so the app builds the
+  notification itself.
+- The collapse identity is the first 32 hex digits of SHA-256 over `<kind>:<Alert ID or, for a summary, Site
+  ID>:<dueAt in Unix ms>` (`PushContentBuilder.CollapseIdOf`): a send repeated after a failure replaces the
+  earlier one on the phone.
+
+**Provider answers.**
+
+| Answer | Outcome |
+| --- | --- |
+| APNs `410`, or reason `BadDeviceToken`, `DeviceTokenNotForTopic`, `Unregistered`; FCM error code `UNREGISTERED`, or `INVALID_ARGUMENT` that names the token | The registration is removed; no failure |
+| `429`, `5xx`, a timeout, no connection | Tried again; then the channel throws when no device of it has the push |
+| APNs `ExpiredProviderToken`, FCM `401` | A new provider token is used for the next try |
+| Anything else (`InvalidProviderToken`, a refused payload, a wrong FCM project or sender) | Not tried again and not left due: one `Error` log entry, `PushRefused` (EventId 1, category of the channel), with the status and reason. No registration is removed, because the fault is the Server's configuration |
+
+**Credentials and settings**, section `Push`, all optional. `AddPushChannels()` decides once at start from the
+configuration; a provider without usable credentials registers no channel, so nothing can fail later inside a
+grain's turn.
+
+| Setting | Secret `coldframe-push` key | What |
+| --- | --- | --- |
+| `Push:Apns:PrivateKeyPem` | `apns-key.p8` | The APNs auth key, a P-256 key in PEM |
+| `Push:Apns:KeyId`, `Push:Apns:TeamId` | `apns-key-id`, `apns-team-id` | Its Key ID and the Apple Developer Team ID |
+| `Push:Apns:Topic` | chart value `push.apns.topic` | The bundle ID, default `com.escendit.coldframe` |
+| `Push:Fcm:ServiceAccountJson` | `fcm-service-account.json` | The Firebase service-account key file |
+| `Push:Apns:ProductionBaseUrl`, `Push:Apns:SandboxBaseUrl`, `Push:Fcm:BaseUrl`, `Push:Fcm:TokenUrl` | | The provider endpoints; tests point them at stubs |
+
+- **One retry only.** The HTTP clients `push-apns` and `push-fcm` drop the resilience handler the service
+  defaults give every client: the channel's own bounded retry is the only one inside the send budget.
+- **No vendor SDK.** The APNs provider token is an ES256 JWT (`ApnsProviderToken`, reused for 45 minutes); the
+  FCM access token comes from an RS256 assertion of the service account (`FcmServiceAccount`, reused until a
+  minute before it expires). Both are timed on the injected `TimeProvider` and signed with the BCL.
+- **At start** `PushProvidersLog` (category `Coldframe.Server.Notifications.Push.PushProvidersLog`) writes one
+  entry per provider: `PushChannelConfigured` (EventId 3), `PushChannelNotConfigured` (`Information`, EventId
+  1) without credentials, or `PushChannelCredentialsUnusable` (`Error`, EventId 2) for a key that does not
+  parse. The Server is healthy in every case. The AppHost hands on `Push__…` environment variables that are
+  set and generates none; in a deployment the `server` chart reads the Secret only when `push.apns.enabled` or
+  `push.fcm.enabled` is set ([`deploy/SECRETS.md`](../../deploy/SECRETS.md#push-notifications)).
+- **One device, two Users.** Registrations are per User, so the apps remove theirs at sign-out while the
+  session is still valid. When that request does not arrive, the previous User's Alerts can still reach the
+  phone until the token is replaced or the provider reports it invalid.
+
+Tests: `PushTextTests`, `ApnsChannelTests`, `FcmChannelTests` and `PushHostingTests` (`tests/cs/server.tests`,
+stub handlers, no container) and `PushDeliveryGrainTests` and `PushRegistrationTests`
+(`tests/cs/server.integration`), where the cluster runs the real channels against `PushProviderStubs`. A real
+push on a phone is [`docs/bench/push-checklist.md`](../../docs/bench/push-checklist.md).
 
 ### Moving and unassigning a Node
 

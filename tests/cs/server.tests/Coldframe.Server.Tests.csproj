@@ -20,6 +20,8 @@
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- The Edge API contract; the endpoint discovery test compares the mapped endpoints with it. -->
     <None Include="..\..\..\packages\openapi\coldframe.openapi.json" Link="Fixtures\coldframe.openapi.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The push payload contract's examples; the channel tests require that what they send equals them. -->
+    <None Include="..\..\..\packages\asyncapi\fixtures\*.json" Link="Fixtures\asyncapi\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- The shared crypto vectors; the enrolment key tests open the vector enrolment. -->
     <None Include="..\..\..\packages\crypto-spec\vectors.json" Link="Fixtures\vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

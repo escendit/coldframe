@@ -138,3 +138,32 @@ public enum Motion {
   /// State changes swap instantly.
   public static let animatesStateChanges = false
 }
+
+/// A Lot opened from a tile, an Alert row or a tapped notification: what the destination needs
+/// before the Server answers.
+public struct OpenedLot: Hashable, Sendable {
+  public let id: String
+  public let name: String
+
+  public init(id: String, name: String) {
+    self.id = id
+    self.name = name
+  }
+}
+
+/// What the Garden tab's stack shows over the Site overview. The root hoists it, so a tapped
+/// notification can open Lot detail, or return to the overview, from outside the tab (UX-DR120).
+public struct GardenPath: Equatable, Sendable {
+  /// The Lot whose detail is open.
+  public var lot: OpenedLot?
+  /// Site settings, opened from the Site menu.
+  public var siteSettings: Bool
+
+  public init(lot: OpenedLot? = nil, siteSettings: Bool = false) {
+    self.lot = lot
+    self.siteSettings = siteSettings
+  }
+
+  /// The overview alone.
+  public static let root = GardenPath()
+}

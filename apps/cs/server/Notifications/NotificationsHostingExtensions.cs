@@ -4,9 +4,10 @@ namespace Coldframe.Server.Notifications;
 
 /// <summary>
 /// Registers the Notifier seam (Story 6.4). The User grain hands every due notification to
-/// <see cref="INotifier"/>; a channel (push in Story 6.5, the open web app in Story 6.6) plugs in with
-/// <c>services.AddSingleton&lt;INotificationChannel, TChannel&gt;()</c>. Without a channel the Notifier still
-/// records every notification in the log and on its meter.
+/// <see cref="INotifier"/>; a channel plugs in with
+/// <c>services.AddSingleton&lt;INotificationChannel, TChannel&gt;()</c>: the push channels (Story 6.5) through
+/// <see cref="Push.PushHostingExtensions.AddPushChannels(IServiceCollection, IConfiguration)"/>, the open web
+/// app in Story 6.6. Without a channel the Notifier still records every notification in the log and on its meter.
 /// </summary>
 public static class NotificationsHostingExtensions
 {

@@ -76,7 +76,8 @@ public sealed record TrackedAlert(
 /// The state of the User grain: the Site creations it has seen, by idempotency key, its Role on each
 /// Site it belongs to, its notification settings (Story 6.3), and what it has to deliver (Story 6.4): the open
 /// Alerts of its Sites with their Reminder deadlines, what is held for a summary, the window-opening due-at and
-/// the Sites whose open Alerts it still has to pull.
+/// the Sites whose open Alerts it still has to pull. It also owns the devices the User registered for push
+/// (Story 6.5).
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.user-state")]
@@ -104,6 +105,9 @@ public sealed class UserState
 
     [Id(7)]
     private readonly HashSet<string> _pendingPulls = new(StringComparer.Ordinal);
+
+    [Id(9)]
+    private readonly Dictionary<string, PushRegistration> _pushRegistrations = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The Notification Window: 07:00 to 22:00 until the User changes it.
@@ -158,6 +162,19 @@ public sealed class UserState
     /// The Sites the User joined whose open Alerts were not pulled yet (Story 6.4).
     /// </summary>
     public IReadOnlySet<string> PendingPulls => _pendingPulls;
+
+    /// <summary>
+    /// The devices the User registered for push, by installation ID (Story 6.5).
+    /// </summary>
+    public IReadOnlyDictionary<string, PushRegistration> PushRegistrations => _pushRegistrations;
+
+    /// <summary>
+    /// The push registrations in a stable order: the one registered first comes first, then by installation ID.
+    /// </summary>
+    public IReadOnlyList<PushRegistration> OrderedPushRegistrations() =>
+        [.. _pushRegistrations.Values
+            .OrderBy(registration => registration.RegisteredAt)
+            .ThenBy(registration => registration.InstallationId, StringComparer.Ordinal)];
 
     /// <summary>
     /// The window-opening due-at (UTC) while a delivery is held (Story 6.4): when the summaries are due.
@@ -388,6 +405,23 @@ public sealed class UserState
         }
 
         ForgetWindowOpeningUnlessHeld();
+    }
+
+    public void Apply(PushDeviceRegistered @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pushRegistrations[@event.InstallationId] = new PushRegistration(
+            @event.InstallationId,
+            @event.Platform,
+            @event.Token,
+            @event.Environment,
+            @event.RegisteredAt);
+    }
+
+    public void Apply(PushDeviceRemoved @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pushRegistrations.Remove(@event.InstallationId);
     }
 
     public void Apply(SiteAlertsPulled @event)

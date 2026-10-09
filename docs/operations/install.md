@@ -89,6 +89,12 @@ kubectl create namespace coldframe
 kubectl -n coldframe create configmap coldframe-realm --from-file=coldframe-realm.json=<your-realm.json>
 ```
 
+`coldframe-push` is the one Secret you may leave out: without it the Server runs and sends no push
+notification. To notify phones, create it and set `push.apns.enabled: true` and/or
+`push.fcm.enabled: true` (and `push.apns.topic`, your iOS bundle ID) under the `server` key of your
+site values ([`deploy/SECRETS.md`](../../deploy/SECRETS.md#push-notifications),
+[`docs/bench/push-checklist.md`](../bench/push-checklist.md)).
+
 A missing Secret leaves its pod in `CreateContainerConfigError` and its bundle not Ready, which
 holds back every bundle after it.
 

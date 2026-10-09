@@ -10,7 +10,7 @@ Swift runtimes.
   String Catalog and, where SwiftUI exists, the views. It is a SwiftPM target of the
   `Package.swift` in the repository root, so it builds and tests without Xcode. The views talk to
   the core only through service protocols such as `SignInService`, `AppearanceService`,
-  `SitesService`, `LotsService`, `AlertsService` and `NotificationSettingsService`.
+  `SitesService`, `LotsService`, `AlertsService`, `NotificationSettingsService` and `PushService`.
   `SitesService` (Story 1.8) carries the Sites of the signed-in user as a `SitesPresentation`
   (Create Site, the empty Garden, the Site switcher and the Site menu) built from the core's flat
   `SitesSnapshot`, plus the actions `load`, `select`, `newSite`, `cancelNewSite`, `setName`,
@@ -68,15 +68,52 @@ Swift runtimes.
   a current Site; without one only the window and the time zone show. A change that was not
   saved puts its control back at the Server's value and shows an Inline notice under it, with Try
   again where that can help. The zone confirmed on Create Site is no longer kept on the phone:
-  the core sends it to the Server and reads it from there. Nothing here delivers a notification,
-  asks for the notification permission or registers a push token (Stories 6.4 to 6.6).
+  the core sends it to the Server and reads it from there. Nothing here delivers a notification;
+  the permission and the push token belong to `PushService`.
+  `PushService` (Story 6.5) carries push on this phone as a `PushPresentation` built from the
+  core's flat `PushSnapshot`: whether the notice shows, whether the prompt is due, and where a
+  tapped notification leads. Its actions are `refresh`, `ask`, `openSettings` and `routeHandled`.
+  On the first landing on a Site overview an Inline notice above the tiles reads "Coldframe tells
+  you when a Lot needs water." with Continue, which opens the OS prompt for alerts and sound,
+  once per phone (UX-DR122). While the permission is denied or revoked, "Notifications are off
+  for Coldframe on this phone. You won't get Alerts." with Open Settings stands first in My
+  notifications and above the tiles of the overview; it cannot be closed, and the app reads the
+  permission again every time it comes to the front (UX-DR88). A tapped notification hands the
+  `coldframe` object of its payload to the core, which switches to its Site and names the route
+  once the Sites are loaded, also after a cold start: Lot detail for an Alert or a Reminder, the
+  overview for a summary or an unknown Lot. The root hoists the Garden tab's stack (`GardenPath`)
+  next to the selected tab, so the shell shows the route on the Garden tab from wherever it is
+  and then calls `routeHandled` (UX-DR120). The Server writes every notification and groups it
+  per Site; in the foreground it shows as banner and in the list with sound. The app sets no
+  badge, adds no category or action and posts no notification of its own (UX-DR121). The core
+  sends the device token to the Server after sign-in and removes the registration at sign-out;
+  Swift never calls the Server.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
   (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`, `CoreDevicesService`,
   `CoreHubSetupService`, `CoreNodeSetupService`, `CoreAlertsService`,
-  `CoreNotificationSettingsService`), the
+  `CoreNotificationSettingsService`, `CorePushService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
+  `CorePushService` holds the OS calls of push: it reads `UNUserNotificationCenter`'s
+  authorization, shows the prompt, opens the app's notification settings and, once the
+  permission is granted, calls `registerForRemoteNotifications`. `AppDelegate`
+  (`UIApplicationDelegateAdaptor`) receives the APNs device token, which goes to the core as
+  lowercase hex with the build's APNs environment, and is the notification centre's delegate for
+  taps and for notifications in the foreground; `PushInbox` keeps what arrives before the
+  adapter exists.
 - `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
   is not committed. `ios/Config` holds the build-time configuration and the Info.plists.
+- Push is off in a build from this repository: `COLDFRAME_PUSH = NO` in
+  `ios/Config/Coldframe.xcconfig` leaves `CODE_SIGN_ENTITLEMENTS` empty, so the app builds with
+  any team, with a free personal team and with signing off (CI), asks for the permission as
+  usual, gets no device token and registers nothing. For real pushes set `COLDFRAME_PUSH = YES`
+  and `DEVELOPMENT_TEAM` in `ios/Config/Coldframe.local.xcconfig` (not committed): the app is
+  then signed with `ios/Config/Coldframe.entitlements`, whose `aps-environment` is
+  `COLDFRAME_APS_ENVIRONMENT`, `development` (APNs sandbox) for Debug and `production` for
+  Release. The Info.plists repeat that value, and the app sends it with the device token so
+  the Server uses the matching APNs host. The team needs the Apple Developer Program and the
+  Push Notifications capability on the App ID, and the Server needs the APNs key of the same
+  team with the app's bundle identifier as its topic. No provisioning profile, key or team ID
+  is committed.
 
 Tests live in [`tests/swift`](../../tests/swift). Build and run the app as described in
 [`docs/quickstart.md`](../../docs/quickstart.md#run-the-ios-app).

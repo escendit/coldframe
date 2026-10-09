@@ -44,6 +44,7 @@ import com.escendit.coldframe.core.lots.SiteReminderCadence
 import com.escendit.coldframe.core.lots.StaleReason
 import com.escendit.coldframe.core.notifications.NotificationSettingsState
 import com.escendit.coldframe.core.notifications.ReminderCadence
+import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
@@ -995,6 +996,69 @@ class SnapshotTest {
     @Config(qualifiers = HUGE)
     fun `UX-DR63 UX-DR24 Lot detail in stale mode, dark, font scale 2`() =
         detail("lot-detail-stale-large-dark", detailStates.stale, ThemePreference.Dark, fontScale = 2f)
+
+    // Story 6.5: the one line of why and the notifications-off notice, on the overview and in My notifications.
+
+    private fun push(
+        name: String,
+        push: PushState,
+        theme: ThemePreference,
+        myNotifications: Boolean = false,
+    ) {
+        compose.setContent {
+            AtFontScale(2f) {
+                ColdframeRoot(
+                    state = SignInState.SignedIn("Simon"),
+                    sites = readySites(),
+                    theme = theme,
+                    onSignIn = {},
+                    onSignOut = {},
+                    onSelectTheme = {},
+                    lots = LotFixtures.ready(lots = LotFixtures.everyStatus),
+                    now = { LotFixtures.now },
+                    notifications = NotificationStates.unconfirmed,
+                    push = push,
+                )
+            }
+        }
+        if (myNotifications) {
+            compose.onNodeWithText("Settings").performClick()
+            compose.onNodeWithText("My notifications").performClick()
+            compose.onNode(isHeading().and(hasText("My notifications"))).assertExists()
+        }
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR122 the overview with the one line of why, light, font scale 2`() =
+        push("push-why-light", PushStates.promptDue, ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR122 the overview with the one line of why, dark, font scale 2`() =
+        push("push-why-dark", PushStates.promptDue, ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR88 the overview with notifications off, light, font scale 2`() =
+        push("push-off-overview-light", PushStates.denied, ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR88 the overview with notifications off, dark, font scale 2`() =
+        push("push-off-overview-dark", PushStates.denied, ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR88 My notifications with notifications off, light, font scale 2`() =
+        push("push-off-my-notifications-light", PushStates.denied, ThemePreference.Light, myNotifications = true)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR88 My notifications with notifications off, dark, font scale 2`() =
+        push("push-off-my-notifications-dark", PushStates.denied, ThemePreference.Dark, myNotifications = true)
 
     private companion object {
         /** A window that holds four one-column tiles, or ten in two columns. */

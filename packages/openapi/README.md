@@ -30,6 +30,8 @@ The REST contract, written before the code that serves it (AD-10):
 | `PUT /sites/{siteId}/notification-settings` | `Member` | Story 6.3 |
 | `GET /sites/{siteId}/reminder-cadence` | `Member` | Story 6.3 |
 | `PUT /sites/{siteId}/reminder-cadence` | `Administrator` | Story 6.3 |
+| `PUT /me/push-registrations/{installationId}` | `Authenticated` | Story 6.5 |
+| `DELETE /me/push-registrations/{installationId}` | `Authenticated` | Story 6.5 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 
@@ -128,6 +130,14 @@ is planned today.
   siteReminderCadence}` for that Site (`reminderCadence` absent = use the Site setting), and
   `GET`/`PUT /sites/{siteId}/reminder-cadence` the Site's `{cadence}`. `ReminderCadence` is `daily` or
   `every2Days`. Every write answers 200 with the state in force, also when nothing changed.
+- **Push registrations** (Story 6.5). `PUT /me/push-registrations/{installationId}` takes `{platform, token,
+  environment?}`: `platform` is `apns` or `fcm`, `token` the provider's device token (1 to 4096 printable ASCII
+  characters without spaces), and `environment` (`production` or `sandbox`) is required for `apns` and refused for
+  `fcm`. `installationId` is the app's own ID of one installation (1 to 64 of `A-Z a-z 0-9 . _ -`). Registering
+  the same installation again replaces its token, and the same registration again saves nothing; a User keeps at
+  most 20. `DELETE` removes the caller's registration and answers 204 also when there was none. Both answer 204,
+  400 `validation` for a malformed ID or body. There is no read: the token never leaves the Server. What a push
+  carries is in [`packages/asyncapi`](../asyncapi).
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

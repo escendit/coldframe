@@ -49,7 +49,7 @@ public sealed class DeliveryTimingGrainTests(IdentityCluster identity) : IClassF
         var sent = await SentAsync(site.OwnerId, 1);
         Assert.Equal(
             new Notification(site.OwnerId, site.SiteId, NotificationKind.Alert, openedAt, null, sent.Notification.Entries),
-            sent.Notification);
+            sent.Notification with { Registrations = null, TimeZone = null, Window = null });
         Assert.Equal(Entry(alert), Assert.Single(sent.Notification.Entries));
         Assert.InRange(sent.SentAt - sent.Notification.DueAt, TimeSpan.Zero, TimeSpan.FromMinutes(1));
 
@@ -157,7 +157,7 @@ public sealed class DeliveryTimingGrainTests(IdentityCluster identity) : IClassF
         var summary = sent[1];
         Assert.Equal(
             new Notification(site.OwnerId, site.SiteId, NotificationKind.Summary, Now, secondDueAt, summary.Notification.Entries),
-            summary.Notification);
+            summary.Notification with { Registrations = null, TimeZone = null, Window = null });
         Assert.Equal([Entry(first), Entry(second)], summary.Notification.Entries);
         Assert.InRange(summary.SentAt - summary.Notification.DueAt, TimeSpan.Zero, TimeSpan.FromMinutes(1));
         Assert.Equal([Tracked, Held, Sent, Tracked, Held, Held, Sent], await DeliveryAliasesAsync(site.OwnerId));

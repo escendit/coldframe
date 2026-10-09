@@ -8,6 +8,8 @@ import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.notifications.NotificationSettingsEngine
+import com.escendit.coldframe.core.push.PushEngine
+import com.escendit.coldframe.core.push.PushPlatform
 import com.escendit.coldframe.core.setup.AndroidRadioState
 import com.escendit.coldframe.core.setup.HubSetupEngine
 import com.escendit.coldframe.core.setup.KableSetupRadio
@@ -80,6 +82,13 @@ public class AndroidSignIn private constructor(
             settings,
             scope,
         )
+
+    /**
+     * Push on this phone: the notification permission and its one prompt, the FCM token, which the core registers
+     * after sign-in and removes at sign-out, and where a tapped notification leads. The shell reports the OS
+     * permission on every foreground and hands over the token and the data of a tapped notification.
+     */
+    public val push: PushEngine = SitesWiring.push(api, sites, lots, engine, settings, scope, PushPlatform.Fcm)
 
     /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history; the shell opens and closes it. */
     public val lotDetail: LotDetailEngine = SitesWiring.lotDetail(api, sites, settings, scope)

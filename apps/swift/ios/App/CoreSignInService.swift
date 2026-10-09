@@ -53,6 +53,9 @@ final class CoreSignInService: SignInService {
   /// My notifications of the same core instance, for `CoreNotificationSettingsService`.
   var notifications: IosNotificationSettings { core.notifications }
 
+  /// Push of the same core instance, for `CorePushService`.
+  var push: IosPush { core.push }
+
   /// The Devices half of the same core instance, for `CoreDevicesService`.
   var devices: IosDevices { core.devices }
 

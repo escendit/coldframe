@@ -7,7 +7,8 @@ namespace Coldframe.Server.Notifications;
 /// The one <see cref="INotifier"/> (Story 6.4): stamps <c>sentAt</c> from the <see cref="TimeProvider"/>, calls
 /// every registered <see cref="INotificationChannel"/> in registration order, then records <c>dueAt</c> and
 /// <c>sentAt</c> as structured log fields and on the meter <see cref="MeterName"/>. It decides nothing. A channel
-/// that fails is logged and the others are still tried; the send fails only when no channel delivered.
+/// that fails is logged and the others are still tried; the send fails only when a channel failed and none
+/// delivered. It hands back the push registrations a provider reported as invalid (Story 6.5).
 /// </summary>
 public sealed partial class Notifier : INotifier
 {
@@ -73,35 +74,51 @@ public sealed partial class Notifier : INotifier
     };
 
     /// <inheritdoc />
-    public async Task<DateTimeOffset> SendAsync(Notification notification, CancellationToken cancellationToken = default)
+    public async Task<NotifierResult> SendAsync(Notification notification, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(notification);
 
         var kind = NameOf(notification.Kind);
         var sentAt = _clock.GetUtcNow();
 
-        // Every channel is tried, also after one failed. The send fails only when no channel delivered: a retry
-        // while one channel is down would hand the others the same notification again and again.
+        // Every channel is tried, also after one failed. The send fails only when a channel failed and none
+        // delivered: a retry while one channel is down would hand the others the same notification again and
+        // again, and a User without a device on any channel has nothing to retry for.
         List<Exception>? failures = null;
+        List<string>? invalid = null;
+        var delivered = 0;
 
         foreach (var channel in _channels)
         {
             try
             {
-                await channel.SendAsync(notification, sentAt, cancellationToken).ConfigureAwait(false);
+                var delivery = await channel.SendAsync(notification, sentAt, cancellationToken).ConfigureAwait(false);
+                delivered += delivery.Delivered;
+
+                if (delivery.InvalidInstallations.Count > 0)
+                {
+                    (invalid ??= []).AddRange(delivery.InvalidInstallations);
+                }
             }
 #pragma warning disable CA1031 // Whatever failed one channel, the others are still tried.
             catch (Exception exception)
 #pragma warning restore CA1031
             {
                 (failures ??= []).Add(exception);
+
+                if (exception is IInvalidInstallationsSource { InvalidInstallations.Count: > 0 } source)
+                {
+                    (invalid ??= []).AddRange(source.InvalidInstallations);
+                }
                 LogChannelFailed(_logger, channel.GetType().Name, kind, notification.UserId, notification.SiteId, exception);
             }
         }
 
-        if (failures is not null && failures.Count == _channels.Length)
+        IReadOnlyList<string> invalidInstallations = invalid is null ? [] : [.. invalid.Distinct(StringComparer.Ordinal)];
+
+        if (failures is not null && delivered == 0)
         {
-            throw new AggregateException($"No channel delivered the {kind} notification.", failures);
+            throw new NotificationNotDeliveredException($"No channel delivered the {kind} notification.", failures, invalidInstallations);
         }
 
         var tag = new KeyValuePair<string, object?>(KindTag, kind);
@@ -110,7 +127,7 @@ public sealed partial class Notifier : INotifier
 
         LogSent(_logger, kind, notification.UserId, notification.SiteId, notification.Entries.Count, notification.DueAt, sentAt);
 
-        return sentAt;
+        return new NotifierResult(sentAt, invalidInstallations);
     }
 
     [LoggerMessage(

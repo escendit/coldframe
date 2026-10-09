@@ -76,6 +76,18 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             (server, _, cancellationToken) =>
                 server.PatchAsJsonAsync(new Uri("/me/notification-settings", UriKind.Relative), new { window = new { from = "07:00" } }, cancellationToken),
             HttpStatusCode.OK),
+
+        // Push registrations (Story 6.5): the caller's own, whatever Site the matrix names.
+        ["PUT /me/push-registrations/{installationId}"] = new(
+            (server, _, cancellationToken) =>
+                server.PutAsJsonAsync(
+                    new Uri("/me/push-registrations/matrix-installation", UriKind.Relative),
+                    new { platform = "fcm", token = "matrix-token" },
+                    cancellationToken),
+            HttpStatusCode.NoContent),
+        ["DELETE /me/push-registrations/{installationId}"] = new(
+            (server, _, cancellationToken) => server.DeleteAsync(new Uri("/me/push-registrations/matrix-installation", UriKind.Relative), cancellationToken),
+            HttpStatusCode.NoContent),
         ["GET /sites/{siteId}/notification-settings"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/notification-settings", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),

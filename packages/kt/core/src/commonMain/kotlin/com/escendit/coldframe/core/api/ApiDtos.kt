@@ -352,3 +352,15 @@ public data class SetSiteNotificationSettingsRequestDto(
 public data class SiteReminderCadenceDto(
     val cadence: String,
 )
+
+/**
+ * `RegisterPushDeviceRequest` (`registerPushDevice`): [platform] is a `PushPlatform` (`apns`, `fcm`), [token] the
+ * provider's device token, and [environment] an `ApnsEnvironment` (`production`, `sandbox`), which an `apns`
+ * registration must carry and an `fcm` registration must not.
+ */
+@Serializable
+public data class RegisterPushDeviceRequestDto(
+    val platform: String,
+    val token: String,
+    val environment: String? = null,
+)

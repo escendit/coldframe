@@ -1,6 +1,7 @@
 using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Notifications;
 
 namespace Coldframe.Contracts.Sites;
 
@@ -106,6 +107,74 @@ public interface IUserGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("alert-closed")]
     Task AlertClosed(string siteId, Guid alertId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Registers a device of the User for push (Story 6.5); the User grain owns the registrations. Registering
+    /// the same installation again replaces its token (<see cref="PushDeviceRegistered"/>); a registration that
+    /// is already in force journals nothing. A token another installation holds moves to this one, and beyond
+    /// <see cref="PushRegistrationLimits.MaxRegistrations"/> the one registered longest ago is removed. A
+    /// registration that is not valid journals nothing.
+    /// </summary>
+    /// <param name="request">The registration.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("register-push-device")]
+    Task<PushRegistrationOutcome> RegisterPushDevice(RegisterPushDevice request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the User's push registration of an installation (Story 6.5), as the apps do at sign-out.
+    /// Idempotent: an installation the User holds no registration for journals nothing.
+    /// </summary>
+    /// <param name="installationId">The installation.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>Whether a registration was removed.</returns>
+    [Alias("remove-push-device")]
+    Task<bool> RemovePushDevice(string installationId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the User's push registrations, by installation ID (Story 6.5). Journals nothing. No endpoint
+    /// serves it: a token never leaves the Server.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("get-push-registrations")]
+    Task<IReadOnlyList<PushRegistration>> GetPushRegistrations(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// A device registration as <see cref="IUserGrain.RegisterPushDevice"/> takes it (Story 6.5).
+/// </summary>
+/// <param name="InstallationId">The app's own ID of the installation.</param>
+/// <param name="Platform">The push provider.</param>
+/// <param name="Token">The provider's device token.</param>
+/// <param name="Environment">The APNs environment; required for <see cref="PushPlatform.Apns"/>, absent otherwise.</param>
+[GenerateSerializer]
+[Alias("coldframe.register-push-device")]
+public sealed record RegisterPushDevice(
+    [property: Id(0)] string InstallationId,
+    [property: Id(1)] PushPlatform Platform,
+    [property: Id(2)] string Token,
+    [property: Id(3)] ApnsEnvironment? Environment = null);
+
+/// <summary>
+/// How <see cref="IUserGrain.RegisterPushDevice"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.push-registration-outcome")]
+public enum PushRegistrationOutcome
+{
+    /// <summary>
+    /// The registration is in force and was journaled.
+    /// </summary>
+    Registered = 0,
+
+    /// <summary>
+    /// The same registration was in force already. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The installation ID, the token, the platform or the environment is not valid. Nothing was journaled.
+    /// </summary>
+    Invalid = 2,
 }
 
 /// <summary>

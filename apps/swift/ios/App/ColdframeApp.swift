@@ -2,9 +2,11 @@ import ColdframeIOS
 import SwiftUI
 
 /// The iOS app: the SwiftUI shell over the shared Kotlin core. The session resumes on start and
-/// on every return to the foreground, and the Site overview reads its Lots again.
+/// on every return to the foreground, and the Site overview reads its Lots again. The app
+/// delegate receives the APNs device token and the tapped notifications (Story 6.5).
 @main
 struct ColdframeApp: App {
+  @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @StateObject private var model: ShellModel = {
     let signIn = CoreSignInService()
     return ShellModel(
@@ -17,7 +19,8 @@ struct ColdframeApp: App {
       calibrate: CoreCalibrateService(core: signIn.calibrate),
       thresholds: CoreThresholdsService(core: signIn.thresholds),
       alerts: CoreAlertsService(core: signIn.alerts),
-      notifications: CoreNotificationSettingsService(core: signIn.notifications))
+      notifications: CoreNotificationSettingsService(core: signIn.notifications),
+      push: CorePushService(core: signIn.push))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -48,7 +51,9 @@ struct ColdframeApp: App {
         alerts: model.alerts,
         alertsActions: model.alertsActions,
         notifications: model.notifications,
-        notificationsActions: model.notificationsActions
+        notificationsActions: model.notificationsActions,
+        push: model.push,
+        pushActions: model.pushActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active {
@@ -59,6 +64,8 @@ struct ColdframeApp: App {
           model.lotDetailService?.refresh()
           // The count on the Alerts tab is read again too, whichever tab is selected.
           model.alertsService?.refresh()
+          // The notification permission is read again: it can change in the system Settings.
+          model.pushService?.refresh()
         }
       }
     }

@@ -40,6 +40,18 @@ public class SignInEngine(
     /** Serialises resume, sign-in and sign-out so they never interleave. */
     private val mutex = Mutex()
 
+    private val signingOut = mutableListOf<suspend () -> Unit>()
+
+    /**
+     * Runs [action] at the start of every deliberate [signOut], while the session is still valid, so it can still
+     * call the Server as this User: the push engine removes this device's registration with it (Story 6.5). It is
+     * best effort: each action is held to the end-session bound, and one that fails or runs out of time does not
+     * keep the user signed in. A session the Server ended (a 401) runs none.
+     */
+    internal fun onSigningOut(action: suspend () -> Unit) {
+        signingOut += action
+    }
+
     /**
      * SIGN IN or Try again. Ignored unless the Sign-in surface shows: a second press while
      * [SignInState.Working] does nothing.
@@ -61,11 +73,16 @@ public class SignInEngine(
     }
 
     /**
-     * Deliberate sign-out, after the native confirmation: clears the store first, then ends the
-     * Keycloak session best effort. Shows the Sign-in surface without a notice.
+     * Deliberate sign-out, after the native confirmation: runs what [onSigningOut] registered while the session is
+     * still valid, then clears the store, then ends the Keycloak session best effort. Shows the Sign-in surface
+     * without a notice.
      */
     public fun signOut() {
         scope.launch {
+            // Outside the lock: these actions call the Server, and the API takes the lock for its access token.
+            if (mutableState.value is SignInState.SignedIn) {
+                for (action in signingOut.toList()) attempt { withTimeoutOrNull(endSessionTimeout) { action() } }
+            }
             mutex.withLock {
                 val tokens = attempt { vault.read() }
                 attempt { vault.clear() }

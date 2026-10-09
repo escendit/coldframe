@@ -2,6 +2,7 @@ using System.Text.Json;
 using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Alerts;
@@ -218,6 +219,18 @@ public sealed class FixtureJournalReplayTests
             (secondAlert, new DateTimeOffset(2026, 10, 11, 21, 30, 0, TimeSpan.Zero), false, (DateTimeOffset?)null),
             (tracked.Alert.AlertId, tracked.PreviousDueAt, tracked.OpeningPending, tracked.HeldFrom));
         Assert.Equal(new DateTimeOffset(2026, 10, 13, 21, 30, 0, TimeSpan.Zero), user.DueAt(tracked));
+
+        // Push registrations (Story 6.5): an iPhone and an Android phone registered; APNs then reported the
+        // iPhone's token as invalid, so only the Android phone is left.
+        var registration = Assert.Single(user.PushRegistrations.Values);
+        Assert.Equal(
+            new PushRegistration(
+                "c0ldf4a3-2222-4a6b-9c2d-000000000002",
+                PushPlatform.Fcm,
+                "dQw4w9WgXcQ:APA91bExampleRegistrationToken",
+                Environment: null,
+                new DateTimeOffset(2026, 10, 12, 8, 5, 0, TimeSpan.Zero)),
+            registration);
 
         var former = Assert.IsType<UserState>(states["user/8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
         Assert.Empty(former.Sites);

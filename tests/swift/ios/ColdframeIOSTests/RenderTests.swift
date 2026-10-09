@@ -1246,4 +1246,131 @@
       ])
     #expect(actions.timeZone.zones() == ["Europe/Vienna", "Europe/Zurich"])
   }
+
+  // MARK: - Push notices and the tap route (Story 6.5)
+
+  @Test(
+    "UX-DR122 the overview with the one line of why renders above the tiles",
+    arguments: [false, true])
+  @MainActor
+  func overviewWhyLineRenders(dark: Bool) {
+    let view = NavigationStack {
+      GardenView(presentation: emptyGarden, actions: .none, push: PushFixture.promptDue)
+    }
+    #expect(PushFixture.promptDue.overviewNotice == .why)
+    #expect(renders(view, dark: dark))
+    #expect(rendersAtDefaultSize(view, dark: dark))
+    #expect(L10n.pushWhy.string == "Coldframe tells you when a Lot needs water.")
+    #expect(L10n.pushWhyContinue.string == "Continue")
+  }
+
+  @Test("UX-DR88 the overview with notifications off renders the notice", arguments: [false, true])
+  @MainActor
+  func overviewNotificationsOffRenders(dark: Bool) {
+    let view = NavigationStack {
+      GardenView(presentation: emptyGarden, actions: .none, push: PushFixture.denied)
+    }
+    #expect(renders(view, dark: dark))
+    #expect(rendersAtDefaultSize(view, dark: dark))
+    #expect(
+      L10n.pushOff.string
+        == "Notifications are off for Coldframe on this phone. You won't get Alerts.")
+    #expect(L10n.pushOpenSettings.string == "Open Settings")
+  }
+
+  @Test(
+    "UX-DR88 My notifications with notifications off renders, also when the settings failed",
+    arguments: [false, true])
+  @MainActor
+  func myNotificationsOffRenders(dark: Bool) {
+    let states = [
+      NotificationsFixture.settings(),
+      NotificationsFixture.settings(surface: "failed", notice: "unreachable", noticeTryAgain: true),
+      NotificationsFixture.settings(surface: "loading"),
+    ]
+    for presentation in states {
+      let view = NavigationStack {
+        MyNotificationsView(presentation: presentation, actions: .none, push: PushFixture.denied)
+      }
+      #expect(renders(view, dark: dark))
+      #expect(rendersAtDefaultSize(view, dark: dark))
+    }
+    #expect(renders(PushNotice(notice: .off), dark: dark))
+    #expect(renders(PushNotice(notice: .why), dark: dark))
+  }
+
+  @MainActor
+  private final class PushSpy: PushService {
+    var calls: [String] = []
+    var onChange: (@MainActor (PushPresentation) -> Void)?
+    func observe(_ onChange: @escaping @MainActor (PushPresentation) -> Void) {
+      self.onChange = onChange
+    }
+    func refresh() { calls.append("refresh") }
+    func ask() { calls.append("ask") }
+    func openSettings() { calls.append("openSettings") }
+    func routeHandled() { calls.append("routeHandled") }
+  }
+
+  @Test(
+    "UX-DR122 UX-DR88 Continue asks, Open Settings opens the settings: each reaches the service")
+  @MainActor
+  func pushActionsForward() {
+    let spy = PushSpy()
+    let actions = PushActions(service: spy)
+    actions.perform(PushNoticeKind.why.action)()
+    actions.perform(PushNoticeKind.off.action)()
+    actions.routeHandled()
+    actions.refresh()
+    #expect(spy.calls == ["ask", "openSettings", "routeHandled", "refresh"])
+  }
+
+  @MainActor
+  private final class StillSignIn: SignInService {
+    func observe(_ onChange: @escaping @MainActor (SignInPresentation) -> Void) {}
+    func signIn() {}
+    func resume() {}
+    func signOut() {}
+  }
+
+  @MainActor
+  private final class StillAppearance: AppearanceService {
+    func observe(_ onChange: @escaping @MainActor (ThemePreference) -> Void) {}
+    func select(_ preference: ThemePreference) {}
+  }
+
+  @Test(
+    "UX-DR120 the shell model carries the core's push state and hands the route back once shown")
+  @MainActor
+  func shellModelCarriesPush() {
+    let spy = PushSpy()
+    let model = ShellModel(signIn: StillSignIn(), appearance: StillAppearance(), push: spy)
+    #expect(model.push == .idle)
+
+    spy.onChange?(PushFixture.tappedAlert)
+    #expect(
+      model.push.route == .lotDetail(siteId: "site-home", lotId: "lot-t", lotName: "Tomatoes"))
+    model.pushActions.routeHandled()
+    #expect(spy.calls == ["routeHandled"])
+    // Without a service nothing shows and nothing happens.
+    let bare = ShellModel(signIn: StillSignIn(), appearance: StillAppearance())
+    #expect(bare.push == .idle)
+    bare.pushActions.ask()
+  }
+
+  @Test(
+    "UX-DR120 the tab shell renders with a tapped Alert's route and with a tapped summary's",
+    arguments: [false, true])
+  @MainActor
+  func shellWithRouteRenders(dark: Bool) {
+    for push in [PushFixture.tappedAlert, PushFixture.tappedSummary] {
+      #expect(
+        renders(
+          AppTabView(
+            theme: .system, onSelectTheme: { _ in }, onSignOut: {}, garden: emptyGarden,
+            selection: .constant(.settings), push: push,
+            gardenPath: .constant(push.route?.gardenPath ?? .root)),
+          dark: dark))
+    }
+  }
 #endif

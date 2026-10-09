@@ -615,6 +615,11 @@
   <string name="notifications_notice_invalid_window">Your Server did not accept this window. Nothing was changed.</string>
   <string name="notifications_notice_invalid_time_zone">Your Server does not know this time zone. Nothing was changed. Choose another one.</string>
   <string name="notifications_notice_site_gone">%1$s is no longer one of your Sites. Nothing was changed.</string>
+  <string name="push_why">Coldframe tells you when a Lot needs water.</string>
+  <string name="push_why_continue">Continue</string>
+  <string name="push_off">Notifications are off for Coldframe on this phone. You won\'t get Alerts.</string>
+  <string name="push_open_settings">Open Settings</string>
+  <string name="push_channel_alerts">Alerts</string>
   <string name="reminders_daily">Daily</string>
   <string name="reminders_every_2_days">Every 2 days</string>
 </resources>

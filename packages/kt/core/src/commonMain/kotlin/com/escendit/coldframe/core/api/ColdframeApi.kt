@@ -7,6 +7,7 @@ import com.escendit.coldframe.core.lots.LotDetailApi
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.notifications.NotificationSettingsApi
 import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
+import com.escendit.coldframe.core.push.PushApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
 import com.escendit.coldframe.core.sites.SitesApi
@@ -62,6 +63,7 @@ public class ColdframeApi(
     AlertsApi,
     NotificationSettingsApi,
     SiteReminderCadenceApi,
+    PushApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
@@ -311,6 +313,29 @@ public class ColdframeApi(
                 setBody(SiteReminderCadenceDto(cadence))
             }
         }) { it.body<SiteReminderCadenceDto>() }
+
+    /**
+     * `PUT /me/push-registrations/{installationId}` (`registerPushDevice`): this installation's push token; the
+     * same registration again changes nothing. Answers 204.
+     */
+    override suspend fun registerPushDevice(
+        installationId: String,
+        request: RegisterPushDeviceRequestDto,
+    ): ApiResult<Unit> =
+        call({
+            http.put(pushRegistration(installationId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+        }) { }
+
+    /** `DELETE /me/push-registrations/{installationId}` (`removePushDevice`): 204 also when there was none. */
+    override suspend fun removePushDevice(installationId: String): ApiResult<Unit> =
+        call({ http.delete(pushRegistration(installationId)) { it() } }) { }
+
+    private fun pushRegistration(installationId: String): String =
+        "$base/me/push-registrations/${installationId.encoded()}"
 
     private fun siteNotifications(siteId: String): String = "$base/sites/${siteId.encoded()}/notification-settings"
 

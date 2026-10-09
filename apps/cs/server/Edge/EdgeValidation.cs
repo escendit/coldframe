@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Globalization;
 using System.Text.Json;
 using Coldframe.Contracts.Devices;
+using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 
@@ -185,6 +186,26 @@ public static class EdgeValidation
 
         return hours <= 23 && minutes <= 59 ? (hours * 60) + minutes : null;
     }
+
+    /// <summary>
+    /// Parses a contract <c>PushPlatform</c> (<c>apns</c>, <c>fcm</c>), otherwise <see langword="null"/>.
+    /// </summary>
+    public static PushPlatform? NormalizePushPlatform(string? platform) => platform switch
+    {
+        "apns" => PushPlatform.Apns,
+        "fcm" => PushPlatform.Fcm,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Parses a contract <c>ApnsEnvironment</c> (<c>production</c>, <c>sandbox</c>), otherwise <see langword="null"/>.
+    /// </summary>
+    public static ApnsEnvironment? NormalizeApnsEnvironment(string? environment) => environment switch
+    {
+        "production" => ApnsEnvironment.Production,
+        "sandbox" => ApnsEnvironment.Sandbox,
+        _ => null,
+    };
 
     /// <summary>
     /// The contract's <c>HH:mm</c> of minutes since midnight.
