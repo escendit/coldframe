@@ -2,10 +2,10 @@
 title: 'Story 6.1: Threshold Alerts open and close'
 type: 'feature'
 created: '2026-10-08'
-baseline_revision: 'c928cb1a6e0b2c4ea17328044e4577f39e26c884'
-status: 'blocked'
+baseline_revision: af331ad9ecf77473ec9ef633bdbe2d9aeacaf09c
+status: done
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-6-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-5-3-thresholds-on-the-server.md'
@@ -77,7 +77,7 @@ deferred:
 - Opening needs 3 consecutive evaluated Readings beyond the same side (value `<` effective low, or `>` effective high); closing needs 3 consecutive within. Any Reading off the running side resets that streak. An empty high never alerts.
 - A calibrating Sensor is compared as the percentage `CalibrationMath.Percent` gives under the grain's current Calibration; any other Sensor in its Specification unit.
 - No evaluation when: the calibrating Sensor is uncalibrated, there is no effective low, the slot is not in the Device's declared Sensor list (AD-19), or the Node is unassigned (AD-8). The Reading is still stored.
-- Monotonic: a Reading whose `measured_at` is not newer than `lastEvaluatedAt` is not evaluated, so a resent frame changes nothing. A frame is evaluated on first delivery and on a duplicate resend alike, and a failed evaluation answers the frame `retry`.
+- Monotonic: a Reading whose `measured_at` is not newer than `lastEvaluatedAt` is not evaluated, so a resent frame changes nothing. A frame is evaluated on first delivery and on a duplicate resend alike, and a failed evaluation answers the frame `retry`. A Reading is evaluated with the `measured_at` stored with its key at first delivery, never with the time of the frame that carries it again: a Node without synced time has `measured_at = receivedAt - age`, which every resend would move later, so the store keeps the time with the Reading key and a duplicate frame is evaluated with the stored one. Unsynced Readings count toward streaks like any other.
 - `SensorThresholdsChanged` and a changed epoch reset both streaks; an open Alert stays open. The epoch is Device state derived from its existing assignment and Pause events.
 - `alertId = UUIDv5(AlertNamespace, "sensor:{sensorId:D}:threshold:{episode}")` with a Server-only namespace constant. The episode is journaled on the Sensor stream before `Alert.Open`; an unacknowledged open or close is redelivered (timer, reminder, activation) like Calibration delivery. `Open` and `Close` are idempotent; at most one open Threshold Alert per Sensor; the Alert records side, Site, Lot, Sensor, Device and quantity; `Close` is accepted only from the opening Sensor, with a reason from `recovered | paused | unassigned | calibrated | removed` (only `recovered` is produced here).
 - The Alert grain reports each open and close to its Site grain idempotently and redelivers until acknowledged; the Site grain journals them and answers `OpenAlerts()` from state replayed from its own stream.
@@ -97,6 +97,8 @@ deferred:
 | Low-to-high switch | open low, high 60; 70, 70, 70 | low Alert closed `recovered`, episode 2 opens with side high | — |
 | Out-of-order backlog | Reading older than `lastEvaluatedAt` | stored, not evaluated, streak unchanged | — |
 | Retried evaluation | Alert or Site grain call fails once; frame resent | one Alert, one episode, one entry in the Site set | frame answered `retry`; redelivery completes |
+| Unsynced resend | Node without synced time; one dry Reading sent three times (lost acknowledgements, or answered `retry`) | counted once: streak 1, no Alert (a Reading in range, sent three times, closes nothing); each resend is evaluated with the `measured_at` stored at first delivery, so the Sensor's guard finds it not newer | — |
+| Unsynced, first evaluation failed | Evaluate throws after the frame committed; frame answered `retry` and sent again | the resend is a duplicate and evaluates the Reading exactly once, with the stored `measured_at` | frame answered `retry` until it succeeds |
 | Not eligible | uncalibrated, no low, undeclared slot, unassigned Node | stored, no Alert | — |
 | Reset | streak 2, then Thresholds changed or epoch changed | streak 0; three more needed | — |
 | Needs water | open low Alert, soil-moisture Sensor | Lot status `needsWater`, first in the list; back to `ok` on close | high side or other quantity: unchanged |
@@ -106,8 +108,8 @@ deferred:
 
 ## Code Map
 
-- `apps/cs/server/Devices/DeviceGrain.cs` -- `Ingest` l.474-632: pause gate l.554, `CommitAsync` l.558, declaration l.584-606. Add the per-Sensor evaluate call after the commit, also when `NewKeys == 0`; gate on `State.LotId`, `State.Sensors`. `Move` l.178, `Unassign` l.234. `DeviceState` (`SiteId` Id 0, `LotId` Id 6): add the derived epoch in the existing `Apply` methods.
-- `apps/cs/server/Devices/DeviceIngestionStore.cs` -- `ReadingWrite(SensorId, ReadingSeq, Slot, Quantity, RawValue, CalibrationId)` l.22, `FrameRows(MeasuredAt, …)` l.42: the data to pass on.
+- `apps/cs/server/Devices/DeviceGrain.cs` -- `Ingest` l.474-632: pause gate l.554, `CommitAsync` l.558, declaration l.584-606. Add the per-Sensor evaluate call after the commit, also when `NewKeys == 0`; gate on `State.LotId`, `State.Sensors`. `EvaluateAsync` l.691 passes each Sensor's stored `measured_at` from `FrameCommitted`, not `rows.MeasuredAt`. `Move` l.178, `Unassign` l.234. `DeviceState` (`SiteId` Id 0, `LotId` Id 6): add the derived epoch in the existing `Apply` methods.
+- `apps/cs/server/Devices/DeviceIngestionStore.cs` -- `ReadingWrite(SensorId, ReadingSeq, Slot, Quantity, RawValue, CalibrationId)` l.22, `FrameRows(MeasuredAt, …)` l.42: the data to pass on. `reading_keys` (l.93, l.112) gains a nullable `measured_at`, written with a new key; `FrameCommitted` (l.65) returns, per `(sensor_id, reading_seq)` of the frame, the stored time: the frame's own for a new key, the stored one for a duplicate, and the frame's own for a key stored before the migration (null).
 - `packages/cs/contracts/Sensors/{SensorGrains,SensorEvents}.cs` -- `ISensorGrain` l.9; add `Evaluate` and its context/result records; `SensorThresholdsChanged` l.45 is the pattern for the new evaluation events.
 - `apps/cs/server/Sensors/SensorGrain.cs` -- `JournaledStreamGrain<SensorState>, IRemindable`; `SetThresholds` l.106; `Calibrate`/`DeliverAsync` l.185-284 is the persist, call, acknowledge, retry model; never call back into the Device grain from `Evaluate` (non-reentrant).
 - `apps/cs/server/Sensors/SensorState.cs` -- Ids 0-8 used, next `Id(9)`; `EffectiveLow`/`EffectiveHigh`/`Calibrated` l.88-93; `Apply(SensorThresholdsChanged)` l.111 resets streaks. `CalibrationMath.cs`, `ThresholdRules.cs` for conversion and sides; put the streak rule in a pure static class beside them.
@@ -115,7 +117,7 @@ deferred:
 - `packages/cs/crypto/SensorIds.cs` -- reuse `UuidV5(Guid, string)`; the namespace constant lives in the Server.
 - `packages/cs/contracts/Sites/SiteGrains.cs` l.38, `apps/cs/server/Identity/{SiteGrain,SiteState}.cs` (Ids 0-7 used) -- add `AlertOpened`/`AlertClosed`/`OpenAlerts`, events `site.alert-opened`/`site.alert-closed`; `CreateLot` l.170-210 is the requested/completed precedent. The Site grain never calls User grains.
 - `apps/cs/server/Lots/LotsProjector.cs` -- `InputsSql` l.125-140, `InputsOf` l.181-187 (`OpenLowAlert: false`), `ApplyAsync` l.190 (add an `alert/` branch), `EvaluateAsync` l.368. `LotStatusRule.cs` l.111 and `LotsReadModel.StatusOrder` l.51 already handle `needsWater`: read-only.
-- `apps/cs/migrations/Migrations/` -- new `M<yyyyMMddHHmmss>…` after `M20261007120000CreateTableCalibrations` for the projector's open-alert support table; delete the `lots` rows and checkpoint as `M20261006170000AddLotStatusToLots` did.
+- `apps/cs/migrations/Migrations/` -- a new migration that adds nullable `measured_at` to `reading_keys` (no backfill; no edit of `M20261006150000CreateTablesReadings`), and new `M<yyyyMMddHHmmss>…` after `M20261007120000CreateTableCalibrations` for the projector's open-alert support table; delete the `lots` rows and checkpoint as `M20261006170000AddLotStatusToLots` did.
 - `tests/cs/server.integration/Identity/IdentityCluster.cs` -- fixture, `Time`, `RestartSiloAsync`, fault filters (`SensorFaults` is the model for Alert and Site faults). Model on `Devices/CalibrationGrainTests.cs` (`DeclaredNodeAsync` l.380, `StoreSoilAsync` l.393) and `Devices/ThresholdGrainTests.cs`; `[Collection(IngestSuites.Name)]`. Frames more than 5 min ahead of the fake clock are rejected.
 - `tests/cs/server.tests/` -- `Fixtures/journal.json` and `FixtureJournalReplayTests` `States` l.20-28 (every new alias, `["alert"]` state); `Lots/LotStateTests.cs` l.120; `Sensors/{ThresholdRulesTests,SensorStateTests}.cs` as the model for pure rule tests. `tests/cs/server.integration/Edge/LotStatusTests.cs` hand-writes a `needsWater` row.
 - `apps/cs/README.md` -- "Sensor Specifications", "Thresholds", "Lot status" say "before Epic 6" / "no producer yet"; add an Alerts section.
@@ -123,23 +125,27 @@ deferred:
 ## Tasks & Acceptance
 
 **Execution:**
-- `tests/cs/server.tests/Sensors/`, `tests/cs/server.integration/Devices/ThresholdAlertGrainTests.cs`, `tests/cs/server.integration/Edge/LotStatusTests.cs` -- write the failing tests first, one per matrix row -- NFR16
+- `tests/cs/server.tests/Sensors/`, `tests/cs/server.integration/Devices/ThresholdAlertGrainTests.cs`, `tests/cs/server.integration/Edge/LotStatusTests.cs` -- write the failing tests first, one per matrix row, including the two unsynced rows (an unsynced frame resent three times through the real ingest path counts once; a duplicate whose first evaluation failed evaluates once with the stored time) -- NFR16
 - `packages/cs/contracts/{Sensors,Alerts,Sites}/**` -- grain methods, records, events -- contracts first
 - `apps/cs/server/Sensors/**` -- streak rule, state, `Evaluate`, episode, open/close delivery with retry
 - `apps/cs/server/Alerts/**`, `apps/cs/server/Program.cs` -- Alert grain, Site reporting with retry, hosting
 - `apps/cs/server/Identity/{SiteGrain,SiteState}.cs` -- open-Alert set and `OpenAlerts()`
-- `apps/cs/server/Devices/{DeviceGrain,DeviceState}.cs` -- evaluate after commit, epoch, eligibility gates
+- `apps/cs/server/Devices/{DeviceGrain,DeviceState}.cs` -- evaluate after commit, epoch, eligibility gates; evaluate each Reading with the stored `measured_at`
+- `apps/cs/server/Devices/DeviceIngestionStore.cs`, `apps/cs/migrations/Migrations/**` -- `reading_keys.measured_at`, returned per key by the commit; a duplicate frame carries the stored time -- the unsynced-resend rule
 - `apps/cs/server/Lots/LotsProjector.cs`, `apps/cs/migrations/Migrations/**` -- `OpenLowAlert` from Alert events
 - `tests/cs/server.tests/Fixtures/journal.json`, `FixtureJournalReplayTests.cs`, `Lots/LotStateTests.cs` -- new aliases and inputs
 - `apps/cs/README.md` -- document evaluation, Alerts, the Site set; remove the stale statements
 
 **Acceptance Criteria:**
+- Given a Node without synced time, when one Reading is sent three times (the resend gets a later receive time each time), then it counts once, so three resends of one dry Reading open no Alert and three resends of one in-range Reading close none; and when the first evaluation of a frame failed, then the resend evaluates its Reading once, with the `measured_at` stored at first delivery.
 - Given a calibrated Sensor with Thresholds on an assigned Node, when three consecutive Readings at 15-minute `measured_at` steps cross a Threshold, then one Alert is open with the UUIDv5 ID and side, the Sensor stream holds the episode before the Alert stream holds `alert.opened`, and `Site.OpenAlerts()` lists it.
 - Given an open Alert, when another grain or Sensor calls `Close`, then it is refused and the Alert stays open.
 - Given Alert events in the journal, when the `lots` read model is rebuilt from position 0, then every Lot has the same status as before.
 - Given the TestCluster suite, when it runs, then it covers exactly-three opening and closing, flapping, a retried evaluation with no duplicate, the low-to-high switch, the out-of-order backlog and the 2-of-3 cases, each written failing first.
 
 ## Spec Change Log
+
+- 2026-10-09 -- Resolved after the follow-up review of the merged story (PR #67) found that a resent frame of an unsynced Node moved a Reading's `measured_at` later and so counted again. Decided with the human: a Reading is evaluated with the `measured_at` stored with its key at first delivery (a nullable `reading_keys.measured_at`, new migration), so the monotonic guard, the contract text and AD-7 stay as written; unsynced Readings count toward streaks. Rejected: a `reading_seq` guard (changes `EvaluateReading`, the evaluation events, `SensorState` and AD-7) and skipping the Reading of a duplicate frame (a Reading whose first evaluation failed would never be evaluated). The follow-up work is the stored-time rule on top of the merged story; the other review patches (tests, wording) stay open in the Review Triage Log.
 
 ## Review Triage Log
 
@@ -256,6 +262,37 @@ deferred:
   - `[low]` `[reject]` (intent) The lag of `lastEvaluatedAt` after a restart is documented but not tested — carried.
   - `[false]` `[reject]` (intent) Test-first cannot be seen in a squashed diff — true of any squashed change; not a defect of this one.
 
+### 2026-10-09 — Review pass
+- verdicts: 27 findings — high 0, medium 0, low 20, false 7, maybe-false 0
+- findings:
+  - `[low]` `[reject]` (blind) A key stored before the migration has no time, so an unsynced resend of its frame still counts again; `readings` could backfill it — verified: `MeasuredAtOf` falls back to the frame's time and nothing fills the null. It needs an unsynced frame first delivered before the migration and sent again after it, which is one resend cycle at one deploy. The Code Map asks for exactly this (no backfill, the frame's own time for a null key), and a join on the partitioned `readings` table on every ingest costs more than the case is worth.
+  - `[low]` `[reject]` (blind) The fallback is silent: a missing entry for a new key would bring the double count back unseen — no path produces a miss for a key that holds a time, and the unsynced tests fail if one appears; a log or counter guards a state that was not shown.
+  - `[low]` `[reject]` (blind) `AReadingWhoseKeyWasStoredWithoutATimeIs…` pins the fallback as wanted — it pins what the Code Map specifies for a pre-migration key; same case as the first row.
+  - `[low]` `[reject]` (blind) No test with two declared Sensors where one evaluation fails — both halves are tested on one Sensor (a resend after a successful evaluation, a resend after a failed one), and each Sensor's time is looked up by its own key; a combined test needs a per-Sensor fault hook.
+  - `[low]` `[reject]` (blind) No store-level test of `StoredMeasuredAt` (mixed new and known keys, two Readings of one Sensor, an age above 0, a synced resend) — the SQL joins per key and has no branch for any of these; the grain tests read the stored time through the real store.
+  - `[low]` `[reject]` (blind) One more query on every ingest — verified: one indexed lookup of the frame's keys, inside the transaction that just wrote them; a Node sends a frame every 15 minutes.
+  - `[low]` `[reject]` (blind) The stored time has microsecond precision, the fallback 100 ns — only the null-key fallback passes the frame's own time; the common path reads the time back, which the new precision test pins (see the verification-gap row).
+  - `[low]` `[patch]` (blind) README steps 6 and 9 say "for every Reading" and "always" while a key without a time uses the frame's own — both sentences now name the exception.
+  - `[false]` `[reject]` (blind) Only the time is taken from the first delivery, not the value — a Reading key is `(sensor, reading_seq)` and `reading_seq` is monotonic and kept across resets (AD-17, epics l.1168), so a frame that carries a key again carries the same Reading and value.
+  - `[low]` `[reject]` (blind) `reading_keys` grows by a `timestamptz` per row, device report keys included — 8 bytes per key; retention of the table is unchanged by this story, and writing null for report keys adds a special case for no reader.
+  - `[low]` `[reject]` (blind) `FailNextEvaluations` is a process-wide counter with no reset on teardown — test fixture only; it is armed for one call directly before the ingest that consumes it, as the existing `FaultyIngestionStore` counters are.
+  - `[false]` `[reject]` (blind) The restart test's longer wait is unrelated to this change — no wrong outcome; the test failed in 2 of 4 runs of the suite during implementation because it asserted before the Sensor had journaled its delivery. Named under Auto Run Result.
+  - `[low]` `[reject]` (edge) A key with a null time falls back to the frame's time on every resend — same case as the first blind row; shares its route.
+  - `[low]` `[reject]` (edge) A Node whose `reading_seq` was erased sends new Readings under stored keys, which are then evaluated with the old time and never count — `reading_seq` persists across resets (AD-17); such Readings were already not stored before this change (their keys exist), so only an erased flash reaches this, and the guard adds an age parameter the contract does not have.
+  - `[low]` `[patch]` (edge) `SensorFaults` decrements and then writes 0, which can erase a count armed meanwhile — replaced by a compare-and-swap loop that only takes a failure that is left.
+  - `[low]` `[patch]` (edge) `Assert.Null` on the key's time also passes when no row matches — the test now counts exactly one row with `measured_at IS NULL`.
+  - `[low]` `[reject]` (edge) Claim "a duplicate frame carries the stored time" does not hold for pre-migration keys — same case as the first blind row; the Code Map states the exception.
+  - `[low]` `[patch]` (verification-gap) No test tells the read-back time from the frame's own for a new key, because the fake clock only yields whole seconds — added `AFirstDeliveryIsEvaluatedWithTheTimeItsKeyHoldsAtTheDatabasesPrecision`: the receive time carries half a microsecond, the first delivery is evaluated with the time the key holds, and a resend adds nothing. The test puts the shared clock back on a whole millisecond. Filed as defer; patched because the test is small.
+  - `[low]` `[reject]` (verification-gap, other) `FailNextEvaluations` has no reset — same as the blind row.
+  - `[low]` `[reject]` (intent) The fallback contradicts a strict reading of "never" and a test pins it — same case as the first blind row: the intent states the rule for a key that holds a time, and the Code Map settles the key that holds none.
+  - `[low]` `[reject]` (intent) The unsynced tests use an age of 0 only — same as the blind store-level row: the stored time is used whatever the frame's own time was computed from; `IngestGrainTests` covers how an unsynced time is computed.
+  - `[low]` `[reject]` (intent) A `retry` caused by a failing Alert or Site call is not combined with an unsynced Node — a resend takes the same path whatever made the first answer `retry`; both are tested separately.
+  - `[false]` `[reject]` (intent) Device report keys get a time nothing reads — no wrong outcome; one insert shape for both kinds of key.
+  - `[false]` `[reject]` (intent) One test edit lies outside the unsynced rule — same as the blind row on the restart test.
+  - `[false]` `[reject]` (intent) Most of the matrix is not touched by this diff — those rows shipped with PR #67; their tests are unchanged and ran in this pass's suite.
+  - `[false]` `[reject]` (intent) Test-first cannot be seen in the diff — carried: true of any single diff; the implementation run saw three of the new tests fail before the change.
+  - `[false]` `[reject]` (intent) The spec file is not in the reviewed diff — by design: the review layers read the code change, and only the edge-case layer reads the spec.
+
 ## Design Notes
 
 - **Low-to-high switch:** Readings above high are not "within", so a strict reading would leave "needs water" on a Lot that is too wet. Three consecutive Readings on the opposite side therefore close the Alert as `recovered` and open the next episode on that side in the same evaluation.
@@ -273,40 +310,43 @@ deferred:
 
 ## Auto Run Result
 
-Status: blocked
+Status: done
 
-Blocking condition: intent gap
+**Summary:** This run built the stored-time rule on top of the merged story (PR #67). A Reading is now evaluated with the `measured_at` that `reading_keys` keeps from its first delivery. A frame sent again by a Node without synced time gets a later time from the Server, but its Reading is evaluated with the stored one, so the Sensor's guard finds it not newer and it counts once. The Sensor grain, the contracts and the events are unchanged.
 
-**What happened:** This was a follow-up review of the merged story (PR #67, `5be1e97`). No code was changed. The review found one defect that the intent contract does not settle, so the pass stops here for a decision.
+**Files changed:**
+- `apps/cs/migrations/Migrations/M20261009065300AddMeasuredAtToReadingKeys.cs` -- new migration: nullable `reading_keys.measured_at`, no backfill.
+- `apps/cs/server/Devices/DeviceIngestionStore.cs` -- a new key is written with the frame's time; the commit reads the stored times back in the same transaction and returns them per `(sensor_id, reading_seq)`.
+- `apps/cs/server/Devices/DeviceGrain.cs` -- `EvaluateAsync` passes each Sensor the stored time, or the frame's own for a key that holds none.
+- `tests/cs/server.integration/Devices/ThresholdAlertGrainTests.cs` -- five new tests (below) and a longer wait in the restart test.
+- `tests/cs/server.integration/Identity/IdentityCluster.cs` -- `SensorFaults.FailNextEvaluations` makes `Evaluate` throw.
+- `apps/cs/README.md` -- ingest steps 6 and 9, the time paragraph and the Alerts section describe the rule.
 
-**The defect:** A Node without synced time sends Readings marked unsynced. The Server gives such a Reading the time `receivedAt - age` (`apps/cs/server/Devices/NodeFrameReader.cs` l.144-153), so the same Reading gets a later `measured_at` each time its frame is sent again. The Device grain evaluates a duplicate frame like a first delivery, and the Sensor grain's guard (`measured_at` not newer than `lastEvaluatedAt`) lets it through. Each resend then adds one to the streak: one dry Reading sent three times opens an Alert, and one in-range Reading sent three times closes one. Resends happen when an acknowledgement is lost and when a frame is answered `retry`, which this story added. A Node is unsynced until its first acknowledgement after a boot, which is also when acknowledgements are most likely to be missing. Found by reading the code; no test was run for it.
+**New tests:**
+- `AnUnsyncedDryReadingSentThreeTimesCountsOnceAndOpensNoAlert` and `AnUnsyncedReadingInRangeSentThreeTimesClosesNoAlert` -- matrix row "Unsynced resend".
+- `AnUnsyncedReadingWhoseFirstEvaluationFailedIsEvaluatedOnceWithTheStoredTime` -- matrix row "Unsynced, first evaluation failed". It also covers the open row of the earlier follow-up review "no test makes `Evaluate` throw".
+- `AReadingWhoseKeyWasStoredWithoutATimeIsEvaluatedWithTheTimeOfTheFrameThatCarriesIt` -- a key stored before the migration.
+- `AFirstDeliveryIsEvaluatedWithTheTimeItsKeyHoldsAtTheDatabasesPrecision` -- added in review.
 
-**Why it needs a decision:** The contract says "a Reading whose `measured_at` is not newer than `lastEvaluatedAt` is not evaluated, so a resent frame changes nothing" and "a frame is evaluated on first delivery and on a duplicate resend alike". For an unsynced Reading both cannot hold with `measured_at` as the guard. The guard comes from AD-7.
+**Review findings:** 27 findings (high 0, medium 0, low 20, false 7). No intent gap and no spec defect.
+- Patched: 4 entries, all low (high 0, medium 0, low 4): the README wording of steps 6 and 9, the race in `SensorFaults`, the `Assert.Null` that could pass on a missing row, and the precision test.
+- Deferred: none.
+- Rejected: 23 rows, each with its reason in the Review Triage Log of 2026-10-09. The main one: a key stored before the migration holds no time, so an unsynced frame first delivered before the migration and sent again after it still counts once per resend. The Code Map specifies this, and it can only happen around one deploy.
 
-**Questions:**
-1. What identifies a Reading that was already evaluated when its `measured_at` is not stable? Options seen:
-   - Guard on `reading_seq` as well (or instead). Exact, but `EvaluateReading`, the Sensor's evaluation events and `SensorState` gain a field, and AD-7 changes.
-   - Do not evaluate the Reading of a duplicate unsynced frame; only deliver what is pending. Small, but a Reading whose first evaluation failed is then never evaluated.
-   - Evaluate a duplicate with the `measured_at` stored at first delivery. Keeps the contract, but the Device grain needs the stored time back from the commit.
-2. Should an unsynced Reading count toward a streak at all?
+**Change outside the stored-time rule:** `AnUndeliveredOpenIsDeliveredWithNobodyCallingAndAfterASiloRestart` now also waits until the Sensor has journaled its delivery. It failed in 2 of 4 runs of the suite during implementation because it asserted too early. Production code is not involved.
 
-**Review findings:** 51 findings (high 0, medium 15, low 22, false 13, maybe-false 1). 27 repeat rows of the first pass and keep their verdict and route.
-- Intent gap: 1 entry (2 rows), above.
-- Patch, not applied (moot under the intent gap, still open): 5 entries (7 rows), all tests or wording:
-  - an older Reading after steady Readings (the in-memory half of the "not newer" guard);
-  - the Sensor's own redelivery by timer and by the `deliver-alerts` reminder, which no test reaches (the first pass took the timer as tested);
-  - `Evaluate` throwing and the frame answering `retry`;
-  - a failed delivery of a close;
-  - the README and migration summary wording about which tables the migration empties.
-- Deferred: nothing new. 10 rows repeat entries already in `deferred`.
-- Rejected: 32 rows, each with its reason in the Review Triage Log.
+**Follow-up review recommended:** `false`. This pass patched no high entry and no medium entry.
 
-**Follow-up review recommended:** unchanged (`true`). Nothing was patched in this pass. The story needs another review after the decision is built.
-
-**Verification:** none run; the tree's code is identical to `5be1e97`. The diff reviewed is `git diff c928cb1a6e0b2c4ea17328044e4577f39e26c884` without `_bmad-output/`.
+**Verification:**
+- `dotnet restore --locked-mode && dotnet build --no-restore -warnaserror` -- success, 0 warnings.
+- `dotnet format --verify-no-changes --no-restore` -- no changes.
+- `dotnet test --project tests/cs/server.tests --no-build` -- 580 passed.
+- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build` -- 986 passed, 0 failed, 0 skipped, after the review patches. The known host flakes did not show up.
+- One run between the patches failed `ThreeConsecutiveReadingsBelowTheLowOpenOneAlertOnceTheEpisodeIsJournaled`: the first version of the precision test left the shared fake clock one microsecond off a whole millisecond. The test now restores a whole millisecond, and the next full run passed.
+- Matrix audit: every matrix row has a test in `ThresholdAlertGrainTests`, `ThresholdStreakRuleTests` or `LotStatusTests`, and all of them ran and passed in the full suite.
 
 **Residual risks:**
-- The defect above is live on `main`.
-- After a reactivation up to three stale backlog Readings can count, not one as the README says (rejected as low: it needs an out-of-order backlog right after a reactivation).
-- A low Alert stays open while Readings alternate between within and above the high.
-- The risks listed by the first pass still hold.
+- A key stored before the migration (see Rejected above).
+- The patch rows of the follow-up review of 2026-10-08 are still open, as the Spec Change Log says: a test for an older Reading after steady Readings, tests for the Sensor's redelivery by timer and reminder, a failed delivery of a close, and the README wording about which tables the earlier migration empties.
+- The entries in `deferred` are unchanged.
+- The precision test moves the shared fake clock by one millisecond in total. If it fails midway it still restores the clock in `finally`.
