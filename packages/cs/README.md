@@ -4,7 +4,7 @@
 
 | Folder | What |
 | --- | --- |
-| `contracts/` | `Coldframe.Contracts`: event contracts, `EventTypeAttribute`, `IEventUpcaster<TFrom, TTo>`, and the Site, User and Device grain interfaces with their results |
+| `contracts/` | `Coldframe.Contracts`: event contracts, `EventTypeAttribute`, `IEventUpcaster<TFrom, TTo>`, the Site, User and Device grain interfaces with their results, and the notification model |
 | `crypto/` | `Coldframe.Crypto`: the Device crypto contract of [`packages/crypto-spec`](../crypto-spec) (key hierarchy, frame sealing and `ReplayWindow`, HPKE `Enrolment`, `SetupSession`, `Heartbeat`); `Generated/CryptoSpec.g.cs` is generated. X25519 comes from BouncyCastle, everything else from .NET |
 | `protocol/` | `Coldframe.Protocol`: Google.Protobuf types compiled at build time from [`packages/proto`](../proto) |
 
@@ -53,6 +53,11 @@ Nothing here reads the clock: `DateTime.UtcNow` and its relatives fail the build
 | `PersonalReminderCadenceChanged(SiteId, Cadence, ChangedAt)` | `user.site-reminder-cadence-changed` | The User's own Reminder cadence for a Site; `null` uses the Site setting |
 | `SiteReminderCadenceSynced(SiteId, Cadence)` | `user.site-reminder-cadence-synced` | The User grain's copy of a Site's Reminder cadence changed |
 | `SiteReminderCadenceChanged(Cadence, ChangedAt)` | `site.reminder-cadence-changed` | The Site's Reminder cadence, `Daily` until changed |
+| `AlertTracked(SiteId, Alert, Told, RemindFrom, TrackedAt)` | `user.alert-tracked` | The User grain learned of an open Alert on one of its Sites: told by the Alert grain (an opening notification is due) or pulled from the Site grain (Story 6.4) |
+| `AlertDropped(AlertId, DroppedAt)` | `user.alert-dropped` | The User grain stopped tracking an Alert: it closed, or its Site no longer lists it |
+| `DeliveryHeld(SiteId, AlertId, DueAt, WindowOpensAt)` | `user.delivery-held` | A delivery fell due outside the Notification Window and waits for its Site's summary |
+| `NotificationSent(SiteId, Kind, AlertIds, DueAt, SentAt)` | `user.notification-sent` | The Notifier returned for an Alert, Reminder or Summary notification |
+| `SiteAlertsPulled(SiteId, PulledAt)` | `user.site-alerts-pulled` | The User grain pulled the open Alerts of a Site it joined |
 
 `SiteRole` is ordered `Owner > Administrator > Member` (compare with `>=`); `SiteLifecycle` is
 `Uncreated`, `Active`, `Deleted`. `IUserGrain` (key: `sub`) and `ISiteGrain` (key: Site ID) return
@@ -77,6 +82,14 @@ Notification settings (Story 6.3) add `ReminderCadence` (`Daily`, `Every2Days`) 
 `ISiteGrain` has `GetReminderCadence()` and `SetReminderCadence(cadence)`, whose
 `SiteReminderCadenceResult(Outcome, Cadence, Members)` names the members to hand the cadence to, as
 `SiteReconciliationResult.ReminderCadence` does for a reconciliation.
+
+Delivery timing (Story 6.4) adds `IUserGrain.AlertOpened(siteId, alert)` and `AlertClosed(siteId, alertId)`,
+which only the Alert grain calls. `ISiteGrain.AlertOpened` and `AlertClosed` answer
+`SiteAlertReportResult(Members)`, the members the Alert grain is to tell, because the Site grain never calls
+User grains. `Notifications/` holds what the User grain hands to the Server's Notifier:
+`Notification(UserId, SiteId, Kind, DueAt, HeldFrom, Entries)` with `NotificationKind` `Alert`, `Reminder` or
+`Summary`, and one `NotificationEntry(AlertId, Kind, Side, LotId, SensorId, DeviceId, Quantity, OpenedAt)` per
+Alert. It carries no text.
 
 ## Devices
 

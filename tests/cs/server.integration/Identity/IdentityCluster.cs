@@ -9,6 +9,7 @@ using Coldframe.Server.Identity;
 using Coldframe.Server.IntegrationTests.Journal;
 using Coldframe.Server.Journal;
 using Coldframe.Server.Lots;
+using Coldframe.Server.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
@@ -21,7 +22,7 @@ namespace Coldframe.Server.IntegrationTests.Identity;
 
 /// <summary>
 /// A one-silo <see cref="TestCluster"/> with the User, Site, Lot, Device, Sensor and Alert grains, Device enrolment keys, the identity and lots projectors, a
-/// <see cref="FakePhaseTwoOrganizations"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
+/// <see cref="FakePhaseTwoOrganizations"/>, the Notifier with a <see cref="RecordingNotificationChannel"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
 /// </summary>
 public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
@@ -80,6 +81,12 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public UserFaults UserFaults => SiloServices.GetRequiredService<UserFaults>();
 
     /// <summary>
+    /// The silo's one notification channel, which records what the Notifier hands it and can fail a User's sends.
+    /// A silo restart starts with an empty one.
+    /// </summary>
+    public RecordingNotificationChannel Notifications => SiloServices.GetRequiredService<RecordingNotificationChannel>();
+
+    /// <summary>
     /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor and the next evaluations.
     /// </summary>
     public SensorFaults SensorFaults => SiloServices.GetRequiredService<SensorFaults>();
@@ -117,7 +124,12 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     /// <summary>
     /// The User grain's Site set, replayed from its journal stream.
     /// </summary>
-    public async Task<IReadOnlyDictionary<string, SiteRole>> UserSitesAsync(string userId)
+    public async Task<IReadOnlyDictionary<string, SiteRole>> UserSitesAsync(string userId) => (await UserStateAsync(userId)).Sites;
+
+    /// <summary>
+    /// The User grain's state, replayed from its journal stream.
+    /// </summary>
+    public async Task<UserState> UserStateAsync(string userId)
     {
         var state = new UserState();
 
@@ -126,7 +138,23 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             ((dynamic)state).Apply((dynamic)@event.Data);
         }
 
-        return state.Sites;
+        return state;
+    }
+
+    /// <summary>
+    /// Wakes the User grain the way its <c>deliver-notifications</c> reminder does, and returns once the wake has
+    /// processed everything overdue. The fake clock fires no reminder by itself.
+    /// </summary>
+    public Task WakeUserAsync(string userId) =>
+        User(userId).AsReference<IRemindable>().ReceiveReminder(UserGrain.WakeReminderName, default);
+
+    /// <summary>
+    /// Whether the User grain has its wake-up reminder registered.
+    /// </summary>
+    public async Task<bool> HasWakeReminderAsync(string userId)
+    {
+        var rows = await SiloServices.GetRequiredService<IReminderTable>().ReadRows(GrainId.Create("user", userId));
+        return rows.Reminders.Any(reminder => string.Equals(reminder.ReminderName, UserGrain.WakeReminderName, StringComparison.Ordinal));
     }
 
     public async ValueTask InitializeAsync()
@@ -212,6 +240,11 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddSingleton<IdentityReadModel>();
             siloBuilder.Services.AddLots();
             siloBuilder.Services.AddAlerts();
+
+            // The real Notifier over one recording channel: the User grain decides, the channel only records.
+            siloBuilder.Services.AddNotifications();
+            siloBuilder.Services.AddSingleton<RecordingNotificationChannel>();
+            siloBuilder.Services.AddSingleton<INotificationChannel>(provider => provider.GetRequiredService<RecordingNotificationChannel>());
 
             // Registered before AddDevices, which adds the real store only when there is none.
             siloBuilder.Services.AddSingleton<DeviceIngestionStore, FaultyIngestionStore>();
@@ -455,12 +488,23 @@ public sealed class AlertFaults : IIncomingGrainCallFilter
 
 /// <summary>
 /// Passes every grain call on, except that a test can make the next <see cref="ISiteGrain.AlertOpened"/> and
-/// <see cref="ISiteGrain.AlertClosed"/> calls throw, the way a Site grain that cannot be reached does. Nothing
-/// reaches the grain then.
+/// <see cref="ISiteGrain.AlertClosed"/> calls throw, and every <see cref="ISiteGrain.OpenAlerts"/> of chosen
+/// Sites, the way a Site grain that cannot be reached does. Nothing reaches the grain then.
 /// </summary>
 public sealed class SiteFaults : IIncomingGrainCallFilter
 {
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failingPulls = new(StringComparer.Ordinal);
     private int _failures;
+
+    /// <summary>
+    /// Makes every read of the open Alerts of <paramref name="siteId"/> fail until <see cref="RestoreOpenAlerts"/>.
+    /// </summary>
+    public void FailOpenAlerts(string siteId) => _failingPulls[siteId] = true;
+
+    /// <summary>
+    /// Lets the open Alerts of <paramref name="siteId"/> be read again.
+    /// </summary>
+    public void RestoreOpenAlerts(string siteId) => _failingPulls.TryRemove(siteId, out _);
 
     /// <summary>
     /// Makes the next <paramref name="calls"/> Alert reports fail, whichever Site they are for.
@@ -481,18 +525,43 @@ public sealed class SiteFaults : IIncomingGrainCallFilter
             Interlocked.Exchange(ref _failures, 0);
         }
 
+        if (context.Grain is ISiteGrain
+            && string.Equals(context.MethodName, nameof(ISiteGrain.OpenAlerts), StringComparison.Ordinal)
+            && _failingPulls.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            throw new InvalidOperationException("The test failed this read of the open Alerts.");
+        }
+
         return context.Invoke();
     }
 }
 
 /// <summary>
-/// Passes every grain call on, except that a test can make <see cref="IUserGrain.SyncSiteReminderCadence"/> throw
-/// for chosen Users, the way a User grain that cannot be reached or cannot write its journal does. Nothing
-/// reaches the grain then.
+/// Passes every grain call on, except that a test can make <see cref="IUserGrain.SyncSiteReminderCadence"/>, or
+/// <see cref="IUserGrain.AlertOpened"/> and <see cref="IUserGrain.AlertClosed"/>, throw for chosen Users, the way
+/// a User grain that cannot be reached or cannot write its journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class UserFaults : IIncomingGrainCallFilter
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failingAlertCalls = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How many Alert calls were failed.
+    /// </summary>
+    public int FailedAlertCalls => _failedAlertCalls;
+
+    private int _failedAlertCalls;
+
+    /// <summary>
+    /// Makes every Alert open and close told to <paramref name="userId"/> fail until <see cref="RestoreAlertCalls"/>.
+    /// </summary>
+    public void FailAlertCalls(string userId) => _failingAlertCalls[userId] = true;
+
+    /// <summary>
+    /// Lets the Alert opens and closes through to <paramref name="userId"/> again.
+    /// </summary>
+    public void RestoreAlertCalls(string userId) => _failingAlertCalls.TryRemove(userId, out _);
 
     /// <summary>
     /// Makes every Reminder cadence handed to <paramref name="userId"/> fail until <see cref="Restore"/>.
@@ -513,6 +582,14 @@ public sealed class UserFaults : IIncomingGrainCallFilter
             && _failing.ContainsKey(context.TargetId.Key.ToString()!))
         {
             throw new InvalidOperationException("The test failed this Reminder cadence.");
+        }
+
+        if (context.Grain is IUserGrain
+            && context.MethodName is nameof(IUserGrain.AlertOpened) or nameof(IUserGrain.AlertClosed)
+            && _failingAlertCalls.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            Interlocked.Increment(ref _failedAlertCalls);
+            throw new InvalidOperationException("The test failed this Alert call.");
         }
 
         return context.Invoke();

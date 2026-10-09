@@ -116,11 +116,11 @@ public sealed class IdentityReconciliationActivitiesTests(IdentityCluster identi
 
         Assert.Equal(ReminderCadence.Every2Days, (await identity.User(u).GetSiteNotificationSettings(siteId, Ct)).ResolvedReminderCadence);
         Assert.Equal(ReminderCadence.Every2Days, (await identity.User(ownerId).GetSiteNotificationSettings(siteId, Ct)).ResolvedReminderCadence);
-        Assert.Equal(["user.site-membership-changed", "user.site-reminder-cadence-synced"], await identity.AliasesAsync($"user/{u}"));
+        Assert.Equal(["user.site-membership-changed", "user.site-alerts-pulled", "user.site-reminder-cadence-synced"], await identity.AliasesAsync($"user/{u}"));
 
         // A duplicate delivery hands the same cadence again and journals nothing.
         await RunAsync(MembershipEvent("CREATE", siteId, u));
-        Assert.Equal(2, (await identity.AliasesAsync($"user/{u}")).Count);
+        Assert.Equal(3, (await identity.AliasesAsync($"user/{u}")).Count);
     }
 
     [Fact]

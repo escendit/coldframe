@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Events;
+using Coldframe.Contracts.Notifications;
 
 namespace Coldframe.Contracts.Sites;
 
@@ -112,3 +113,90 @@ public sealed record PersonalReminderCadenceChanged(
 [GenerateSerializer]
 [Alias("coldframe.user-site-reminder-cadence-synced")]
 public sealed record SiteReminderCadenceSynced([property: Id(0)] string SiteId, [property: Id(1)] ReminderCadence Cadence);
+
+/// <summary>
+/// The User grain learned of an open Alert on one of its Sites (Story 6.4): the Alert grain told it, or it found
+/// the Alert in <see cref="ISiteGrain.OpenAlerts"/> when it joined the Site or reconciled on activation.
+/// </summary>
+/// <param name="SiteId">The Site the Alert is open on.</param>
+/// <param name="Alert">The Alert as its Site lists it.</param>
+/// <param name="Told">
+/// <see langword="true"/> when the Alert grain told the User: the opening notification is due at
+/// <paramref name="RemindFrom"/>. <see langword="false"/> for an Alert that was pulled: it gets no opening
+/// notification.
+/// </param>
+/// <param name="RemindFrom">
+/// The due-at (UTC) the Reminders are counted from. When told, the due-at of the opening notification, which is
+/// when the User was told. Otherwise the last <c>openedAt + n × interval</c> not after
+/// <paramref name="TrackedAt"/>, so the first Reminder is due one interval later.
+/// </param>
+/// <param name="TrackedAt">When the User grain learned of the Alert.</param>
+[EventType("user.alert-tracked")]
+[GenerateSerializer]
+[Alias("coldframe.user-alert-tracked")]
+public sealed record AlertTracked(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] SiteAlert Alert,
+    [property: Id(2)] bool Told,
+    [property: Id(3)] DateTimeOffset RemindFrom,
+    [property: Id(4)] DateTimeOffset TrackedAt);
+
+/// <summary>
+/// The User grain stopped tracking an Alert (Story 6.4): it closed, or its Site no longer lists it. What was held
+/// for it and its Reminder deadline go with it; nothing is notified.
+/// </summary>
+/// <param name="AlertId">The Alert.</param>
+/// <param name="DroppedAt">When the User grain dropped it.</param>
+[EventType("user.alert-dropped")]
+[GenerateSerializer]
+[Alias("coldframe.user-alert-dropped")]
+public sealed record AlertDropped([property: Id(0)] Guid AlertId, [property: Id(1)] DateTimeOffset DroppedAt);
+
+/// <summary>
+/// A delivery fell due outside the User's Notification Window and is held for the summary of its Site
+/// (Story 6.4). The Alert's next Reminder is counted from <paramref name="DueAt"/>, not from the summary.
+/// </summary>
+/// <param name="SiteId">The Site of the Alert.</param>
+/// <param name="AlertId">The Alert the delivery is for.</param>
+/// <param name="DueAt">When the delivery fell due (UTC).</param>
+/// <param name="WindowOpensAt">The window-opening due-at (UTC): when the User's summaries are due.</param>
+[EventType("user.delivery-held")]
+[GenerateSerializer]
+[Alias("coldframe.user-delivery-held")]
+public sealed record DeliveryHeld(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] DateTimeOffset DueAt,
+    [property: Id(3)] DateTimeOffset WindowOpensAt);
+
+/// <summary>
+/// The Notifier returned for a notification (Story 6.4). Journaled only after it returned, so a delivery the
+/// Notifier failed stays due. An <see cref="NotificationKind.Alert"/> or <see cref="NotificationKind.Reminder"/>
+/// names its one Alert, whose next Reminder is counted from <paramref name="DueAt"/>; a
+/// <see cref="NotificationKind.Summary"/> names every Alert it listed, and nothing is held for them any more.
+/// </summary>
+/// <param name="SiteId">The Site the notification was about.</param>
+/// <param name="Kind">What was sent.</param>
+/// <param name="AlertIds">The Alerts the notification listed.</param>
+/// <param name="DueAt">When the delivery fell due (UTC); for a summary, when the window opened.</param>
+/// <param name="SentAt">When the Notifier sent it (UTC).</param>
+[EventType("user.notification-sent")]
+[GenerateSerializer]
+[Alias("coldframe.user-notification-sent")]
+public sealed record NotificationSent(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] NotificationKind Kind,
+    [property: Id(2)] IReadOnlyList<Guid> AlertIds,
+    [property: Id(3)] DateTimeOffset DueAt,
+    [property: Id(4)] DateTimeOffset SentAt);
+
+/// <summary>
+/// The User grain pulled the open Alerts of a Site it joined (Story 6.4). Until this event follows the
+/// <see cref="SiteMembershipChanged"/> that started the Membership, the pull is repeated on every wake.
+/// </summary>
+/// <param name="SiteId">The Site.</param>
+/// <param name="PulledAt">When the Site answered.</param>
+[EventType("user.site-alerts-pulled")]
+[GenerateSerializer]
+[Alias("coldframe.user-site-alerts-pulled")]
+public sealed record SiteAlertsPulled([property: Id(0)] string SiteId, [property: Id(1)] DateTimeOffset PulledAt);

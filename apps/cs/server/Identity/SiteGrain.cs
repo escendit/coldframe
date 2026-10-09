@@ -13,7 +13,7 @@ namespace Coldframe.Server.Identity;
 /// and in Phase Two (AD-1, AD-3). It checks its own persisted state, calls Keycloak, then persists.
 /// Reconciliation only reads Keycloak and never writes back to it. It also keeps the set of the Site's open
 /// Alerts (Story 6.1), as the Alert grains report them, and the Site's Reminder cadence (Story 6.3), and
-/// never calls User grains.
+/// never calls User grains: it answers with its members, and its caller tells them (Stories 6.3 and 6.4).
 /// </summary>
 [GrainType("site")]
 public sealed partial class SiteGrain(
@@ -250,32 +250,40 @@ public sealed partial class SiteGrain(
     }
 
     /// <inheritdoc />
-    public async Task AlertOpened(SiteAlert alert, CancellationToken cancellationToken = default)
+    public async Task<SiteAlertReportResult> AlertOpened(SiteAlert alert, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(alert);
 
-        // Idempotent: the Alert grain reports until this returns. A Site that is not active keeps no Alerts;
-        // the report is acknowledged so that nothing waits on a Site that is gone.
-        if (State.Lifecycle != SiteLifecycle.Active || State.OpenAlerts.ContainsKey(alert.AlertId))
+        // A Site that is not active keeps no Alerts and has nobody to tell; the report is acknowledged so that
+        // nothing waits on a Site that is gone.
+        if (State.Lifecycle != SiteLifecycle.Active)
         {
-            return;
+            return SiteAlertReportResult.Nobody;
         }
 
-        RaiseEvent(new SiteAlertOpened(alert));
-        await ConfirmEvents();
+        // Idempotent: the Alert grain reports until this returns and every member answered.
+        if (!State.OpenAlerts.ContainsKey(alert.AlertId))
+        {
+            RaiseEvent(new SiteAlertOpened(alert));
+            await ConfirmEvents();
+        }
+
+        return AlertReport();
     }
 
     /// <inheritdoc />
-    public async Task AlertClosed(Guid alertId, AlertCloseReason reason, DateTimeOffset closedAt, CancellationToken cancellationToken = default)
+    public async Task<SiteAlertReportResult> AlertClosed(Guid alertId, AlertCloseReason reason, DateTimeOffset closedAt, CancellationToken cancellationToken = default)
     {
         // Idempotent: an Alert the Site does not list (closed already, or never listed) journals nothing.
-        if (!State.OpenAlerts.ContainsKey(alertId))
+        if (State.OpenAlerts.ContainsKey(alertId))
         {
-            return;
+            RaiseEvent(new SiteAlertClosed(alertId, reason, closedAt));
+            await ConfirmEvents();
         }
 
-        RaiseEvent(new SiteAlertClosed(alertId, reason, closedAt));
-        await ConfirmEvents();
+        // The members are named also when nothing changed: the Alert grain repeats a report one of them did
+        // not answer.
+        return State.Lifecycle == SiteLifecycle.Active ? AlertReport() : SiteAlertReportResult.Nobody;
     }
 
     /// <inheritdoc />
@@ -284,6 +292,9 @@ public sealed partial class SiteGrain(
             State.Lifecycle == SiteLifecycle.Active
                 ? [.. State.OpenAlerts.Values.OrderBy(alert => alert.OpenedAt).ThenBy(alert => alert.AlertId)]
                 : []);
+
+    // The Site grain itself never calls User grains (a User grain calls its Site grains): the Alert grain does.
+    private SiteAlertReportResult AlertReport() => new([.. State.Members.Keys.Order(StringComparer.Ordinal)]);
 
     // Does the pulled roster show what the event says? A missing Organization shows no member and no role.
     private static bool Shows(PhaseTwoRoster? roster, RosterExpectation expectation)

@@ -4,6 +4,7 @@ using Coldframe.Server.Edge;
 using Coldframe.Server.Hosting;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Lots;
+using Coldframe.Server.Notifications;
 using Escendit.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +16,7 @@ builder
     .AddLots()
     .AddDevices()
     .AddAlerts()
+    .AddNotifications()
     .AddKeycloakEventPipeline()
     .AddSilo()
     .AddEdgeApi()

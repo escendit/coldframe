@@ -1,6 +1,7 @@
 using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.DeviceSimulator;
@@ -544,8 +545,9 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         var siteId = Guid.CreateVersion7().ToString();
         var alert = new SiteAlert(Guid.NewGuid(), AlertKind.Threshold, ThresholdSide.Low, Guid.CreateVersion7().ToString(), Guid.NewGuid(), "5a4b3c2d1e0f7c20", "soil_moisture", Now);
 
-        // Acknowledged, so that no Alert grain keeps reporting to a Site that is not there.
-        await identity.Site(siteId).AlertOpened(alert, Ct);
+        // Acknowledged, so that no Alert grain keeps reporting to a Site that is not there; it has nobody to tell.
+        Assert.Empty((await identity.Site(siteId).AlertOpened(alert, Ct)).Members);
+        Assert.Empty((await identity.Site(siteId).AlertClosed(alert.AlertId, AlertCloseReason.Recovered, Now, Ct)).Members);
 
         Assert.Empty(await identity.AliasesAsync($"site/{siteId}"));
         Assert.Empty(await identity.Site(siteId).OpenAlerts(Ct));
@@ -689,15 +691,62 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         var again = await identity.Alert(alertId).Open(
             new OpenAlert(garden.Soil, 1, ThresholdSide.Low, garden.SiteId, garden.LotId, garden.Node.DeviceId.ToString(), "soil_moisture", Now.AddHours(1)),
             Ct);
-        await identity.Site(garden.SiteId).AlertOpened(listed, Ct);
+        var reported = await identity.Site(garden.SiteId).AlertOpened(listed, Ct);
 
+        // The Site names its members every time, so the Alert grain can finish telling them (Story 6.4).
+        Assert.Equal([garden.OwnerId], reported.Members);
         Assert.Equal(new AlertResult(AlertOutcome.Open, Reported: true), again);
         Assert.Equal(["alert.opened", "alert.site-notified"], await identity.AliasesAsync($"alert/{alertId}"));
         Assert.Equal(site, await identity.AliasesAsync($"site/{garden.SiteId}"));
 
         // A close the Site never saw opened, and one reported twice, change nothing either.
-        await identity.Site(garden.SiteId).AlertClosed(Guid.NewGuid(), AlertCloseReason.Recovered, Now, Ct);
+        var closed = await identity.Site(garden.SiteId).AlertClosed(Guid.NewGuid(), AlertCloseReason.Recovered, Now, Ct);
+        Assert.Equal([garden.OwnerId], closed.Members);
         Assert.Equal(site, await identity.AliasesAsync($"site/{garden.SiteId}"));
+    }
+
+    [Fact]
+    public async Task ASensorCrossingItsLowNotifiesTheSitesMemberOnceAndItsRecoveryNotifiesNobody()
+    {
+        var garden = await CalibratedGardenAsync();
+
+        // The Owner's User grain holds the Site, as after Create Site or a reconciliation; noon is inside the
+        // default Notification Window, in UTC while the User has no time zone.
+        await identity.User(garden.OwnerId).SyncSiteMembership(garden.SiteId, SiteRole.Owner, Ct);
+        var noon = new DateTimeOffset(Now.UtcDateTime.Date, TimeSpan.Zero).AddHours(36);
+        identity.Time.Advance(noon - Now - (3 * Interval));
+
+        var alertId = await OpenLowAsync(garden);
+        var openedAt = Now;
+
+        // Nothing calls the User grain: the Alert grain told it, and its own timer hands the Notifier what is due.
+        await JournalWait.UntilAsync(
+            () => Task.FromResult(identity.Notifications.For(garden.OwnerId).Count > 0),
+            "the member was notified of the Alert");
+        var sent = Assert.Single(identity.Notifications.For(garden.OwnerId));
+        Assert.Equal(
+            new Notification(garden.OwnerId, garden.SiteId, NotificationKind.Alert, openedAt, null, sent.Notification.Entries),
+            sent.Notification);
+        Assert.Equal(
+            new NotificationEntry(alertId, AlertKind.Threshold, ThresholdSide.Low, garden.LotId, garden.Soil, garden.Node.DeviceId.ToString(), "soil_moisture", openedAt),
+            Assert.Single(sent.Notification.Entries));
+        Assert.InRange(sent.SentAt - sent.Notification.DueAt, TimeSpan.Zero, TimeSpan.FromMinutes(1));
+        Assert.Equal(
+            ["alert.opened", "alert.site-notified"],
+            await identity.AliasesAsync($"alert/{alertId}"));
+
+        // Three Readings within: the Alert closes, the User grain drops it, and closing never notifies.
+        await ReadSoilAsync(garden, 40);
+        await ReadSoilAsync(garden, 40);
+        await ReadSoilAsync(garden, 40);
+
+        Assert.Equal(AlertLifecycle.Closed, (await identity.Alert(alertId).Describe(Ct))!.Lifecycle);
+        Assert.Equal(
+            ["user.site-membership-changed", "user.site-alerts-pulled", "user.alert-tracked", "user.notification-sent", "user.alert-dropped"],
+            await identity.AliasesAsync($"user/{garden.OwnerId}"));
+        await identity.WakeUserAsync(garden.OwnerId);
+        Assert.Single(identity.Notifications.For(garden.OwnerId));
+        Assert.False(await identity.HasWakeReminderAsync(garden.OwnerId));
     }
 
     [Fact]
@@ -749,7 +798,7 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         var enrol = new EnrolDevice(siteId, DeviceKind.Node, identity.Vault.Wrap(node.DeviceId, node.Keys.DeviceKey), userId, Guid.NewGuid().ToString("N"), lotId);
         Assert.Equal(DeviceEnrolmentOutcome.Enrolled, (await identity.Device(node.DeviceId.ToString()).Enrol(enrol, Ct)).Outcome);
 
-        var garden = new Garden(siteId, lotId, node, node.SensorId(0, Quantity.SoilMoisture));
+        var garden = new Garden(siteId, lotId, node, node.SensorId(0, Quantity.SoilMoisture), userId);
         Assert.True((await ReportAsync(garden, node.Wake(Now))).SpecificationsUnknown);
         Assert.False((await ReportAsync(garden, node.Wake(Now))).SpecificationsUnknown);
 
@@ -921,5 +970,5 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         identity.Time.SetUtcNow(now);
     }
 
-    private sealed record Garden(string SiteId, string LotId, SimulatedDevice Node, Guid Soil);
+    private sealed record Garden(string SiteId, string LotId, SimulatedDevice Node, Guid Soil, string OwnerId);
 }

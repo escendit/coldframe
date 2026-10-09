@@ -596,5 +596,54 @@
     "alias": "site.reminder-cadence-changed",
     "schemaVersion": 1,
     "payload": {"cadence": "Every2Days", "changedAt": "2026-10-09T12:05:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 11,
+    "alias": "user.site-alerts-pulled",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "pulledAt": "2026-10-09T12:06:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 12,
+    "alias": "user.alert-tracked",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "0760cb39-dfed-5779-9344-f44689933ee4", "kind": "Threshold", "side": "Low", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", "sensorId": "dac4e7fe-93b1-56fc-a363-51235a586394", "deviceId": "5a4b3c2d1e0f7c20", "quantity": "soil_moisture", "openedAt": "2026-10-08T15:00:01Z" }, "told": false, "remindFrom": "2026-10-09T15:00:01+00:00", "trackedAt": "2026-10-09T21:30:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 13,
+    "alias": "user.alert-tracked",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "4321deb0-d3de-52ca-acfb-c3b31ebddd27", "kind": "Threshold", "side": "Low", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", "sensorId": "dac4e7fe-93b1-56fc-a363-51235a586394", "deviceId": "5a4b3c2d1e0f7c20", "quantity": "soil_moisture", "openedAt": "2026-10-09T21:30:00Z" }, "told": true, "remindFrom": "2026-10-09T21:30:00+00:00", "trackedAt": "2026-10-09T21:30:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 14,
+    "alias": "user.delivery-held",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alertId": "4321deb0-d3de-52ca-acfb-c3b31ebddd27", "dueAt": "2026-10-09T21:30:00+00:00", "windowOpensAt": "2026-10-10T04:30:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 15,
+    "alias": "user.alert-dropped",
+    "schemaVersion": 1,
+    "payload": {"alertId": "0760cb39-dfed-5779-9344-f44689933ee4", "droppedAt": "2026-10-10T03:00:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 16,
+    "alias": "user.notification-sent",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "kind": "Summary", "alertIds": ["4321deb0-d3de-52ca-acfb-c3b31ebddd27"], "dueAt": "2026-10-10T04:30:00+00:00", "sentAt": "2026-10-10T04:30:20+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 17,
+    "alias": "user.notification-sent",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "kind": "Reminder", "alertIds": ["4321deb0-d3de-52ca-acfb-c3b31ebddd27"], "dueAt": "2026-10-11T21:30:00+00:00", "sentAt": "2026-10-11T21:30:05+00:00"}
   }
 ]
