@@ -609,10 +609,10 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             }
 
             // 9. Evaluation (Story 6.1), after the commit and the declaration: every declared Sensor of an
-            // assigned Node gets its Reading, on a first delivery and on a resend alike. When an evaluation or
-            // the delivery of what it opened or closed fails, the frame is not acknowledged: the Node resends,
-            // and the resend, a duplicate, finishes it.
-            if (!paused && !await EvaluateAsync(frame.Rows))
+            // assigned Node gets its Reading, on a first delivery and on a resend alike, with the time stored at
+            // its first delivery. When an evaluation or the delivery of what it opened or closed fails, the frame
+            // is not acknowledged: the Node resends, and the resend, a duplicate, finishes it.
+            if (!paused && !await EvaluateAsync(frame.Rows, committed))
             {
                 return new DeviceIngestResult(DeviceIngestStatus.Retry);
             }
@@ -686,9 +686,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     // Hands each declared Sensor its Reading with where the Node is (Site, Lot, epoch): the Sensor grain knows
     // only its Device and must not call back. Nothing is evaluated for an unassigned Node (AD-8) or for a slot
-    // that is not in the accepted Specification set (AD-19); those Readings are stored all the same. False when
-    // a Sensor could not evaluate or deliver. Never throws.
-    private async Task<bool> EvaluateAsync(FrameRows? rows)
+    // that is not in the accepted Specification set (AD-19); those Readings are stored all the same. A Reading
+    // is evaluated with the measured_at stored with its key at first delivery, never with the time of the frame
+    // that carries it again: an unsynced Node's Reading gets a later time on every resend, and the Sensor grain,
+    // which only evaluates a Reading newer than the last one, would count it once per resend. False when a
+    // Sensor could not evaluate or deliver. Never throws.
+    private async Task<bool> EvaluateAsync(FrameRows? rows, FrameCommitted committed)
     {
         if (rows is null || rows.Readings.Count == 0 || State.SiteId is not { } siteId || State.LotId is not { } lotId)
         {
@@ -700,7 +703,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         try
         {
-            // A frame has one measured_at: of two Readings of one Sensor only the newer one can count.
+            // One evaluation per Sensor and frame: of two Readings of one Sensor only the newer one can count.
             var evaluations = rows.Readings
                 .Where(reading => declared.Contains(reading.SensorId))
                 .GroupBy(reading => reading.SensorId)
@@ -708,7 +711,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 .Select(reading => GrainFactory
                     .GetGrain<ISensorGrain>(reading.SensorId.ToString("D"))
                     // Not cancelled by the caller: the frame is committed, and its evaluation is not abandoned halfway.
-                    .Evaluate(new EvaluateReading(reading.RawValue, rows.MeasuredAt, context), CancellationToken.None))
+                    .Evaluate(
+                        new EvaluateReading(
+                            reading.RawValue,
+                            committed.MeasuredAtOf(reading.SensorId, reading.ReadingSeq, rows.MeasuredAt),
+                            context),
+                        CancellationToken.None))
                 .ToList();
 
             var results = await Task.WhenAll(evaluations);

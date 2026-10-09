@@ -75,7 +75,7 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public SiteFaults SiteFaults => SiloServices.GetRequiredService<SiteFaults>();
 
     /// <summary>
-    /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor.
+    /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor and the next evaluations.
     /// </summary>
     public SensorFaults SensorFaults => SiloServices.GetRequiredService<SensorFaults>();
 
@@ -290,11 +290,18 @@ public sealed class FaultyIngestionStore(NpgsqlDataSource dataSource) : DeviceIn
 
 /// <summary>
 /// Passes every grain call on, except that a test can make <see cref="ISensorGrain.Declare"/> throw for chosen
-/// Sensors, the way a Sensor grain that cannot write its journal does. Nothing reaches the grain then.
+/// Sensors and the next <see cref="ISensorGrain.Evaluate"/> calls throw, the way a Sensor grain that cannot be
+/// reached or cannot write its journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class SensorFaults : IIncomingGrainCallFilter
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+    private int _evaluationFailures;
+
+    /// <summary>
+    /// Makes the next <paramref name="calls"/> evaluations fail, whichever Sensor they are for.
+    /// </summary>
+    public void FailNextEvaluations(int calls) => Interlocked.Exchange(ref _evaluationFailures, calls);
 
     /// <summary>
     /// Makes every declaration of <paramref name="sensorId"/> fail until <see cref="Restore"/>.
@@ -315,6 +322,19 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
             && _failing.ContainsKey(context.TargetId.Key.ToString()!))
         {
             throw new InvalidOperationException("The test failed this declaration.");
+        }
+
+        if (context.Grain is ISensorGrain && string.Equals(context.MethodName, nameof(ISensorGrain.Evaluate), StringComparison.Ordinal))
+        {
+            // Takes one of the failures that are left, and never writes over a count set meanwhile.
+            int left;
+            while ((left = Volatile.Read(ref _evaluationFailures)) > 0)
+            {
+                if (Interlocked.CompareExchange(ref _evaluationFailures, left - 1, left) == left)
+                {
+                    throw new InvalidOperationException("The test failed this evaluation.");
+                }
+            }
         }
 
         return context.Invoke();

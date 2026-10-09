@@ -294,7 +294,10 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
       every source) is acknowledged and nothing is stored.
    6. One transaction: `device_replay` (window and `downlink_counter + 1`), then `reading_keys`
       with `ON CONFLICT DO NOTHING`, and a `readings` or `device_reports` row only for a key that
-      was new. The device report's key is the nil UUID with `report_seq`. The transaction fails
+      was new. The device report's key is the nil UUID with `report_seq`. A new key keeps the
+      frame's `measured_at`; the commit returns, for every Reading of the frame whose key holds a
+      time, that time, which for a frame sent again is the one of its first delivery (a key stored
+      before `reading_keys` kept the time holds none). The transaction fails
       (`retry`) when the stored high-water mark is above the one being written: the window was
       moved underneath the grain, which then reads it again.
    7. The relay Hub, after the commit: `device.relay-changed` is journaled only when it differs
@@ -302,7 +305,8 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
    8. The Specification set, when the frame's `spec_hash` is not the known one and a set is
       attached (see [Sensor Specifications](#sensor-specifications)).
    9. Evaluation ([Alerts](#alerts)): every declared Sensor of an assigned Node is handed its Reading
-      (`ISensorGrain.Evaluate`), on a first delivery and on a resend alike; a paused Node stored
+      (`ISensorGrain.Evaluate`), on a first delivery and on a resend alike, with the
+      `measured_at` its key holds, or the frame's own when the key holds none; a paused Node stored
       nothing and evaluates nothing.
    10. Only after that, the `Downlink` (`acked_counter`, `server_time_ms`, the frame's
       `reading_seq` ranges, no commands, `specifications_unknown`) is sealed with the `ack/v1` key
@@ -322,7 +326,9 @@ is a `duplicate`, which finishes what was left.
 Time: a synced Reading keeps the Node's `measured_at`. An unsynced one (`time_unsynced`, with its
 `boot_id` and `uptime_ms` kept) is rebased: taken by the boot that sealed the frame, it is
 `receive time − (frame uptime − Reading uptime)`, a negative difference counting as 0; taken by an
-earlier boot, it is the receive time.
+earlier boot, it is the receive time. A resend of such a frame would therefore give its Readings a
+later time. The `readings` row is written once and keeps the first one, and so does
+`reading_keys.measured_at`, which is what a Reading is evaluated with ([Alerts](#alerts)).
 
 A Sensor ID is `UUIDv5(namespace, "{deviceIdHex}:{slot}:{quantity}")` from
 [`packages/crypto-spec`](../../packages/crypto-spec) (`Coldframe.Crypto.SensorIds`); `slot` is the
@@ -484,10 +490,16 @@ take part, through grain calls and the journal only (AD-5):
    [Ingesting Node frames](#ingesting-node-frames-step-by-step)) it calls `ISensorGrain.Evaluate` for every
    Reading whose Sensor is in the Node's accepted Specification set (AD-19), with the raw value, `measured_at` and
    an evaluation context `{siteId, lotId, epoch}`: the Sensor grain knows only its Device and never calls it back.
+   The `measured_at` is the one stored with the Reading's key at its first delivery (`reading_keys.measured_at`,
+   returned by the frame's commit), never the time of the frame that carries the Reading again: a Node without
+   synced time gets `receive time − age`, which every resend moves later, and the Sensor would count one Reading
+   once per resend. Unsynced Readings count toward a streak like any other. A key stored before the column
+   existed has no time; a frame that carries its Reading again is evaluated with its own.
    An unassigned Node (AD-8) and an undeclared slot are stored and not evaluated. The **epoch** is
    `DeviceState.EvaluationEpoch`, the count of the Device's `device.assigned`, `device.moved`,
    `device.unassigned`, `device.paused` and `device.resumed` events, so it needs no event of its own. A resent
-   frame, a `duplicate`, is evaluated again; when a Sensor answers that something is still undelivered, or the
+   frame, a `duplicate`, is evaluated again, which finishes an evaluation that failed and otherwise changes
+   nothing, because its Readings are not newer; when a Sensor answers that something is still undelivered, or the
    call fails, the frame answers `retry`.
 2. **The Sensor grain evaluates** (`server/Sensors/SensorGrain.cs`). In this order: it first delivers what an
    earlier evaluation left undelivered; a Sensor that was never declared, calibrates and has no Calibration, or has
