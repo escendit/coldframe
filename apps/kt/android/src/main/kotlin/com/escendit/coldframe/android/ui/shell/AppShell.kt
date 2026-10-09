@@ -31,11 +31,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.alerts.AlertsActions
+import com.escendit.coldframe.android.ui.alerts.AlertsScreen
 import com.escendit.coldframe.android.ui.components.ButtonVariant
 import com.escendit.coldframe.android.ui.components.ColdframeButton
 import com.escendit.coldframe.android.ui.devices.DevicesActions
@@ -52,6 +56,8 @@ import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
+import com.escendit.coldframe.core.alerts.AlertsState
+import com.escendit.coldframe.core.alerts.openCount
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.canAddHub
@@ -82,7 +88,9 @@ enum class Tab(
  * The signed-in shell (UX-DR57, UX-DR110): Material 3 `NavigationBar` with Carbon icons and a
  * `TopAppBar` heading per screen. The selected tab uses `primary-text` plus the M3 indicator as
  * its non-colour cue and is exposed as selected. Garden shows the current Site (Story 1.8);
- * Alerts shows its heading only; Devices lists the Hubs (Story 3.7) and reads them again every
+ * Alerts lists the Site's Alerts (Story 6.2), reads them again every time the tab is entered, and its
+ * tab label carries the open count on every tab ("Alerts · 5", spoken "Alerts, 5 open"); a row opens
+ * Lot detail on the Garden tab, or the Devices tab; Devices lists the Hubs (Story 3.7) and reads them again every
  * time the tab is entered, with Add a Hub and Add a Node as ghost header actions for Administrators
  * and Owners;
  * Settings leads to Site settings and Appearance, and system/predictive back returns. The Site
@@ -116,6 +124,8 @@ fun AppShell(
     lotDetailEvents: Flow<LotsEvent> = emptyFlow(),
     onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
     onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit = { _, _, _ -> },
+    alerts: AlertsState = AlertsState.Idle,
+    alertsActions: AlertsActions = AlertsActions.None,
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -134,9 +144,10 @@ fun AppShell(
 
     BackHandler(enabled = showingSub) { closeSub() }
 
-    // Every entry of the Devices tab reads the list again, also when a closed flow returns to it.
+    // Every entry of the Devices and the Alerts tab reads its list again, also when a closed flow returns to it.
     LaunchedEffect(tab) {
         if (tab == Tab.Devices) devicesActions.load()
+        if (tab == Tab.Alerts) alertsActions.load()
     }
 
     // The bar grows with the heading's line height, so a scaled title never clips (UX-DR96).
@@ -227,7 +238,7 @@ fun AppShell(
                                 tab = item
                             },
                             icon = { Icon(item.icon(), contentDescription = null, modifier = Modifier.size(24.dp)) },
-                            label = { Text(stringResource(item.label), style = Typography.helper.textStyle()) },
+                            label = { TabLabel(item, alerts.openCount) },
                             alwaysShowLabel = true,
                             colors =
                                 NavigationBarItemDefaults.colors(
@@ -244,8 +255,19 @@ fun AppShell(
         },
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Alerts carries its heading only until its story.
-            if (tab == Tab.Devices) {
+            if (tab == Tab.Alerts) {
+                AlertsScreen(
+                    alerts = alerts,
+                    actions = alertsActions,
+                    // Lot detail lives on the Garden tab, so Back returns to the overview.
+                    onOpenLot = { lotId, name ->
+                        tab = Tab.Garden
+                        lotDetailActions.open(lotId, name)
+                    },
+                    onOpenDevices = { tab = Tab.Devices },
+                    now = now,
+                )
+            } else if (tab == Tab.Devices) {
                 DevicesScreen(devices = devices, actions = devicesActions, now = now)
             } else if (showingLotDetail) {
                 LotDetailScreen(
@@ -292,6 +314,27 @@ fun AppShell(
                 )
             }
         }
+    }
+}
+
+/**
+ * A tab's label. The Alerts tab reads "Alerts · N" while the Site has N open Alerts, spoken as
+ * "Alerts, N open"; without one it is "Alerts" like any other label.
+ */
+@Composable
+private fun TabLabel(
+    item: Tab,
+    openAlerts: Int,
+) {
+    if (item == Tab.Alerts && openAlerts > 0) {
+        val spoken = pluralStringResource(R.plurals.count_open_alerts, openAlerts, openAlerts)
+        Text(
+            text = stringResource(R.string.nav_alerts_count, openAlerts),
+            style = Typography.helper.textStyle(),
+            modifier = Modifier.semantics { contentDescription = spoken },
+        )
+    } else {
+        Text(stringResource(item.label), style = Typography.helper.textStyle())
     }
 }
 

@@ -176,6 +176,53 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun uxDr25TheAlertsListIsAGetForMembersWithTheCursorQuery() {
+        val list = operation("/sites/{siteId}/alerts", "get")
+        assertEquals("listAlerts", list["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Member", list["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId", "cursor", "limit"), parameterNames(list))
+        val responses = list["responses"]!!.jsonObject
+        for (status in listOf("200", "400", "401", "403", "404")) {
+            assertNotNull(responses[status], "listAlerts $status")
+        }
+    }
+
+    @Test
+    fun uxDr25TheAlertDtosMirrorTheContractAndCarryEveryProperty() {
+        assertMirrors("Alert", AlertDto.serializer().descriptor)
+        assertMirrors("AlertList", AlertListDto.serializer().descriptor)
+        for ((name, descriptor) in listOf(
+            "Alert" to AlertDto.serializer().descriptor,
+            "AlertList" to AlertListDto.serializer().descriptor,
+        )) {
+            assertEquals(
+                schema(name)["properties"]!!.jsonObject.keys,
+                (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
+                name,
+            )
+        }
+    }
+
+    @Test
+    fun uxDr26TheAlertKindsAndSidesAreTheContractValues() {
+        val kinds = schema("AlertKind")["x-extensible-enum"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(
+            listOf(
+                com.escendit.coldframe.core.alerts.AlertSummary.KIND_THRESHOLD,
+                com.escendit.coldframe.core.alerts.AlertSummary.KIND_SILENT,
+                com.escendit.coldframe.core.alerts.AlertSummary.KIND_BATTERY,
+                com.escendit.coldframe.core.alerts.AlertSummary.KIND_UNCALIBRATED,
+            ),
+            kinds,
+        )
+        assertEquals(
+            com.escendit.coldframe.core.alerts.AlertSide.entries
+                .map { it.key },
+            schema("AlertSide")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
+
+    @Test
     fun theLotStatusesAreTheContractValuesInTheServerOrder() {
         val statuses = schema("LotStatus")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertEquals(

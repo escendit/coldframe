@@ -172,6 +172,29 @@ no control. Lot detail also reads the calibratable soil Sensor's Thresholds for 
 line; a failed read leaves them out. The fake Server has `thresholds` seeds, `PUT` recording and
 `/control/lot-fields` (`patchLot`).
 
+### Alerts (Story 6.2)
+
+`/alerts` (`src/lib/server/alerts.ts`, `src/lib/alerts.ts`, `AlertRows.svelte`) reads
+`GET /sites/{siteId}/alerts` on every load and on focus: 200 Alerts per page, following `nextCursor` to
+the end or to 10 pages (`alertsPageCap`), and a page that fails fails the whole read. The Server's order is
+kept; the page only groups it: "Threshold Alerts" (kind `threshold`), "Health Alerts" (every other kind,
+also one this client does not know), then "Closed" (the Alerts the Server still lists, closed in the last
+7 days). With no open Alert it says "No open Alerts.", followed by Closed when it has rows.
+
+`alertRow` picks one of four variants (DESIGN.md `alert-row-*`): needs water only for an open, low-side,
+soil-moisture Threshold Alert (the only orange row, `rain-drop`); any other open Threshold Alert on
+`layer-01` with a 2 px border and `arrow--down` / `arrow--up`; a Health Alert hatched and dashed with its
+text on a plate (`help`, `battery--low`, `tools`); a closed Alert as an outline, whatever it was. A row
+shows the Lot, the condition and when it started, never a value or a Threshold (the Alert carries none).
+Each row is one link with one spoken label ("Tomatoes needs water, since 5:45 AM"): a Threshold or
+uncalibrated Alert opens Lot detail, a silent Node or a low battery opens Devices, and a kind this client
+does not know opens Devices. Rows have no other action. Health Alerts have no Server producer before
+Epic 7; tests and the fake Server seed them.
+
+There is no Open Alerts rail, no count in the side nav and no stale mode: a failed read shows the notice
+with Try again and no rows. The fake Server has `POST /control/alerts` (`setAlerts`: the Alerts, or a
+status for their list) and serves them in pages.
+
 ## Stale mode
 
 When the Server cannot be reached, the Site overview shows the last good data and says how old it
@@ -228,6 +251,8 @@ variant and compares screenshots of the live and the stale overview in light and
 4 columns, with axe; the stale ones have the time of the run replaced before they are compared. `specs/site-settings.spec.ts` renames the Site, creates, renames and
 removes Lots, checks the 409 copy and the Member view, with screenshots. `specs/garden.spec.ts` signs in with no Site,
 creates "Home" and checks the empty Garden in light and dark at 200 % zoom, with axe and committed
-screenshots (Linux Chromium) under `specs/garden.spec.ts-snapshots/`. Run the e2e tests with
+screenshots (Linux Chromium) under `specs/garden.spec.ts-snapshots/`. `specs/alerts.spec.ts` seeds one Alert per row
+variant and cause and compares screenshots of the list, the empty state and the only-closed state in light
+and dark, with axe. Run the e2e tests with
 `pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots
 with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test --update-snapshots`.

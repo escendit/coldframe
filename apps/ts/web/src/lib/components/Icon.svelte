@@ -1,5 +1,7 @@
 <script lang="ts" module>
   import add from '@coldframe/design-tokens/icons/add.svg?raw';
+  import arrowDown from '@coldframe/design-tokens/icons/arrow--down.svg?raw';
+  import arrowUp from '@coldframe/design-tokens/icons/arrow--up.svg?raw';
   import batteryLow from '@coldframe/design-tokens/icons/battery--low.svg?raw';
   import checkmark from '@coldframe/design-tokens/icons/checkmark.svg?raw';
   import checkmarkOutline from '@coldframe/design-tokens/icons/checkmark--outline.svg?raw';
@@ -20,6 +22,8 @@
 
   const sources = {
     add,
+    'arrow--down': arrowDown,
+    'arrow--up': arrowUp,
     'battery--low': batteryLow,
     checkmark,
     'checkmark--outline': checkmarkOutline,

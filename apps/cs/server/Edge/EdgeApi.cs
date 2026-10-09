@@ -8,6 +8,7 @@ using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
+using Coldframe.Server.Alerts;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Lots;
@@ -292,6 +293,39 @@ public sealed record DeviceListItemResponse(
 public sealed record DeviceListResponse(IReadOnlyList<DeviceListItemResponse> Devices);
 
 /// <summary>
+/// An Alert in the body of <c>GET /sites/{siteId}/alerts</c>. It carries no value and no Threshold.
+/// </summary>
+/// <param name="Id">The Alert ID.</param>
+/// <param name="Kind">The contract's <c>AlertKind</c>; only <c>threshold</c> is produced.</param>
+/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>.</param>
+/// <param name="LotId">The Lot the Alert was opened for.</param>
+/// <param name="LotName">The current name of that Lot.</param>
+/// <param name="DeviceId">The Device ID of the Sensor's Node.</param>
+/// <param name="OpenedAt">When the Alert opened, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>.</param>
+/// <param name="Side"><c>low</c> or <c>high</c> for a Threshold Alert; omitted otherwise.</param>
+/// <param name="ClosedAt">When the Alert closed; omitted while it is open.</param>
+/// <param name="Reason">Why the Alert closed; omitted while it is open.</param>
+public sealed record AlertResponse(
+    string Id,
+    string Kind,
+    string Quantity,
+    string LotId,
+    string LotName,
+    string DeviceId,
+    string OpenedAt,
+    string? Side = null,
+    string? ClosedAt = null,
+    string? Reason = null);
+
+/// <summary>
+/// The body of <c>GET /sites/{siteId}/alerts</c>: a page of the Site's Alerts.
+/// </summary>
+/// <param name="Alerts">Open Alerts newest first, then the Alerts closed in the last 7 days newest first.</param>
+/// <param name="OpenCount">Every open Alert of the Site, whatever the page.</param>
+/// <param name="NextCursor">Opaque; present only when more Alerts follow.</param>
+public sealed record AlertListResponse(IReadOnlyList<AlertResponse> Alerts, int OpenCount, string? NextCursor = null);
+
+/// <summary>
 /// The body of <c>POST /device/heartbeat</c>'s 200.
 /// </summary>
 /// <param name="ServerTime">The Server clock, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>.</param>
@@ -435,6 +469,10 @@ public static partial class EdgeApi
         endpoints.MapPut("/sites/{siteId}/sensors/{sensorId}/thresholds", SetSensorThresholdsAsync)
             .WithName("setSensorThresholds")
             .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapGet("/sites/{siteId}/alerts", ListAlertsAsync)
+            .WithName("listAlerts")
+            .RequireSiteRole(SiteRole.Member);
 
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
             .WithName("listLots")
@@ -585,6 +623,71 @@ public static partial class EdgeApi
             "The Site was not renamed. Try again."),
         _ => SiteNotFound(),
     };
+
+    private static async Task<IResult> ListAlertsAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] AlertsReadModel alerts,
+        [FromServices] TimeProvider timeProvider)
+    {
+        var query = httpContext.Request.Query;
+
+        if (!TryReadLimit(query, DefaultAlertsLimit, MaxAlertsLimit, out var limit) || !TryReadAlertsCursor(query, out var after))
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Alerts query is not valid.",
+                "Send limit from 1 to 200 at most once, and the cursor of the previous page unchanged.");
+        }
+
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+
+        // A closed Alert is listed for 7 days of the Server clock, never of the database's.
+        var closedSince = timeProvider.GetUtcNow() - AlertsReadModel.ClosedRetention;
+        var page = await alerts.ListAlertsAsync(canonical, closedSince, after, limit, httpContext.RequestAborted).ConfigureAwait(false);
+        var openCount = await alerts.CountOpenAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return TypedResults.Ok(new AlertListResponse(
+            [.. page.Alerts.Select(ToAlert)],
+            openCount,
+            page.Next is { } next ? AlertsReadModel.EncodeCursor(next) : null));
+    }
+
+    /// <summary>
+    /// Maps an Alert of the read model to the list item: <c>side</c>, <c>closedAt</c> and <c>reason</c> only when
+    /// present.
+    /// </summary>
+    /// <param name="view">The Alert as the alerts projection holds it.</param>
+    internal static AlertResponse ToAlert(AlertView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        return new AlertResponse(
+            view.AlertId.ToString("D"),
+            view.Kind,
+            view.Quantity,
+            view.LotId,
+            view.LotName,
+            view.DeviceId,
+            ToServerTime(view.OpenedAt),
+            view.Side,
+            view.ClosedAt is { } closedAt ? ToServerTime(closedAt) : null,
+            view.Reason);
+    }
+
+    private static bool TryReadAlertsCursor(IQueryCollection query, out AlertCursor? after)
+    {
+        after = null;
+
+        if (!query.TryGetValue("cursor", out var values))
+        {
+            return true;
+        }
+
+        after = values.Count == 1 ? AlertsReadModel.DecodeCursor(values[0]!) : null;
+        return after is not null;
+    }
 
     private static async Task<IResult> ListLotsAsync(
         string siteId,
@@ -764,6 +867,10 @@ public static partial class EdgeApi
         _ => null,
     };
 
+    private const int DefaultAlertsLimit = 50;
+
+    private const int MaxAlertsLimit = 200;
+
     private const int DefaultHistoryLimit = 31;
 
     private const int MaxHistoryLimit = 366;
@@ -802,7 +909,7 @@ public static partial class EdgeApi
         if (SingleValue(query, "quantity") is not { } quantity || !SensorConversion.Quantities.Contains(quantity)
             || !TryReadTime(query, "from", out var from)
             || !TryReadTime(query, "to", out var to, endOfDay: true)
-            || !TryReadLimit(query, out var limit)
+            || !TryReadLimit(query, DefaultHistoryLimit, MaxHistoryLimit, out var limit)
             || !TryReadCursor(query, out var after))
         {
             return InvalidHistoryQuery();
@@ -879,9 +986,9 @@ public static partial class EdgeApi
         return true;
     }
 
-    private static bool TryReadLimit(IQueryCollection query, out int limit)
+    private static bool TryReadLimit(IQueryCollection query, int defaultLimit, int maxLimit, out int limit)
     {
-        limit = DefaultHistoryLimit;
+        limit = defaultLimit;
 
         if (!query.TryGetValue("limit", out var values))
         {
@@ -890,7 +997,7 @@ public static partial class EdgeApi
 
         return values.Count == 1
             && int.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out limit)
-            && limit is >= 1 and <= MaxHistoryLimit;
+            && limit >= 1 && limit <= maxLimit;
     }
 
     private static bool TryReadCursor(IQueryCollection query, out DateOnly? after)

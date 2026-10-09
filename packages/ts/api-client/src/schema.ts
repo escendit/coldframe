@@ -291,6 +291,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Site's Alerts
+         * @description One ordered list: every open Alert, newest openedAt first, then the Alerts closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. Clients show them in this order and never re-sort within a group. openCount is the number of open Alerts of the Site and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.
+         */
+        get: operations["listAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -801,6 +821,85 @@ export type components = {
         DeviceList: {
             /** @description Every enrolled Device of the Site, ordered by Device ID. */
             devices: components["schemas"]["DeviceListItem"][];
+        };
+        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server produces only threshold today; silent, battery and uncalibrated arrive with Epic 7. */
+        AlertKind: string;
+        /**
+         * @description The Threshold a Threshold Alert crossed: below the low or above the high.
+         * @enum {string}
+         */
+        AlertSide: "low" | "high";
+        /**
+         * @description Why an Alert closed.
+         * @enum {string}
+         */
+        AlertCloseReason: "recovered" | "paused" | "unassigned" | "calibrated" | "removed";
+        /**
+         * @description An Alert of the Site. It carries no value and no Threshold.
+         * @example {
+         *       "id": "0b7f2a8e-5d0c-5e1b-9d53-3d1b5f6f2a10",
+         *       "kind": "threshold",
+         *       "side": "low",
+         *       "quantity": "soil_moisture",
+         *       "lotId": "019a0c5e-0000-7000-8000-000000000001",
+         *       "lotName": "Tomatoes",
+         *       "deviceId": "3f2a9c0d1e4b5a67",
+         *       "openedAt": "2026-10-09T05:45:00.000Z"
+         *     }
+         * @example {
+         *       "id": "5e1b0b7f-2a8e-5d0c-9d53-6f2a103d1b5f",
+         *       "kind": "threshold",
+         *       "side": "high",
+         *       "quantity": "air_temperature",
+         *       "lotId": "019a0c5e-0000-7000-8000-000000000002",
+         *       "lotName": "Herbs",
+         *       "deviceId": "4a5b6c7d8e9f0a1b",
+         *       "openedAt": "2026-10-08T12:10:00.000Z",
+         *       "closedAt": "2026-10-08T14:40:00.000Z",
+         *       "reason": "recovered"
+         *     }
+         */
+        Alert: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AlertKind"];
+            /** @description Present on a Threshold Alert; absent otherwise. */
+            side?: components["schemas"]["AlertSide"];
+            quantity: components["schemas"]["SensorQuantity"];
+            /**
+             * Format: uuid
+             * @description The Lot the Alert was opened for.
+             */
+            lotId: string;
+            /** @description The current name of that Lot. */
+            lotName: string;
+            deviceId: components["schemas"]["DeviceId"];
+            /**
+             * Format: date-time
+             * @description When the Alert opened, ISO-8601 UTC with Z.
+             */
+            openedAt: string;
+            /**
+             * Format: date-time
+             * @description When the Alert closed, ISO-8601 UTC with Z; absent while it is open.
+             */
+            closedAt?: string;
+            /** @description Present exactly when closedAt is. */
+            reason?: components["schemas"]["AlertCloseReason"];
+        };
+        /**
+         * @example {
+         *       "alerts": [],
+         *       "openCount": 0
+         *     }
+         */
+        AlertList: {
+            /** @description Open Alerts newest first, then Alerts closed in the last 7 days newest first. */
+            alerts: components["schemas"]["Alert"][];
+            /** @description Every open Alert of the Site, whatever the page. */
+            openCount: number;
+            /** @description Opaque; present only when more Alerts follow. */
+            nextCursor?: string;
         };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
@@ -1609,6 +1708,38 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["LotNotFound"];
+        };
+    };
+    listAlerts: {
+        parameters: {
+            query?: {
+                /** @description The nextCursor of the previous page; opaque. */
+                cursor?: string;
+                /** @description The most Alerts in a page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the Site's Alerts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
         };
     };
 }

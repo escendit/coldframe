@@ -47,6 +47,9 @@ final class CoreSignInService: SignInService {
   /// Thresholds of the same core instance, for `CoreThresholdsService`.
   var thresholds: IosThresholds { core.thresholds }
 
+  /// Alerts of the same core instance, for `CoreAlertsService`.
+  var alerts: IosAlerts { core.alerts }
+
   /// The Devices half of the same core instance, for `CoreDevicesService`.
   var devices: IosDevices { core.devices }
 

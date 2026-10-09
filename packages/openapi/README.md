@@ -23,6 +23,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.2 |
 | `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | Story 5.3 |
 | `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` | `Administrator` | Story 5.3 |
+| `GET /sites/{siteId}/alerts` | `Member` | Story 6.2 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
 | `POST /device/ingest` | `Device` | Placeholder: Story 3.1; contract and served since Story 4.5 |
 

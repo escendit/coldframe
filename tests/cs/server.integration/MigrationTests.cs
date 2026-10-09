@@ -42,6 +42,7 @@ public sealed class MigrationTests(AppHostFixture fixture)
         "device_replay",
         "lot_status_devices",
         "lot_status_sensors",
+        "alerts",
     ];
 
     [Fact]

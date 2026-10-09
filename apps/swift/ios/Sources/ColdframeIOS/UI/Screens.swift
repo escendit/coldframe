@@ -71,6 +71,8 @@
   /// and Carbon icons; the selected tab uses the native selected state and `primary-text` tint.
   /// The Garden tab shows the current Site's Garden with its Lots (Stories 1.8 and 1.9); the
   /// Devices tab lists the Hubs (Story 3.7) and reads them again every time it is entered.
+  /// The Alerts tab lists the current Site's Alerts (Story 6.2); its label carries the count of
+  /// open Alerts on every tab ("Alerts · 5", spoken "Alerts, 5 open").
   /// `selection` is the selected tab: the root hoists it, so closing a flow that replaced the
   /// shell (Add a Hub, Add a Node) returns to the tab it was opened from. `onAddNode` takes the
   /// Lot of a *no Node* tile, or nil from Devices.
@@ -90,6 +92,8 @@
     let devicesActions: DevicesActions
     let lotDetail: LotDetailPresentation
     let lotDetailActions: LotDetailActions
+    let alerts: AlertsPresentation
+    let alertsActions: AlertsActions
     let hoistedSelection: Binding<AppTab>?
     @State private var ownSelection: AppTab = .garden
     @Environment(\.palette) private var palette
@@ -106,8 +110,11 @@
       onSetThresholds: @escaping (String, String, String) -> Void = { _, _, _ in },
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
-      selection: Binding<AppTab>? = nil
+      selection: Binding<AppTab>? = nil, alerts: AlertsPresentation = .waiting,
+      alertsActions: AlertsActions = .none
     ) {
+      self.alerts = alerts
+      self.alertsActions = alertsActions
       self.devices = devices
       self.devicesActions = devicesActions
       self.lotDetail = lotDetail
@@ -134,11 +141,14 @@
               .navigationTitle(tab.title.string)
           }
           .tabItem {
+            // "Alerts · 5" while Alerts are open, on whichever tab is selected.
             Label {
-              tab.label.text
+              Text(verbatim: tab.labelCopy(openAlerts: alerts.openCount).string)
             } icon: {
               CarbonImages.image(tab.icon)
             }
+            .accessibilityLabel(
+              Text(verbatim: tab.spokenCopy(openAlerts: alerts.openCount).string))
           }
           .tag(tab)
         }
@@ -147,6 +157,8 @@
       // Every entry of the Devices tab reads the list again, also when a closed flow returns to it.
       .onChange(of: selection.wrappedValue, initial: true) { _, tab in
         if tab == .devices { devicesActions.load() }
+        // So does every entry of the Alerts tab; the rows shown stay meanwhile.
+        if tab == .alerts { alertsActions.load() }
       }
     }
 
@@ -174,8 +186,11 @@
           presentation: devices, actions: devicesActions, onAddHub: onAddHub,
           onAddNode: { onAddNode(nil) })
       case .alerts:
-        // Alerts carries its heading only until its story.
-        palette.background.ignoresSafeArea()
+        AlertsView(
+          presentation: alerts, actions: alertsActions, lotDetail: lotDetail,
+          lotDetailActions: lotDetailActions, onAddNode: { onAddNode($0) },
+          onCalibrate: onCalibrate, onSetThresholds: onSetThresholds,
+          onOpenDevices: { selection.wrappedValue = .devices })
       }
     }
   }
@@ -302,6 +317,8 @@
     let calibrateActions: CalibrateActions
     let thresholds: ThresholdsPresentation
     let thresholdsActions: ThresholdsActions
+    let alerts: AlertsPresentation
+    let alertsActions: AlertsActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
@@ -318,8 +335,11 @@
       nodeSetup: NodeSetupPresentation = .closed, nodeSetupActions: NodeSetupActions = .none,
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       calibrate: CalibratePresentation = .idle, calibrateActions: CalibrateActions = .none,
-      thresholds: ThresholdsPresentation = .idle, thresholdsActions: ThresholdsActions = .none
+      thresholds: ThresholdsPresentation = .idle, thresholdsActions: ThresholdsActions = .none,
+      alerts: AlertsPresentation = .waiting, alertsActions: AlertsActions = .none
     ) {
+      self.alerts = alerts
+      self.alertsActions = alertsActions
       self.thresholds = thresholds
       self.thresholdsActions = thresholdsActions
       self.calibrate = calibrate
@@ -393,7 +413,8 @@
           onCalibrate: calibrateActions.open, onSetThresholds: thresholdsActions.open,
           devices: devices,
           devicesActions: devicesActions, lotDetail: lotDetail,
-          lotDetailActions: lotDetailActions, selection: $tab
+          lotDetailActions: lotDetailActions, selection: $tab, alerts: alerts,
+          alertsActions: alertsActions
         )
         // Thresholds is a modal over the shell, so the open Lot detail stays and reads again once saved.
         .coverOrSheet(
@@ -432,6 +453,7 @@
     @Published public private(set) var lotDetail = LotDetailPresentation.idle
     @Published public private(set) var calibrate = CalibratePresentation.idle
     @Published public private(set) var thresholds = ThresholdsPresentation.idle
+    @Published public private(set) var alerts = AlertsPresentation.waiting
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -442,14 +464,16 @@
     public let lotDetailService: LotDetailService?
     public let calibrateService: CalibrateService?
     public let thresholdsService: ThresholdsService?
+    public let alertsService: AlertsService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
       lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
       devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
       lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil,
-      thresholds: ThresholdsService? = nil
+      thresholds: ThresholdsService? = nil, alerts: AlertsService? = nil
     ) {
+      self.alertsService = alerts
       self.thresholdsService = thresholds
       self.calibrateService = calibrate
       self.lotDetailService = lotDetail
@@ -480,12 +504,18 @@
       nodeSetup?.observe { [weak self] in self?.nodeSetup = $0 }
       calibrate?.observe { [weak self] in self?.calibrate = $0 }
       thresholds?.observe { [weak self] in self?.thresholds = $0 }
+      alerts?.observe { [weak self] in self?.alerts = $0 }
     }
 
     private static func announce(_ event: LotsEventPresentation) {
       if let text = event.text(.catalogue()) {
         AccessibilityNotification.Announcement(AttributedString(text)).post()
       }
+    }
+
+    /// The Alerts actions for the views; nothing happens without a service.
+    public var alertsActions: AlertsActions {
+      alertsService.map(AlertsActions.init(service:)) ?? .none
     }
 
     /// The Devices actions for the views; nothing happens without a service.

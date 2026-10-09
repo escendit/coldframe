@@ -2,6 +2,7 @@ package com.escendit.coldframe.core.signin
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import com.escendit.coldframe.core.alerts.AlertsEngine
 import com.escendit.coldframe.core.calibrate.CalibrateEngine
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotDetailEngine
@@ -70,6 +71,9 @@ public class AndroidSignIn private constructor(
 
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
     public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)
+
+    /** The Alerts of the current Site, read as soon as a Site is current; the shell refreshes on foreground. */
+    public val alerts: AlertsEngine = SitesWiring.alerts(api, sites, scope)
 
     /** Calibrate of one Lot's soil Sensor: dry, then wet, from stored Readings over REST. */
     public val calibrate: CalibrateEngine = SitesWiring.calibrate(api, sites, scope)

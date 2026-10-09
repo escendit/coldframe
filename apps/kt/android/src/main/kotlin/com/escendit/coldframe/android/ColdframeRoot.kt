@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.alerts.AlertsActions
 import com.escendit.coldframe.android.ui.calibrate.CalibrateActions
 import com.escendit.coldframe.android.ui.calibrate.CalibrateScreen
 import com.escendit.coldframe.android.ui.components.Announcement
@@ -38,6 +39,7 @@ import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.android.ui.thresholds.ThresholdsActions
 import com.escendit.coldframe.android.ui.thresholds.ThresholdsScreen
+import com.escendit.coldframe.core.alerts.AlertsState
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.calibrate.CalibrateState
 import com.escendit.coldframe.core.devices.DevicesState
@@ -64,7 +66,7 @@ import java.time.Instant
  * [now] is the clock of the shell: last-seen times, the stale age and the Lots' durations are told
  * against it, and the Garden reads it again on its minute tick. [lotsEvents] are the core's
  * stale-mode events for the Garden's polite announcements. [onForeground] runs on every start of
- * the activity: the app resumes its session and reads the Lots again (UX-DR112).
+ * the activity: the app resumes its session and reads the Lots and the Alerts again (UX-DR112).
  */
 @Composable
 fun ColdframeRoot(
@@ -94,6 +96,8 @@ fun ColdframeRoot(
     thresholds: ThresholdsState = ThresholdsState.Idle,
     thresholdsActions: ThresholdsActions = ThresholdsActions.None,
     onForeground: () -> Unit = {},
+    alerts: AlertsState = AlertsState.Idle,
+    alertsActions: AlertsActions = AlertsActions.None,
 ) {
     // Every start of the activity, the first one and each return to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { onForeground() }
@@ -135,6 +139,8 @@ fun ColdframeRoot(
                     calibrateActions,
                     thresholds,
                     thresholdsActions,
+                    alerts,
+                    alertsActions,
                 )
             }
         }
@@ -165,6 +171,8 @@ private fun SignedIn(
     calibrateActions: CalibrateActions,
     thresholds: ThresholdsState,
     thresholdsActions: ThresholdsActions,
+    alerts: AlertsState,
+    alertsActions: AlertsActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -235,6 +243,8 @@ private fun SignedIn(
                     lotDetailEvents = lotDetailEvents,
                     onCalibrate = calibrateActions.open,
                     onThresholds = thresholdsActions.open,
+                    alerts = alerts,
+                    alertsActions = alertsActions,
                 )
             }
         }

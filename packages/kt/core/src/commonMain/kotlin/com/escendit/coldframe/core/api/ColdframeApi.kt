@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.api
 
+import com.escendit.coldframe.core.alerts.AlertsApi
 import com.escendit.coldframe.core.calibrate.CalibrateApi
 import com.escendit.coldframe.core.devices.DevicesApi
 import com.escendit.coldframe.core.lots.LotDetailApi
@@ -56,6 +57,7 @@ public class ColdframeApi(
     CalibrateApi,
     ThresholdsApi,
     DevicesApi,
+    AlertsApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
@@ -157,6 +159,18 @@ public class ColdframeApi(
     /** `GET /sites/{siteId}/devices` (`listDevices`, Member): every enrolled Device, with the Server's `online`. */
     override suspend fun listDevices(siteId: String): ApiResult<DeviceListDto> =
         call({ http.get("$base/sites/${siteId.encoded()}/devices") { it() } }) { it.body<DeviceListDto>() }
+
+    /** `GET /sites/{siteId}/alerts` (`listAlerts`, Member): one page; [cursor] is the page before's `nextCursor`. */
+    override suspend fun listAlerts(
+        siteId: String,
+        cursor: String?,
+    ): ApiResult<AlertListDto> =
+        call({
+            http.get("$base/sites/${siteId.encoded()}/alerts") {
+                it()
+                if (cursor != null) parameter("cursor", cursor)
+            }
+        }) { it.body<AlertListDto>() }
 
     /** `POST /sites/{siteId}/devices` (`enrolDevice`, Admin+) with the attempt's [idempotencyKey]. */
     override suspend fun enrolDevice(

@@ -131,7 +131,10 @@ func thresholdCancelAndSave() {
   let sending = thresholds(working: true, dirty: true, canSave: true)
   #expect(sending.saveLabel == .thresholdsSaving)
   #expect(!sending.isSaveEnabled)
-  #expect(thresholds().title.string == "Thresholds for Tomatoes")
+  // `Copy.string` resolves the catalogue through SwiftUI's bundle, which Linux does not have.
+  #if canImport(SwiftUI)
+    #expect(thresholds().title.string == "Thresholds for Tomatoes")
+  #endif
 }
 
 @Test("UX-DR84 a Member sees the columns read-only: no Save, no edit control, Back not Cancel")
@@ -187,51 +190,56 @@ func thresholdNotices() throws {
   #expect(thresholds(notice: "elsewhere").saveNotice == .unexpected)
 }
 
-@Test("UX-DR45 the actions reach the service one for one")
-@MainActor
-func thresholdActionsReachTheService() {
-  final class Spy: ThresholdsService {
-    var calls: [String] = []
-    func observe(_ onChange: @escaping @MainActor (ThresholdsPresentation) -> Void) {}
-    func open(lotId: String, name: String, sensorId: String) {
-      calls.append("open \(lotId) \(name) \(sensorId)")
+// `ThresholdsActions` lives with the views, which exist only where SwiftUI does.
+#if canImport(SwiftUI)
+  @Test("UX-DR45 the actions reach the service one for one")
+  @MainActor
+  func thresholdActionsReachTheService() {
+    final class Spy: ThresholdsService {
+      var calls: [String] = []
+      func observe(_ onChange: @escaping @MainActor (ThresholdsPresentation) -> Void) {}
+      func open(lotId: String, name: String, sensorId: String) {
+        calls.append("open \(lotId) \(name) \(sensorId)")
+      }
+      func close() { calls.append("close") }
+      func retry() { calls.append("retry") }
+      func setLowText(sensorId: String, text: String) {
+        calls.append("lowText \(sensorId) \(text)")
+      }
+      func setHighText(sensorId: String, text: String) {
+        calls.append("highText \(sensorId) \(text)")
+      }
+      func setLow(sensorId: String, value: Double) { calls.append("low \(sensorId) \(value)") }
+      func setHigh(sensorId: String, value: Double) { calls.append("high \(sensorId) \(value)") }
+      func addHigh(sensorId: String) { calls.append("addHigh \(sensorId)") }
+      func clearHigh(sensorId: String) { calls.append("clearHigh \(sensorId)") }
+      func turnOnAlerts(sensorId: String) { calls.append("on \(sensorId)") }
+      func turnOffAlerts(sensorId: String) { calls.append("off \(sensorId)") }
+      func save() { calls.append("save") }
     }
-    func close() { calls.append("close") }
-    func retry() { calls.append("retry") }
-    func setLowText(sensorId: String, text: String) { calls.append("lowText \(sensorId) \(text)") }
-    func setHighText(sensorId: String, text: String) {
-      calls.append("highText \(sensorId) \(text)")
-    }
-    func setLow(sensorId: String, value: Double) { calls.append("low \(sensorId) \(value)") }
-    func setHigh(sensorId: String, value: Double) { calls.append("high \(sensorId) \(value)") }
-    func addHigh(sensorId: String) { calls.append("addHigh \(sensorId)") }
-    func clearHigh(sensorId: String) { calls.append("clearHigh \(sensorId)") }
-    func turnOnAlerts(sensorId: String) { calls.append("on \(sensorId)") }
-    func turnOffAlerts(sensorId: String) { calls.append("off \(sensorId)") }
-    func save() { calls.append("save") }
+    let spy = Spy()
+    let actions = ThresholdsActions(service: spy)
+
+    actions.open("t", "Tomatoes", "s")
+    actions.setLowText("s", "25")
+    actions.setHighText("s", "")
+    actions.setLow("s", 25)
+    actions.setHigh("s", 70)
+    actions.addHigh("s")
+    actions.clearHigh("s")
+    actions.turnOnAlerts("s")
+    actions.turnOffAlerts("s")
+    actions.save()
+    actions.retry()
+    actions.close()
+
+    #expect(
+      spy.calls == [
+        "open t Tomatoes s", "lowText s 25", "highText s ", "low s 25.0", "high s 70.0",
+        "addHigh s", "clearHigh s", "on s", "off s", "save", "retry", "close",
+      ])
   }
-  let spy = Spy()
-  let actions = ThresholdsActions(service: spy)
-
-  actions.open("t", "Tomatoes", "s")
-  actions.setLowText("s", "25")
-  actions.setHighText("s", "")
-  actions.setLow("s", 25)
-  actions.setHigh("s", 70)
-  actions.addHigh("s")
-  actions.clearHigh("s")
-  actions.turnOnAlerts("s")
-  actions.turnOffAlerts("s")
-  actions.save()
-  actions.retry()
-  actions.close()
-
-  #expect(
-    spy.calls == [
-      "open t Tomatoes s", "lowText s 25", "highText s ", "low s 25.0", "high s 70.0",
-      "addHigh s", "clearHigh s", "on s", "off s", "save", "retry", "close",
-    ])
-}
+#endif
 
 // MARK: - Entry points (UX-DR84) and the chart band (UX-DR5, UX-DR32, UX-DR33)
 

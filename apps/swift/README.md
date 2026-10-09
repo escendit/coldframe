@@ -9,8 +9,8 @@ Swift runtimes.
 - `ios/Sources/ColdframeIOS` is the part of the app without Kotlin: presentation models, the
   String Catalog and, where SwiftUI exists, the views. It is a SwiftPM target of the
   `Package.swift` in the repository root, so it builds and tests without Xcode. The views talk to
-  the core only through the `SignInService`, `AppearanceService`, `SitesService` and
-  `LotsService` protocols.
+  the core only through service protocols such as `SignInService`, `AppearanceService`,
+  `SitesService`, `LotsService` and `AlertsService`.
   `SitesService` (Story 1.8) carries the Sites of the signed-in user as a `SitesPresentation`
   (Create Site, the empty Garden, the Site switcher and the Site menu) built from the core's flat
   `SitesSnapshot`, plus the actions `load`, `select`, `newSite`, `cancelNewSite`, `setName`,
@@ -39,9 +39,20 @@ Swift runtimes.
   before the accepted chip shows; the Lot step needs no BLE and posts the sealed key with the Lot.
   The shell, the leave question, the candidate tile, the code field, the outcome view and the
   announcements (`SetupFlowEffects`) are shared with Add a Hub.
+  `AlertsService` (Story 6.2) carries the current Site's Alerts as an `AlertsPresentation` built
+  from the core's flat `AlertsSnapshot`: open Threshold Alerts, then open Health Alerts, then the
+  Alerts closed in the last 7 days under "Closed", in the Server's order, or "No open Alerts.".
+  The core names each row's group, variant, condition, eyebrow, icon and target; the shell words
+  it and draws the four variants (orange only for *needs water*, neutral Threshold, hatched
+  Health, outlined Closed). A row is one button with one spoken label ("Tomatoes needs water,
+  since 05:45"): a Threshold or uncalibrated row pushes Lot detail on the Alerts tab's own stack,
+  a silent or battery row opens Devices. The tab label reads "Alerts · 5" while Alerts are open
+  (spoken "Alerts, 5 open"); the core reads the count when a Site becomes current, and the app
+  calls `refresh` whenever it comes to the front and on pull-to-refresh, `load` on every entry
+  of the tab and for Try again. A failed load shows the notice, no rows and no count.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
   (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`, `CoreDevicesService`,
-  `CoreHubSetupService`, `CoreNodeSetupService`), the
+  `CoreHubSetupService`, `CoreNodeSetupService`, `CoreAlertsService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
 - `ios/project.yml` is the XcodeGen spec; `xcodegen generate` writes `Coldframe.xcodeproj`, which
   is not committed. `ios/Config` holds the build-time configuration and the Info.plists.

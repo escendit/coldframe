@@ -164,6 +164,22 @@ export interface FakeDevice {
   readonly charging?: 'charging' | 'notCharging';
 }
 
+/** An Alert of the fake Server, as `GET /sites/{id}/alerts` lists it (Story 6.2). */
+export interface FakeAlert {
+  readonly id: string;
+  readonly siteId: string;
+  /** `threshold`, or a Health kind; any string, as the contract's enum is extensible. */
+  readonly kind: string;
+  readonly side?: 'low' | 'high';
+  readonly quantity: string;
+  readonly lotId: string;
+  readonly lotName: string;
+  readonly deviceId: string;
+  readonly openedAt: string;
+  readonly closedAt?: string;
+  readonly reason?: string;
+}
+
 /** One move or unassign the fake Server accepted (Story 4.9). */
 export interface FakeDeviceAction {
   readonly action: 'move' | 'unassign';
@@ -255,6 +271,11 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let deviceActions: FakeDeviceAction[] = [];
   /** Set to answer the Devices list with this status instead (a Server that is down). */
   let devicesStatus: number | null = null;
+  let alerts: FakeAlert[] = [];
+  /** Set to answer the Alerts list with this status instead (a Server that is down). */
+  let alertsStatus: number | null = null;
+  /** How many times the Alerts of any Site were asked for since the last reset. */
+  let alertReads = 0;
   /** Reads that drop the connection instead of answering. */
   let failing: FailingReads = 'none';
   /** How many times the Lots of any Site were asked for since the last reset. */
@@ -338,6 +359,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       thresholds = Array.isArray(body.thresholds) ? (body.thresholds as FakeThresholds[]) : [];
       thresholdPuts = [];
       devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
+      alerts = [];
+      alertsStatus = null;
+      alertReads = 0;
       failing = 'none';
       lotReads = 0;
       posts = [];
@@ -349,6 +373,19 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     }
     if (path === '/control/sites') {
       send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts, thresholds, thresholdPuts });
+      return;
+    }
+    // Story 6.2: seeds the Alerts, or makes their list answer a status; `POST /control/sites` clears both.
+    if (path === '/control/alerts' && request.method === 'POST') {
+      const body = await readJson(request);
+      alerts = Array.isArray(body.alerts) ? (body.alerts as FakeAlert[]) : [];
+      alertsStatus = typeof body.alertsStatus === 'number' ? body.alertsStatus : null;
+      alertReads = 0;
+      send(response, 200, { alerts });
+      return;
+    }
+    if (path === '/control/alerts') {
+      send(response, 200, { alerts, alertReads });
       return;
     }
     // Story 5.2: a new stored Reading of a Sensor arrives, and the Lot's Sensors as the Lot detail shows them change.
@@ -483,6 +520,50 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         siteId,
         ...(moved.lotId === undefined ? {} : { lotId: moved.lotId }),
       });
+      return;
+    }
+
+    // Story 6.2: the Alerts list (Member): open newest first, then closed newest first, in pages.
+    const alertsMatch = /^\/sites\/([^/]+)\/alerts$/u.exec(path);
+    if (alertsMatch !== null && request.method === 'GET') {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(alertsMatch[1] ?? '');
+      if (!sites.some((candidate) => candidate.id === siteId)) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      if (alertsStatus !== null) {
+        problem(response, alertsStatus, 'unavailable');
+        return;
+      }
+      const limit = Number(url.searchParams.get('limit') ?? '50');
+      const start = Number(url.searchParams.get('cursor') ?? '0');
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !Number.isInteger(start) || start < 0) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      alertReads += 1;
+      const newest = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
+      const ofSite = alerts.filter((alert) => alert.siteId === siteId);
+      const open = ofSite.filter((alert) => alert.closedAt === undefined).toSorted((a, b) => newest(a.openedAt, b.openedAt));
+      const closed = ofSite.filter((alert) => alert.closedAt !== undefined).toSorted((a, b) => newest(a.closedAt ?? '', b.closedAt ?? ''));
+      const ordered = [...open, ...closed];
+      const listed = ordered.slice(start, start + limit).map((alert) => ({
+        id: alert.id,
+        kind: alert.kind,
+        ...(alert.side === undefined ? {} : { side: alert.side }),
+        quantity: alert.quantity,
+        lotId: alert.lotId,
+        lotName: alert.lotName,
+        deviceId: alert.deviceId,
+        openedAt: alert.openedAt,
+        ...(alert.closedAt === undefined ? {} : { closedAt: alert.closedAt }),
+        ...(alert.reason === undefined ? {} : { reason: alert.reason }),
+      }));
+      send(response, 200, { alerts: listed, openCount: open.length, ...(start + limit < ordered.length ? { nextCursor: String(start + limit) } : {}) });
       return;
     }
 

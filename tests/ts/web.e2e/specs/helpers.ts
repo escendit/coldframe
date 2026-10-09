@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
-import type { FailingReads, FakeCalibration, FakeCalibrationPost, FakeCalibrationReading, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, FakeThresholds, FakeThresholdsPut, Mode } from '../fixtures/fake-idp.ts';
+import type { FailingReads, FakeAlert, FakeCalibration, FakeCalibrationPost, FakeCalibrationReading, FakeDevice, FakeDeviceAction, FakeLot, FakeSite, FakeSitePost, FakeThresholds, FakeThresholdsPut, Mode } from '../fixtures/fake-idp.ts';
 import { idpOrigin } from '../fixtures/ports.ts';
 
 /** Switches the fake IdP's behaviour. */
@@ -15,7 +15,7 @@ export async function setMode(mode: Mode): Promise<void> {
 
 /**
  * Resets the fake Server's Sites (the default seed, one Site, or exactly `sites`), its Lots and its
- * Devices. `devicesStatus` makes the Devices list answer that status instead.
+ * Devices, and clears its Alerts. `devicesStatus` makes the Devices list answer that status instead.
  */
 export async function resetSites(
   sites?: readonly FakeSite[],
@@ -61,6 +61,22 @@ export async function serverSites(): Promise<{
     thresholds: FakeThresholds[];
     thresholdPuts: FakeThresholdsPut[];
   };
+}
+
+/** Seeds the fake Server's Alerts; `alertsStatus` makes their list answer that status instead. `resetSites` clears both. */
+export async function setAlerts(alerts: readonly FakeAlert[], alertsStatus: number | null = null): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/alerts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ alerts, ...(alertsStatus === null ? {} : { alertsStatus }) }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** How often the Alerts were read from the fake Server since they were last seeded. */
+export async function alertReads(): Promise<number> {
+  const response = await fetch(`${idpOrigin}/control/alerts`);
+  return ((await response.json()) as { alertReads: number }).alertReads;
 }
 
 /** A new stored Reading of a Sensor arrives at the fake Server. */

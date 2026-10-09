@@ -106,6 +106,7 @@ private let coveredUxDrs: [String: [Int]] = [
   ],
   "4.8 Lot detail with history and Device status": [27, 28, 29, 30, 32, 33, 63, 78, 98],
   "5.4 Set Thresholds in the app and see them on the chart": [5, 32, 33, 45, 69, 84, 91],
+  "6.2 See Alerts in the apps": [14, 25, 26, 64, 82, 98],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -139,4 +140,61 @@ func thresholdCopy() throws {
   for kind in ThresholdsNoticeKind.allCases {
     #expect(entries[kind.message.rawValue] != nil, "\(kind)")
   }
+}
+
+@Test("UX-DR124 UX-DR82 the Alerts copy is in the catalogue: empty state, groups, titles")
+func alertsCatalogueCopy() throws {
+  let entries = try Catalogue.entries()
+  #expect(entries["alerts_empty"] == "No open Alerts.")
+  #expect(entries["alert_title_needs_water"] == "%1$@ needs water")
+  #expect(entries["alert_title_too_wet"] == "%1$@ too wet")
+  #expect(entries["alert_title_too_low"] == "%1$@ %2$@ too low")
+  #expect(entries["alert_title_too_high"] == "%1$@ %2$@ too high")
+  #expect(entries["alert_spoken_open"] == "%1$@, since %2$@")
+  #expect(entries["alert_spoken_closed"] == "%1$@, since %2$@, closed %3$@")
+  for group in AlertGroupKind.allCases {
+    #expect(entries[group.title.rawValue] != nil, "\(group)")
+  }
+  for kind in AlertsNoticeKind.allCases {
+    #expect(entries[kind.message.rawValue] != nil, "\(kind)")
+  }
+  #expect(entries["alerts_unreachable"] == entries["devices_unreachable"])
+}
+
+@Test("UX-DR124 the Alerts strings are the Android ones, key for key and word for word")
+func alertsCatalogueMatchesAndroid() throws {
+  let xml = try Repo.text("apps/kt/android/src/main/res/values/strings.xml")
+  let single = try NSRegularExpression(
+    pattern: #"<string name="((?:alert|nav_alerts)[a-z_]*)">(.*?)</string>"#)
+  let plural = try NSRegularExpression(
+    pattern: #"<plurals name="((?:alert|nav_alerts)[a-z_]*)">(.*?)</plurals>"#,
+    options: .dotMatchesLineSeparators)
+  let item = try NSRegularExpression(pattern: #"<item quantity="(\w+)">(.*?)</item>"#)
+  func captures(_ expression: NSRegularExpression, _ text: String) -> [(String, String)] {
+    expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap {
+      guard let first = Range($0.range(at: 1), in: text),
+        let second = Range($0.range(at: 2), in: text)
+      else { return nil }
+      return (String(text[first]), String(text[second]))
+    }
+  }
+  /// Android numbers its placeholders (`%1$s`, `%1$d`) and escapes apostrophes.
+  func words(_ value: String) -> String {
+    var result = value.replacingOccurrences(of: "\\'", with: "'")
+    for (android, ios) in [("$s", "$@"), ("$d", "$lld"), ("%lld", "%1$lld"), ("%@", "%1$@")] {
+      result = result.replacingOccurrences(of: android, with: ios)
+    }
+    return result
+  }
+  var android: [String: String] = [:]
+  for (key, value) in captures(single, xml) { android[key] = words(value) }
+  for (key, body) in captures(plural, xml) {
+    for (form, value) in captures(item, body) { android["\(key).\(form)"] = words(value) }
+  }
+  let ios = try Catalogue.entries().filter {
+    $0.key.hasPrefix("alert") || $0.key.hasPrefix("nav_alerts")
+  }.mapValues(words)
+
+  #expect(android.count > 10)
+  #expect(android == ios)
 }

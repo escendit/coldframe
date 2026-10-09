@@ -135,5 +135,20 @@ and every edit call is ignored. Lot detail reads the soil Sensor's Thresholds fo
 `HistoryChart.belowLowDays` for the summary; `LotDetail.canSetThresholds` / `canViewThresholds`. For Swift,
 `IosThresholds` observes a flat `ThresholdsSnapshot`.
 
-Absent until later epics: no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7), no Alert
-evaluation or *needs water* (Epic 6).
+**Alerts (Story 6.2).** `alerts/AlertsEngine` is the Alerts surface of the current Site over
+`GET /sites/{siteId}/alerts` (`AlertsApi.listAlerts`, Member). It follows the Sites engine and reads as soon as
+a Site is current, so the Alerts tab has its count before the tab is opened; the shells call `load` on every
+entry of the surface and `refresh` for pull-to-refresh and on every foreground. A read follows `nextCursor` to
+the end, at most `AlertsEngine.MAX_PAGES` (20) pages, and lists each Alert once. Rows stay while a read runs
+(`AlertsState.Ready.refreshing`); there is no stale mode and no cache: a read that fails on any page leaves
+`AlertsState.Failed` (`AlertsNotice`) without rows, and a 401 leaves `Idle`. `AlertsState.openCount` is the
+Server's `openCount`, 0 unless `Ready`. `AlertSummary` keeps the Server's order and derives what a row is, so
+neither shell decides it: `group` (`Threshold`, `Health`, `Closed`), `variant` (`NeedsWater` only for an open
+low-side soil-moisture Threshold Alert, `Threshold`, `Health`, `Closed`), `condition`, `eyebrow`, `icon` and
+`target` (Threshold and uncalibrated rows open Lot detail of `lotId`; silent, battery and unknown rows open
+Devices). A kind this app does not know, and a Threshold Alert without a side or with a quantity it does not
+know, is a Health row with `help`. An Alert carries no value and no Threshold (DW-88). For Swift, `IosAlerts`
+(`IosSignIn.alerts`) observes a flat `AlertsSnapshot` of parallel `alert…` lists.
+
+Absent until later epics: no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7), no Health
+Alert is produced by the Server (Epic 7), and no notification, Reminder or live update (Stories 6.3 to 6.6).

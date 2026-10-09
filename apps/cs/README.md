@@ -127,6 +127,7 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Saves the dry and/or wet point of a Sensor's Calibration (Story 5.1, see [Calibration](#calibration)): 200 with where the Calibration stands |
 | `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | A Sensor's Thresholds, read-only, with the proposed low (Story 5.3, see [Thresholds](#thresholds)) |
 | `PUT /sites/{siteId}/sensors/{sensorId}/thresholds` | `Administrator` | Sets one or both sides of a Sensor's Thresholds: 200 with the Thresholds in force |
+| `GET /sites/{siteId}/alerts` | `Member` | A page of the Site's Alerts from the alerts projection (Story 6.2, see [The Alerts list](#the-alerts-list)): 200 `{alerts, openCount, nextCursor?}` |
 | `POST /device/heartbeat` | `Device` | A Hub's signed heartbeat: `Device(id).Heartbeat(…)` verifies it and journals `device.seen`; 200 `{serverTime}` |
 | `POST /device/ingest` | `Device` | A Hub relays sealed Node frames: `Device(hubId).AuthenticateRelay(…)`, then `Device(nodeId).Ingest(…)` per frame; 200 `{results: [{status, downlink?}]}` |
 
@@ -482,8 +483,8 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 
 ### Alerts
 
-A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Nothing
-here is an endpoint yet: the Alerts read model and its API are Story 6.2, notifications 6.3 to 6.6. Three grains
+A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Clients
+read them from [the Alerts list](#the-alerts-list) (Story 6.2); notifications are Stories 6.3 to 6.6. Three grains
 take part, through grain calls and the journal only (AD-5):
 
 1. **The Device grain hands out Readings.** After a frame is committed (step 9 of `DeviceGrain.Ingest` in
@@ -549,6 +550,44 @@ from the Alert events ([Lot status](#lot-status)).
 `SetCalibration` on the Device grain is `[AlwaysInterleave]`: the Device grain awaits a Sensor's evaluation while
 that Sensor may be awaiting the Device to acknowledge a Calibration, and without interleaving the two calls would
 wait for each other until one times out.
+
+### The Alerts list
+
+`GET /sites/{siteId}/alerts?cursor&limit` (`listAlerts`, Story 6.2, Member and up) reads the `alerts` table, which
+`AlertsProjector` (`server/Alerts/`, projector name `alerts`) builds from the Alert streams only. It is the only
+writer of that table (AD-21):
+
+| Event on `alert/{id}` | Row |
+| --- | --- |
+| `alert.opened` | Creates the row: `site_id`, `lot_id`, `device_id`, `sensor_id`, `kind`, `side`, `quantity`, `opened_at` |
+| `alert.closed` | Sets `closed_at` and `reason`, once |
+| `alert.site-notified` | Nothing |
+
+A closed Alert keeps its row, so an event applied again changes nothing: neither an open after its close nor a
+second close. To rebuild, delete the rows of `alerts` and the `alerts` checkpoint; the projector starts again
+from position 0 and writes the same rows. `kind`, `side` and `reason` are stored under the contract's lowercase
+names, mapped by hand in `AlertNames` (`threshold`; `low`, `high`; `recovered`, `paused`, `unassigned`,
+`calibrated`, `removed`). A value added to one of those enums must be named there first: the projector refuses
+an event it cannot name. The contract's `AlertKind` is an extensible enum that already names `silent`, `battery`
+and `uncalibrated` for Epic 7; the Server produces only `threshold`.
+
+**The list** (`AlertsReadModel.ListAlertsAsync`) is one ordered list: every open Alert, newest `openedAt` first,
+then the Alerts whose `closedAt` is within `AlertsReadModel.ClosedRetention` (7 days) of the Server clock, newest
+`closedAt` first; Alerts of the same time go by Alert ID. The handler takes the cut-off from the injected
+`TimeProvider` and passes it in, so the query never reads the database clock. An item is `{id, kind, side?,
+quantity, lotId, lotName, deviceId, openedAt, closedAt?, reason?}`: no value, no Threshold, no `measuredAt`.
+
+- **`lotName` is joined, not projected.** The query inner-joins `lots` on the Lot the Alert was opened for, so a
+  rename shows at once and a removed Lot (a tombstone row) keeps naming its Alerts. A row is absent only while
+  the lots read model is being rebuilt. The Alert of a Node that moved still names the Lot it was opened for.
+- **`openCount`** counts the open Alerts of the Site with the same join, and is the same on every page.
+- **Paging** is keyset: `limit` is 1 to 200 (default 50), and `nextCursor` is present only when more Alerts
+  follow. The cursor is opaque and versioned (`AlertsReadModel.EncodeCursor`: `a1`, the section open or closed,
+  the section's time in microseconds as PostgreSQL keeps it, and the Alert ID). A `limit` out of range or
+  repeated, or a `cursor` this Server did not write, is 400 `validation`.
+
+The projector is not caught up inside the Alert grain: an Alert shows in the list after the next hint or poll
+(`JournalOptions.PollInterval`).
 
 ### Moving and unassigning a Node
 

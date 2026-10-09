@@ -10,6 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.escendit.coldframe.android.ui.alerts.AlertsActions
 import com.escendit.coldframe.android.ui.calibrate.CalibrateActions
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
@@ -21,7 +22,7 @@ import com.escendit.coldframe.android.ui.thresholds.ThresholdsActions
 
 /**
  * Registers the Custom Tabs flow, renders the root, and on every foreground resumes the session
- * and reads the Lots again (stale mode is left by the first read that succeeds).
+ * and reads the Lots and the Alerts again (stale mode is left by the first read that succeeds).
  * Add a Hub and Add a Node keep the screen on through their own view while a flow is open.
  */
 class MainActivity : ComponentActivity() {
@@ -48,6 +49,8 @@ class MainActivity : ComponentActivity() {
             }
         val devices = app.signIn.devices
         val devicesActions = DevicesActions.of(devices)
+        val alerts = app.signIn.alerts
+        val alertsActions = AlertsActions.of(alerts)
         val hubSetup = app.signIn.hubSetup
         val hubSetupActions = HubSetupActions.of(hubSetup)
         val nodeSetup = app.signIn.nodeSetup
@@ -61,6 +64,7 @@ class MainActivity : ComponentActivity() {
             val calibrateState by calibrate.state.collectAsStateWithLifecycle()
             val thresholdsState by thresholds.state.collectAsStateWithLifecycle()
             val devicesState by devices.state.collectAsStateWithLifecycle()
+            val alertsState by alerts.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val nodeSetupState by nodeSetup.state.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
@@ -106,7 +110,11 @@ class MainActivity : ComponentActivity() {
                     engine.resume()
                     lots.refresh()
                     lotDetail.refresh()
+                    // The Alerts tab carries its count on every tab, so it is read on every foreground too.
+                    alerts.refresh()
                 },
+                alerts = alertsState,
+                alertsActions = alertsActions,
             )
         }
     }
