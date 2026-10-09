@@ -733,4 +733,192 @@ class ColdframeApiTest {
                 )
             }
         }
+
+    @Test
+    fun uxDr72GetMyNotificationSettingsReadsTheWindowAndTheUnconfirmedZone() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"window":{"from":"07:00","to":"22:00"},"timeZone":"Europe/Zurich","timeZoneConfirmed":false}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result = api().getMyNotificationSettings()
+
+            assertEquals(
+                ApiResult.Ok(
+                    NotificationSettingsDto(NotificationWindowDto("07:00", "22:00"), false, "Europe/Zurich"),
+                ),
+                result,
+            )
+            val sent = requests.single()
+            assertEquals(HttpMethod.Get, sent.method)
+            assertEquals("https://server.example/me/notification-settings", sent.url.toString())
+            assertEquals("Bearer access-1", sent.headers[HttpHeaders.Authorization])
+        }
+
+    @Test
+    fun uxDr72ANewUsersSettingsCarryNoZone() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"window":{"from":"07:00","to":"22:00"},"timeZoneConfirmed":false}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val settings = (api().getMyNotificationSettings() as ApiResult.Ok).value
+
+            assertEquals(null, settings.timeZone)
+            assertEquals(false, settings.timeZoneConfirmed)
+        }
+
+    @Test
+    fun uxDr47UpdateMyNotificationSettingsPatchesOnlyTheFieldsItIsGiven() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"window":{"from":"06:30","to":"22:00"},"timeZone":"Europe/Vienna","timeZoneConfirmed":true}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+            val bodies =
+                listOf(
+                    UpdateNotificationSettingsRequestDto(window = NotificationWindowRequestDto("06:30", "21:00")) to
+                        """{"window":{"from":"06:30","to":"21:00"}}""",
+                    UpdateNotificationSettingsRequestDto(window = NotificationWindowRequestDto("06:30")) to
+                        """{"window":{"from":"06:30"}}""",
+                    UpdateNotificationSettingsRequestDto(timeZone = "Europe/Vienna") to
+                        """{"timeZone":"Europe/Vienna"}""",
+                    UpdateNotificationSettingsRequestDto(detectedTimeZone = "Europe/Zurich") to
+                        """{"detectedTimeZone":"Europe/Zurich"}""",
+                )
+
+            for ((request, body) in bodies) {
+                requests.clear()
+                val result = api().updateMyNotificationSettings(request)
+
+                assertEquals(
+                    ApiResult.Ok(
+                        NotificationSettingsDto(NotificationWindowDto("06:30", "22:00"), true, "Europe/Vienna"),
+                    ),
+                    result,
+                )
+                val sent = requests.single()
+                assertEquals(HttpMethod.Patch, sent.method)
+                assertEquals("https://server.example/me/notification-settings", sent.url.toString())
+                assertEquals(body, sent.text())
+            }
+        }
+
+    @Test
+    fun uxDr49GetSiteNotificationSettingsReadsTheMuteAndBothCadences() =
+        runTest {
+            answer =
+                {
+                    respond(
+                        """{"muted":true,"reminderCadence":"every2Days","siteReminderCadence":"daily"}""",
+                        HttpStatusCode.OK,
+                        json,
+                    )
+                }
+
+            val result = api().getSiteNotificationSettings("a b")
+
+            assertEquals(ApiResult.Ok(SiteNotificationSettingsDto(true, "daily", "every2Days")), result)
+            val sent = requests.single()
+            assertEquals(HttpMethod.Get, sent.method)
+            assertEquals("https://server.example/sites/a%20b/notification-settings", sent.url.toString())
+        }
+
+    @Test
+    fun uxDr50SetSiteNotificationSettingsPutsTheMuteAndLeavesOutACadenceThatUsesTheSiteSetting() =
+        runTest {
+            answer = { respond("""{"muted":true,"siteReminderCadence":"daily"}""", HttpStatusCode.OK, json) }
+
+            val result = api().setSiteNotificationSettings("a", SetSiteNotificationSettingsRequestDto(muted = true))
+
+            assertEquals(ApiResult.Ok(SiteNotificationSettingsDto(true, "daily")), result)
+            assertEquals(HttpMethod.Put, requests.single().method)
+            assertEquals("https://server.example/sites/a/notification-settings", requests.single().url.toString())
+            assertEquals("""{"muted":true}""", requests.single().text())
+
+            requests.clear()
+            api().setSiteNotificationSettings("a", SetSiteNotificationSettingsRequestDto(false, "every2Days"))
+
+            assertEquals("""{"muted":false,"reminderCadence":"every2Days"}""", requests.single().text())
+        }
+
+    @Test
+    fun uxDr50TheSiteReminderCadenceIsReadWithAGetAndSetWithAPut() =
+        runTest {
+            answer = { respond("""{"cadence":"every2Days"}""", HttpStatusCode.OK, json) }
+
+            assertEquals(ApiResult.Ok(SiteReminderCadenceDto("every2Days")), api().getSiteReminderCadence("a"))
+            assertEquals(HttpMethod.Get, requests.single().method)
+            assertEquals("https://server.example/sites/a/reminder-cadence", requests.single().url.toString())
+
+            requests.clear()
+            assertEquals(
+                ApiResult.Ok(SiteReminderCadenceDto("every2Days")),
+                api().setSiteReminderCadence("a", "every2Days"),
+            )
+            assertEquals(HttpMethod.Put, requests.single().method)
+            assertEquals("https://server.example/sites/a/reminder-cadence", requests.single().url.toString())
+            assertEquals("""{"cadence":"every2Days"}""", requests.single().text())
+        }
+
+    @Test
+    fun uxDr72NotificationSettingsProblemsMapToTheirFailures() =
+        runTest {
+            val cases =
+                listOf(
+                    Triple(HttpStatusCode.BadRequest, "validation", ApiFailure.Validation),
+                    Triple(HttpStatusCode.Forbidden, "forbidden", ApiFailure.Forbidden),
+                    Triple(HttpStatusCode.NotFound, "site-not-found", ApiFailure.NotFound),
+                    Triple(
+                        HttpStatusCode.ServiceUnavailable,
+                        "reminder-cadence-not-delivered",
+                        ApiFailure.ReminderCadenceNotDelivered,
+                    ),
+                    Triple(
+                        HttpStatusCode.ServiceUnavailable,
+                        "identity-provider-unavailable",
+                        ApiFailure.IdentityProviderUnavailable,
+                    ),
+                    Triple(HttpStatusCode.InternalServerError, "unexpected", ApiFailure.Unexpected),
+                )
+            for ((status, type, failure) in cases) {
+                answer = { respond(problem(type), status, problem) }
+                assertEquals(ApiResult.Failed(failure), api().setSiteReminderCadence("a", "daily"), type)
+                assertEquals(
+                    ApiResult.Failed(failure),
+                    api().setSiteNotificationSettings("a", SetSiteNotificationSettingsRequestDto(false)),
+                    type,
+                )
+                assertEquals(
+                    ApiResult.Failed(failure),
+                    api().updateMyNotificationSettings(UpdateNotificationSettingsRequestDto(timeZone = "Mars/Olympus")),
+                    type,
+                )
+            }
+            // The Site holds the cadence: it is an answer, not a transport failure.
+            assertEquals(false, ApiFailure.ReminderCadenceNotDelivered.transport)
+        }
+
+    @Test
+    fun uxDr93A401OnMyNotificationSettingsEndsTheSession() =
+        runTest {
+            answer = { respond(problem("unauthorized"), HttpStatusCode.Unauthorized, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().getMyNotificationSettings())
+            assertEquals(1, unauthorized)
+        }
 }

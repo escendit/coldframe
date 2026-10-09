@@ -21,6 +21,8 @@
     public var askRemove: (String) -> Void
     public var confirmRemove: () -> Void
     public var cancelRemove: () -> Void
+    public var setReminderCadence: (ReminderCadenceKind) -> Void
+    public var retryReminderCadence: () -> Void
 
     public init(service: LotsService) {
       load = { service.load() }
@@ -37,6 +39,8 @@
       askRemove = { service.askRemove(lotId: $0) }
       confirmRemove = { service.confirmRemove() }
       cancelRemove = { service.cancelRemove() }
+      setReminderCadence = { service.setReminderCadence($0) }
+      retryReminderCadence = { service.retryReminderCadence() }
     }
 
     private init() {
@@ -54,6 +58,8 @@
       askRemove = { _ in }
       confirmRemove = {}
       cancelRemove = {}
+      setReminderCadence = { _ in }
+      retryReminderCadence = {}
     }
 
     public static let none = LotsActions()
@@ -61,8 +67,10 @@
 
   /// Site settings (UX-DR74, UX-DR84): the Site name with "Rename Site" for an Owner, then the
   /// Lots with "Create Lot", and per Lot "Rename Lot" (an alert with a field) and "Remove Lot"
-  /// (a destructive dialog naming the Lot) for Owners and Administrators. A Member sees the name
-  /// and the Lots as text with one notice. Buttons show their working label in place.
+  /// (a destructive dialog naming the Lot) for Owners and Administrators, then Reminders with the
+  /// Site's Reminder cadence (UX-DR50), which Owners and Administrators pick. A Member sees the
+  /// name, the Lots and the cadence as text with one notice. Buttons show their working label in
+  /// place.
   public struct SiteSettingsView: View {
     let presentation: LotsPresentation
     let actions: LotsActions
@@ -131,12 +139,17 @@
     private func content(_ settings: SiteSettingsPresentation) -> some View {
       VStack(alignment: .leading, spacing: Spacing.step6) {
         siteName(settings)
-        if let notice = settings.notice {
+        // The Reminder cadence notice sits with its control, in Reminders.
+        if let notice = settings.generalNotice {
           InlineNotice(
             message: notice.message, subject: notice.takesSubject ? settings.noticeSubject : nil,
             announcement: notice.announcement)
         }
         lots(settings)
+        // Not known until the Server has answered: then there is nothing to show or to change.
+        if let reminders = settings.reminders {
+          self.reminders(reminders, settings)
+        }
       }
     }
 
@@ -191,6 +204,39 @@
             error: settings.newLotNameError?.lotMessage.string)
           PrimaryButton(
             settings.createLotLabel, isEnabled: !settings.createWorking, action: actions.createLot)
+        }
+      }
+    }
+
+    /// Reminders (UX-DR50): "Daily" or "Every 2 days", applied at once. A Member reads the
+    /// cadence as text: the control is hidden (UX-DR84).
+    @ViewBuilder
+    private func reminders(
+      _ reminders: SiteRemindersPresentation, _ settings: SiteSettingsPresentation
+    ) -> some View {
+      VStack(alignment: .leading, spacing: Spacing.step4) {
+        L10n.siteSettingsReminders.text.role(Typography.section)
+          .foregroundStyle(palette.textPrimary)
+          .accessibilityAddTraits(.isHeader)
+        if reminders.canEdit {
+          SegmentedChoice(
+            label: .siteSettingsReminderCadence, segments: reminders.segments,
+            helper: .siteSettingsReminderCadenceHelper, onSelect: actions.setReminderCadence)
+        } else {
+          VStack(alignment: .leading, spacing: Spacing.step2) {
+            L10n.siteSettingsReminderCadence.text.role(Typography.helper)
+              .foregroundStyle(palette.textSecondary)
+            reminders.cadence.label.text.role(Typography.bodyLg)
+              .foregroundStyle(palette.textPrimary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .accessibilityElement(children: .combine)
+        }
+        if let notice = settings.remindersNotice {
+          InlineNotice(
+            message: notice.message, announcement: notice.announcement,
+            action: settings.remindersNoticeTryAgain
+              ? (label: L10n.noticeTryAgain, perform: actions.retryReminderCadence) : nil)
         }
       }
     }

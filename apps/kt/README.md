@@ -82,3 +82,28 @@ failed load shows the notice with Try again and no rows.
 
 Health Alerts have no producer before Epic 7: their rows are built and tested from fixtures
 (`tests/kt/android/test/.../AlertFixtures.kt`).
+
+## My notifications and Reminders (Story 6.3)
+
+Settings lists My notifications first, above Site settings. The screen (`ui/notifications/`) renders the
+core's `NotificationSettingsState` and reads it again on every entry.
+
+- **Notification Window control** (`NotificationWindowControl.kt`): two time fields that open the Material
+  time input (24 h), a 24 h bar (`primary` inside the window, hatched outside; decorative, with no
+  semantics), the window in big type ("07:00 to 22:00"), the helper naming the window's own start, and
+  Save, which reads "Saving…" in place and is followed by a polite "Saved.".
+- **Time-zone confirm panel** (`ui/components/TimeZonePanel.kt`): the same component as on Create Site. It
+  proposes the phone's zone until the User has chosen one, then names the chosen zone; without a zone to
+  propose it shows the list at once.
+- **Mute** is a Material `Switch` whose row is the control, labelled "Mute ‹Site›". **My Reminder cadence**
+  is a Segmented choice "Use Site setting" / "Daily" / "Every 2 days" with the helper "Site setting: Daily".
+  Both apply at once and need a current Site; without one only the window and the time zone show.
+- A change that was not saved puts its control back at the Server's value and shows an Inline notice under
+  it, with Try again where that can help.
+
+Site settings ends with **Reminders**: Owners and Administrators pick the Site's Reminder cadence, "Daily"
+or "Every 2 days"; a Member reads it as text. The section is absent until the Server has answered.
+
+The zone confirmed on Create Site is no longer kept on the phone: the core sends it to the Server and reads
+it from there. Nothing here delivers a notification, asks for the notification permission or registers a
+push token (Stories 6.4 to 6.6).

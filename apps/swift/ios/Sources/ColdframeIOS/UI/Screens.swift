@@ -94,6 +94,8 @@
     let lotDetailActions: LotDetailActions
     let alerts: AlertsPresentation
     let alertsActions: AlertsActions
+    let notifications: NotificationSettingsPresentation
+    let notificationsActions: NotificationSettingsActions
     let hoistedSelection: Binding<AppTab>?
     @State private var ownSelection: AppTab = .garden
     @Environment(\.palette) private var palette
@@ -111,8 +113,12 @@
       devices: DevicesPresentation = .waiting, devicesActions: DevicesActions = .none,
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       selection: Binding<AppTab>? = nil, alerts: AlertsPresentation = .waiting,
-      alertsActions: AlertsActions = .none
+      alertsActions: AlertsActions = .none,
+      notifications: NotificationSettingsPresentation = .idle,
+      notificationsActions: NotificationSettingsActions = .none
     ) {
+      self.notifications = notifications
+      self.notificationsActions = notificationsActions
       self.alerts = alerts
       self.alertsActions = alertsActions
       self.devices = devices
@@ -168,7 +174,8 @@
       case .settings:
         SettingsView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut,
-          siteName: garden?.siteName, lots: lots, lotsActions: lotsActions)
+          siteName: garden?.siteName, lots: lots, lotsActions: lotsActions,
+          notifications: notifications, notificationsActions: notificationsActions)
       case .garden:
         if let garden {
           GardenView(
@@ -195,8 +202,9 @@
     }
   }
 
-  /// Settings index (UX-DR71): Site settings of the current Site, Appearance, then Account with
-  /// Sign out, confirmed in a native dialog that names the result (UX-DR113).
+  /// Settings index (UX-DR71): My notifications (UX-DR72), Site settings of the current Site,
+  /// Appearance, then Account with Sign out, confirmed in a native dialog that names the result
+  /// (UX-DR113).
   public struct SettingsView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
@@ -204,14 +212,20 @@
     let siteName: String?
     let lots: LotsPresentation
     let lotsActions: LotsActions
+    let notifications: NotificationSettingsPresentation
+    let notificationsActions: NotificationSettingsActions
     @State private var confirmingSignOut = false
     @Environment(\.palette) private var palette
 
     public init(
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
       onSignOut: @escaping () -> Void, siteName: String? = nil,
-      lots: LotsPresentation = .waiting, lotsActions: LotsActions = .none
+      lots: LotsPresentation = .waiting, lotsActions: LotsActions = .none,
+      notifications: NotificationSettingsPresentation = .idle,
+      notificationsActions: NotificationSettingsActions = .none
     ) {
+      self.notifications = notifications
+      self.notificationsActions = notificationsActions
       self.theme = theme
       self.onSelectTheme = onSelectTheme
       self.onSignOut = onSignOut
@@ -223,6 +237,18 @@
     public var body: some View {
       let confirmation = ConfirmationPresentation.signOut
       List {
+        // My notifications is the User's own: it needs no current Site.
+        NavigationLink {
+          MyNotificationsView(presentation: notifications, actions: notificationsActions)
+        } label: {
+          VStack(alignment: .leading, spacing: Spacing.step1) {
+            SettingsRow.notifications.title.text.role(Typography.bodyLg)
+              .foregroundStyle(palette.textPrimary)
+            L10n.settingsNotificationsHelper.text.role(Typography.helper)
+              .foregroundStyle(palette.textHelper)
+          }
+          .frame(minHeight: TouchTarget.minimum)
+        }
         if let siteName {
           NavigationLink {
             SiteSettingsView(presentation: lots, actions: lotsActions)
@@ -319,6 +345,8 @@
     let thresholdsActions: ThresholdsActions
     let alerts: AlertsPresentation
     let alertsActions: AlertsActions
+    let notifications: NotificationSettingsPresentation
+    let notificationsActions: NotificationSettingsActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
@@ -336,8 +364,12 @@
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       calibrate: CalibratePresentation = .idle, calibrateActions: CalibrateActions = .none,
       thresholds: ThresholdsPresentation = .idle, thresholdsActions: ThresholdsActions = .none,
-      alerts: AlertsPresentation = .waiting, alertsActions: AlertsActions = .none
+      alerts: AlertsPresentation = .waiting, alertsActions: AlertsActions = .none,
+      notifications: NotificationSettingsPresentation = .idle,
+      notificationsActions: NotificationSettingsActions = .none
     ) {
+      self.notifications = notifications
+      self.notificationsActions = notificationsActions
       self.alerts = alerts
       self.alertsActions = alertsActions
       self.thresholds = thresholds
@@ -414,7 +446,8 @@
           devices: devices,
           devicesActions: devicesActions, lotDetail: lotDetail,
           lotDetailActions: lotDetailActions, selection: $tab, alerts: alerts,
-          alertsActions: alertsActions
+          alertsActions: alertsActions, notifications: notifications,
+          notificationsActions: notificationsActions
         )
         // Thresholds is a modal over the shell, so the open Lot detail stays and reads again once saved.
         .coverOrSheet(
@@ -454,6 +487,7 @@
     @Published public private(set) var calibrate = CalibratePresentation.idle
     @Published public private(set) var thresholds = ThresholdsPresentation.idle
     @Published public private(set) var alerts = AlertsPresentation.waiting
+    @Published public private(set) var notifications = NotificationSettingsPresentation.idle
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -465,14 +499,17 @@
     public let calibrateService: CalibrateService?
     public let thresholdsService: ThresholdsService?
     public let alertsService: AlertsService?
+    public let notificationsService: NotificationSettingsService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
       lots: LotsService? = nil, hubSetup: HubSetupService? = nil,
       devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
       lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil,
-      thresholds: ThresholdsService? = nil, alerts: AlertsService? = nil
+      thresholds: ThresholdsService? = nil, alerts: AlertsService? = nil,
+      notifications: NotificationSettingsService? = nil
     ) {
+      self.notificationsService = notifications
       self.alertsService = alerts
       self.thresholdsService = thresholds
       self.calibrateService = calibrate
@@ -505,12 +542,18 @@
       calibrate?.observe { [weak self] in self?.calibrate = $0 }
       thresholds?.observe { [weak self] in self?.thresholds = $0 }
       alerts?.observe { [weak self] in self?.alerts = $0 }
+      notifications?.observe { [weak self] in self?.notifications = $0 }
     }
 
     private static func announce(_ event: LotsEventPresentation) {
       if let text = event.text(.catalogue()) {
         AccessibilityNotification.Announcement(AttributedString(text)).post()
       }
+    }
+
+    /// The My notifications actions for the views; nothing happens without a service.
+    public var notificationsActions: NotificationSettingsActions {
+      notificationsService.map(NotificationSettingsActions.init(service:)) ?? .none
     }
 
     /// The Alerts actions for the views; nothing happens without a service.

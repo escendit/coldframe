@@ -75,6 +75,11 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     public SiteFaults SiteFaults => SiloServices.GetRequiredService<SiteFaults>();
 
     /// <summary>
+    /// The silo's User call filter, which a test can make fail the Reminder cadence handed to one User.
+    /// </summary>
+    public UserFaults UserFaults => SiloServices.GetRequiredService<UserFaults>();
+
+    /// <summary>
     /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor and the next evaluations.
     /// </summary>
     public SensorFaults SensorFaults => SiloServices.GetRequiredService<SensorFaults>();
@@ -225,6 +230,8 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<DeviceFaults>());
             siloBuilder.Services.AddSingleton<AlertFaults>();
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<AlertFaults>());
+            siloBuilder.Services.AddSingleton<UserFaults>();
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<UserFaults>());
             siloBuilder.Services.AddSingleton<SiteFaults>();
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<SiteFaults>());
             siloBuilder.Services.AddOptions<KeycloakOptions>();
@@ -472,6 +479,40 @@ public sealed class SiteFaults : IIncomingGrainCallFilter
             }
 
             Interlocked.Exchange(ref _failures, 0);
+        }
+
+        return context.Invoke();
+    }
+}
+
+/// <summary>
+/// Passes every grain call on, except that a test can make <see cref="IUserGrain.SyncSiteReminderCadence"/> throw
+/// for chosen Users, the way a User grain that cannot be reached or cannot write its journal does. Nothing
+/// reaches the grain then.
+/// </summary>
+public sealed class UserFaults : IIncomingGrainCallFilter
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Makes every Reminder cadence handed to <paramref name="userId"/> fail until <see cref="Restore"/>.
+    /// </summary>
+    public void FailCadenceSyncs(string userId) => _failing[userId] = true;
+
+    /// <summary>
+    /// Lets the Reminder cadence through to <paramref name="userId"/> again.
+    /// </summary>
+    public void Restore(string userId) => _failing.TryRemove(userId, out _);
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is IUserGrain
+            && string.Equals(context.MethodName, nameof(IUserGrain.SyncSiteReminderCadence), StringComparison.Ordinal)
+            && _failing.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            throw new InvalidOperationException("The test failed this Reminder cadence.");
         }
 
         return context.Invoke();

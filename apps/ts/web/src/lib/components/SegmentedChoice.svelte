@@ -11,12 +11,18 @@
     label: string;
     options: readonly Option[];
     value: T;
-    onchange: (value: T) => void;
+    /** Called with the segment picked; never for the selected one. */
+    onchange?: (value: T) => void;
+    /**
+     * With a name each segment is a submit button carrying its value under that name, so the choice
+     * applies at once through the form the group sits in.
+     */
+    name?: string;
     helper?: string;
     id?: string;
   }
 
-  let { label, options, value, onchange, helper, id = 'cf-segmented' }: Props = $props();
+  let { label, options, value, onchange, name, helper, id = 'cf-segmented' }: Props = $props();
 </script>
 
 <fieldset class="cf-segmented" aria-describedby={helper !== undefined ? `${id}-helper` : undefined}>
@@ -25,14 +31,19 @@
     {#each options as option (option.value)}
       {@const selected = option.value === value}
       <button
-        type="button"
+        type={name === undefined ? 'button' : 'submit'}
+        {name}
+        value={name === undefined ? undefined : option.value}
         class="cf-segmented__segment"
         class:cf-segmented__segment--selected={selected}
         aria-pressed={selected ? 'true' : 'false'}
-        onclick={() => {
-          if (!selected) {
-            onchange(option.value);
+        onclick={(event) => {
+          if (selected) {
+            // The selected segment is already in force: nothing is submitted again.
+            event.preventDefault();
+            return;
           }
+          onchange?.(option.value);
         }}
       >
         {#if selected}

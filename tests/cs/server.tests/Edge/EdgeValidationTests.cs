@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Sites;
 using Coldframe.Server.Edge;
 
 namespace Coldframe.Server.Tests.Edge;
@@ -109,5 +110,77 @@ public sealed class EdgeValidationTests
     {
         Assert.Equal(new string('n', 100), EdgeValidation.NormalizeSiteName($"  {new string('n', 100)}  "));
         Assert.Null(EdgeValidation.NormalizeSiteName(new string('n', 101)));
+    }
+
+    [Theory]
+    [InlineData("00:00", 0)]
+    [InlineData("07:00", 420)]
+    [InlineData("06:30", 390)]
+    [InlineData("22:00", 1320)]
+    [InlineData("23:59", 1439)]
+    public void ATimeOfDayIsHHmmAndRoundTrips(string time, int minutes)
+    {
+        Assert.Equal(minutes, EdgeValidation.NormalizeTimeOfDay(time));
+        Assert.Equal(time, EdgeValidation.TimeOfDayName(minutes));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("7:00")]
+    [InlineData("24:00")]
+    [InlineData("23:60")]
+    [InlineData("07.00")]
+    [InlineData("07:00:00")]
+    [InlineData(" 7:00")]
+    [InlineData("0७:00")]
+    [InlineData("-1:00")]
+    [InlineData("7 am")]
+    public void AnythingElseIsNoTimeOfDay(string? time)
+    {
+        Assert.Null(EdgeValidation.NormalizeTimeOfDay(time));
+    }
+
+    [Fact]
+    public void AWindowNamingOnlyItsStartClosesAt2200()
+    {
+        Assert.Equal(new NotificationWindow(390, 1320), EdgeValidation.NormalizeNotificationWindow("06:30", null));
+        Assert.Equal(new NotificationWindow(420, 1260), EdgeValidation.NormalizeNotificationWindow("07:00", "21:00"));
+        Assert.Equal(new NotificationWindow(0, 1439), EdgeValidation.NormalizeNotificationWindow("00:00", "23:59"));
+    }
+
+    [Theory]
+    [InlineData("07:00", "07:00")]
+    [InlineData("22:00", "07:00")]
+    [InlineData("22:00", null)]
+    [InlineData("23:00", null)]
+    [InlineData("7:00", "22:00")]
+    [InlineData("07:00", "24:00")]
+    [InlineData(null, "22:00")]
+    [InlineData("07:00", "")]
+    public void AWindowNeedsFromBeforeToWithinOneDay(string? from, string? to)
+    {
+        Assert.Null(EdgeValidation.NormalizeNotificationWindow(from, to));
+    }
+
+    [Fact]
+    public void AReminderCadenceIsDailyOrEvery2DaysAndRoundTrips()
+    {
+        Assert.Equal(ReminderCadence.Daily, EdgeValidation.NormalizeReminderCadence("daily"));
+        Assert.Equal(ReminderCadence.Every2Days, EdgeValidation.NormalizeReminderCadence("every2Days"));
+        Assert.Equal("daily", EdgeValidation.ReminderCadenceName(ReminderCadence.Daily));
+        Assert.Equal("every2Days", EdgeValidation.ReminderCadenceName(ReminderCadence.Every2Days));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Daily")]
+    [InlineData("every2days")]
+    [InlineData("never")]
+    [InlineData("weekly")]
+    public void ThereIsNoOtherReminderCadence(string? cadence)
+    {
+        Assert.Null(EdgeValidation.NormalizeReminderCadence(cadence));
     }
 }

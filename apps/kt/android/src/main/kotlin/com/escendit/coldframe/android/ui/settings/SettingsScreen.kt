@@ -33,8 +33,8 @@ import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
 /**
- * Settings index (UX-DR71): Site settings for the current Site (UX-DR74), Appearance and Account.
- * My notifications and Members join above them with their stories.
+ * Settings index (UX-DR71): My notifications (UX-DR72), Site settings for the current Site
+ * (UX-DR74), Appearance and Account. Members joins them with its story.
  */
 @Composable
 fun SettingsScreen(
@@ -43,10 +43,17 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     siteName: String? = null,
     onOpenSiteSettings: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
     Column(modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+        HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+        SettingsRow(
+            label = stringResource(R.string.settings_notifications),
+            helper = stringResource(R.string.settings_notifications_helper),
+            onClick = onOpenNotifications,
+        )
         HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
         if (siteName != null) {
             SettingsRow(

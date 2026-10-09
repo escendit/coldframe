@@ -720,6 +720,7 @@ public enum LotsActionNoticeKind: String, CaseIterable, Sendable {
   case lotNotFound
   case renameSiteUnavailable
   case keyReused
+  case reminderCadenceNotSaved
   case unreachable
   case certificate
   case unexpected
@@ -731,6 +732,7 @@ public enum LotsActionNoticeKind: String, CaseIterable, Sendable {
     case .lotNotFound: .siteSettingsLotNotFound
     case .renameSiteUnavailable: .siteSettingsRenameSiteUnavailable
     case .keyReused: .siteSettingsKeyReused
+    case .reminderCadenceNotSaved: .siteSettingsReminderCadenceNotSaved
     case .unreachable: .noticeUnreachable
     case .certificate: .noticeCertificate
     case .unexpected: .siteSettingsUnexpected
@@ -801,9 +803,33 @@ public struct LotRemovalPresentation: Equatable, Sendable {
   public let cancel: L10n = .siteSettingsCancel
 }
 
-/// Site settings as one surface (UX-DR74): the Site name, renamed only by an Owner, and the
-/// Lots, created, renamed and removed by Owners and Administrators. A Member sees both read-only
-/// with one notice; controls a Role cannot use are hidden, not disabled (UX-DR84).
+/// The Reminders section of Site settings (UX-DR50): the Site's Reminder cadence, "Daily" or
+/// "Every 2 days" and never "Never". An Owner or Administrator picks it and it applies at once;
+/// a Member reads it as text (UX-DR84).
+public struct SiteRemindersPresentation: Equatable, Sendable {
+  /// The Site's cadence, already naming a pick on its way.
+  public let cadence: ReminderCadenceKind
+  public let canEdit: Bool
+  public let working: Bool
+
+  public init(cadence: ReminderCadenceKind, canEdit: Bool, working: Bool = false) {
+    self.cadence = cadence
+    self.canEdit = canEdit
+    self.working = working
+  }
+
+  /// "Daily" / "Every 2 days".
+  public var segments: [SegmentPresentation<ReminderCadenceKind>] {
+    ReminderCadenceKind.allCases.map {
+      SegmentPresentation(value: $0, label: $0.label, isSelected: $0 == cadence)
+    }
+  }
+}
+
+/// Site settings as one surface (UX-DR74): the Site name, renamed only by an Owner, the Lots,
+/// created, renamed and removed by Owners and Administrators, and the Reminders, whose cadence
+/// Owners and Administrators pick. A Member sees all three read-only with one notice; controls a
+/// Role cannot use are hidden, not disabled (UX-DR84).
 public struct SiteSettingsPresentation: Equatable, Sendable {
   public let siteName: String
   public let role: SiteRoleKind
@@ -821,13 +847,17 @@ public struct SiteSettingsPresentation: Equatable, Sendable {
   public let removing: LotRemovalPresentation?
   public let notice: LotsActionNoticeKind?
   public let noticeSubject: String?
+  public let noticeTryAgain: Bool
+  /// Nil until the Server has answered with the Site's cadence: then there is no section.
+  public let reminders: SiteRemindersPresentation?
 
   public init(
     siteName: String, role: SiteRoleKind, canRenameSite: Bool, canEditLots: Bool,
     showsReadOnlyNotice: Bool, siteNameDraft: String, siteNameError: NameErrorKind?,
     siteRenameWorking: Bool, lots: [LotRowPresentation], newLotName: String,
     newLotNameError: NameErrorKind?, createWorking: Bool, renaming: LotRenamePresentation?,
-    removing: LotRemovalPresentation?, notice: LotsActionNoticeKind?, noticeSubject: String?
+    removing: LotRemovalPresentation?, notice: LotsActionNoticeKind?, noticeSubject: String?,
+    noticeTryAgain: Bool = false, reminders: SiteRemindersPresentation? = nil
   ) {
     self.siteName = siteName
     self.role = role
@@ -845,7 +875,22 @@ public struct SiteSettingsPresentation: Equatable, Sendable {
     self.removing = removing
     self.notice = notice
     self.noticeSubject = noticeSubject
+    self.noticeTryAgain = noticeTryAgain
+    self.reminders = reminders
   }
+
+  /// The notice above the Lots: every one but the Reminder cadence's, which sits with its
+  /// control in Reminders.
+  public var generalNotice: LotsActionNoticeKind? {
+    notice == .reminderCadenceNotSaved ? nil : notice
+  }
+
+  /// "The Reminder cadence was not saved. Try again.", shown in Reminders.
+  public var remindersNotice: LotsActionNoticeKind? {
+    notice == .reminderCadenceNotSaved ? notice : nil
+  }
+
+  public var remindersNoticeTryAgain: Bool { remindersNotice != nil && noticeTryAgain }
 
   /// "Rename Site", "Renaming Site…" in place while working.
   public var renameSiteLabel: L10n {
@@ -904,6 +949,8 @@ public struct LotsPresentation: Equatable, Sendable {
     renamingLotId: String?, renameDraft: String, renameError: String?, renameWorking: Bool,
     removingLotId: String?, removingLotName: String?, removeWorking: Bool,
     actionNotice: String?, actionNoticeSubject: String?,
+    actionNoticeTryAgain: Bool = false, canSetReminderCadence: Bool = false,
+    reminderCadence: String = "", reminderCadenceWorking: Bool = false,
     stale: Bool = false, refreshing: Bool = false, fetchedAtEpochMs: Int64 = 0,
     staleAgeDays: Int = 0, staleAgeHours: Int = 0, staleAgeMinutes: Int = 0,
     headline: String? = nil, headlineCount: Int = 0, headlineLotName: String? = nil,
@@ -988,7 +1035,13 @@ public struct LotsPresentation: Equatable, Sendable {
         renaming: canEditLots ? renaming : nil,
         removing: canEditLots ? removing : nil,
         notice: notice,
-        noticeSubject: notice?.takesSubject == true ? actionNoticeSubject : nil)
+        noticeSubject: notice?.takesSubject == true ? actionNoticeSubject : nil,
+        noticeTryAgain: actionNoticeTryAgain,
+        // Empty until the Server answered; a cadence this client does not know is not worded.
+        reminders: ReminderCadenceKind(rawValue: reminderCadence).map {
+          SiteRemindersPresentation(
+            cadence: $0, canEdit: canSetReminderCadence, working: reminderCadenceWorking)
+        })
       let counts = zip(countStatuses, countValues).compactMap { status, value in
         LotStatusKind(rawValue: status).map { LotCountPresentation(status: $0, count: value) }
       }
@@ -1077,4 +1130,8 @@ public protocol LotsService: AnyObject {
   func askRemove(lotId: String)
   func confirmRemove()
   func cancelRemove()
+  /// Picks the Site's Reminder cadence (Owner or Administrator); applies at once.
+  func setReminderCadence(_ cadence: ReminderCadenceKind)
+  /// Try again after the Reminder cadence was not saved.
+  func retryReminderCadence()
 }

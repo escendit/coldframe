@@ -768,4 +768,62 @@ class SitesEngineTest {
             settings.putString("sites.lastGood", """{"sites":[]}""")
             assertEquals(SitesState.Failed(SitesNotice.Unreachable), restart().state.value)
         }
+
+    @Test
+    fun dw23SigningOutRemovesTheZoneKeptOnThisDeviceButNotTheCurrentSite() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            val engine = signedIn()
+            engine.select("b")
+            choices.timeZone = "Pacific/Auckland"
+
+            signIn.value = SignInState.SignedOut(null)
+            runCurrent()
+
+            assertNull(choices.timeZone)
+            assertEquals("b", choices.currentSiteId)
+        }
+
+    @Test
+    fun dw23AStartThatIsStillRestoringKeepsTheZone() =
+        runTest {
+            choices.timeZone = "Pacific/Auckland"
+
+            engine()
+            runCurrent()
+
+            assertEquals("Pacific/Auckland", choices.timeZone)
+        }
+
+    @Test
+    fun uxDr61AConfirmedOrPickedZoneIsHandedToTheListenerThatSendsItToTheServer() =
+        runTest {
+            val engine = signedIn()
+            val handed = mutableListOf<String>()
+            engine.onTimeZoneChosen { handed += it }
+
+            engine.confirmTimeZone()
+            engine.pickTimeZone("Pacific/Auckland")
+            engine.pickTimeZone("Mars/Olympus")
+
+            assertEquals(listOf("Europe/Zurich", "Pacific/Auckland"), handed)
+        }
+
+    @Test
+    fun uxDr48TheZoneTheServerHoldsIsTheChosenZoneOfCreateSiteAndIsForgottenWithTheSession() =
+        runTest {
+            val engine = signedIn()
+
+            engine.timeZoneFromServer("Europe/Vienna")
+
+            assertEquals(TimeZoneProposal("Europe/Zurich", "Europe/Vienna", false), engine.form().timeZone)
+            assertNull(choices.timeZone)
+
+            signIn.value = SignInState.SignedOut(null)
+            runCurrent()
+            signIn.value = SignInState.SignedIn("Simon")
+            runCurrent()
+
+            assertNull(engine.form().timeZone.chosen)
+        }
 }

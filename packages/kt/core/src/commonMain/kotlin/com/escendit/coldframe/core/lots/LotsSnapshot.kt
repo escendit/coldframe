@@ -9,7 +9,13 @@ import com.escendit.coldframe.core.devices.DevicesState
  *
  * [surface] is `idle`, `loading`, `failed` or `ready`. [notice] is the load failure (the Sites
  * load keys); [actionNotice] is the last change that did not happen, with [actionNoticeSubject]
- * the Site name for `forbidden` and the Lot name for `lotClaimed`.
+ * the Site name for `forbidden` and the Lot name for `lotClaimed`, and [actionNoticeTryAgain] for
+ * `reminderCadenceNotSaved` only (`IosLots.retryReminderCadence`).
+ *
+ * The Reminders section of Site settings: [reminderCadence] is the Site's Reminder cadence as its
+ * contract value (`daily`, `every2Days`; empty until it is read, and the section then shows
+ * nothing), already naming a pick on its way ([reminderCadenceWorking]). [canSetReminderCadence]
+ * is true for an Owner or Administrator; a Member sees the value as text.
  *
  * The overview fields are [LotsOverview] flattened, built for the `now` the snapshot was taken
  * at; they are empty unless `ready`. Times are epoch milliseconds. An optional number crosses as
@@ -65,6 +71,10 @@ public data class LotsSnapshot(
     val removeWorking: Boolean,
     val actionNotice: String?,
     val actionNoticeSubject: String?,
+    val actionNoticeTryAgain: Boolean,
+    val canSetReminderCadence: Boolean,
+    val reminderCadence: String,
+    val reminderCadenceWorking: Boolean,
     /** Whether a *no Node* tile starts Add a Node: Administrators and Owners only. */
     val canAddNode: Boolean,
     val stale: Boolean,
@@ -169,6 +179,15 @@ public fun snapshotOf(
         removeWorking = ready?.removing?.working == true,
         actionNotice = ready?.notice?.kind?.key(),
         actionNoticeSubject = ready?.notice?.subject,
+        actionNoticeTryAgain = ready?.notice?.kind?.tryAgain == true,
+        canSetReminderCadence = settings?.canSetReminderCadence == true,
+        reminderCadence =
+            ready
+                ?.reminderCadence
+                ?.shown
+                ?.key
+                .orEmpty(),
+        reminderCadenceWorking = ready?.reminderCadence?.working == true,
         canAddNode = site?.let { DevicesState.canAddNode(it.role) } == true,
         stale = overview?.stale == true,
         staleReason = ready?.staleReason?.key(),

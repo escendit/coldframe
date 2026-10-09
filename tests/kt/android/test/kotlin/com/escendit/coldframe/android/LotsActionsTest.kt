@@ -7,9 +7,12 @@ import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotListDto
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.api.SiteListDto
+import com.escendit.coldframe.core.api.SiteReminderCadenceDto
 import com.escendit.coldframe.core.lots.LotsApi
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.notifications.ReminderCadence
+import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
 import com.escendit.coldframe.core.sites.SitesApi
@@ -84,5 +87,47 @@ class LotsActionsTest {
             runCurrent()
 
             assertEquals(listOf("a", "a"), listed)
+        }
+
+    @Test
+    fun `UX-DR50 the Reminder cadence actions set the Site cadence and send a pick that was not saved again`() =
+        runTest {
+            val puts = mutableListOf<Pair<String, String>>()
+            var failNext = true
+            val cadenceApi =
+                object : SiteReminderCadenceApi {
+                    override suspend fun getSiteReminderCadence(siteId: String): ApiResult<SiteReminderCadenceDto> =
+                        ApiResult.Ok(SiteReminderCadenceDto("daily"))
+
+                    override suspend fun setSiteReminderCadence(
+                        siteId: String,
+                        cadence: String,
+                    ): ApiResult<SiteReminderCadenceDto> {
+                        puts += siteId to cadence
+                        if (failNext) {
+                            failNext = false
+                            return ApiResult.Failed(ApiFailure.Unreachable)
+                        }
+                        return ApiResult.Ok(SiteReminderCadenceDto(cadence))
+                    }
+                }
+            val settings = MapSettings()
+            val signIn = MutableStateFlow<SignInState>(SignInState.SignedIn("Simon"))
+            val sites = SitesEngine(sitesApi, DeviceChoices(settings), backgroundScope, signIn)
+            val engine = LotsEngine(lotsApi, sites, settings, backgroundScope, cadenceApi = cadenceApi)
+            runCurrent()
+            val actions = LotsActions.of(engine)
+
+            actions.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            assertEquals(listOf("a" to "every2Days"), puts)
+            assertEquals(ReminderCadence.Daily, (engine.state.value as LotsState.Ready).reminderCadence.shown)
+
+            actions.retryReminderCadence()
+            runCurrent()
+
+            assertEquals(listOf("a" to "every2Days", "a" to "every2Days"), puts)
+            assertEquals(ReminderCadence.Every2Days, (engine.state.value as LotsState.Ready).reminderCadence.value)
         }
 }

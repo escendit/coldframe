@@ -47,22 +47,30 @@ interface Stop {
   readonly shadow: string;
 }
 
-/** Presses Tab `count` times from a freshly loaded page and records each stop and its ring. */
+/** A native time field is one element with a Tab stop per part (hours, minutes, AM/PM). */
+const stopsPerElement = 4;
+
+/**
+ * Presses Tab from a freshly loaded page until `count` elements were reached, and records each one and
+ * its ring. Tab stops that stay inside the same element (the parts of a native time field) count once.
+ */
 async function tabThrough(page: Page, count: number): Promise<Stop[]> {
   const stops: Stop[] = [];
-  for (let index = 0; index < count; index++) {
+  for (let presses = 0; stops.length < count && presses < count * stopsPerElement; presses++) {
     await page.keyboard.press('Tab');
-    stops.push(
-      await page.evaluate(() => {
-        const element = document.activeElement as HTMLElement;
-        const style = getComputedStyle(element);
-        return {
-          html: element.outerHTML.slice(0, 120),
-          outline: style.outlineStyle === 'none' ? '' : `${style.outlineWidth} ${style.outlineColor}`,
-          shadow: style.boxShadow === 'none' ? '' : style.boxShadow,
-        };
-      }),
-    );
+    const stop = await page.evaluate(() => {
+      const element = document.activeElement as HTMLElement;
+      const style = getComputedStyle(element);
+      return {
+        html: element.outerHTML.slice(0, 120),
+        outline: style.outlineStyle === 'none' ? '' : `${style.outlineWidth} ${style.outlineColor}`,
+        shadow: style.boxShadow === 'none' ? '' : style.boxShadow,
+        time: element instanceof HTMLInputElement && element.type === 'time',
+      };
+    });
+    if (!(stop.time && stops.at(-1)?.html === stop.html)) {
+      stops.push({ html: stop.html, outline: stop.outline, shadow: stop.shadow });
+    }
   }
   return stops;
 }

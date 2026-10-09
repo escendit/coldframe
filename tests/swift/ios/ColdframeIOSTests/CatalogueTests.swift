@@ -107,6 +107,7 @@ private let coveredUxDrs: [String: [Int]] = [
   "4.8 Lot detail with history and Device status": [27, 28, 29, 30, 32, 33, 63, 78, 98],
   "5.4 Set Thresholds in the app and see them on the chart": [5, 32, 33, 45, 69, 84, 91],
   "6.2 See Alerts in the apps": [14, 25, 26, 64, 82, 98],
+  "6.3 My notification settings and the Site Reminder cadence": [47, 48, 49, 50, 72],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -161,13 +162,17 @@ func alertsCatalogueCopy() throws {
   #expect(entries["alerts_unreachable"] == entries["devices_unreachable"])
 }
 
-@Test("UX-DR124 the Alerts strings are the Android ones, key for key and word for word")
-func alertsCatalogueMatchesAndroid() throws {
+/// The entries of the Android `strings.xml` and of the iOS catalogue whose key starts with one
+/// of `prefixes`, with the placeholders and escapes of both written the same way.
+private func sharedCopy(
+  _ prefixes: [String]
+) throws -> (android: [String: String], ios: [String: String]) {
   let xml = try Repo.text("apps/kt/android/src/main/res/values/strings.xml")
+  let names = "(?:" + prefixes.joined(separator: "|") + ")"
   let single = try NSRegularExpression(
-    pattern: #"<string name="((?:alert|nav_alerts)[a-z_]*)">(.*?)</string>"#)
+    pattern: #"<string name="("# + names + #"[a-z0-9_]*)">(.*?)</string>"#)
   let plural = try NSRegularExpression(
-    pattern: #"<plurals name="((?:alert|nav_alerts)[a-z_]*)">(.*?)</plurals>"#,
+    pattern: #"<plurals name="("# + names + #"[a-z0-9_]*)">(.*?)</plurals>"#,
     options: .dotMatchesLineSeparators)
   let item = try NSRegularExpression(pattern: #"<item quantity="(\w+)">(.*?)</item>"#)
   func captures(_ expression: NSRegularExpression, _ text: String) -> [(String, String)] {
@@ -191,10 +196,46 @@ func alertsCatalogueMatchesAndroid() throws {
   for (key, body) in captures(plural, xml) {
     for (form, value) in captures(item, body) { android["\(key).\(form)"] = words(value) }
   }
-  let ios = try Catalogue.entries().filter {
-    $0.key.hasPrefix("alert") || $0.key.hasPrefix("nav_alerts")
+  let ios = try Catalogue.entries().filter { entry in
+    prefixes.contains { entry.key.hasPrefix($0) }
   }.mapValues(words)
+  return (android, ios)
+}
 
-  #expect(android.count > 10)
-  #expect(android == ios)
+@Test("UX-DR124 the Alerts strings are the Android ones, key for key and word for word")
+func alertsCatalogueMatchesAndroid() throws {
+  let copy = try sharedCopy(["alert", "nav_alerts"])
+
+  #expect(copy.android.count > 10)
+  #expect(copy.android == copy.ios)
+}
+
+@Test("UX-DR124 UX-DR72 the notification settings strings are the Android ones, word for word")
+func notificationsCatalogueMatchesAndroid() throws {
+  let copy = try sharedCopy([
+    "notifications_", "reminders_", "settings_notifications", "site_settings_reminder",
+    "time_zone_",
+  ])
+
+  #expect(copy.android.count >= 40)
+  #expect(copy.android == copy.ios)
+  #expect(copy.ios["time_zone_helper"] == "Used for your Notification Window.")
+  #expect(copy.ios["notifications_mute"] == "Mute %1$@")
+  #expect(copy.ios["notifications_window_range"] == "%1$@ to %2$@")
+  // The window is told to a person: no Silence Window, no "Never".
+  #expect(!copy.ios.values.contains { $0.contains("Silence Window") || $0.contains("Never") })
+}
+
+@Test("UX-DR124 UX-DR72 every notification settings notice has its catalogue entry")
+func notificationsNoticeCopy() throws {
+  let entries = try Catalogue.entries()
+  let controls: [NotificationControlKind?] = NotificationControlKind.allCases + [nil]
+  for kind in NotificationSettingsNoticeKind.allCases {
+    for control in controls {
+      #expect(entries[kind.message(control: control).rawValue] != nil, "\(kind)")
+    }
+  }
+  #expect(
+    entries["notifications_notice_site_gone"]
+      == "%1$@ is no longer one of your Sites. Nothing was changed.")
 }

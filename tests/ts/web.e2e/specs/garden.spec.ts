@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { appUrl } from '../fixtures/ports.ts';
-import { axeClean, largestText, nothingClipped, resetSites, serverSites, setMode, signInButton, useTheme } from './helpers.ts';
+import { axeClean, largestText, nothingClipped, resetSites, serverNotifications, serverSites, setMode, signInButton, useTheme } from './helpers.ts';
 
 const themes = ['light', 'dark'] as const;
 
@@ -48,8 +48,10 @@ test.describe('Create Site and the empty Garden', () => {
       const { posts, sites } = await serverSites();
       expect(posts).toHaveLength(1);
       expect(posts[0]?.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/u);
-      // AD-11: the time zone stays on this browser; the Server gets {name} only.
+      // AD-11: the time zone is the User's, never the Site's; POST /sites gets {name} only.
       expect(posts[0]?.body).toEqual({ name: 'Home' });
+      // Story 6.3: the zone confirmed here goes to the Server as the User's own choice.
+      expect((await serverNotifications()).settings).toMatchObject({ timeZone: detected, timeZoneConfirmed: true });
       expect(sites.map((site) => [site.name, site.role])).toEqual([['Home', 'Owner']]);
 
       await largestText(page);

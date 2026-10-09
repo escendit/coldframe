@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Globalization;
 using System.Text.Json;
 using Coldframe.Contracts.Devices;
+using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 
 namespace Coldframe.Server.Edge;
@@ -161,6 +162,90 @@ public static class EdgeValidation
         DeviceKind.Hub => "hub",
         DeviceKind.Node => "node",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown Device kind."),
+    };
+
+    /// <summary>
+    /// Parses a wall-clock time of the contract, exactly <c>HH:mm</c> from <c>00:00</c> to <c>23:59</c>, into
+    /// minutes since midnight, otherwise <see langword="null"/>. <c>7:00</c> and <c>24:00</c> are not times.
+    /// </summary>
+    public static int? NormalizeTimeOfDay(string? time)
+    {
+        if (time is not { Length: 5 }
+            || time[2] != ':'
+            || !char.IsAsciiDigit(time[0])
+            || !char.IsAsciiDigit(time[1])
+            || !char.IsAsciiDigit(time[3])
+            || !char.IsAsciiDigit(time[4]))
+        {
+            return null;
+        }
+
+        var hours = ((time[0] - '0') * 10) + (time[1] - '0');
+        var minutes = ((time[3] - '0') * 10) + (time[4] - '0');
+
+        return hours <= 23 && minutes <= 59 ? (hours * 60) + minutes : null;
+    }
+
+    /// <summary>
+    /// The contract's <c>HH:mm</c> of minutes since midnight.
+    /// </summary>
+    public static string TimeOfDayName(int minutes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(minutes);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(minutes, NotificationWindow.LastMinute);
+
+        return string.Create(CultureInfo.InvariantCulture, $"{minutes / 60:00}:{minutes % 60:00}");
+    }
+
+    /// <summary>
+    /// Parses a Notification Window of the contract: <paramref name="from"/> and <paramref name="to"/> as
+    /// <c>HH:mm</c>, <paramref name="to"/> omitted meaning 22:00, and <paramref name="from"/> before
+    /// <paramref name="to"/>. Returns <see langword="null"/> for anything else.
+    /// </summary>
+    public static NotificationWindow? NormalizeNotificationWindow(string? from, string? to)
+    {
+        if (NormalizeTimeOfDay(from) is not { } fromMinutes)
+        {
+            return null;
+        }
+
+        int toMinutes;
+        if (to is null)
+        {
+            toMinutes = NotificationWindow.DefaultToMinutes;
+        }
+        else if (NormalizeTimeOfDay(to) is { } parsed)
+        {
+            toMinutes = parsed;
+        }
+        else
+        {
+            return null;
+        }
+
+        var window = new NotificationWindow(fromMinutes, toMinutes);
+        return window.IsValid ? window : null;
+    }
+
+    /// <summary>
+    /// Parses a <c>ReminderCadence</c> of the contract, exactly <c>daily</c> or <c>every2Days</c>, otherwise
+    /// <see langword="null"/>.
+    /// </summary>
+    public static ReminderCadence? NormalizeReminderCadence(string? cadence) => cadence switch
+    {
+        "daily" => ReminderCadence.Daily,
+        "every2Days" => ReminderCadence.Every2Days,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The contract's name of a <see cref="ReminderCadence"/>: <c>daily</c> or <c>every2Days</c>.
+    /// </summary>
+    public static string ReminderCadenceName(ReminderCadence cadence) => cadence switch
+    {
+        ReminderCadence.Daily => "daily",
+        ReminderCadence.Every2Days => "every2Days",
+        _ => throw new ArgumentOutOfRangeException(nameof(cadence), cadence, "Unknown Reminder cadence."),
     };
 
     /// <summary>

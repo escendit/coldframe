@@ -69,6 +69,8 @@
   <string name="alert_spoken_open">%1$s, since %2$s</string>
   <string name="alert_spoken_closed">%1$s, since %2$s, closed %3$s</string>
 
+  <string name="settings_notifications">My notifications</string>
+  <string name="settings_notifications_helper">Notification Window, time zone, mute and Reminders</string>
   <string name="settings_site_settings">Site settings</string>
   <string name="settings_site_settings_helper">Name and Lots of %1$s</string>
   <string name="settings_appearance">Appearance</string>
@@ -134,7 +136,8 @@
   <string name="time_zone_legend">Time zone</string>
   <string name="time_zone_question">Is your time zone %1$s?</string>
   <string name="time_zone_chosen">Your time zone is %1$s.</string>
-  <string name="time_zone_helper">Used for your Notification Window on this phone.</string>
+  <string name="time_zone_unknown">Your time zone could not be detected. Choose it from the list.</string>
+  <string name="time_zone_helper">Used for your Notification Window.</string>
   <string name="time_zone_confirm">Confirm</string>
   <string name="time_zone_change">Change</string>
   <string name="time_zone_filter">Search time zones</string>
@@ -275,6 +278,10 @@
   <string name="site_settings_rename_site_unavailable">The Site was not renamed: your Server\'s sign-in service didn\'t answer. Try again.</string>
   <string name="site_settings_key_reused">The Lot was not created. Try again.</string>
   <string name="site_settings_unexpected">Nothing was changed: your Server returned an error. Try again.</string>
+  <string name="site_settings_reminders">Reminders</string>
+  <string name="site_settings_reminder_cadence">Reminder cadence</string>
+  <string name="site_settings_reminder_cadence_helper">How often a Reminder repeats while a Threshold Alert stays open.</string>
+  <string name="site_settings_reminder_cadence_not_saved">The Reminder cadence was not saved. Try again.</string>
 
   <!-- Story 3.6: Add a Hub. -->
   <string name="setup_step_of">/ %1$s</string>
@@ -583,4 +590,31 @@
   <string name="thresholds_notice_not_found">%1$s has no such Sensor. Nothing was changed. Go back to the Lot and open Thresholds again.</string>
   <string name="thresholds_notice_not_saved">Not saved. The Server could not be reached, so your edits are kept here. Try again.</string>
   <string name="thresholds_notice_unexpected">Something went wrong, and nothing was changed. Try again.</string>
+
+  <!-- Story 6.3: My notifications and the Reminder cadence. -->
+  <string name="notifications_title">My notifications</string>
+  <string name="notifications_window">Notification Window</string>
+  <string name="notifications_window_from">From</string>
+  <string name="notifications_window_to">To</string>
+  <string name="notifications_window_range">%1$s to %2$s</string>
+  <string name="notifications_window_helper">Outside this window, anything waits for one summary at %1$s.</string>
+  <string name="notifications_window_not_before">The start must be before the end.</string>
+  <string name="notifications_window_from_title">Window starts at</string>
+  <string name="notifications_window_to_title">Window ends at</string>
+  <string name="notifications_window_set_time">Set time</string>
+  <string name="notifications_window_save">Save</string>
+  <string name="notifications_window_saving">Saving…</string>
+  <string name="notifications_window_saved">Saved.</string>
+  <string name="notifications_mute">Mute %1$s</string>
+  <string name="notifications_mute_helper">Only you stop getting notifications from %1$s.</string>
+  <string name="notifications_cadence">My Reminder cadence</string>
+  <string name="notifications_cadence_use_site">Use Site setting</string>
+  <string name="notifications_cadence_helper">Site setting: %1$s</string>
+  <string name="notifications_unavailable">Your Server couldn\'t read your notification settings. Nothing was changed.</string>
+  <string name="notifications_notice_not_saved">Not saved: your Server could not be reached. Nothing was changed.</string>
+  <string name="notifications_notice_invalid_window">Your Server did not accept this window. Nothing was changed.</string>
+  <string name="notifications_notice_invalid_time_zone">Your Server does not know this time zone. Nothing was changed. Choose another one.</string>
+  <string name="notifications_notice_site_gone">%1$s is no longer one of your Sites. Nothing was changed.</string>
+  <string name="reminders_daily">Daily</string>
+  <string name="reminders_every_2_days">Every 2 days</string>
 </resources>

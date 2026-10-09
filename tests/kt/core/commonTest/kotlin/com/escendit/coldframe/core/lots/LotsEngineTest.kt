@@ -5,6 +5,9 @@ import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotListDto
 import com.escendit.coldframe.core.api.SiteDto
+import com.escendit.coldframe.core.api.SiteReminderCadenceDto
+import com.escendit.coldframe.core.notifications.ReminderCadence
+import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
 import com.escendit.coldframe.core.sites.FakeSitesApi
@@ -90,9 +93,39 @@ class FakeLotsApi : LotsApi {
     }
 }
 
+/** An in-memory Server for the Site's Reminder cadence, per Site; `daily` until it is set. */
+class FakeSiteReminderCadenceApi : SiteReminderCadenceApi {
+    val cadences = mutableMapOf<String, String>()
+    val gets = mutableListOf<String>()
+    val puts = mutableListOf<Pair<String, String>>()
+    val failures = ArrayDeque<ApiFailure>()
+    var readFailure: ApiFailure? = null
+    var gate: CompletableDeferred<Unit>? = null
+
+    override suspend fun getSiteReminderCadence(siteId: String): ApiResult<SiteReminderCadenceDto> {
+        gets += siteId
+        readFailure?.let { return ApiResult.Failed(it) }
+        return ApiResult.Ok(SiteReminderCadenceDto(cadences[siteId] ?: "daily"))
+    }
+
+    override suspend fun setSiteReminderCadence(
+        siteId: String,
+        cadence: String,
+    ): ApiResult<SiteReminderCadenceDto> {
+        puts += siteId to cadence
+        gate?.await()
+        // The Site keeps the cadence even when a member was not reached (503).
+        val failure = failures.removeFirstOrNull()
+        if (failure == null || failure == ApiFailure.ReminderCadenceNotDelivered) cadences[siteId] = cadence
+        failure?.let { return ApiResult.Failed(it) }
+        return ApiResult.Ok(SiteReminderCadenceDto(cadence))
+    }
+}
+
 class LotsEngineTest {
     private val sitesApi = FakeSitesApi()
     private val api = FakeLotsApi()
+    private val cadenceApi = FakeSiteReminderCadenceApi()
     private val signIn = MutableStateFlow<SignInState>(SignInState.Restoring)
     private var keys = 0
 
@@ -114,7 +147,15 @@ class LotsEngineTest {
                 newKey = { "site-key" },
                 zones = { emptyList() },
             )
-        val lots = LotsEngine(api, sitesEngine, MapSettings(), backgroundScope, newKey = { "key-${++keys}" })
+        val lots =
+            LotsEngine(
+                api,
+                sitesEngine,
+                MapSettings(),
+                backgroundScope,
+                newKey = { "key-${++keys}" },
+                cadenceApi = cadenceApi,
+            )
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
         return sitesEngine to lots
@@ -245,6 +286,165 @@ class LotsEngineTest {
         assertEquals(SiteSettings(false, true, false), SiteSettings.of(SiteRole.Administrator))
         assertEquals(SiteSettings(false, false, true), SiteSettings.of(SiteRole.Member))
     }
+
+    // UX-DR50 the Site's Reminder cadence
+
+    @Test
+    fun uxDr84OnlyOwnersAndAdministratorsSetTheSiteReminderCadence() {
+        assertTrue(SiteSettings.of(SiteRole.Owner).canSetReminderCadence)
+        assertTrue(SiteSettings.of(SiteRole.Administrator).canSetReminderCadence)
+        assertFalse(SiteSettings.of(SiteRole.Member).canSetReminderCadence)
+    }
+
+    @Test
+    fun uxDr50TheSiteCadenceIsReadWithTheSiteAndIsDailyByDefault() =
+        runTest {
+            val lots = lotsFor("Member")
+
+            assertEquals(listOf("a"), cadenceApi.gets)
+            assertEquals(SiteReminderCadence(ReminderCadence.Daily), lots.ready().reminderCadence)
+            assertEquals(ReminderCadence.Daily, lots.ready().reminderCadence.shown)
+            assertFalse(lots.ready().reminderCadence.working)
+        }
+
+    @Test
+    fun uxDr50SwitchingSiteReadsTheCadenceOfTheNewSite() =
+        runTest {
+            cadenceApi.cadences["b"] = "every2Days"
+            val (sites, lots) = engines(site("a", "Home", "Owner"), site("b", "Allotment", "Member"))
+
+            sites.select("b")
+            runCurrent()
+
+            assertEquals(ReminderCadence.Every2Days, lots.ready().reminderCadence.value)
+        }
+
+    @Test
+    fun uxDr50ARefreshReadsTheCadenceAgain() =
+        runTest {
+            val lots = lotsFor()
+            cadenceApi.cadences["a"] = "every2Days"
+
+            lots.refresh()
+            runCurrent()
+
+            assertEquals(ReminderCadence.Every2Days, lots.ready().reminderCadence.value)
+        }
+
+    @Test
+    fun uxDr50ACadenceThatCannotBeReadIsNotKnownAndTheLotsStillShow() =
+        runTest {
+            seed("Tomatoes" to "noNode")
+            cadenceApi.readFailure = ApiFailure.Unreachable
+
+            val lots = lotsFor()
+
+            assertNull(lots.ready().reminderCadence.value)
+            assertEquals(listOf("Tomatoes"), lots.ready().lots.map { it.name })
+        }
+
+    @Test
+    fun uxDr50AnAdministratorPicksEvery2DaysAndItShowsAtOnce() =
+        runTest {
+            val lots = lotsFor("Administrator")
+            cadenceApi.gate = CompletableDeferred()
+
+            lots.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            assertEquals(ReminderCadence.Every2Days, lots.ready().reminderCadence.shown)
+            assertTrue(lots.ready().reminderCadence.working)
+            lots.setReminderCadence(ReminderCadence.Daily)
+            cadenceApi.gate?.complete(Unit)
+            runCurrent()
+
+            assertEquals(listOf("a" to "every2Days"), cadenceApi.puts)
+            assertEquals(SiteReminderCadence(ReminderCadence.Every2Days), lots.ready().reminderCadence)
+            assertNull(lots.ready().notice)
+        }
+
+    @Test
+    fun uxDr84AMemberCannotSetTheSiteCadenceAndNothingIsSent() =
+        runTest {
+            val lots = lotsFor("Member")
+
+            lots.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            assertTrue(cadenceApi.puts.isEmpty())
+            assertEquals(ReminderCadence.Daily, lots.ready().reminderCadence.shown)
+        }
+
+    @Test
+    fun uxDr50ACadenceThatWasNotSavedReturnsToTheServersValueAndTryAgainSendsItAgain() =
+        runTest {
+            val lots = lotsFor()
+            cadenceApi.failures += ApiFailure.Unreachable
+
+            lots.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            assertEquals(SiteReminderCadence(ReminderCadence.Daily), lots.ready().reminderCadence)
+            assertEquals(LotsNotice(LotsNoticeKind.ReminderCadenceNotSaved), lots.ready().notice)
+            assertTrue(LotsNoticeKind.ReminderCadenceNotSaved.tryAgain)
+
+            lots.retryReminderCadence()
+            runCurrent()
+
+            assertEquals(listOf("a" to "every2Days", "a" to "every2Days"), cadenceApi.puts)
+            assertEquals(ReminderCadence.Every2Days, lots.ready().reminderCadence.value)
+            assertNull(lots.ready().notice)
+        }
+
+    @Test
+    fun uxDr50ACadenceThatDidNotReachEveryMemberIsNotSavedAndRepeatingItRepairsIt() =
+        runTest {
+            val lots = lotsFor()
+            cadenceApi.failures += ApiFailure.ReminderCadenceNotDelivered
+
+            lots.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            // The Site holds the pick already, so the control shows it; the notice says a member was not reached.
+            assertEquals(SiteReminderCadence(ReminderCadence.Every2Days), lots.ready().reminderCadence)
+            assertEquals(ReminderCadence.Every2Days, lots.ready().reminderCadence.shown)
+            assertEquals(LotsNotice(LotsNoticeKind.ReminderCadenceNotSaved), lots.ready().notice)
+
+            lots.retryReminderCadence()
+            runCurrent()
+
+            assertNull(lots.ready().notice)
+            assertEquals(2, cadenceApi.puts.size)
+            assertEquals(ReminderCadence.Every2Days, lots.ready().reminderCadence.value)
+        }
+
+    @Test
+    fun uxDr84ASiteCadence403NamesTheSiteAndHasNoTryAgain() =
+        runTest {
+            val lots = lotsFor("Administrator")
+            cadenceApi.failures += ApiFailure.Forbidden
+
+            lots.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            assertEquals(LotsNotice(LotsNoticeKind.Forbidden, "Home"), lots.ready().notice)
+            assertFalse(LotsNoticeKind.Forbidden.tryAgain)
+            lots.retryReminderCadence()
+            runCurrent()
+            assertEquals(1, cadenceApi.puts.size)
+        }
+
+    @Test
+    fun uxDr93A401OnTheSiteCadenceGoesIdle() =
+        runTest {
+            val lots = lotsFor()
+            cadenceApi.failures += ApiFailure.Unauthorized
+
+            lots.setReminderCadence(ReminderCadence.Every2Days)
+            runCurrent()
+
+            assertEquals(LotsState.Idle, lots.state.value)
+        }
 
     @Test
     fun uxDr84AMemberCannotCreateRenameOrRemoveAndNothingIsSent() =

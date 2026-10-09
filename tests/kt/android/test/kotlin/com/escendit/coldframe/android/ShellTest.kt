@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.core.appearance.AppearanceStore
 import com.escendit.coldframe.core.signin.SignInState
@@ -82,6 +83,34 @@ class ShellTest {
     }
 
     @Test
+    fun `UX-DR71 UX-DR72 Settings lists My notifications, Site settings, Appearance, then Account`() {
+        show()
+        tab("Settings").performClick()
+
+        val tops =
+            listOf("My notifications", "Site settings", "Appearance", "Account").map {
+                compose
+                    .onNodeWithText(it)
+                    .fetchSemanticsNode()
+                    .boundsInRoot.top
+            }
+        assertEquals(tops.sorted(), tops)
+    }
+
+    @Test
+    fun `UX-DR72 My notifications opens under its own heading and system back returns to Settings`() {
+        show()
+        tab("Settings").performClick()
+        compose.onNodeWithText("My notifications").performClick()
+
+        compose.onNode(isHeading().and(hasLabel("My notifications"))).assertExists()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+
+        compose.onNode(isHeading().and(hasLabel("Settings"))).assertExists()
+    }
+
+    @Test
     fun `UX-DR71 Settings lists Appearance, then Account with Sign out`() {
         show()
         tab("Settings").performClick()
@@ -108,14 +137,14 @@ class ShellTest {
         show()
         tab("Settings").performClick()
 
-        compose.onNodeWithText("SIGN OUT").performClick()
+        compose.onNodeWithText("SIGN OUT").performScrollTo().performClick()
         compose.onAllNodes(isDialog()).assertCountEquals(1)
         compose.onNodeWithText("Sign out of Coldframe on this phone?").assertExists()
         compose.onNodeWithText("CANCEL").performClick()
         compose.onAllNodes(isDialog()).assertCountEquals(0)
         assertEquals(0, signOuts)
 
-        compose.onNodeWithText("SIGN OUT").performClick()
+        compose.onNodeWithText("SIGN OUT").performScrollTo().performClick()
         compose.onAllNodesWithText("SIGN OUT")[1].performClick()
         assertEquals(1, signOuts)
         compose.onAllNodes(isDialog()).assertCountEquals(0)

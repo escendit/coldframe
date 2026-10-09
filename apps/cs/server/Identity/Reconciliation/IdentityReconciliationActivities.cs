@@ -81,9 +81,15 @@ public sealed partial class IdentityReconciliationActivities(
 
         foreach (var (userId, role) in result.Members)
         {
-            await grains.GetGrain<IUserGrain>(userId)
-                .SyncSiteMembership(route.SiteId, deleted ? null : role, cancellationToken)
-                .ConfigureAwait(false);
+            var user = grains.GetGrain<IUserGrain>(userId);
+            await user.SyncSiteMembership(route.SiteId, deleted ? null : role, cancellationToken).ConfigureAwait(false);
+
+            // The Site's Reminder cadence goes with the Membership (Story 6.3): a member who joined after the
+            // cadence was set, or whom the request's own fan-out missed, gets it here.
+            if (!deleted)
+            {
+                await user.SyncSiteReminderCadence(route.SiteId, result.ReminderCadence, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         foreach (var userId in result.FormerMembers)

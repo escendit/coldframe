@@ -12,7 +12,8 @@ namespace Coldframe.Server.Identity;
 /// A Site, keyed by its Site ID. The only writer of the Site's Memberships and Roles, both in its journal
 /// and in Phase Two (AD-1, AD-3). It checks its own persisted state, calls Keycloak, then persists.
 /// Reconciliation only reads Keycloak and never writes back to it. It also keeps the set of the Site's open
-/// Alerts (Story 6.1), as the Alert grains report them, and never calls User grains.
+/// Alerts (Story 6.1), as the Alert grains report them, and the Site's Reminder cadence (Story 6.3), and
+/// never calls User grains.
 /// </summary>
 [GrainType("site")]
 public sealed partial class SiteGrain(
@@ -351,13 +352,45 @@ public sealed partial class SiteGrain(
         return raised || plan.ChangesMemberships;
     }
 
+    /// <inheritdoc />
+    public Task<ReminderCadence?> GetReminderCadence(CancellationToken cancellationToken = default) =>
+        Task.FromResult<ReminderCadence?>(State.Lifecycle == SiteLifecycle.Active ? State.ReminderCadence : null);
+
+    /// <inheritdoc />
+    public async Task<SiteReminderCadenceResult> SetReminderCadence(ReminderCadence cadence, CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(cadence))
+        {
+            throw new ArgumentOutOfRangeException(nameof(cadence), cadence, "Unknown Reminder cadence.");
+        }
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new SiteReminderCadenceResult(SiteReminderCadenceOutcome.NotFound, State.ReminderCadence, []);
+        }
+
+        var outcome = SiteReminderCadenceOutcome.Unchanged;
+
+        if (State.ReminderCadence != cadence)
+        {
+            RaiseEvent(new SiteReminderCadenceChanged(cadence, Clock.GetUtcNow()));
+            await ConfirmEvents();
+            outcome = SiteReminderCadenceOutcome.Changed;
+        }
+
+        // The members are named also when nothing changed: the caller hands them the cadence again, which
+        // finishes a fan-out that was cut short. The Site grain itself never calls User grains.
+        return new SiteReminderCadenceResult(outcome, State.ReminderCadence, [.. State.Members.Keys.Order(StringComparer.Ordinal)]);
+    }
+
     // The outcome and the Site's state afterwards, including tentative events not yet confirmed.
     private SiteReconciliationResult Result(SiteReconciliationOutcome outcome) =>
         new(
             outcome,
             TentativeState.Lifecycle,
             new Dictionary<string, SiteRole>(TentativeState.Members, StringComparer.Ordinal),
-            [.. TentativeState.FormerMembers.Order(StringComparer.Ordinal)]);
+            [.. TentativeState.FormerMembers.Order(StringComparer.Ordinal)],
+            TentativeState.ReminderCadence);
 
     // Read-your-writes: the identity projector stays the only writer of its read model; the grain only
     // drives it, so the next request sees the Membership without waiting for a hint or a poll.

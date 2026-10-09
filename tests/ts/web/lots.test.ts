@@ -9,6 +9,7 @@ import { checkLotName, lotsNoticeOf, siteSettingsOf, type Lot, type SiteSettings
 import { createLot, listLots, removeLot, renameLot } from '$lib/server/lots';
 import { loadLots, loadSiteSettings, siteSettingsAction } from '$lib/server/site-settings';
 import { renameSite } from '$lib/server/sites';
+import type { ReminderCadence } from '$lib/notifications';
 import type { Site } from '$lib/sites';
 import { fakeServer, fetchFailed, jsonResponse, problemResponse } from './fakes.ts';
 
@@ -127,6 +128,69 @@ describe('Loading Lots', () => {
   });
 });
 
+describe('Loading the Site Reminder cadence', () => {
+  const cadencePath = `/sites/${siteId}/reminder-cadence`;
+
+  function answers(cadence: () => Response) {
+    return fakeServer((request) => (new URL(request.url).pathname === cadencePath ? cadence() : jsonResponse(200, { lots: [tomatoes] })));
+  }
+
+  test('UX-DR50 Site settings reads the Lots and the Site cadence, each once', async () => {
+    const fake = answers(() => jsonResponse(200, { cadence: 'every2Days' }));
+    const data = await loadSiteSettings(locals, home, { serverUrl, fetch: fake.fetch });
+    expect(data).toMatchObject({ lots: [tomatoes], lotsNotice: null, reminderCadence: 'every2Days', reminderCadenceNotice: null });
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path}`).sort()).toEqual([`GET /sites/${siteId}/lots`, `GET ${cadencePath}`]);
+  });
+
+  test('a cadence that cannot be read is a notice of its own; the Lots still show; a 401 signs out', async () => {
+    const down = await loadSiteSettings(locals, home, { serverUrl, fetch: answers(() => problemResponse(500, 'internal')).fetch });
+    expect(down).toMatchObject({ lots: [tomatoes], reminderCadence: null, reminderCadenceNotice: 'unavailable' });
+    const odd = await loadSiteSettings(locals, home, { serverUrl, fetch: answers(() => jsonResponse(200, { cadence: 'never' })).fetch });
+    expect(odd).toMatchObject({ reminderCadence: null, reminderCadenceNotice: 'unavailable' });
+    const none = await loadSiteSettings(locals, null, { serverUrl, fetch: answers(() => jsonResponse(200, { cadence: 'daily' })).fetch });
+    expect(none).toMatchObject({ lots: [], reminderCadence: null, reminderCadenceNotice: null });
+    const expired = await redirectOf(() => loadSiteSettings(locals, home, { serverUrl, fetch: answers(() => problemResponse(401, 'unauthorized')).fetch }));
+    expect(expired.location).toContain('/.oidc/signout');
+  });
+});
+
+describe('Site Reminder cadence action', () => {
+  const cadencePath = `/sites/${siteId}/reminder-cadence`;
+  const fields = { siteId, siteName: 'Home', cadence: 'every2Days' };
+
+  test('UX-DR50 picking a cadence PUTs it for the Site', async () => {
+    const fake = fakeServer(() => jsonResponse(200, { cadence: 'every2Days' }));
+    expect(await siteSettingsAction('setReminderCadence', locals, formRequest(fields), { serverUrl, fetch: fake.fetch })).toEqual({ action: 'setReminderCadence', done: true });
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path} ${seen.body}`)).toEqual([`PUT ${cadencePath} {"cadence":"every2Days"}`]);
+  });
+
+  test('UX-DR50 there is no Never: an unknown cadence is not sent', async () => {
+    const fake = fakeServer(() => jsonResponse(200, { cadence: 'daily' }));
+    const failure = await failureOf(siteSettingsAction('setReminderCadence', locals, formRequest({ ...fields, cadence: 'never' }), { serverUrl, fetch: fake.fetch }));
+    expect(failure).toMatchObject({ action: 'setReminderCadence', notice: 'unexpected' });
+    expect(fake.seen).toEqual([]);
+  });
+
+  test.each([
+    [503, 'reminder-cadence-not-delivered', 'cadenceNotDelivered'],
+    [500, 'internal', 'unexpected'],
+    [400, 'validation', 'unexpected'],
+    [403, 'forbidden', 'forbidden'],
+    [404, 'site-not-found', 'siteNotFound'],
+  ] as const)('UX-DR84 a %i %s answer is the %s notice and keeps the cadence for Try again', async (status, slug, notice) => {
+    const fake = fakeServer(() => problemResponse(status, slug));
+    const failure = await failureOf(siteSettingsAction('setReminderCadence', locals, formRequest(fields), { serverUrl, fetch: fake.fetch }));
+    expect(failure).toMatchObject({ action: 'setReminderCadence', notice, nameError: null, cadence: 'every2Days', siteName: 'Home' });
+  });
+
+  test('an unreachable Server is the unreachable notice; a 401 signs out', async () => {
+    const failure = await failureOf(siteSettingsAction('setReminderCadence', locals, formRequest(fields), { serverUrl, fetch: () => Promise.reject(fetchFailed('ECONNREFUSED')) }));
+    expect(failure.notice).toBe('unreachable');
+    const expired = fakeServer(() => problemResponse(401, 'unauthorized'));
+    expect((await redirectOf(() => siteSettingsAction('setReminderCadence', locals, formRequest(fields), { serverUrl, fetch: expired.fetch }))).location).toContain('/.oidc/signout');
+  });
+});
+
 describe('Site settings actions', () => {
   test('UX-DR74 Rename Site sends the trimmed name and succeeds', async () => {
     const fake = fakeServer(() => jsonResponse(200, { ...home, name: 'Home garden' }));
@@ -211,7 +275,7 @@ describe('Site settings actions', () => {
   });
 });
 
-function siteSettings(role: Site['role'], lots: readonly Lot[], form: SiteSettingsFailure | null = null): string {
+function siteSettings(role: Site['role'], lots: readonly Lot[], form: SiteSettingsFailure | null = null, reminderCadence: ReminderCadence | null = 'daily'): string {
   const site = { ...home, role };
   const data = {
     user: { displayName: 'Simon', initials: 'S' },
@@ -222,12 +286,14 @@ function siteSettings(role: Site['role'], lots: readonly Lot[], form: SiteSettin
     lots,
     lotsNotice: null,
     createKey: 'create-key-1',
+    reminderCadence,
+    reminderCadenceNotice: reminderCadence === null ? 'unavailable' : null,
   };
   return render(SiteSettingsPage, { props: { data, form, params: {} } as never }).body;
 }
 
 function failure(fields: Partial<SiteSettingsFailure>): SiteSettingsFailure {
-  return { action: 'renameSite', lotId: null, name: '', nameError: null, notice: null, siteName: 'Home', lotName: null, idempotencyKey: null, ...fields };
+  return { action: 'renameSite', lotId: null, name: '', nameError: null, notice: null, siteName: 'Home', lotName: null, idempotencyKey: null, cadence: null, ...fields };
 }
 
 describe('Site settings surface', () => {
@@ -296,19 +362,72 @@ describe('Site settings surface', () => {
     expect(body).not.toContain('value="create-key-1"');
   });
 
-  test('UX-DR74 the Settings index lists Site settings first for the current Site', () => {
+  test('UX-DR50 UX-DR74 an Owner and an Administrator pick the Site Reminder cadence: Daily or Every 2 days, applied at once, no Never', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      const body = siteSettings(role, [tomatoes], null, 'every2Days');
+      expect(body).toMatch(/<h2[^>]*>Reminders<\/h2>/u);
+      const group = /<form[^>]*action="\?\/setReminderCadence"[\s\S]*?<\/form>/u.exec(body)?.[0] ?? '';
+      const segments = [...group.matchAll(/<button[^>]*type="submit"[^>]*name="cadence"[^>]*value="([^"]*)"[^>]*aria-pressed="([^"]*)"/gu)].map((match) => `${match[1] ?? ''}:${match[2] ?? ''}`);
+      expect(segments, role).toEqual(['daily:false', 'every2Days:true']);
+      expect(text(group)).toMatch(/Reminder cadence\s+Daily\s+Every 2 days/u);
+      expect(text(group)).not.toMatch(/Never|Use Site setting/u);
+      expect(group).toContain(`name="siteId" value="${siteId}"`);
+    }
+  });
+
+  test('UX-DR50 UX-DR84 a Member sees the Site Reminder cadence as text, with no control', () => {
+    const body = siteSettings('Member', [tomatoes], null, 'every2Days');
+    expect(body).toMatch(/<h2[^>]*>Reminders<\/h2>/u);
+    expect(text(body)).toContain('Reminder cadence Every 2 days');
+    expect(body).not.toContain('setReminderCadence');
+    expect(body).not.toMatch(/<button|<input/u);
+    expect(body.match(/<div[^>]*class="cf-inline-notice/gu)).toHaveLength(1);
+    expect(text(body)).toContain('Only Owners and Administrators can change Lots.');
+  });
+
+  test('UX-DR50 a cadence that was not saved shows the Site’s value again and a notice with Try again that repeats it', () => {
+    const body = siteSettings('Owner', [tomatoes], failure({ action: 'setReminderCadence', notice: 'unexpected', cadence: 'every2Days' }), 'daily');
+    expect(body).toMatch(/<button[^>]*name="cadence"[^>]*value="daily"[^>]*aria-pressed="true"/u);
+    const retry = /<form[^>]*id="cf-reminder-cadence-retry"[\s\S]*?<\/form>/u.exec(body)?.[0] ?? '';
+    expect(retry).toContain('action="?/setReminderCadence"');
+    expect(retry).toMatch(/<input[^>]*type="hidden"[^>]*name="cadence"[^>]*value="every2Days"/u);
+    expect(text(retry)).toContain('The Reminder cadence was not saved: your Server returned an error.');
+    expect(retry).toMatch(/<button[^>]*type="submit"[^>]*>\s*<span[^>]*>Try again<\/span>/u);
+    const refused = siteSettings('Owner', [tomatoes], failure({ action: 'setReminderCadence', notice: 'forbidden', cadence: 'every2Days' }));
+    expect(text(refused)).toContain("You can't change this on Home. Ask an Owner or Administrator.");
+    expect(refused).not.toContain('cf-reminder-cadence-retry');
+  });
+
+  test('UX-DR50 a cadence the Site saved without reaching every member shows the pick, with the notice and Try again', () => {
+    const body = siteSettings('Owner', [tomatoes], failure({ action: 'setReminderCadence', notice: 'cadenceNotDelivered', cadence: 'every2Days' }), 'daily');
+    expect(body).toMatch(/<button[^>]*name="cadence"[^>]*value="every2Days"[^>]*aria-pressed="true"/u);
+    expect(body).toMatch(/<button[^>]*name="cadence"[^>]*value="daily"[^>]*aria-pressed="false"/u);
+    const retry = /<form[^>]*id="cf-reminder-cadence-retry"[\s\S]*?<\/form>/u.exec(body)?.[0] ?? '';
+    expect(retry).toContain('action="?/setReminderCadence"');
+    expect(retry).toMatch(/<input[^>]*type="hidden"[^>]*name="cadence"[^>]*value="every2Days"/u);
+    expect(retry).toMatch(/<button[^>]*type="submit"[^>]*>\s*<span[^>]*>Try again<\/span>/u);
+  });
+
+  test('UX-DR50 a cadence that could not be read is a notice with Try again in place of the control', () => {
+    const body = siteSettings('Owner', [tomatoes], null, null);
+    expect(text(body)).toContain("Your Server couldn't read the Reminder cadence. Nothing was changed.");
+    expect(body).not.toContain('action="?/setReminderCadence"');
+    expect(body).toContain('id="cf-site-name"');
+  });
+
+  test('UX-DR74 the Settings index lists Site settings for the current Site, after My notifications and before Appearance', () => {
     const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [home], currentSite: home, sitesNotice: null };
     const body = render(SettingsPage, { props: { data, params: {} } as never }).body;
     const siteRow = body.indexOf('href="/settings/site"');
-    expect(siteRow).toBeGreaterThan(-1);
+    expect(siteRow).toBeGreaterThan(body.indexOf('href="/settings/notifications"'));
     expect(siteRow).toBeLessThan(body.indexOf('href="/settings/appearance"'));
     expect(text(body)).toContain('Name and Lots of Home');
   });
 
   test('access by Role', () => {
-    expect(siteSettingsOf('Owner')).toEqual({ canRenameSite: true, canEditLots: true, readOnlyNotice: false });
-    expect(siteSettingsOf('Administrator')).toEqual({ canRenameSite: false, canEditLots: true, readOnlyNotice: false });
-    expect(siteSettingsOf('Member')).toEqual({ canRenameSite: false, canEditLots: false, readOnlyNotice: true });
+    expect(siteSettingsOf('Owner')).toEqual({ canRenameSite: true, canEditLots: true, canSetReminderCadence: true, readOnlyNotice: false });
+    expect(siteSettingsOf('Administrator')).toEqual({ canRenameSite: false, canEditLots: true, canSetReminderCadence: true, readOnlyNotice: false });
+    expect(siteSettingsOf('Member')).toEqual({ canRenameSite: false, canEditLots: false, canSetReminderCadence: false, readOnlyNotice: true });
   });
 });
 

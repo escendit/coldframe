@@ -17,6 +17,18 @@ export const oidcRoutes = {
  */
 export const sessionMarkerCookie = 'cf_session';
 
+/**
+ * The User's time zone as the Server holds it once they chose it, kept on this browser so the pages can
+ * format times without asking the Server (AD-11: the User's, not the Site's). First-party, httpOnly.
+ */
+export const timeZoneCookieName = 'cf_time_zone';
+
+/**
+ * Marks that this browser session handed its time zone to the Server for this User (DW-23). A session
+ * cookie holding the User ID; first-party, httpOnly.
+ */
+export const timeZoneHandOverCookieName = 'cf_zone_sync';
+
 const markerMaxAgeSeconds = 60 * 60 * 24 * 30;
 
 export const signinPath = '/signin';
@@ -131,6 +143,12 @@ export function createAuthHandle(options: AuthHandleOptions): Handle {
     if (path === oidcRoutes.signout) {
       // A deliberate sign-out clears the marker first, so it shows no notice.
       event.cookies.delete(sessionMarkerCookie, { path: '/' });
+      // The time zone is the User's and lives on the Server: the next User of this browser must not inherit the copy.
+      for (const name of [timeZoneCookieName, timeZoneHandOverCookieName]) {
+        if (event.cookies.get(name) !== undefined) {
+          event.cookies.delete(name, { path: '/' });
+        }
+      }
     }
 
     let response: Response;

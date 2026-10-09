@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import com.escendit.coldframe.R
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.lots.LotsNoticeKind
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.sites.NameError
 
 /**
@@ -25,6 +26,10 @@ class LotsActions(
     val askRemove: (String) -> Unit = {},
     val confirmRemove: () -> Unit = {},
     val cancelRemove: () -> Unit = {},
+    /** The Site's Reminder cadence in Site settings: applies at once. */
+    val setReminderCadence: (ReminderCadence) -> Unit = {},
+    /** Try again after a Reminder cadence that was not saved. */
+    val retryReminderCadence: () -> Unit = {},
 ) {
     companion object {
         val None = LotsActions()
@@ -44,6 +49,8 @@ class LotsActions(
                 askRemove = engine::askRemove,
                 confirmRemove = engine::confirmRemove,
                 cancelRemove = engine::cancelRemove,
+                setReminderCadence = engine::setReminderCadence,
+                retryReminderCadence = engine::retryReminderCadence,
             )
     }
 }
@@ -57,6 +64,7 @@ fun LotsNoticeKind.message(): Int =
         LotsNoticeKind.LotNotFound -> R.string.site_settings_lot_not_found
         LotsNoticeKind.RenameSiteUnavailable -> R.string.site_settings_rename_site_unavailable
         LotsNoticeKind.KeyReused -> R.string.site_settings_key_reused
+        LotsNoticeKind.ReminderCadenceNotSaved -> R.string.site_settings_reminder_cadence_not_saved
         LotsNoticeKind.Unreachable -> R.string.notice_unreachable
         LotsNoticeKind.Certificate -> R.string.notice_certificate
         LotsNoticeKind.Unexpected -> R.string.site_settings_unexpected

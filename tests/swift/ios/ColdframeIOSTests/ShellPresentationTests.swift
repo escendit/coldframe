@@ -1,4 +1,5 @@
 import ColdframeDesignTokens
+import Foundation
 import Testing
 
 @testable import ColdframeIOS
@@ -69,15 +70,38 @@ func appearanceOptions() {
   #expect(themeSegments(selected: .system)[0].isSelected)
 }
 
-@Test("UX-DR71 UX-DR74 Settings lists Site settings, then Appearance, then Account")
+@Test("UX-DR71 UX-DR74 Settings lists My notifications, Site settings, Appearance, then Account")
 func settingsIndex() {
-  #expect(SettingsRow.allCases == [.siteSettings, .appearance, .account])
+  #expect(SettingsRow.allCases == [.notifications, .siteSettings, .appearance, .account])
   #expect(
     SettingsRow.allCases.map(\.title) == [
-      .settingsSiteSettings, .settingsAppearance, .settingsAccount,
+      .settingsNotifications, .settingsSiteSettings, .settingsAppearance, .settingsAccount,
     ])
   #expect(SettingsRow.siteSettings.helper == .settingsSiteSettingsHelper)
   #expect(SettingsRow.account.helper == nil)
+}
+
+@Test("UX-DR72 My notifications sits in Settings above Site settings and opens its own surface")
+func settingsNotificationsRow() throws {
+  #expect(SettingsRow.allCases.first == .notifications)
+  #expect(SettingsRow.notifications.title == .settingsNotifications)
+  #expect(SettingsRow.notifications.helper == .settingsNotificationsHelper)
+  let entries = try Catalogue.entries()
+  #expect(entries["settings_notifications"] == "My notifications")
+  #expect(
+    entries["settings_notifications_helper"]
+      == "Notification Window, time zone, mute and Reminders")
+  #expect(entries["notifications_title"] == "My notifications")
+  // The row is drawn before the Site settings row, and needs no current Site.
+  let screens = try Repo.text("apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift")
+  let index = try #require(
+    screens.components(separatedBy: "public struct SettingsView").last?
+      .components(separatedBy: "public struct AppearanceView").first)
+  let notifications = try #require(index.range(of: "MyNotificationsView("))
+  let siteSettings = try #require(index.range(of: "SiteSettingsView("))
+  let needsSite = try #require(index.range(of: "if let siteName {"))
+  #expect(notifications.lowerBound < needsSite.lowerBound)
+  #expect(needsSite.lowerBound < siteSettings.lowerBound)
 }
 
 @Test("UX-DR113 UX-DR76 sign out confirms in one native dialog that names the result")

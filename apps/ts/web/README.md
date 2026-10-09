@@ -76,22 +76,84 @@ every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachabl
 - **Create Site** (`/sites/new`). The form carries an `Idempotency-Key` made when it opens; a 503 or a
   network failure keeps it for the retry, a 422 `idempotency-key-reused` replaces it. The name is
   checked (1 to 100 characters after trimming) before any request. The time zone is proposed from
-  the browser and, once confirmed or picked, stored only in the httpOnly cookie `cf_time_zone`; it is
-  never sent to the Server (AD-11), so the request body stays `{name}`.
+  the browser. It is the User's, not the Site's (AD-11), so the body of `POST /sites` stays `{name}`;
+  once the Site exists, a confirmed or picked zone goes to the Server as the User's own choice
+  (`PATCH /me/notification-settings` with `timeZone`) in the same action. See
+  [Time zone](#time-zone).
 - **Garden** shows the Site summary header, the four first-run step tiles without actions with the
   note that adding a Hub or Node needs the mobile app (Members see the read-only note instead), and
   below them the Site's Lots as tiles. The Site menu sits after the Site tabs and holds only Site
   settings until the Pause story turns Pause/Resume on (`siteMenuItems` in
   [`src/lib/site-menu.ts`](src/lib/site-menu.ts)). See [Lot status](#lot-status) and
   [Stale mode](#stale-mode).
-- **Site settings** (`/settings/site`, first row of the Settings index and the Site menu item).
-  [`src/lib/server/site-settings.ts`](src/lib/server/site-settings.ts) loads the current Site's Lots
-  ([`src/lib/server/lots.ts`](src/lib/server/lots.ts)) and runs the named actions `renameSite`
-  (Owner), `createLot`, `renameLot` and `removeLot` (Owner and Administrator). Controls a Role cannot
-  use are hidden; Members see the Lots read-only with one notice. Create Lot keeps one
+- **Site settings** (`/settings/site`, the row after My notifications in the Settings index, and the
+  Site menu item). [`src/lib/server/site-settings.ts`](src/lib/server/site-settings.ts) loads the
+  current Site's Lots ([`src/lib/server/lots.ts`](src/lib/server/lots.ts)) and its Reminder cadence,
+  and runs the named actions `renameSite` (Owner), `createLot`, `renameLot`, `removeLot` and
+  `setReminderCadence` (Owner and Administrator). Controls a Role cannot use are hidden; Members see
+  the Lots and the cadence read-only with one notice. The **Reminders** section is a Segmented choice
+  "Daily" / "Every 2 days" that applies at once (each segment submits the form). A save that fails
+  shows the Site's value again and a notice with Try again, which sends the same cadence once more.
+  After a 503 `reminder-cadence-not-delivered` the Site's value is the pick itself (the Site saved it,
+  a member was not reached), so the control shows the pick beside the notice. Create Lot keeps one
   `Idempotency-Key` per attempt (kept after a 503 or network failure, replaced after a 422 or
   success). Remove asks in a Modal naming the Lot. A 403 says the change is not allowed on the
   Site; a 409 says to move or unassign the Node first.
+
+## My notifications (Story 6.3)
+
+`/settings/notifications` (`src/lib/server/notifications.ts`, `src/lib/notifications.ts`), the first
+row of the Settings index. It reads `GET /me/notification-settings` and, for the current Site,
+`GET /sites/{siteId}/notification-settings` on every load; there is no last-good copy.
+
+| Control | Component | Action | Request |
+| --- | --- | --- | --- |
+| Notification Window | `NotificationWindow.svelte`: two native time fields, a decorative 24 h bar (`aria-hidden`), the range in large type, and Save | `saveWindow` | `PATCH /me/notification-settings` `{window: {from, to?}}`; an empty To is left out, so the Server ends the window at 22:00 |
+| Time zone | `TimeZonePanel.svelte`, the Create Site panel | `chooseTimeZone`, on Confirm or a pick | `PATCH` `{timeZone}` |
+| Mute ‹Site› | `Toggle.svelte`: a native checkbox with `role="switch"` | `setMute`, on change | `PUT /sites/{siteId}/notification-settings` |
+| My Reminder cadence | `SegmentedChoice.svelte` with a `name`: "Use Site setting" / "Daily" / "Every 2 days"; the helper names the Site setting | `setCadence`, on a segment | the same `PUT` |
+
+- The `PUT` replaces both values (`muted` is required, a missing `reminderCadence` means "use the
+  Site setting"), so each of the two forms carries the other value as it is now.
+- Mute and cadence need a current Site. The window and the time zone are the User's own.
+- The window is checked before it is sent (`HH:mm`, start before end); the reason sits under the
+  field and what was typed stays. The Server stays the validator.
+- A save that fails leaves the data as the Server last sent it, and the controls are built again
+  from it. The notice (`RetryNotice.svelte`) has Try again where repeating can help: it is a form
+  that sends the same fields again. A certificate failure, a refused value and a Site that is no
+  longer the caller's have no Try again. A 401 signs out.
+- Not here: the "Browser notifications while Coldframe is open" toggle (Story 6.6) and the
+  notifications-off notice (Story 6.5).
+
+### Time zone
+
+The time zone lives on the Server. The Time-zone confirm panel shows until the User chose one
+(`timeZoneConfirmed`); the proposal is the browser's zone, else the zone the Server detected, else
+none and the list is all there is. A chosen zone is never proposed over.
+
+The browser never calls the Server, so the web app's server hands the zone over
+(`handOverTimeZone` in [`src/lib/server/shell.ts`](src/lib/server/shell.ts)), on the first shell
+load of a browser session that listed the Sites:
+
+| Cookie | Written by | Holds |
+| --- | --- | --- |
+| `cf_time_zone` | the server, httpOnly, 1 year | the zone the User chose, as the Server holds it; the pages format times with it |
+| `cf_browser_zone` | the page (root layout), session | the browser's own zone, which no request header carries |
+| `cf_zone_sync` | the server, httpOnly, session | the User ID the hand-over is done for |
+
+1. Read `GET /me/notification-settings`.
+2. While the User has chosen no zone there: a valid `cf_time_zone` (confirmed on Create Site before
+   this story) is sent as `timeZone`; otherwise `cf_browser_zone` is sent as `detectedTimeZone`,
+   unless the Server already holds that zone. With neither, nothing is marked and the next load asks again.
+3. Once the Server answered (a 400 included) `cf_zone_sync` is set, and `cf_time_zone` follows the
+   Server: the chosen zone, or no cookie while none is chosen. No answer, a 5xx or an answer outside
+   the contract keeps the copy, and the next load tries again.
+
+A `cf_zone_sync` of another User means `cf_time_zone` was theirs: it is not sent as this User's
+choice. Signing out from Settings clears `cf_time_zone` and `cf_zone_sync`. Create Site and the
+Time-zone panel on My notifications also set `cf_time_zone` from the Server's answer; when the
+Create Site send gets no answer, the zone is kept in the cookie and `cf_zone_sync` is cleared, so
+the next load hands it over.
 
 ## Lot status
 
@@ -253,6 +315,10 @@ removes Lots, checks the 409 copy and the Member view, with screenshots. `specs/
 creates "Home" and checks the empty Garden in light and dark at 200 % zoom, with axe and committed
 screenshots (Linux Chromium) under `specs/garden.spec.ts-snapshots/`. `specs/alerts.spec.ts` seeds one Alert per row
 variant and cause and compares screenshots of the list, the empty state and the only-closed state in light
-and dark, with axe. Run the e2e tests with
+and dark, with axe. `specs/notifications.spec.ts` sets the window, the zone, the mute switch and the cadence, checks
+the failed-save and time-zone hand-over cases, and compares screenshots of My notifications (zone unconfirmed, then
+everything set) in light and dark, with axe; the fake Server has the three notification-settings resources and
+`POST /control/notifications` (`setNotifications`: seeds them, and the status the next write answers). On the web
+My notifications is never shown without a Site (no Membership opens Create Site), so that state has unit tests only. Run the e2e tests with
 `pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots
 with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test --update-snapshots`.

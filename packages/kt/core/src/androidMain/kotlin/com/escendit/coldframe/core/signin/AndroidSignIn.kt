@@ -7,6 +7,7 @@ import com.escendit.coldframe.core.calibrate.CalibrateEngine
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotsEngine
+import com.escendit.coldframe.core.notifications.NotificationSettingsEngine
 import com.escendit.coldframe.core.setup.AndroidRadioState
 import com.escendit.coldframe.core.setup.HubSetupEngine
 import com.escendit.coldframe.core.setup.KableSetupRadio
@@ -64,7 +65,21 @@ public class AndroidSignIn private constructor(
      * The Lots of the current Site and Site settings; reloads whenever the current Site changes.
      * The shell calls `refresh` on pull-to-refresh and whenever the overview comes to the front.
      */
-    public val lots: LotsEngine = SitesWiring.lots(api, sites, settings, scope)
+    public val lots: LotsEngine = SitesWiring.lots(api, sites, settings, scope, cadence = api)
+
+    /**
+     * My notifications: the Notification Window, the time zone, and the mute and my Reminder cadence of the
+     * current Site. It reads when the session starts and hands the device's zone to the Server; the shell calls
+     * `load` on every entry of the surface.
+     */
+    public val notifications: NotificationSettingsEngine =
+        SitesWiring.notifications(
+            api,
+            sites,
+            engine,
+            settings,
+            scope,
+        )
 
     /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history; the shell opens and closes it. */
     public val lotDetail: LotDetailEngine = SitesWiring.lotDetail(api, sites, settings, scope)

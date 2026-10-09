@@ -12,6 +12,7 @@ using Coldframe.Server.Alerts;
 using Coldframe.Server.Devices;
 using Coldframe.Server.Identity;
 using Coldframe.Server.Lots;
+using Coldframe.Server.Notifications;
 using Coldframe.Server.Sensors;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Mvc;
@@ -257,6 +258,67 @@ public sealed record ThresholdsResponse(
     decimal? ProposedLow = null);
 
 /// <summary>
+/// A Notification Window in the body of <c>PATCH /me/notification-settings</c>.
+/// </summary>
+/// <param name="From">When the window opens, <c>HH:mm</c>.</param>
+/// <param name="To">When the window closes, <c>HH:mm</c>; omitted means 22:00.</param>
+public sealed record NotificationWindowRequest(string? From, string? To = null);
+
+/// <summary>
+/// The body of <c>PATCH /me/notification-settings</c> (Story 6.3): at least one part; a part that is absent
+/// stays as it is.
+/// </summary>
+/// <param name="Window">The new Notification Window.</param>
+/// <param name="TimeZone">The IANA time zone the User chose.</param>
+/// <param name="DetectedTimeZone">The IANA time zone the device or browser reports.</param>
+public sealed record UpdateNotificationSettingsRequest(
+    NotificationWindowRequest? Window,
+    string? TimeZone = null,
+    string? DetectedTimeZone = null);
+
+/// <summary>
+/// A Notification Window as the Edge API returns it.
+/// </summary>
+/// <param name="From">When the window opens, <c>HH:mm</c>.</param>
+/// <param name="To">When the window closes, <c>HH:mm</c>.</param>
+public sealed record NotificationWindowResponse(string From, string To);
+
+/// <summary>
+/// A User's own notification settings as the Edge API returns them (Story 6.3).
+/// </summary>
+/// <param name="Window">The Notification Window.</param>
+/// <param name="TimeZone">The chosen time zone, else a detected one; omitted when there is none.</param>
+/// <param name="TimeZoneConfirmed">Whether the User chose the time zone.</param>
+public sealed record NotificationSettingsResponse(NotificationWindowResponse Window, string? TimeZone, bool TimeZoneConfirmed);
+
+/// <summary>
+/// The body of <c>PUT /sites/{siteId}/notification-settings</c> (Story 6.3).
+/// </summary>
+/// <param name="Muted">Whether the caller mutes the Site.</param>
+/// <param name="ReminderCadence"><c>daily</c> or <c>every2Days</c>; omitted to use the Site setting.</param>
+public sealed record SetSiteNotificationSettingsRequest(bool? Muted, string? ReminderCadence = null);
+
+/// <summary>
+/// The caller's own notification settings for a Site as the Edge API returns them (Story 6.3).
+/// </summary>
+/// <param name="Muted">Whether the caller muted the Site.</param>
+/// <param name="ReminderCadence">The caller's own cadence; omitted when the caller uses the Site setting.</param>
+/// <param name="SiteReminderCadence">The Site's cadence, as the Site grain holds it.</param>
+public sealed record SiteNotificationSettingsResponse(bool Muted, string? ReminderCadence, string SiteReminderCadence);
+
+/// <summary>
+/// The body of <c>PUT /sites/{siteId}/reminder-cadence</c> (Story 6.3).
+/// </summary>
+/// <param name="Cadence"><c>daily</c> or <c>every2Days</c>.</param>
+public sealed record SetSiteReminderCadenceRequest(string? Cadence);
+
+/// <summary>
+/// A Site's Reminder cadence as the Edge API returns it (Story 6.3).
+/// </summary>
+/// <param name="Cadence"><c>daily</c> or <c>every2Days</c>.</param>
+public sealed record SiteReminderCadenceResponse(string Cadence);
+
+/// <summary>
 /// A Device as the Edge API returns it.
 /// </summary>
 /// <param name="Id">The Device ID.</param>
@@ -474,6 +536,30 @@ public static partial class EdgeApi
             .WithName("listAlerts")
             .RequireSiteRole(SiteRole.Member);
 
+        endpoints.MapGet("/me/notification-settings", GetMyNotificationSettingsAsync)
+            .WithName("getMyNotificationSettings")
+            .RequireAuthenticatedCaller();
+
+        endpoints.MapPatch("/me/notification-settings", UpdateMyNotificationSettingsAsync)
+            .WithName("updateMyNotificationSettings")
+            .RequireAuthenticatedCaller();
+
+        endpoints.MapGet("/sites/{siteId}/notification-settings", GetSiteNotificationSettingsAsync)
+            .WithName("getSiteNotificationSettings")
+            .RequireSiteRole(SiteRole.Member);
+
+        endpoints.MapPut("/sites/{siteId}/notification-settings", SetSiteNotificationSettingsAsync)
+            .WithName("setSiteNotificationSettings")
+            .RequireSiteRole(SiteRole.Member);
+
+        endpoints.MapGet("/sites/{siteId}/reminder-cadence", GetSiteReminderCadenceAsync)
+            .WithName("getSiteReminderCadence")
+            .RequireSiteRole(SiteRole.Member);
+
+        endpoints.MapPut("/sites/{siteId}/reminder-cadence", SetSiteReminderCadenceAsync)
+            .WithName("setSiteReminderCadence")
+            .RequireSiteRole(SiteRole.Administrator);
+
         endpoints.MapGet("/sites/{siteId}/lots", ListLotsAsync)
             .WithName("listLots")
             .RequireSiteRole(SiteRole.Member);
@@ -623,6 +709,204 @@ public static partial class EdgeApi
             "The Site was not renamed. Try again."),
         _ => SiteNotFound(),
     };
+
+    private static async Task<IResult> GetMyNotificationSettingsAsync(
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IIpTimeZoneLookup ipLookup)
+    {
+        var settings = await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .GetNotificationSettings(httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return TypedResults.Ok(await ToResponseAsync(settings, deviceTimeZone: null, ipLookup, httpContext).ConfigureAwait(false));
+    }
+
+    private static async Task<IResult> UpdateMyNotificationSettingsAsync(
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IIpTimeZoneLookup ipLookup,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<UpdateNotificationSettingsRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (request is not { } body || (body.Window is null && body.TimeZone is null && body.DetectedTimeZone is null))
+        {
+            return InvalidNotificationSettings("Send a JSON body with window, timeZone and/or detectedTimeZone. Nothing changed.");
+        }
+
+        NotificationWindow? window = null;
+        if (body.Window is { } requested)
+        {
+            window = EdgeValidation.NormalizeNotificationWindow(requested.From, requested.To);
+            if (window is null)
+            {
+                return InvalidNotificationSettings("A window is from and to as HH:mm (24 h), from before to; to may be omitted for 22:00. Nothing changed.");
+            }
+        }
+
+        if ((body.TimeZone is not null && !TimeZoneProposal.IsKnown(body.TimeZone))
+            || (body.DetectedTimeZone is not null && !TimeZoneProposal.IsKnown(body.DetectedTimeZone)))
+        {
+            return InvalidNotificationSettings("A time zone is an IANA ID such as Europe/Zurich that this Server knows. Nothing changed.");
+        }
+
+        var result = await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .UpdateNotificationSettings(new UpdateNotificationSettings(window, body.TimeZone, body.DetectedTimeZone), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return result.Outcome switch
+        {
+            NotificationSettingsOutcome.Changed or NotificationSettingsOutcome.Unchanged =>
+                TypedResults.Ok(await ToResponseAsync(result.Settings, body.DetectedTimeZone, ipLookup, httpContext).ConfigureAwait(false)),
+            NotificationSettingsOutcome.InvalidWindow => InvalidNotificationSettings("The window must open before it closes, within one day. Nothing changed."),
+            NotificationSettingsOutcome.InvalidTimeZone => InvalidNotificationSettings("A time zone is an IANA ID of at most 64 characters. Nothing changed."),
+            _ => throw new InvalidOperationException($"Unexpected notification settings outcome {result.Outcome}."),
+        };
+    }
+
+    // A chosen zone is the answer. Without one the Server proposes: the zone the device just reported, else the
+    // detected one it holds, else what the IP lookup knows (nothing, by default), else none.
+    private static async Task<NotificationSettingsResponse> ToResponseAsync(
+        UserNotificationSettings settings,
+        string? deviceTimeZone,
+        IIpTimeZoneLookup ipLookup,
+        HttpContext httpContext)
+    {
+        var timeZone = settings.TimeZoneConfirmed
+            ? settings.TimeZone
+            : await TimeZoneProposal
+                .ResolveAsync(deviceTimeZone, settings.TimeZone, ipLookup, httpContext.Connection.RemoteIpAddress, httpContext.RequestAborted)
+                .ConfigureAwait(false);
+
+        return new NotificationSettingsResponse(
+            new NotificationWindowResponse(
+                EdgeValidation.TimeOfDayName(settings.Window.FromMinutes),
+                EdgeValidation.TimeOfDayName(settings.Window.ToMinutes)),
+            timeZone,
+            settings.TimeZoneConfirmed);
+    }
+
+    private static async Task<IResult> GetSiteNotificationSettingsAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        // The policy has allowed the request, so the Site ID is canonical.
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+
+        var settings = await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .GetSiteNotificationSettings(canonical, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return await ToSiteNotificationSettingsResultAsync(grains, canonical, settings, httpContext.RequestAborted).ConfigureAwait(false);
+    }
+
+    private static async Task<IResult> SetSiteNotificationSettingsAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<SetSiteNotificationSettingsRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        ReminderCadence? cadence = null;
+        if (request is not { Muted: { } muted }
+            || (request.ReminderCadence is { } named && (cadence = EdgeValidation.NormalizeReminderCadence(named)) is null))
+        {
+            return InvalidNotificationSettings("Send a JSON body with muted (true or false) and, for a cadence of your own, reminderCadence daily or every2Days. Nothing changed.");
+        }
+
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+
+        // The policy has checked the Membership; the User grain owns the settings and asks for none.
+        var settings = await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .SetSiteNotificationSettings(canonical, muted, cadence, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return await ToSiteNotificationSettingsResultAsync(grains, canonical, settings, httpContext.RequestAborted).ConfigureAwait(false);
+    }
+
+    // The Site's cadence is read from the Site grain, never from the User grain's copy, so it is never stale.
+    private static async Task<IResult> ToSiteNotificationSettingsResultAsync(
+        IGrainFactory grains,
+        string siteId,
+        UserSiteNotificationSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (await grains.GetGrain<ISiteGrain>(siteId).GetReminderCadence(cancellationToken).ConfigureAwait(false) is not { } siteCadence)
+        {
+            // The policy has allowed the request; the Site can only have vanished in between.
+            return SiteNotFound();
+        }
+
+        return TypedResults.Ok(new SiteNotificationSettingsResponse(
+            settings.Muted,
+            settings.ReminderCadence is { } own ? EdgeValidation.ReminderCadenceName(own) : null,
+            EdgeValidation.ReminderCadenceName(siteCadence)));
+    }
+
+    private static async Task<IResult> GetSiteReminderCadenceAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+
+        return await grains.GetGrain<ISiteGrain>(canonical).GetReminderCadence(httpContext.RequestAborted).ConfigureAwait(false) is { } cadence
+            ? TypedResults.Ok(new SiteReminderCadenceResponse(EdgeValidation.ReminderCadenceName(cadence)))
+            : SiteNotFound();
+    }
+
+    private static async Task<IResult> SetSiteReminderCadenceAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions,
+        [FromServices] ILoggerFactory loggers)
+    {
+        var request = await ReadJsonAsync<SetSiteReminderCadenceRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (EdgeValidation.NormalizeReminderCadence(request?.Cadence) is not { } cadence)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Reminder cadence is not valid.",
+                "Send a JSON body with cadence daily or every2Days. Nothing changed.");
+        }
+
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+
+        var (delivery, inForce) = await SiteReminderCadenceFanOut
+            .SetAsync(grains, canonical, cadence, loggers.CreateLogger(typeof(SiteReminderCadenceFanOut)), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(delivery, inForce);
+    }
+
+    /// <summary>
+    /// How <c>PUT /sites/{siteId}/reminder-cadence</c> answers: 200 with the cadence in force once every member
+    /// was handed it, 503 <c>reminder-cadence-not-delivered</c> when the Site holds it but a member does not,
+    /// 404 for a Site that is not active.
+    /// </summary>
+    internal static IResult ToHttpResult(SiteReminderCadenceDelivery delivery, ReminderCadence cadence) => delivery switch
+    {
+        SiteReminderCadenceDelivery.Delivered => TypedResults.Ok(new SiteReminderCadenceResponse(EdgeValidation.ReminderCadenceName(cadence))),
+        SiteReminderCadenceDelivery.NotDelivered => EdgeProblems.Result(
+            StatusCodes.Status503ServiceUnavailable,
+            EdgeProblems.ReminderCadenceNotDelivered,
+            "The Reminder cadence did not reach every member.",
+            "The Site holds the cadence. Send the same request again to hand it to every member."),
+        _ => SiteNotFound(),
+    };
+
+    private static IResult InvalidNotificationSettings(string detail) =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The notification settings are not valid.",
+            detail);
 
     private static async Task<IResult> ListAlertsAsync(
         string siteId,

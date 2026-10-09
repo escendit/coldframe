@@ -32,7 +32,7 @@ public sealed record DeviceRegistration(
 
 /// <summary>
 /// The state of the Site grain: lifecycle, name, Memberships, former members, whether an ownerless
-/// edit is being refused, and the Site's open Alerts (Story 6.1).
+/// edit is being refused, the Site's open Alerts (Story 6.1) and its Reminder cadence (Story 6.3).
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.site-state")]
@@ -132,6 +132,12 @@ public sealed class SiteState
     /// </summary>
     public IReadOnlyDictionary<Guid, SiteAlert> OpenAlerts => _openAlerts;
 
+    /// <summary>
+    /// The Site's Reminder cadence (Story 6.3): daily until an Administrator or Owner changes it.
+    /// </summary>
+    [Id(9)]
+    public ReminderCadence ReminderCadence { get; private set; }
+
     public void Apply(SiteCreated @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -215,5 +221,11 @@ public sealed class SiteState
     {
         ArgumentNullException.ThrowIfNull(@event);
         _openAlerts.Remove(@event.AlertId);
+    }
+
+    public void Apply(SiteReminderCadenceChanged @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        ReminderCadence = @event.Cadence;
     }
 }

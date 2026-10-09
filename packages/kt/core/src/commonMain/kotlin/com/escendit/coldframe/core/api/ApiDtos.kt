@@ -292,3 +292,63 @@ public data class AlertListDto(
     val openCount: Int,
     val nextCursor: String? = null,
 )
+
+/** `NotificationWindow`: the daily Notification Window, `"HH:mm"` (24 h) wall-clock times in the User's time zone. */
+@Serializable
+public data class NotificationWindowDto(
+    val from: String,
+    val to: String,
+)
+
+/**
+ * `NotificationSettings` (`getMyNotificationSettings`): the User's own settings. [timeZone] is the IANA zone the User
+ * chose, else one a device detected, else absent; only a choice makes [timeZoneConfirmed] true.
+ */
+@Serializable
+public data class NotificationSettingsDto(
+    val window: NotificationWindowDto,
+    val timeZoneConfirmed: Boolean,
+    val timeZone: String? = null,
+)
+
+/** The `window` of an `UpdateNotificationSettingsRequest`: [to] left out means 22:00. */
+@Serializable
+public data class NotificationWindowRequestDto(
+    val from: String,
+    val to: String? = null,
+)
+
+/**
+ * `UpdateNotificationSettingsRequest` (`updateMyNotificationSettings`): at least one field. [timeZone] is the User's
+ * own choice and always wins; [detectedTimeZone] is kept only while the User has chosen none.
+ */
+@Serializable
+public data class UpdateNotificationSettingsRequestDto(
+    val window: NotificationWindowRequestDto? = null,
+    val timeZone: String? = null,
+    val detectedTimeZone: String? = null,
+)
+
+/**
+ * `SiteNotificationSettings`: the User's settings for one Site. [reminderCadence] absent means "use Site setting";
+ * [siteReminderCadence] is the Site's. Both are `ReminderCadence` values (`daily`, `every2Days`).
+ */
+@Serializable
+public data class SiteNotificationSettingsDto(
+    val muted: Boolean,
+    val siteReminderCadence: String,
+    val reminderCadence: String? = null,
+)
+
+/** `SetSiteNotificationSettingsRequest`: both values every time; [reminderCadence] left out means "use Site setting". */
+@Serializable
+public data class SetSiteNotificationSettingsRequestDto(
+    val muted: Boolean,
+    val reminderCadence: String? = null,
+)
+
+/** `SiteReminderCadence`: the Site's Reminder cadence, read and written. */
+@Serializable
+public data class SiteReminderCadenceDto(
+    val cadence: String,
+)

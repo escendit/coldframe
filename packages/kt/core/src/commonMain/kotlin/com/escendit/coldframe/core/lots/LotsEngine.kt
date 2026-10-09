@@ -5,6 +5,8 @@ import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotListDto
 import com.escendit.coldframe.core.devices.DevicesEngine
+import com.escendit.coldframe.core.notifications.ReminderCadence
+import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.NameError
 import com.escendit.coldframe.core.sites.SiteSummary
@@ -64,6 +66,13 @@ public interface LotsApi {
  * Nothing else is served stale. A 403 or 404 drops the Site's kept Lots, and the load notice
  * replaces the Lots that were showing. A certificate failure always shows its notice. The kept
  * Lots of every Site are cleared when the session ends (sign-out, or a 401).
+ *
+ * The Site's Reminder cadence (UX-DR50, Story 6.3) is read from [cadenceApi] with every read of
+ * the Lots and is never kept on the device: until it is read it is not known. Owners and
+ * Administrators set it with [setReminderCadence]; a pick shows at once and goes back to the
+ * Server's value when it was not saved. One failure does save it: after a 503
+ * `reminder-cadence-not-delivered` the Site holds the pick, so the control keeps showing it, with
+ * the notice and Try again, which hands it to the members that were not reached.
  */
 public class LotsEngine(
     private val api: LotsApi,
@@ -73,6 +82,7 @@ public class LotsEngine(
     private val newKey: () -> String = SitesEngine::randomKey,
     /** Epoch milliseconds; stamps [LotsState.Ready.fetchedAtEpochMs]. */
     internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val cadenceApi: SiteReminderCadenceApi? = null,
 ) {
     private val cache = LotsCache(settings)
     private val mutableState = MutableStateFlow<LotsState>(LotsState.Idle)
@@ -95,10 +105,18 @@ public class LotsEngine(
     /** Bumped by every read of the list; only the newest read's answer is applied. */
     private var reads = 0
 
+    /** The Reminder cadence the Server holds for the current Site; `null` until it is read. */
+    private var cadence: ReminderCadence? = null
+
+    /** The pick that was not saved, for Try again. */
+    private var cadenceNotSaved: ReminderCadence? = null
+
     init {
         // In one step, so a read of the ended session that lands afterwards stores nothing.
         sites.onSessionEnded {
             generation++
+            cadence = null
+            cadenceNotSaved = null
             cache.clear()
         }
         scope.launch {
@@ -119,6 +137,8 @@ public class LotsEngine(
         }
         if (site.id != shownId) {
             generation++
+            cadence = null
+            cadenceNotSaved = null
             open(site)
             return
         }
@@ -196,6 +216,7 @@ public class LotsEngine(
         val started = generation
         val turn = ++reads
         updateReady { it.copy(refreshing = true) }
+        readCadence(siteId, started)
         scope.launch {
             var result = api.listLots(siteId)
             if (started != generation || turn != reads) return@launch
@@ -309,7 +330,88 @@ public class LotsEngine(
             fetchedAtEpochMs = fetchedAtEpochMs,
             staleReason = staleReason,
             refreshing = false,
+            reminderCadence = SiteReminderCadence(cadence),
         )
+
+    /** Reads the Site's Reminder cadence. A read that fails leaves what is known; a 401 ends the session. */
+    private fun readCadence(
+        siteId: String,
+        started: Int,
+    ) {
+        val api = cadenceApi ?: return
+        scope.launch {
+            val result = api.getSiteReminderCadence(siteId)
+            if (started != generation) return@launch
+            when (result) {
+                is ApiResult.Ok -> {
+                    cadence = ReminderCadence.fromServer(result.value.cadence)
+                    updateReady { it.copy(reminderCadence = it.reminderCadence.copy(value = cadence)) }
+                }
+
+                is ApiResult.Failed -> {
+                    if (result.failure == ApiFailure.Unauthorized) signedOut()
+                }
+            }
+        }
+    }
+
+    // Reminder cadence of the Site (Admin+)
+
+    /** Picks the Site's Reminder cadence: shown at once, sent at once. Owners and Administrators only. */
+    public fun setReminderCadence(picked: ReminderCadence) {
+        val api = cadenceApi ?: return
+        val ready = mutableState.value as? LotsState.Ready ?: return
+        if (!ready.settings.canSetReminderCadence || ready.reminderCadence.working) return
+        cadenceNotSaved = null
+        updateReady { it.copy(reminderCadence = it.reminderCadence.copy(pending = picked), notice = null) }
+        val started = generation
+        scope.launch {
+            val result = api.setSiteReminderCadence(ready.siteId, picked.key)
+            if (started != generation) return@launch
+            when (result) {
+                is ApiResult.Ok -> {
+                    cadence = ReminderCadence.fromServer(result.value.cadence) ?: picked
+                    updateReady { it.copy(reminderCadence = SiteReminderCadence(cadence)) }
+                }
+
+                is ApiResult.Failed -> {
+                    cadenceFailed(result.failure, picked, ready.site.name)
+                }
+            }
+        }
+    }
+
+    /** Try again after [LotsNoticeKind.ReminderCadenceNotSaved]: sends the pick again, also when the Site holds it already. */
+    public fun retryReminderCadence() {
+        val ready = mutableState.value as? LotsState.Ready ?: return
+        if (ready.notice?.kind != LotsNoticeKind.ReminderCadenceNotSaved) return
+        cadenceNotSaved?.let(::setReminderCadence)
+    }
+
+    /**
+     * The control shows the Server's value, with a notice; a 401 ends the session. That value is the
+     * pick itself after [ApiFailure.ReminderCadenceNotDelivered] (the Site saved it, a member was not
+     * reached), and the value from before for every other failure.
+     */
+    private fun cadenceFailed(
+        failure: ApiFailure,
+        picked: ReminderCadence,
+        siteName: String,
+    ) {
+        if (failure == ApiFailure.Unauthorized) {
+            signedOut()
+            return
+        }
+        val notice =
+            when (failure) {
+                ApiFailure.Forbidden -> LotsNotice(LotsNoticeKind.Forbidden, siteName)
+                ApiFailure.Certificate -> LotsNotice(LotsNoticeKind.Certificate)
+                else -> LotsNotice(LotsNoticeKind.ReminderCadenceNotSaved)
+            }
+        cadenceNotSaved = picked.takeIf { notice.kind.tryAgain }
+        if (failure == ApiFailure.ReminderCadenceNotDelivered) cadence = picked
+        updateReady { it.copy(reminderCadence = SiteReminderCadence(cadence), notice = notice) }
+    }
 
     /** Reads the list again after a change, unless the Site changed meanwhile. */
     private fun refresh(started: Int) {
@@ -577,6 +679,7 @@ public class LotsEngine(
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
                 ApiFailure.CalibrationNotDelivered,
+                ApiFailure.ReminderCadenceNotDelivered,
                 ApiFailure.Unexpected,
                 -> {
                     LotsNotice(
@@ -590,6 +693,8 @@ public class LotsEngine(
     /** A 401: the session is over, and nothing kept on this device outlives it. */
     private fun signedOut() {
         generation++
+        cadence = null
+        cadenceNotSaved = null
         mutableState.value = LotsState.Idle
         sites.forget()
     }

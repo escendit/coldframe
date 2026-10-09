@@ -136,3 +136,13 @@ public sealed record SiteAlertClosed(
     [property: Id(0)] Guid AlertId,
     [property: Id(1)] AlertCloseReason Reason,
     [property: Id(2)] DateTimeOffset ClosedAt);
+
+/// <summary>
+/// An Administrator or Owner changed the Site's Reminder cadence (Story 6.3).
+/// </summary>
+/// <param name="Cadence">The cadence from now on.</param>
+/// <param name="ChangedAt">When the change was made.</param>
+[EventType("site.reminder-cadence-changed")]
+[GenerateSerializer]
+[Alias("coldframe.site-reminder-cadence-changed")]
+public sealed record SiteReminderCadenceChanged([property: Id(0)] ReminderCadence Cadence, [property: Id(1)] DateTimeOffset ChangedAt);

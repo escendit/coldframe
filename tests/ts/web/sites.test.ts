@@ -2,7 +2,7 @@ import { isActionFailure, isRedirect, type ActionFailure } from '@sveltejs/kit';
 import { describe, expect, test } from 'vitest';
 import { firstRunSteps } from '$lib/first-run';
 import { createSiteAction, isTimeZone, loadCreateSite, type CreateSiteFailure } from '$lib/server/create-site';
-import { loadShell, pickCurrentSite, siteCookieName, timeZoneCookieName } from '$lib/server/shell';
+import { loadShell, pickCurrentSite, siteCookieName, timeZoneCookieName, timeZoneHandOverCookieName } from '$lib/server/shell';
 import { createSite, listSites } from '$lib/server/sites';
 import { siteMenuItems } from '$lib/site-menu';
 import { checkSiteName, sitesNoticeOf, type Site } from '$lib/sites';
@@ -253,12 +253,40 @@ describe('Create Site action', () => {
       createSiteAction(locals, formRequest({ name: '  Home ', idempotencyKey: 'key-1', timeZone: 'Europe/Zurich' }), cookies, { serverUrl, fetch: fake.fetch }),
     );
     expect(target).toEqual({ status: 303, location: '/garden' });
-    expect(fake.seen).toHaveLength(1);
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path}`)).toEqual(['POST /sites', 'PATCH /me/notification-settings']);
     expect(fake.seen[0]?.key).toBe('key-1');
-    // AD-11: the time zone is the User's and stays on this browser; the body is {name} only.
+    // AD-11: the time zone is the User's, never the Site's; the body of POST /sites is {name} only.
     expect(JSON.parse(fake.seen[0]?.body ?? '')).toEqual({ name: 'Home' });
+    // Story 6.3: the zone confirmed here goes to the Server as the User's own choice, in the same action.
+    expect(JSON.parse(fake.seen[1]?.body ?? '')).toEqual({ timeZone: 'Europe/Zurich' });
     expect(cookies.jar.get(siteCookieName)).toBe(siteA.id);
     expect(cookies.jar.get(timeZoneCookieName)).toBe('Europe/Zurich');
+  });
+
+  test('UX-DR48 a zone that did not reach the Server stays on this browser and is handed over on the next load', async () => {
+    for (const patch of [() => Promise.reject(fetchFailed('ECONNREFUSED')), () => Promise.resolve(problem(503, 'unavailable'))]) {
+      const fake = server((request) => (request.method === 'POST' ? json(201, siteA) : patch()));
+      const cookies = new FakeCookies({ [timeZoneHandOverCookieName]: 'user-1' });
+      const target = await redirectOf(() => createSiteAction(locals, formRequest({ name: 'Home', idempotencyKey: 'k', timeZone: 'Europe/Zurich' }), cookies, { serverUrl, fetch: fake.fetch }));
+      expect(target.location).toBe('/garden');
+      expect(cookies.jar.get(timeZoneCookieName)).toBe('Europe/Zurich');
+      expect(cookies.jar.has(timeZoneHandOverCookieName)).toBe(false);
+    }
+  });
+
+  test('UX-DR48 a zone the Server does not know is not kept; the Site is created all the same', async () => {
+    const fake = server((request) => (request.method === 'POST' ? json(201, siteA) : problem(400, 'validation')));
+    const cookies = new FakeCookies();
+    const target = await redirectOf(() => createSiteAction(locals, formRequest({ name: 'Home', idempotencyKey: 'k', timeZone: 'Europe/Zurich' }), cookies, { serverUrl, fetch: fake.fetch }));
+    expect(target.location).toBe('/garden');
+    expect(cookies.jar.get(siteCookieName)).toBe(siteA.id);
+    expect(cookies.jar.has(timeZoneCookieName)).toBe(false);
+  });
+
+  test('UX-DR48 without a confirmed zone nothing is sent to the Server but the Site', async () => {
+    const fake = server(() => json(201, siteA));
+    await redirectOf(() => createSiteAction(locals, formRequest({ name: 'Home', idempotencyKey: 'k', timeZone: '' }), new FakeCookies(), { serverUrl, fetch: fake.fetch }));
+    expect(fake.seen.map((seen) => seen.path)).toEqual(['/sites']);
   });
 
   test('UX-DR61 an unconfirmed or unknown time zone is not stored', async () => {

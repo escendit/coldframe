@@ -1,6 +1,7 @@
 package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.Watch
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.watch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -78,5 +79,18 @@ public class IosLots internal constructor(
 
     public fun cancelRemove() {
         engine.cancelRemove()
+    }
+
+    /**
+     * Picks the Site's Reminder cadence in Site settings: `daily` or `every2Days` (Owner or Administrator).
+     * Any other value is ignored.
+     */
+    public fun setReminderCadence(cadence: String) {
+        ReminderCadence.fromServer(cadence)?.let(engine::setReminderCadence)
+    }
+
+    /** Try again after the `reminderCadenceNotSaved` notice. */
+    public fun retryReminderCadence() {
+        engine.retryReminderCadence()
     }
 }

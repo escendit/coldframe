@@ -311,6 +311,78 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/me/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read my notification settings
+         * @description The caller's own Notification Window and time zone (Story 6.3). Without any change the window is 07:00 to 22:00 and there is no time zone. timeZone is the zone the User chose, else the zone a client detected, else one the Server could look up, else absent; timeZoneConfirmed is true only after the User chose one. Reading saves nothing.
+         */
+        get: operations["getMyNotificationSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change my notification settings
+         * @description Changes the caller's own settings (Story 6.3); a field that is absent stays as it is, and a body with none of them is refused. window replaces the Notification Window: from and to are wall-clock times HH:mm (24 h) in the User's time zone, to omitted means 22:00, and from must be before to (no window across midnight). timeZone is the User's own choice: it always wins and sets timeZoneConfirmed. detectedTimeZone is what the device or browser reports: it is kept only while the User has chosen none and never replaces a chosen zone. A zone is an IANA ID the Server knows, at most 64 characters. Answers 200 with the settings in force, also when nothing changed (then nothing is saved). A refusal changes nothing.
+         */
+        patch: operations["updateMyNotificationSettings"];
+        trace?: never;
+    };
+    "/sites/{siteId}/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read my notification settings for a Site
+         * @description The caller's own settings for this Site (Story 6.3): whether the caller muted it, and the caller's Reminder cadence, absent when the caller uses the Site setting. siteReminderCadence is the Site's cadence as the Site holds it now. Another member's settings are never shown.
+         */
+        get: operations["getSiteNotificationSettings"];
+        /**
+         * Set my notification settings for a Site
+         * @description Sets the caller's own mute and Reminder cadence for this Site (Story 6.3); it changes nothing for any other member. reminderCadence absent means the caller uses the Site setting. Answers 200 with the settings in force, also when nothing changed (then nothing is saved). The settings are dropped when the caller's Membership on the Site ends.
+         */
+        put: operations["setSiteNotificationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sites/{siteId}/reminder-cadence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the Site's Reminder cadence
+         * @description Member and up (Story 6.3): every member reads it, only an Administrator or Owner changes it. A Site that never changed it reminds daily.
+         */
+        get: operations["getSiteReminderCadence"];
+        /**
+         * Set the Site's Reminder cadence
+         * @description Administrator or Owner only (Story 6.3); a Member gets 403. The Site keeps the cadence, then the Server hands it to every member, where it applies to each member without a cadence of their own. Answers 200 with the cadence in force, also when it was the Site's cadence already (then nothing is saved, and the members are handed it again). 503 reminder-cadence-not-delivered means the Site holds the cadence but not every member has it yet: send the same request again.
+         */
+        put: operations["setSiteReminderCadence"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -901,6 +973,79 @@ export type components = {
             /** @description Opaque; present only when more Alerts follow. */
             nextCursor?: string;
         };
+        /**
+         * @description How often a Reminder repeats while a Threshold Alert stays open: once per day or every 2 days. There is no never.
+         * @enum {string}
+         */
+        ReminderCadence: "daily" | "every2Days";
+        /**
+         * @description The daily Notification Window: wall-clock times in the User's time zone, from before to, within one day.
+         * @example {
+         *       "from": "07:00",
+         *       "to": "22:00"
+         *     }
+         */
+        NotificationWindow: {
+            /** @description When the window opens, HH:mm (24 h). */
+            from: string;
+            /** @description When the window closes, HH:mm (24 h), after from. */
+            to: string;
+        };
+        /**
+         * @description A User's own notification settings.
+         * @example {
+         *       "window": {
+         *         "from": "07:00",
+         *         "to": "22:00"
+         *       },
+         *       "timeZoneConfirmed": false
+         *     }
+         */
+        NotificationSettings: {
+            window: components["schemas"]["NotificationWindow"];
+            /** @description An IANA time zone ID: the one the User chose, else a detected one; absent when neither exists. */
+            timeZone?: string;
+            /** @description True only once the User chose the time zone. */
+            timeZoneConfirmed: boolean;
+        };
+        UpdateNotificationSettingsRequest: {
+            window?: {
+                /** @description When the window opens, HH:mm (24 h). */
+                from: string;
+                /** @description When the window closes, HH:mm (24 h), after from; omitted means 22:00. */
+                to?: string;
+            };
+            /** @description The IANA time zone ID the User chose. It always wins. */
+            timeZone?: string;
+            /** @description The IANA time zone ID the device or browser reports. Kept only while the User has chosen none. */
+            detectedTimeZone?: string;
+        };
+        /**
+         * @description A User's own notification settings for one Site.
+         * @example {
+         *       "muted": false,
+         *       "siteReminderCadence": "daily"
+         *     }
+         */
+        SiteNotificationSettings: {
+            /** @description Whether the User muted the Site. It affects only this User. */
+            muted: boolean;
+            reminderCadence?: components["schemas"]["ReminderCadence"];
+            siteReminderCadence: components["schemas"]["ReminderCadence"];
+        };
+        SetSiteNotificationSettingsRequest: {
+            muted: boolean;
+            reminderCadence?: components["schemas"]["ReminderCadence"];
+        };
+        /**
+         * @description The Site's Reminder cadence.
+         * @example {
+         *       "cadence": "daily"
+         *     }
+         */
+        SiteReminderCadence: {
+            cadence: components["schemas"]["ReminderCadence"];
+        };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
             /** @description Stable: urn:coldframe:problem:<slug>. The set grows as operations are added, so it is an x-extensible-enum: a client handles a type it does not know by its status. */
@@ -1022,6 +1167,15 @@ export type components = {
         };
         /** @description urn:coldframe:problem:calibration-not-delivered: the Calibration is saved, but the Node's Device grain has not acknowledged it yet. The Server delivers it again until it does; send the same request again to see whether it is in force. */
         CalibrationNotDelivered: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:reminder-cadence-not-delivered: the Site holds the Reminder cadence, but not every member was handed it. Send the same request again. */
+        ReminderCadenceNotDelivered: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1740,6 +1894,168 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SiteNotFound"];
+        };
+    };
+    getMyNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's notification settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateMyNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNotificationSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The notification settings in force after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettings"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getSiteNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's notification settings for the Site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteNotificationSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+        };
+    };
+    setSiteNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSiteNotificationSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The caller's notification settings for the Site after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteNotificationSettings"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+        };
+    };
+    getSiteReminderCadence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Site's Reminder cadence. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReminderCadence"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+        };
+    };
+    setSiteReminderCadence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReminderCadence"];
+            };
+        };
+        responses: {
+            /** @description The Site's Reminder cadence after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReminderCadence"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+            503: components["responses"]["ReminderCadenceNotDelivered"];
         };
     };
 }

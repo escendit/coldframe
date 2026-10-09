@@ -85,15 +85,17 @@ public enum AppTab: String, CaseIterable, Hashable, Sendable {
   }
 }
 
-/// Rows of the Settings index (UX-DR71): Site settings (Story 1.9), Appearance, then Account.
-/// My notifications and Members join with their stories.
+/// Rows of the Settings index (UX-DR71): My notifications (Story 6.3, UX-DR72), Site settings
+/// (Story 1.9), Appearance, then Account. Members joins with its story.
 public enum SettingsRow: CaseIterable, Sendable {
+  case notifications
   case siteSettings
   case appearance
   case account
 
   public var title: L10n {
     switch self {
+    case .notifications: .settingsNotifications
     case .siteSettings: .settingsSiteSettings
     case .appearance: .settingsAppearance
     case .account: .settingsAccount
@@ -103,6 +105,7 @@ public enum SettingsRow: CaseIterable, Sendable {
   /// The line under the title; Site settings names the current Site (`%@`).
   public var helper: L10n? {
     switch self {
+    case .notifications: .settingsNotificationsHelper
     case .siteSettings: .settingsSiteSettingsHelper
     case .appearance: .settingsAppearanceHelper
     case .account: nil

@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.lots
 
+import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.sites.NameError
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SiteSummary
@@ -56,6 +57,38 @@ class LotsSnapshotTest {
     }
 
     @Test
+    fun uxDr50TheSiteReminderCadenceCrossesAsItsContractValue() {
+        val unknown = snapshotOf(ready, NOW)
+        assertEquals("", unknown.reminderCadence)
+        assertTrue(unknown.canSetReminderCadence)
+        assertFalse(unknown.reminderCadenceWorking)
+        assertFalse(unknown.actionNoticeTryAgain)
+
+        val picked =
+            snapshotOf(
+                ready.copy(
+                    reminderCadence = SiteReminderCadence(ReminderCadence.Daily, pending = ReminderCadence.Every2Days),
+                    notice = LotsNotice(LotsNoticeKind.ReminderCadenceNotSaved),
+                ),
+                NOW,
+            )
+        assertEquals("every2Days", picked.reminderCadence)
+        assertTrue(picked.reminderCadenceWorking)
+        assertTrue(picked.actionNoticeTryAgain)
+
+        val member =
+            snapshotOf(
+                ready.copy(
+                    site = home.copy(role = SiteRole.Member),
+                    reminderCadence = SiteReminderCadence(ReminderCadence.Daily),
+                ),
+                NOW,
+            )
+        assertEquals("daily", member.reminderCadence)
+        assertFalse(member.canSetReminderCadence)
+    }
+
+    @Test
     fun theKeyNeverCrossesTheBoundary() {
         assertFalse(snapshotOf(ready, NOW).toString().contains("secret-key"))
     }
@@ -69,6 +102,7 @@ class LotsSnapshotTest {
                 "lotNotFound",
                 "renameSiteUnavailable",
                 "keyReused",
+                "reminderCadenceNotSaved",
                 "unreachable",
                 "certificate",
                 "unexpected",

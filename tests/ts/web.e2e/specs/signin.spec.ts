@@ -70,7 +70,8 @@ test.describe('Sign in on the web', () => {
     const cookies = await context.cookies(appUrl);
     expect(cookies.length).toBeGreaterThan(0);
     for (const cookie of cookies) {
-      if (cookie.name !== 'cf_theme') {
+      // The theme and the browser's time zone are written by the page; neither is a credential.
+      if (cookie.name !== 'cf_theme' && cookie.name !== 'cf_browser_zone') {
         expect(cookie.httpOnly, cookie.name).toBe(true);
       }
     }

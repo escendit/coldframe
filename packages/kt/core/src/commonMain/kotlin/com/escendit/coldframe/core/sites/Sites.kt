@@ -50,9 +50,10 @@ public enum class SitesNotice(
 }
 
 /**
- * The time-zone confirm panel (UX-DR61). [detected] comes from the OS; [chosen] is the zone the
- * user confirmed or picked, kept per device and never overwritten by detection. [changing] shows
- * the searchable list. The zone is the User's (AD-11) and is not sent with Create Site.
+ * The time-zone confirm panel of Create Site (UX-DR61, UX-DR48). [detected] comes from the OS;
+ * [chosen] is the zone the User confirmed or picked, read from the Server once it has it, and
+ * never overwritten by detection. [changing] shows the searchable list. The zone is the User's
+ * (AD-11): it goes to `PATCH /me/notification-settings`, never with `POST /sites`.
  */
 public data class TimeZoneProposal(
     val detected: String,

@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.escendit.coldframe.android.ui.alerts.AlertsActions
 import com.escendit.coldframe.android.ui.calibrate.CalibrateActions
 import com.escendit.coldframe.android.ui.devices.DevicesActions
+import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
 import com.escendit.coldframe.android.ui.setup.NodeSetupActions
 import com.escendit.coldframe.android.ui.sites.LotDetailActions
@@ -51,6 +52,9 @@ class MainActivity : ComponentActivity() {
         val devicesActions = DevicesActions.of(devices)
         val alerts = app.signIn.alerts
         val alertsActions = AlertsActions.of(alerts)
+        // The core reads these when the session starts; the shell reads them again on every entry of the surface.
+        val notifications = app.signIn.notifications
+        val notificationsActions = NotificationSettingsActions.of(notifications)
         val hubSetup = app.signIn.hubSetup
         val hubSetupActions = HubSetupActions.of(hubSetup)
         val nodeSetup = app.signIn.nodeSetup
@@ -65,6 +69,7 @@ class MainActivity : ComponentActivity() {
             val thresholdsState by thresholds.state.collectAsStateWithLifecycle()
             val devicesState by devices.state.collectAsStateWithLifecycle()
             val alertsState by alerts.state.collectAsStateWithLifecycle()
+            val notificationsState by notifications.state.collectAsStateWithLifecycle()
             val hubSetupState by hubSetup.state.collectAsStateWithLifecycle()
             val nodeSetupState by nodeSetup.state.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
@@ -115,6 +120,8 @@ class MainActivity : ComponentActivity() {
                 },
                 alerts = alertsState,
                 alertsActions = alertsActions,
+                notifications = notificationsState,
+                notificationsActions = notificationsActions,
             )
         }
     }

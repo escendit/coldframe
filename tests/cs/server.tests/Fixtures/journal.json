@@ -540,5 +540,61 @@
     "alias": "sensor.streak-changed",
     "schemaVersion": 1,
     "payload": { "position": "Within", "count": 1, "epoch": 4, "measuredAt": "2026-10-08T15:15:00Z" }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 4,
+    "alias": "user.notification-window-changed",
+    "schemaVersion": 1,
+    "payload": {"fromMinutes": 390, "toMinutes": 1320, "changedAt": "2026-10-09T12:00:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 5,
+    "alias": "user.time-zone-detected",
+    "schemaVersion": 1,
+    "payload": {"timeZone": "Europe/Zurich", "detectedAt": "2026-10-09T12:00:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 6,
+    "alias": "user.time-zone-chosen",
+    "schemaVersion": 1,
+    "payload": {"timeZone": "Europe/Vienna", "chosenAt": "2026-10-09T12:01:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 7,
+    "alias": "user.site-mute-changed",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "muted": true, "changedAt": "2026-10-09T12:02:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 8,
+    "alias": "user.site-reminder-cadence-changed",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "cadence": "Every2Days", "changedAt": "2026-10-09T12:03:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 9,
+    "alias": "user.site-reminder-cadence-changed",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "changedAt": "2026-10-09T12:04:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 10,
+    "alias": "user.site-reminder-cadence-synced",
+    "schemaVersion": 1,
+    "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "cadence": "Every2Days"}
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 10,
+    "alias": "site.reminder-cadence-changed",
+    "schemaVersion": 1,
+    "payload": {"cadence": "Every2Days", "changedAt": "2026-10-09T12:05:00+00:00"}
   }
 ]

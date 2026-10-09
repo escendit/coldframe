@@ -5,6 +5,8 @@ import com.escendit.coldframe.core.calibrate.CalibrateApi
 import com.escendit.coldframe.core.devices.DevicesApi
 import com.escendit.coldframe.core.lots.LotDetailApi
 import com.escendit.coldframe.core.lots.LotsApi
+import com.escendit.coldframe.core.notifications.NotificationSettingsApi
+import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
 import com.escendit.coldframe.core.sites.SitesApi
@@ -58,6 +60,8 @@ public class ColdframeApi(
     ThresholdsApi,
     DevicesApi,
     AlertsApi,
+    NotificationSettingsApi,
+    SiteReminderCadenceApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
@@ -258,6 +262,60 @@ public class ColdframeApi(
             }
         }) { it.body<SensorThresholdsDto>() }
 
+    /** `GET /me/notification-settings` (`getMyNotificationSettings`): the caller's window and time zone. */
+    override suspend fun getMyNotificationSettings(): ApiResult<NotificationSettingsDto> =
+        call({ http.get("$base/me/notification-settings") { it() } }) { it.body<NotificationSettingsDto>() }
+
+    /** `PATCH /me/notification-settings` (`updateMyNotificationSettings`): only the fields of [request] that are set. */
+    override suspend fun updateMyNotificationSettings(
+        request: UpdateNotificationSettingsRequestDto,
+    ): ApiResult<NotificationSettingsDto> =
+        call({
+            http.patch("$base/me/notification-settings") {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+        }) { it.body<NotificationSettingsDto>() }
+
+    /** `GET /sites/{siteId}/notification-settings` (`getSiteNotificationSettings`, Member): my mute and cadence. */
+    override suspend fun getSiteNotificationSettings(siteId: String): ApiResult<SiteNotificationSettingsDto> =
+        call({ http.get(siteNotifications(siteId)) { it() } }) { it.body<SiteNotificationSettingsDto>() }
+
+    /** `PUT /sites/{siteId}/notification-settings` (`setSiteNotificationSettings`, Member): both values every time. */
+    override suspend fun setSiteNotificationSettings(
+        siteId: String,
+        request: SetSiteNotificationSettingsRequestDto,
+    ): ApiResult<SiteNotificationSettingsDto> =
+        call({
+            http.put(siteNotifications(siteId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+        }) { it.body<SiteNotificationSettingsDto>() }
+
+    /** `GET /sites/{siteId}/reminder-cadence` (`getSiteReminderCadence`, Member). */
+    override suspend fun getSiteReminderCadence(siteId: String): ApiResult<SiteReminderCadenceDto> =
+        call({ http.get(reminderCadence(siteId)) { it() } }) { it.body<SiteReminderCadenceDto>() }
+
+    /** `PUT /sites/{siteId}/reminder-cadence` (`setSiteReminderCadence`, Admin+): 503 when a member was not reached. */
+    override suspend fun setSiteReminderCadence(
+        siteId: String,
+        cadence: String,
+    ): ApiResult<SiteReminderCadenceDto> =
+        call({
+            http.put(reminderCadence(siteId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(SiteReminderCadenceDto(cadence))
+            }
+        }) { it.body<SiteReminderCadenceDto>() }
+
+    private fun siteNotifications(siteId: String): String = "$base/sites/${siteId.encoded()}/notification-settings"
+
+    private fun reminderCadence(siteId: String): String = "$base/sites/${siteId.encoded()}/reminder-cadence"
+
     private fun thresholds(
         siteId: String,
         sensorId: String,
@@ -333,10 +391,10 @@ public class ColdframeApi(
             }
 
             HttpStatusCode.ServiceUnavailable -> {
-                if (problemType(response) == PROBLEM_CALIBRATION_NOT_DELIVERED) {
-                    ApiFailure.CalibrationNotDelivered
-                } else {
-                    ApiFailure.IdentityProviderUnavailable
+                when (problemType(response)) {
+                    PROBLEM_CALIBRATION_NOT_DELIVERED -> ApiFailure.CalibrationNotDelivered
+                    PROBLEM_REMINDER_CADENCE_NOT_DELIVERED -> ApiFailure.ReminderCadenceNotDelivered
+                    else -> ApiFailure.IdentityProviderUnavailable
                 }
             }
 
@@ -369,6 +427,9 @@ public class ColdframeApi(
         public const val PROBLEM_DEVICE_ON_ANOTHER_SITE: String = "urn:coldframe:problem:device-on-another-site"
         public const val PROBLEM_DEVICE_ASSIGNED: String = "urn:coldframe:problem:device-assigned"
         public const val PROBLEM_CALIBRATION_NOT_DELIVERED: String = "urn:coldframe:problem:calibration-not-delivered"
+
+        public const val PROBLEM_REMINDER_CADENCE_NOT_DELIVERED: String =
+            "urn:coldframe:problem:reminder-cadence-not-delivered"
 
         private val JSON =
             Json {

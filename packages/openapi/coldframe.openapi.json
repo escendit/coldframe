@@ -660,6 +660,154 @@
           "404": { "$ref": "#/components/responses/SiteNotFound" }
         }
       }
+    },
+    "/me/notification-settings": {
+      "get": {
+        "operationId": "getMyNotificationSettings",
+        "summary": "Read my notification settings",
+        "description": "The caller's own Notification Window and time zone (Story 6.3). Without any change the window is 07:00 to 22:00 and there is no time zone. timeZone is the zone the User chose, else the zone a client detected, else one the Server could look up, else absent; timeZoneConfirmed is true only after the User chose one. Reading saves nothing.",
+        "x-coldframe-minimum-role": "Authenticated",
+        "responses": {
+          "200": {
+            "description": "The caller's notification settings.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NotificationSettings" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "patch": {
+        "operationId": "updateMyNotificationSettings",
+        "summary": "Change my notification settings",
+        "description": "Changes the caller's own settings (Story 6.3); a field that is absent stays as it is, and a body with none of them is refused. window replaces the Notification Window: from and to are wall-clock times HH:mm (24 h) in the User's time zone, to omitted means 22:00, and from must be before to (no window across midnight). timeZone is the User's own choice: it always wins and sets timeZoneConfirmed. detectedTimeZone is what the device or browser reports: it is kept only while the User has chosen none and never replaces a chosen zone. A zone is an IANA ID the Server knows, at most 64 characters. Answers 200 with the settings in force, also when nothing changed (then nothing is saved). A refusal changes nothing.",
+        "x-coldframe-minimum-role": "Authenticated",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateNotificationSettingsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The notification settings in force after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NotificationSettings" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/sites/{siteId}/notification-settings": {
+      "get": {
+        "operationId": "getSiteNotificationSettings",
+        "summary": "Read my notification settings for a Site",
+        "description": "The caller's own settings for this Site (Story 6.3): whether the caller muted it, and the caller's Reminder cadence, absent when the caller uses the Site setting. siteReminderCadence is the Site's cadence as the Site holds it now. Another member's settings are never shown.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The caller's notification settings for the Site.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SiteNotificationSettings" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      },
+      "put": {
+        "operationId": "setSiteNotificationSettings",
+        "summary": "Set my notification settings for a Site",
+        "description": "Sets the caller's own mute and Reminder cadence for this Site (Story 6.3); it changes nothing for any other member. reminderCadence absent means the caller uses the Site setting. Answers 200 with the settings in force, also when nothing changed (then nothing is saved). The settings are dropped when the caller's Membership on the Site ends.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SetSiteNotificationSettingsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The caller's notification settings for the Site after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SiteNotificationSettings" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      }
+    },
+    "/sites/{siteId}/reminder-cadence": {
+      "get": {
+        "operationId": "getSiteReminderCadence",
+        "summary": "Read the Site's Reminder cadence",
+        "description": "Member and up (Story 6.3): every member reads it, only an Administrator or Owner changes it. A Site that never changed it reminds daily.",
+        "x-coldframe-minimum-role": "Member",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The Site's Reminder cadence.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SiteReminderCadence" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      },
+      "put": {
+        "operationId": "setSiteReminderCadence",
+        "summary": "Set the Site's Reminder cadence",
+        "description": "Administrator or Owner only (Story 6.3); a Member gets 403. The Site keeps the cadence, then the Server hands it to every member, where it applies to each member without a cadence of their own. Answers 200 with the cadence in force, also when it was the Site's cadence already (then nothing is saved, and the members are handed it again). 503 reminder-cadence-not-delivered means the Site holds the cadence but not every member has it yet: send the same request again.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SiteReminderCadence" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Site's Reminder cadence after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SiteReminderCadence" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" },
+          "503": { "$ref": "#/components/responses/ReminderCadenceNotDelivered" }
+        }
+      }
     }
   },
   "components": {
@@ -1361,6 +1509,76 @@
         },
         "examples": [{ "alerts": [], "openCount": 0 }]
       },
+      "ReminderCadence": {
+        "type": "string",
+        "enum": ["daily", "every2Days"],
+        "description": "How often a Reminder repeats while a Threshold Alert stays open: once per day or every 2 days. There is no never."
+      },
+      "NotificationWindow": {
+        "type": "object",
+        "description": "The daily Notification Window: wall-clock times in the User's time zone, from before to, within one day.",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "When the window opens, HH:mm (24 h)." },
+          "to": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "When the window closes, HH:mm (24 h), after from." }
+        },
+        "examples": [{ "from": "07:00", "to": "22:00" }]
+      },
+      "NotificationSettings": {
+        "type": "object",
+        "description": "A User's own notification settings.",
+        "required": ["window", "timeZoneConfirmed"],
+        "properties": {
+          "window": { "$ref": "#/components/schemas/NotificationWindow" },
+          "timeZone": { "type": "string", "maxLength": 64, "description": "An IANA time zone ID: the one the User chose, else a detected one; absent when neither exists." },
+          "timeZoneConfirmed": { "type": "boolean", "description": "True only once the User chose the time zone." }
+        },
+        "examples": [{ "window": { "from": "07:00", "to": "22:00" }, "timeZoneConfirmed": false }]
+      },
+      "UpdateNotificationSettingsRequest": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "window": {
+            "type": "object",
+            "required": ["from"],
+            "properties": {
+              "from": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "When the window opens, HH:mm (24 h)." },
+              "to": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "When the window closes, HH:mm (24 h), after from; omitted means 22:00." }
+            }
+          },
+          "timeZone": { "type": "string", "maxLength": 64, "description": "The IANA time zone ID the User chose. It always wins." },
+          "detectedTimeZone": { "type": "string", "maxLength": 64, "description": "The IANA time zone ID the device or browser reports. Kept only while the User has chosen none." }
+        }
+      },
+      "SiteNotificationSettings": {
+        "type": "object",
+        "description": "A User's own notification settings for one Site.",
+        "required": ["muted", "siteReminderCadence"],
+        "properties": {
+          "muted": { "type": "boolean", "description": "Whether the User muted the Site. It affects only this User." },
+          "reminderCadence": { "$ref": "#/components/schemas/ReminderCadence" },
+          "siteReminderCadence": { "$ref": "#/components/schemas/ReminderCadence" }
+        },
+        "examples": [{ "muted": false, "siteReminderCadence": "daily" }]
+      },
+      "SetSiteNotificationSettingsRequest": {
+        "type": "object",
+        "required": ["muted"],
+        "properties": {
+          "muted": { "type": "boolean" },
+          "reminderCadence": { "$ref": "#/components/schemas/ReminderCadence" }
+        }
+      },
+      "SiteReminderCadence": {
+        "type": "object",
+        "description": "The Site's Reminder cadence.",
+        "required": ["cadence"],
+        "properties": {
+          "cadence": { "$ref": "#/components/schemas/ReminderCadence" }
+        },
+        "examples": [{ "cadence": "daily" }]
+      },
       "ProblemDetails": {
         "type": "object",
         "description": "RFC 9457 Problem Details.",
@@ -1385,6 +1603,7 @@
               "urn:coldframe:problem:device-not-found",
               "urn:coldframe:problem:sensor-not-found",
               "urn:coldframe:problem:calibration-not-delivered",
+              "urn:coldframe:problem:reminder-cadence-not-delivered",
               "urn:coldframe:problem:ingest-unavailable"
             ]
           },
@@ -1446,6 +1665,10 @@
       },
       "CalibrationNotDelivered": {
         "description": "urn:coldframe:problem:calibration-not-delivered: the Calibration is saved, but the Node's Device grain has not acknowledged it yet. The Server delivers it again until it does; send the same request again to see whether it is in force.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "ReminderCadenceNotDelivered": {
+        "description": "urn:coldframe:problem:reminder-cadence-not-delivered: the Site holds the Reminder cadence, but not every member was handed it. Send the same request again.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "DeviceEnrolmentConflict": {

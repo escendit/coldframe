@@ -23,6 +23,7 @@ import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.devices.DevicesActions
+import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
 import com.escendit.coldframe.android.ui.setup.AddHubFlow
 import com.escendit.coldframe.android.ui.setup.AddNodeFlow
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
@@ -46,6 +47,7 @@ import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.notifications.NotificationSettingsState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
@@ -98,6 +100,8 @@ fun ColdframeRoot(
     onForeground: () -> Unit = {},
     alerts: AlertsState = AlertsState.Idle,
     alertsActions: AlertsActions = AlertsActions.None,
+    notifications: NotificationSettingsState = NotificationSettingsState.Idle,
+    notificationsActions: NotificationSettingsActions = NotificationSettingsActions.None,
 ) {
     // Every start of the activity, the first one and each return to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { onForeground() }
@@ -141,6 +145,8 @@ fun ColdframeRoot(
                     thresholdsActions,
                     alerts,
                     alertsActions,
+                    notifications,
+                    notificationsActions,
                 )
             }
         }
@@ -173,6 +179,8 @@ private fun SignedIn(
     thresholdsActions: ThresholdsActions,
     alerts: AlertsState,
     alertsActions: AlertsActions,
+    notifications: NotificationSettingsState,
+    notificationsActions: NotificationSettingsActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -245,6 +253,8 @@ private fun SignedIn(
                     onThresholds = thresholdsActions.open,
                     alerts = alerts,
                     alertsActions = alertsActions,
+                    notifications = notifications,
+                    notificationsActions = notificationsActions,
                 )
             }
         }

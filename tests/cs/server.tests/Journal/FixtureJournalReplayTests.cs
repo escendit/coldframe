@@ -199,6 +199,15 @@ public sealed class FixtureJournalReplayTests
         Assert.True(user.SiteCreations["k1"].Completed);
         Assert.Equal(SiteRole.Owner, user.Sites["0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"]);
 
+        // Notification settings (Story 6.3): the window, the chosen zone over the detected one, and per Site
+        // the mute, a personal cadence taken back, and the Site's cadence.
+        Assert.Equal(new NotificationWindow(390, 1320), user.NotificationWindow);
+        Assert.Equal(("Europe/Vienna", "Europe/Zurich"), (user.ChosenTimeZone, user.DetectedTimeZone));
+        Assert.Equal(
+            new UserSiteNotifications(Muted: true, ReminderCadence: null, SiteReminderCadence: ReminderCadence.Every2Days),
+            user.SiteNotificationsOf("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"));
+        Assert.Equal(ReminderCadence.Every2Days, Assert.IsType<SiteState>(states["site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00"]).ReminderCadence);
+
         var former = Assert.IsType<UserState>(states["user/8f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"]);
         Assert.Empty(former.Sites);
     }

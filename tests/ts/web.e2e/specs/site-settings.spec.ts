@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { appUrl } from '../fixtures/ports.ts';
-import { axeClean, largestText, nothingClipped, resetSites, serverSites, setMode, signInButton, useTheme } from './helpers.ts';
+import { axeClean, largestText, nothingClipped, resetSites, serverNotifications, serverSites, setMode, setNotifications, signInButton, useTheme } from './helpers.ts';
 
 const themes = ['light', 'dark'] as const;
 
@@ -140,4 +140,58 @@ test.describe('Site settings and Lots', () => {
     await expect(main.getByRole('button')).toHaveCount(0);
     await axeClean(page, 'site settings, Member');
   });
+
+  for (const role of ['Owner', 'Administrator'] as const) {
+    test(`UX-DR50 UX-DR74 an ${role} sets the Site Reminder cadence, applied at once; a failed save offers Try again, which repairs it`, async ({ page }) => {
+      await resetSites([{ id: homeId, name: 'Home', role }]);
+      await signInTo(page);
+      await page.goto('/settings/site');
+      const cadence = page.getByRole('group', { name: 'Reminder cadence' });
+      await expect(cadence.getByRole('button')).toHaveText(['Daily', 'Every 2 days']);
+      await expect(cadence.getByRole('button', { name: 'Daily' })).toHaveAttribute('aria-pressed', 'true');
+
+      await cadence.getByRole('button', { name: 'Every 2 days' }).click();
+      await expect(cadence.getByRole('button', { name: 'Every 2 days' })).toHaveAttribute('aria-pressed', 'true');
+      expect((await serverNotifications()).cadences).toEqual([{ siteId: homeId, cadence: 'every2Days' }]);
+      await page.reload();
+      await expect(cadence.getByRole('button', { name: 'Every 2 days' })).toHaveAttribute('aria-pressed', 'true');
+
+      // The Site saved it but a member was not reached (503): a failed save, repaired by the same request.
+      await setNotifications({ cadences: [{ siteId: homeId, cadence: 'every2Days' }], failNext: { cadence: 503 } });
+      await cadence.getByRole('button', { name: 'Daily' }).click();
+      const notice = page.locator('#cf-reminder-cadence');
+      await expect(notice).toContainText('The Reminder cadence was not saved: your Server returned an error.');
+      // After this 503 the Site holds the pick, so the control shows it; Try again reaches the members it missed.
+      await expect(cadence.getByRole('button', { name: 'Daily' })).toHaveAttribute('aria-pressed', 'true');
+      expect((await serverNotifications()).cadences).toEqual([{ siteId: homeId, cadence: 'daily' }]);
+      await notice.getByRole('button', { name: 'Try again' }).click();
+      await expect(cadence.getByRole('button', { name: 'Daily' })).toHaveAttribute('aria-pressed', 'true');
+      await expect(notice).toHaveCount(0);
+      const { cadences, writes } = await serverNotifications();
+      expect(cadences).toEqual([{ siteId: homeId, cadence: 'daily' }]);
+      expect(writes.map((write) => JSON.stringify(write.body))).toEqual(['{"cadence":"daily"}', '{"cadence":"daily"}']);
+    });
+  }
+
+  for (const theme of themes) {
+    test(`UX-DR50 UX-DR84 a Member reads the Site Reminder cadence as text, with no control (${theme}, largest text)`, async ({ page }) => {
+      await resetSites([{ id: homeId, name: 'Allotment', role: 'Member' }], [{ id: '0192a000-0000-7000-8000-000000000011', siteId: homeId, name: 'Tomatoes' }]);
+      await setNotifications({ cadences: [{ siteId: homeId, cadence: 'every2Days' }] });
+      await useTheme(page, theme, appUrl);
+      await page.emulateMedia({ colorScheme: theme });
+      await signInTo(page);
+      await page.goto('/settings/site');
+      await largestText(page);
+
+      const main = page.locator('main');
+      await expect(main.getByRole('heading', { name: 'Reminders' })).toBeVisible();
+      await expect(main.locator('[data-reminder-cadence]')).toHaveText('Every 2 days');
+      await expect(main.getByRole('group', { name: 'Reminder cadence' })).toHaveCount(0);
+      await expect(main.getByRole('button')).toHaveCount(0);
+      await expect(main.getByText('Only Owners and Administrators can change Lots.')).toBeVisible();
+      await axeClean(page, `site settings, Member (${theme})`);
+      await nothingClipped(page, `site settings, Member (${theme})`);
+      await expect(page).toHaveScreenshot(`site-settings-member-${theme}.png`, { fullPage: true });
+    });
+  }
 });

@@ -29,6 +29,12 @@ public enum class ApiFailure {
     /** 503 `calibration-not-delivered`: the Calibration is saved but the Node's Device has not acknowledged it yet. */
     CalibrationNotDelivered,
 
+    /**
+     * 503 `reminder-cadence-not-delivered`: the Site holds the cadence but a member was not handed it; sending the
+     * same request again repairs it.
+     */
+    ReminderCadenceNotDelivered,
+
     /** 401, or no session: the engine signs out with the SignedOut notice. */
     Unauthorized,
 

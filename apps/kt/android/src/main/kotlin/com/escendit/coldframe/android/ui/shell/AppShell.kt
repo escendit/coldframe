@@ -44,6 +44,8 @@ import com.escendit.coldframe.android.ui.components.ButtonVariant
 import com.escendit.coldframe.android.ui.components.ColdframeButton
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.devices.DevicesScreen
+import com.escendit.coldframe.android.ui.notifications.MyNotificationsScreen
+import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
 import com.escendit.coldframe.android.ui.settings.AppearanceScreen
 import com.escendit.coldframe.android.ui.settings.SettingsScreen
 import com.escendit.coldframe.android.ui.settings.SiteSettingsScreen
@@ -65,6 +67,7 @@ import com.escendit.coldframe.core.devices.canAddNode
 import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.notifications.NotificationSettingsState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
@@ -93,8 +96,9 @@ enum class Tab(
  * Lot detail on the Garden tab, or the Devices tab; Devices lists the Hubs (Story 3.7) and reads them again every
  * time the tab is entered, with Add a Hub and Add a Node as ghost header actions for Administrators
  * and Owners;
- * Settings leads to Site settings and Appearance, and system/predictive back returns. The Site
- * menu's "Site settings" opens Site settings.
+ * Settings leads to My notifications (Story 6.3), which reads its settings again on every entry, to
+ * Site settings and to Appearance, and system/predictive back returns. The Site menu's "Site
+ * settings" opens Site settings.
  *
  * [tabState] is the selected tab. The root hoists it, so closing a flow that replaced the shell
  * (Add a Hub, Add a Node) returns to the tab it was opened from. [now] is the clock last-seen times,
@@ -126,20 +130,25 @@ fun AppShell(
     onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit = { _, _, _ -> },
     alerts: AlertsState = AlertsState.Idle,
     alertsActions: AlertsActions = AlertsActions.None,
+    notifications: NotificationSettingsState = NotificationSettingsState.Idle,
+    notificationsActions: NotificationSettingsActions = NotificationSettingsActions.None,
 ) {
     val colors = Coldframe.colors
     var tab by tabState
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
     var siteSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var notificationsOpen by rememberSaveable { mutableStateOf(false) }
     val showingAppearance = tab == Tab.Settings && appearanceOpen
     val showingSiteSettings = tab == Tab.Settings && siteSettingsOpen && !appearanceOpen
+    val showingNotifications = tab == Tab.Settings && notificationsOpen && !appearanceOpen && !siteSettingsOpen
     // Lot detail is open while the core's detail state is not idle (it goes idle with the Site).
     val showingLotDetail = tab == Tab.Garden && lotDetail !is LotDetailState.Idle
-    val showingSub = showingAppearance || showingSiteSettings || showingLotDetail
+    val showingSub = showingAppearance || showingSiteSettings || showingNotifications || showingLotDetail
     val closeSub = {
         if (showingLotDetail) lotDetailActions.close()
         appearanceOpen = false
         siteSettingsOpen = false
+        notificationsOpen = false
     }
 
     BackHandler(enabled = showingSub) { closeSub() }
@@ -148,6 +157,11 @@ fun AppShell(
     LaunchedEffect(tab) {
         if (tab == Tab.Devices) devicesActions.load()
         if (tab == Tab.Alerts) alertsActions.load()
+    }
+
+    // Every entry of My notifications reads the settings again from the Server.
+    LaunchedEffect(showingNotifications) {
+        if (showingNotifications) notificationsActions.load()
     }
 
     // The bar grows with the heading's line height, so a scaled title never clips (UX-DR96).
@@ -179,6 +193,7 @@ fun AppShell(
                                     when {
                                         showingAppearance -> R.string.appearance_title
                                         showingSiteSettings -> R.string.site_settings_title
+                                        showingNotifications -> R.string.notifications_title
                                         else -> tab.title
                                     },
                                 ),
@@ -289,6 +304,7 @@ fun AppShell(
                     actions = actions,
                     onOpenSiteSettings = {
                         appearanceOpen = false
+                        notificationsOpen = false
                         siteSettingsOpen = true
                         tab = Tab.Settings
                     },
@@ -305,12 +321,15 @@ fun AppShell(
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)
             } else if (showingSiteSettings) {
                 SiteSettingsScreen(lots = lots, actions = lotsActions)
+            } else if (showingNotifications) {
+                MyNotificationsScreen(state = notifications, actions = notificationsActions)
             } else if (tab == Tab.Settings) {
                 SettingsScreen(
                     onOpenAppearance = { appearanceOpen = true },
                     onSignOut = onSignOut,
                     siteName = sites.current.name,
                     onOpenSiteSettings = { siteSettingsOpen = true },
+                    onOpenNotifications = { notificationsOpen = true },
                 )
             }
         }

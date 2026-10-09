@@ -589,6 +589,10 @@
     func askRemove(lotId: String) {}
     func confirmRemove() {}
     func cancelRemove() {}
+    func setReminderCadence(_ cadence: ReminderCadenceKind) {
+      calls.append("setReminderCadence \(cadence.rawValue)")
+    }
+    func retryReminderCadence() { calls.append("retryReminderCadence") }
   }
 
   @Test("UX-DR112 pull-to-refresh and the minute tick reach the Lots service")
@@ -599,7 +603,12 @@
     actions.refresh()
     actions.tick()
     actions.load()
-    #expect(spy.calls == ["refresh", "tick", "load"])
+    actions.setReminderCadence(.every2Days)
+    actions.retryReminderCadence()
+    #expect(
+      spy.calls == [
+        "refresh", "tick", "load", "setReminderCadence every2Days", "retryReminderCadence",
+      ])
   }
 
   private func devicesReady(canAddHub: Bool, hubs: Bool = true) -> DevicesPresentation {
@@ -1040,5 +1049,201 @@
         dark: dark))
     #expect(AppTab.alerts.labelCopy(openAlerts: alerts.openCount).string == "Alerts · 8")
     #expect(AppTab.alerts.spokenCopy(openAlerts: 5).string == "Alerts, 5 open")
+  }
+
+  // MARK: - My notifications and Reminders (Story 6.3)
+
+  @MainActor
+  private func notificationsView(_ presentation: NotificationSettingsPresentation) -> some View {
+    NavigationStack { MyNotificationsView(presentation: presentation, actions: .none) }
+  }
+
+  @Test(
+    "UX-DR72 UX-DR47 UX-DR49 UX-DR50 My notifications with a Site renders, zone unconfirmed and confirmed",
+    arguments: [false, true])
+  @MainActor
+  func myNotificationsWithSiteRenders(dark: Bool) {
+    let states = [
+      NotificationsFixture.settings(),
+      NotificationsFixture.confirmed,
+      NotificationsFixture.settings(
+        timeZoneChosen: "Europe/Vienna", muted: true, reminderCadence: "every2Days",
+        siteReminderCadence: "daily"),
+    ]
+    for presentation in states {
+      #expect(presentation.site != nil)
+      #expect(renders(notificationsView(presentation), dark: dark))
+      #expect(rendersAtDefaultSize(notificationsView(presentation), dark: dark))
+    }
+  }
+
+  @Test(
+    "UX-DR72 UX-DR48 My notifications without a Site renders, zone unconfirmed and confirmed",
+    arguments: [false, true])
+  @MainActor
+  func myNotificationsWithoutSiteRenders(dark: Bool) {
+    let states = [
+      NotificationsFixture.withoutSite,
+      NotificationsFixture.settings(timeZoneChosen: "Europe/Vienna", hasSite: false),
+      NotificationsFixture.settings(timeZoneDetected: "", hasSite: false),
+      NotificationsFixture.settings(timeZoneChanging: true, hasSite: false),
+    ]
+    for presentation in states {
+      #expect(presentation.site == nil)
+      #expect(renders(notificationsView(presentation), dark: dark))
+      #expect(rendersAtDefaultSize(notificationsView(presentation), dark: dark))
+    }
+  }
+
+  @Test(
+    "UX-DR47 the Notification Window control renders edited, saving, saved and out of order",
+    arguments: [false, true])
+  @MainActor
+  func notificationWindowRenders(dark: Bool) {
+    let states = [
+      NotificationsFixture.settings(
+        windowFrom: "06:30", windowFromMinutes: 390, windowDirty: true, canSaveWindow: true),
+      NotificationsFixture.settings(
+        windowFrom: "06:30", windowFromMinutes: 390, windowDirty: true, windowWorking: true),
+      NotificationsFixture.settings(
+        windowFrom: "06:30", windowFromMinutes: 390, savedWindowFrom: "06:30", windowSaved: true),
+      NotificationsFixture.settings(
+        windowFrom: "22:00", windowFromMinutes: 1320, windowDirty: true, windowOutOfOrder: true),
+    ]
+    for presentation in states {
+      #expect(renders(notificationsView(presentation), dark: dark))
+      #expect(rendersAtDefaultSize(notificationsView(presentation), dark: dark))
+    }
+    #expect(L10n.notificationsWindowRange.string("07:00", "22:00") == "07:00 to 22:00")
+    #expect(
+      L10n.notificationsWindowHelper.string("07:00")
+        == "Outside this window, anything waits for one summary at 07:00.")
+  }
+
+  @Test(
+    "UX-DR72 My notifications renders its notices: not saved, Site gone, and a failed load",
+    arguments: [false, true])
+  @MainActor
+  func myNotificationsNoticesRender(dark: Bool) {
+    let states = [
+      NotificationsFixture.settings(
+        notice: "notSaved", noticeTryAgain: true, noticeControl: "mute"),
+      NotificationsFixture.settings(notice: "invalid", noticeControl: "window"),
+      NotificationsFixture.settings(notice: "invalid", noticeControl: "timeZone"),
+      NotificationsFixture.settings(notice: "siteRefused", noticeControl: "reminderCadence"),
+      NotificationsFixture.settings(
+        surface: "failed", notice: "unreachable", noticeTryAgain: true),
+      NotificationsFixture.settings(surface: "loading"),
+    ]
+    for presentation in states {
+      #expect(renders(notificationsView(presentation), dark: dark))
+    }
+    #expect(L10n.notificationsMute.string("Home garden") == "Mute Home garden")
+    #expect(
+      L10n.notificationsCadenceHelper.string(L10n.remindersDaily.string) == "Site setting: Daily")
+  }
+
+  @Test(
+    "UX-DR71 UX-DR72 Settings renders with My notifications above Site settings",
+    arguments: [false, true])
+  @MainActor
+  func settingsWithNotificationsRenders(dark: Bool) {
+    let settings = NavigationStack {
+      SettingsView(
+        theme: .system, onSelectTheme: { _ in }, onSignOut: {}, siteName: "Home garden",
+        lots: lotsReady, notifications: NotificationsFixture.settings())
+    }
+    #expect(renders(settings, dark: dark))
+    #expect(L10n.settingsNotifications.string == "My notifications")
+  }
+
+  private func lotsWithReminders(
+    role: String, canEdit: Bool, cadence: String = "daily", notice: String? = nil
+  ) -> LotsPresentation {
+    LotsPresentation(
+      surface: "ready", notice: nil, siteId: "a", siteName: "Home garden", role: role,
+      canRenameSite: role == "owner", canEditLots: canEdit, readOnlyNotice: !canEdit,
+      siteNameDraft: "Home garden", siteNameError: nil, siteRenameWorking: false,
+      lotIds: ["t", "b"], lotNames: ["Tomatoes", "Beans"], lotStatuses: ["noNode", "noNode"],
+      newLotName: "", newLotNameError: nil, createWorking: false,
+      renamingLotId: nil, renameDraft: "", renameError: nil, renameWorking: false,
+      removingLotId: nil, removingLotName: nil, removeWorking: false,
+      actionNotice: notice, actionNoticeSubject: nil, actionNoticeTryAgain: notice != nil,
+      canSetReminderCadence: canEdit, reminderCadence: cadence, reminderCadenceWorking: false)
+  }
+
+  @Test(
+    "UX-DR50 UX-DR74 Site settings with Reminders renders for an Owner and an Administrator",
+    arguments: [false, true])
+  @MainActor
+  func siteSettingsRemindersEditableRenders(dark: Bool) {
+    let states = [
+      lotsWithReminders(role: "owner", canEdit: true),
+      lotsWithReminders(role: "administrator", canEdit: true, cadence: "every2Days"),
+      lotsWithReminders(role: "owner", canEdit: true, notice: "reminderCadenceNotSaved"),
+    ]
+    for presentation in states {
+      #expect(presentation.siteSettings?.reminders?.canEdit == true)
+      let view = NavigationStack { SiteSettingsView(presentation: presentation, actions: .none) }
+      #expect(renders(view, dark: dark))
+      #expect(rendersAtDefaultSize(view, dark: dark))
+    }
+  }
+
+  @Test(
+    "UX-DR50 UX-DR84 Site settings with Reminders renders read-only for a Member",
+    arguments: [false, true])
+  @MainActor
+  func siteSettingsRemindersReadOnlyRenders(dark: Bool) {
+    let member = lotsWithReminders(role: "member", canEdit: false, cadence: "every2Days")
+    #expect(member.siteSettings?.reminders?.canEdit == false)
+    let view = NavigationStack { SiteSettingsView(presentation: member, actions: .none) }
+    #expect(renders(view, dark: dark))
+    #expect(rendersAtDefaultSize(view, dark: dark))
+    #expect(L10n.remindersEvery2Days.string == "Every 2 days")
+  }
+
+  @MainActor
+  private final class NotificationSettingsSpy: NotificationSettingsService {
+    var calls: [String] = []
+    func observe(_ onChange: @escaping @MainActor (NotificationSettingsPresentation) -> Void) {}
+    func availableTimeZones() -> [String] { ["Europe/Vienna", "Europe/Zurich"] }
+    func load() { calls.append("load") }
+    func retry() { calls.append("retry") }
+    func setWindowFrom(hour: Int, minute: Int) { calls.append("from \(hour):\(minute)") }
+    func setWindowTo(hour: Int, minute: Int) { calls.append("to \(hour):\(minute)") }
+    func saveWindow() { calls.append("saveWindow") }
+    func confirmTimeZone() { calls.append("confirmTimeZone") }
+    func changeTimeZone() { calls.append("changeTimeZone") }
+    func pickTimeZone(_ zoneId: String) { calls.append("pick \(zoneId)") }
+    func setMuted(_ muted: Bool) { calls.append("muted \(muted)") }
+    func setReminderCadence(_ cadence: MyReminderCadenceKind) {
+      calls.append("cadence \(cadence.rawValue)")
+    }
+  }
+
+  @Test(
+    "UX-DR72 every My notifications action reaches the service; the switch and the cadence at once")
+  @MainActor
+  func notificationSettingsActionsForward() {
+    let spy = NotificationSettingsSpy()
+    let actions = NotificationSettingsActions(service: spy)
+    actions.load()
+    actions.setWindowFrom(6, 30)
+    actions.setWindowTo(21, 0)
+    actions.saveWindow()
+    actions.timeZone.confirm()
+    actions.timeZone.change()
+    actions.timeZone.pick("Europe/Vienna")
+    actions.setMuted(true)
+    actions.setReminderCadence(.useSiteSetting)
+    actions.setReminderCadence(.every2Days)
+    actions.retry()
+    #expect(
+      spy.calls == [
+        "load", "from 6:30", "to 21:0", "saveWindow", "confirmTimeZone", "changeTimeZone",
+        "pick Europe/Vienna", "muted true", "cadence ", "cadence every2Days", "retry",
+      ])
+    #expect(actions.timeZone.zones() == ["Europe/Vienna", "Europe/Zurich"])
   }
 #endif

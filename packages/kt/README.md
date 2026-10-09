@@ -20,13 +20,18 @@ session's access token, refreshed by `SignInEngine` when expired; a 401 signs ou
 notice. Results are values (`ApiResult.Ok` / `ApiResult.Failed(ApiFailure)`), never exceptions. The
 DTOs are hand-written and held to `packages/openapi/coldframe.openapi.json` by `OpenApiContractTest`.
 `sites/SitesEngine` owns the Sites state (Loading, Failed, NeedsSite, Ready with the current Site and
-Create Site), the per-device choices (current Site, confirmed time zone) and the models of the
+Create Site), the per-device choices (current Site; the confirmed time zone only until the Server has it) and the models of the
 first-run tiles and the Site menu. Android reads `AndroidSignIn.sites`; iOS observes the flat
 `SitesSnapshot` through `IosSignIn.sites`. `lots/LotsEngine` follows the current Site and owns Site
 settings (rename Site for the Owner, create/rename/remove Lots for Owners and Administrators, the
 Member read-only notice, one `Idempotency-Key` per create attempt) and the Lots Garden shows, in the
 Server's order; Android reads `AndroidSignIn.lots`, iOS the flat `LotsSnapshot` through
-`IosSignIn.lots`. `design-tokens/` builds for the JVM and Android; iOS uses the
+`IosSignIn.lots`. `notifications/NotificationSettingsEngine` owns My notifications (Story 6.3): the
+Notification Window, the time zone and its hand-over from the device to the Server, and the mute and
+Reminder cadence of the current Site over `/me/notification-settings` and
+`/sites/{siteId}/notification-settings`; `LotsEngine` carries the Site's Reminder cadence
+(`/sites/{siteId}/reminder-cadence`) for Site settings. Android reads `AndroidSignIn.notifications`, iOS
+the flat `NotificationSettingsSnapshot` through `IosSignIn.notifications`. `design-tokens/` builds for the JVM and Android; iOS uses the
 Swift package in [`packages/swift/design-tokens`](../swift/design-tokens).
 `core/generated/` holds `crypto/CryptoSpec`, the Device crypto constants written by
 [`packages/crypto-spec`](../crypto-spec) into `commonMain`.

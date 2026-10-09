@@ -7,22 +7,24 @@
   interface Props {
     /** The browser's zone; `undefined` until the page has asked the browser, `null` when it has none. */
     detected: string | null | undefined;
-    /** The zone this browser already confirmed or picked. It wins over detection, always. */
+    /** The zone the user already confirmed or picked. It wins over detection, always. */
     chosen: string | null;
     /** IANA zone IDs offered by Change. */
     zones: readonly string[];
     /** Form field carrying the confirmed zone; empty until the user confirms or picks one. */
     name?: string;
     id?: string;
+    /** Called once the user confirmed or picked a zone, for a surface that applies it at once. */
+    onchoose?: (zone: string) => void;
   }
 
-  let { detected, chosen, zones, name = 'timeZone', id = 'cf-time-zone' }: Props = $props();
+  let { detected, chosen, zones, name = 'timeZone', id = 'cf-time-zone', onchoose }: Props = $props();
 
   let picked: string | null = $state(null);
   let changing = $state(false);
   let filter = $state('');
 
-  /** A choice (this visit's, then this browser's) is never overwritten by detection. */
+  /** A choice (this visit's, then the stored one) is never overwritten by detection. */
   const zone = $derived(picked ?? chosen ?? detected ?? null);
   const confirmed = $derived(picked !== null || chosen !== null);
   const matches = $derived.by(() => {
@@ -33,6 +35,7 @@
   function confirm(): void {
     if (zone !== null) {
       picked = zone;
+      onchoose?.(zone);
     }
   }
 
@@ -40,10 +43,11 @@
     picked = candidate;
     changing = false;
     filter = '';
+    onchoose?.(candidate);
   }
 </script>
 
-<!-- Time-zone confirm panel (UX-DR61): propose the browser's zone; Confirm or Change. -->
+<!-- Time-zone confirm panel (UX-DR48, UX-DR61): propose the detected zone; Confirm or Change. -->
 <fieldset class="cf-time-zone" aria-describedby="{id}-helper">
   <legend class="cf-time-zone__legend">{t('timeZone.legend')}</legend>
   <input type="hidden" {name} value={confirmed && zone !== null ? zone : ''} />
