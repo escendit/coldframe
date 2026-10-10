@@ -12,7 +12,7 @@ namespace Coldframe.Server.Identity;
 /// its Site grain. It creates the Organization and writes nothing else to Keycloak (AD-1). It also holds
 /// the User's Role on each Site, as the Site grains report it, and the User's notification settings
 /// (Story 6.3): the Notification Window, the time zone, and per Site the mute, the User's own Reminder
-/// cadence and a copy of the Site's.
+/// cadence and a copy of the Site's. It owns the devices the User registered for push (Story 6.5).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -338,6 +338,77 @@ public sealed partial class UserGrain(
         await ConfirmEvents();
     }
 
+    /// <inheritdoc />
+    public async Task<PushRegistrationOutcome> RegisterPushDevice(RegisterPushDevice request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Checked before anything is journaled: a refusal changes nothing. APNs needs its environment, FCM has none.
+        if (!PushRegistrationLimits.IsInstallationId(request.InstallationId)
+            || !PushRegistrationLimits.IsToken(request.Token)
+            || !Enum.IsDefined(request.Platform)
+            || (request.Environment is { } environment && !Enum.IsDefined(environment))
+            || (request.Platform == PushPlatform.Apns) != (request.Environment is not null))
+        {
+            return PushRegistrationOutcome.Invalid;
+        }
+
+        if (State.PushRegistrations.TryGetValue(request.InstallationId, out var current)
+            && current.Platform == request.Platform
+            && current.Environment == request.Environment
+            && string.Equals(current.Token, request.Token, StringComparison.Ordinal))
+        {
+            return PushRegistrationOutcome.Unchanged;
+        }
+
+        var now = Clock.GetUtcNow();
+
+        // State is the confirmed state, so what this call removes is worked out before anything is raised.
+        var others = State.OrderedPushRegistrations()
+            .Where(other => !string.Equals(other.InstallationId, request.InstallationId, StringComparison.Ordinal))
+            .ToList();
+
+        // A token belongs to one installation: an app that was installed again got a new installation ID and
+        // may have kept its token, and the phone must not be pushed twice.
+        var sameToken = others
+            .Where(other => other.Platform == request.Platform && string.Equals(other.Token, request.Token, StringComparison.Ordinal))
+            .ToList();
+
+        // Beyond the limit the one registered longest ago makes room; the one being registered is the newest.
+        var kept = others.Except(sameToken).ToList();
+        var overflow = kept.Take(Math.Max(0, kept.Count + 1 - PushRegistrationLimits.MaxRegistrations));
+
+        foreach (var replaced in sameToken.Concat(overflow))
+        {
+            RaiseEvent(new PushDeviceRemoved(replaced.InstallationId, PushDeviceRemovalReason.Replaced, now));
+        }
+
+        RaiseEvent(new PushDeviceRegistered(request.InstallationId, request.Platform, request.Token, request.Environment, now));
+        await ConfirmEvents();
+
+        return PushRegistrationOutcome.Registered;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> RemovePushDevice(string installationId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(installationId);
+
+        if (!State.PushRegistrations.ContainsKey(installationId))
+        {
+            return false;
+        }
+
+        RaiseEvent(new PushDeviceRemoved(installationId, PushDeviceRemovalReason.Requested, Clock.GetUtcNow()));
+        await ConfirmEvents();
+
+        return true;
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<PushRegistration>> GetPushRegistrations(CancellationToken cancellationToken = default) =>
+        Task.FromResult(State.OrderedPushRegistrations());
+
     private static NotificationEntry Entry(SiteAlert alert) =>
         new(alert.AlertId, alert.Kind, alert.Side, alert.LotId, alert.SensorId, alert.DeviceId, alert.Quantity, alert.OpenedAt);
 
@@ -516,14 +587,35 @@ public sealed partial class UserGrain(
     }
 
     // Hands one notification to the Notifier and journals it as sent only after the Notifier returned. A failure
-    // leaves the delivery due (or held) for the next wake; it never stops the other deliveries.
+    // leaves the delivery due (or held) for the next wake; it never stops the other deliveries. A channel runs
+    // inside this turn and cannot ask this grain for anything (Story 6.5): the notification carries the push
+    // registrations, the time zone and the window, and the registrations a provider no longer knows come back
+    // and are journaled as removed, whether the send succeeded or not.
     private async Task SendAsync(Notification notification)
     {
-        DateTimeOffset sentAt;
+        notification = notification with
+        {
+            Registrations = State.OrderedPushRegistrations(),
+            TimeZone = State.TimeZone,
+            Window = State.NotificationWindow,
+        };
+
+        NotifierResult result;
 
         try
         {
-            sentAt = await notifier.SendAsync(notification, CancellationToken.None);
+            result = await notifier.SendAsync(notification, CancellationToken.None);
+        }
+        catch (NotificationNotDeliveredException exception)
+        {
+            LogNotSent(logger, Notifier.NameOf(notification.Kind), UserId, notification.SiteId, exception);
+
+            if (RaiseRemovals(exception.InvalidInstallations))
+            {
+                await ConfirmEvents();
+            }
+
+            return;
         }
 #pragma warning disable CA1031 // Whatever failed the send, the delivery stays due and is handed over again.
         catch (Exception exception)
@@ -533,13 +625,30 @@ public sealed partial class UserGrain(
             return;
         }
 
+        RaiseRemovals(result.InvalidInstallations);
         RaiseEvent(new NotificationSent(
             notification.SiteId,
             notification.Kind,
             [.. notification.Entries.Select(entry => entry.AlertId)],
             notification.DueAt,
-            sentAt));
+            result.SentAt));
         await ConfirmEvents();
+    }
+
+    // A token the provider reported as invalid or unregistered: its registration is removed, so the next
+    // notification is not sent to it.
+    private bool RaiseRemovals(IReadOnlyList<string> invalidInstallations)
+    {
+        var raised = false;
+
+        foreach (var installationId in invalidInstallations.Where(State.PushRegistrations.ContainsKey).Distinct(StringComparer.Ordinal))
+        {
+            RaiseEvent(new PushDeviceRemoved(installationId, PushDeviceRemovalReason.Invalid, Clock.GetUtcNow()));
+            LogPushDeviceInvalid(logger, UserId, installationId);
+            raised = true;
+        }
+
+        return raised;
     }
 
     // The timer and the reminder exist only while there is something to deliver or to pull. Never throws:
@@ -648,4 +757,7 @@ public sealed partial class UserGrain(
 
     [LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "A wake of User {UserId} failed; its deadlines stand and the next wake tries again.")]
     private static partial void LogWakeFailed(ILogger logger, string userId, Exception exception);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "The push provider no longer knows the token of installation {InstallationId} of User {UserId}; its registration was removed.")]
+    private static partial void LogPushDeviceInvalid(ILogger logger, string userId, string installationId);
 }

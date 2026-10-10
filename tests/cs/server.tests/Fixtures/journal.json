@@ -645,5 +645,26 @@
     "alias": "user.notification-sent",
     "schemaVersion": 1,
     "payload": {"siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "kind": "Reminder", "alertIds": ["4321deb0-d3de-52ca-acfb-c3b31ebddd27"], "dueAt": "2026-10-11T21:30:00+00:00", "sentAt": "2026-10-11T21:30:05+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 18,
+    "alias": "user.push-device-registered",
+    "schemaVersion": 1,
+    "payload": {"installationId": "c0ldf4a3-1111-4a6b-9c2d-000000000001", "platform": "Apns", "token": "0011223300112233001122330011223300112233001122330011223300112233", "environment": "Production", "registeredAt": "2026-10-12T08:00:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 19,
+    "alias": "user.push-device-registered",
+    "schemaVersion": 1,
+    "payload": {"installationId": "c0ldf4a3-2222-4a6b-9c2d-000000000002", "platform": "Fcm", "token": "dQw4w9WgXcQ:APA91bExampleRegistrationToken", "environment": null, "registeredAt": "2026-10-12T08:05:00+00:00"}
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 20,
+    "alias": "user.push-device-removed",
+    "schemaVersion": 1,
+    "payload": {"installationId": "c0ldf4a3-1111-4a6b-9c2d-000000000001", "reason": "Invalid", "removedAt": "2026-10-13T21:30:06+00:00"}
   }
 ]

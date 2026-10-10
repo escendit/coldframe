@@ -467,4 +467,62 @@ class SignInEngineTest {
         assertNull(SignInEngine.displayNameOf(tokens(name = null)))
         assertNull(SignInEngine.displayNameOf(tokens().copy(id_token = "not-a-jwt")))
     }
+
+    // Story 6.5: what must reach the Server as this User runs before the session ends.
+
+    @Test
+    fun uxDr115SignOutRunsItsListenersWhileTheSessionIsStillValid() =
+        runTest {
+            vault.tokens = tokens(receivedAt = NOW)
+            val engine = engine()
+            engine.resume()
+            advanceUntilIdle()
+            var seen: String? = null
+            engine.onSigningOut {
+                seen = engine.accessToken()
+                log += "leaving"
+            }
+
+            engine.signOut()
+            advanceUntilIdle()
+
+            assertEquals("access-1", seen)
+            assertEquals(listOf("leaving", "clear", "endSession"), log)
+            assertEquals(SignInState.SignedOut(null), engine.state.value)
+        }
+
+    @Test
+    fun uxDr115AListenerThatFailsOrNeverAnswersDoesNotKeepTheUserSignedIn() =
+        runTest {
+            vault.tokens = tokens(receivedAt = NOW)
+            val engine = engine()
+            engine.resume()
+            advanceUntilIdle()
+            engine.onSigningOut { throw IllegalStateException("no response") }
+            engine.onSigningOut { CompletableDeferred<Unit>().await() }
+            engine.onSigningOut { log += "third" }
+
+            engine.signOut()
+            advanceUntilIdle()
+
+            assertEquals(SignInState.SignedOut(null), engine.state.value)
+            assertNull(vault.tokens)
+            assertEquals(listOf("third", "clear", "endSession"), log)
+        }
+
+    @Test
+    fun uxDr115ASessionTheServerEndedRunsNoSignOutListener() =
+        runTest {
+            vault.tokens = tokens(receivedAt = NOW)
+            val engine = engine()
+            engine.resume()
+            advanceUntilIdle()
+            engine.onSigningOut { log += "leaving" }
+
+            engine.signOutExpired()
+            advanceUntilIdle()
+
+            assertEquals(SignInState.SignedOut(Notice.SignedOut), engine.state.value)
+            assertEquals(listOf("clear"), log)
+        }
 }

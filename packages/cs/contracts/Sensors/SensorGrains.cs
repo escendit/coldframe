@@ -1,3 +1,5 @@
+using Orleans.Concurrency;
+
 namespace Coldframe.Contracts.Sensors;
 
 /// <summary>
@@ -53,8 +55,15 @@ public interface ISensorGrain : IGrainWithStringKey
     /// Returns the Sensor's Thresholds with the low the Server proposes, or <see langword="null"/> when the Sensor
     /// was never declared (Story 5.3).
     /// </summary>
+    /// <remarks>
+    /// It interleaves with the Sensor grain's other calls. A push channel reads the Thresholds for its text
+    /// inside a User grain's turn (Story 6.5), while this Sensor may be awaiting that same User grain through
+    /// <c>IAlertGrain.Open</c>: without interleaving the two would wait for each other until a call times out.
+    /// The method only reads state, and no other call leaves the Thresholds half-changed across an await.
+    /// </remarks>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("get-thresholds")]
+    [AlwaysInterleave]
     Task<SensorThresholds?> GetThresholds(CancellationToken cancellationToken = default);
 
     /// <summary>

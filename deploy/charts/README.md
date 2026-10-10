@@ -152,6 +152,7 @@ manual equivalent.
 | server | `partitions.schedule`, `partitions.monthsAhead`, `partitions.backoffLimit`, `partitions.activeDeadlineSeconds` | `17 3 * * *` (UTC), `3`, `1`, `600` | the CronJob runs the `migrations` image with `partitions`; the chart fails below 2 months ahead (AD-22) |
 | server | `stopped` | `false` | `true` renders 0 replicas: only while a restore under Fleet advances the replay windows ([restore.md](../../docs/operations/restore.md), step 5) |
 | server | `nats.url`, `keycloak.*`, `keycloakEvents.*` | the other releases | |
+| server | `push.apns.enabled`, `push.apns.topic`, `push.fcm.enabled` | `false`, `com.escendit.coldframe`, `false` | push notifications are optional: an enabled provider reads its keys of the Secret `coldframe-push`, which are then required ([SECRETS.md](../SECRETS.md#push-notifications)) |
 | web | `serverUrl`, `keycloak.issuer`, `origin`, `sessionCookieSecure` | the other releases, empty, `true` | |
 | keycloak | `hostname` | empty: `KC_HOSTNAME_STRICT=false` | set the public host name in production |
 | keycloak | `realmImport.configMap` | empty: no import | mounted at `/opt/keycloak/data/import`, adds `--import-realm` |

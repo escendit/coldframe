@@ -9,7 +9,9 @@ below are fixed in the chart templates; they are not values, so this list is the
 that is not in the table below.
 
 A missing Secret or key does not fall back to anything: the pod stays in
-`CreateContainerConfigError`, and `kubectl describe pod` names the Secret or key.
+`CreateContainerConfigError`, and `kubectl describe pod` names the Secret or key. One Secret is
+optional as a whole: `coldframe-push` is referenced only when push is enabled in the `server`
+chart's values, and then its keys are required like any other.
 
 | Secret | Type | Keys | Consumer |
 | --- | --- | --- | --- |
@@ -19,11 +21,31 @@ A missing Secret or key does not fall back to anything: the pod stays in
 | `coldframe-keycloak-admin` | `Opaque` | `username`, `password` | `keycloak` chart: the temporary bootstrap admin of the master realm. Keycloak creates it on the first start only, but the Deployment reads the Secret on every start, so it must stay |
 | `coldframe-oidc-clients` | `Opaque` | `web-client-secret`, `server-client-secret` | `web` chart (`web-client-secret`), `server` chart (`server-client-secret`), `keycloak` chart (both, substituted into an imported realm) |
 | `coldframe-smtp` | `Opaque` | `host`, `port`, `username`, `password`, `from` | not yet consumed: invitations (Epic 9) |
-| `coldframe-push` | `Opaque` | `apns-key.p8`, `apns-key-id`, `apns-team-id`, `fcm-service-account.json` | not yet consumed: push notifications (Epic 6) |
+| `coldframe-push` | `Opaque` | `apns-key.p8`, `apns-key-id`, `apns-team-id`, `fcm-service-account.json` | `server` chart, **optional**: push notifications (Story 6.5). Read only when `push.apns.enabled` (the three `apns-*` keys) or `push.fcm.enabled` (`fcm-service-account.json`) is set; see [Push notifications](#push-notifications) |
 | `coldframe-dns01` | `Opaque` | `api-token` | `ingress` chart: the Cloudflare API token of the cert-manager DNS-01 solver of the Issuer `coldframe-letsencrypt`; permissions Zone → DNS → Edit and Zone → Zone → Read, on the domain's zone only |
 | `coldframe-enrolment-key` | `Opaque` | `private-key.pem` | `server` chart: the X25519 enrolment private key, PKCS#8 PEM. Devices seal their key to its public key (Device enrolment) |
 | `coldframe-device-kek` | `Opaque` | `kek` | `server` chart: the key-encryption key of every enrolled Device's key, at least 32 characters |
 | `coldframe-backup-s3` | `Opaque` | `access-key-id`, `secret-access-key` | `database` chart: the Barman Cloud `ObjectStore` (WAL archive and base backups, and the source of a restore) |
+
+## Push notifications
+
+Without `coldframe-push` the Server runs and sends no push: it logs once at start that APNs and FCM
+have no credentials. To push to phones, an adopter uses their own Apple Developer and Firebase
+accounts, because the apps are built with the adopter's credentials
+([`docs/bench/push-checklist.md`](../docs/bench/push-checklist.md)):
+
+- **APNs** (iPhones): an APNs auth key (`.p8`) from the Apple Developer account, with its Key ID and
+  the Team ID. Keys `apns-key.p8`, `apns-key-id`, `apns-team-id`. Enable with the `server` value
+  `push.apns.enabled: true` and set `push.apns.topic` to the bundle ID of the iOS app
+  (default `com.escendit.coldframe`).
+- **FCM** (Android phones): the JSON key of a service account of the Firebase project, with the
+  role *Firebase Cloud Messaging API Admin*. Key `fcm-service-account.json`. Enable with
+  `push.fcm.enabled: true`.
+
+The Secret may hold the keys of one provider only; enable just that provider. A provider that is
+enabled while its keys are missing keeps the pod in `CreateContainerConfigError`. A key that is
+present but cannot be read (not a P-256 key, not a service-account JSON) does not stop the Server:
+it logs an error at start (`PushChannelCredentialsUnusable`) and sends no push for that provider.
 
 The three database Secrets have the `kubernetes.io/basic-auth` shape that CloudNativePG consumes
 for managed roles: the `database` chart creates each role with the password of its Secret and
@@ -81,6 +103,7 @@ kubectl -n "$NS" create secret generic coldframe-smtp \
   --from-literal=username='<smtp-username>' --from-literal=password='<smtp-password>' \
   --from-literal=from='<sender-address>'
 
+# Optional: only for push notifications, and only the keys of the providers you enable.
 kubectl -n "$NS" create secret generic coldframe-push \
   --from-file=apns-key.p8='<path/to/AuthKey.p8>' \
   --from-literal=apns-key-id='<apns-key-id>' --from-literal=apns-team-id='<apns-team-id>' \
@@ -143,6 +166,9 @@ start.
   and re-wrapping them under a new key is not built yet: a changed or lost value makes every enrolled
   Device unusable, and each must be enrolled again. Keep the recorded value apart from the database
   backups and their credentials; a database restore needs the same value.
+- `coldframe-push`: create a new APNs key or service-account key at the provider, update the Secret
+  and restart the `server`; revoke the old key afterwards. Registered devices are unaffected: their
+  tokens belong to the app, not to the key.
 - `coldframe-oidc-clients`: regenerate the client secret in Keycloak first (admin console or admin
   API, clients `coldframe-web` and `coldframe-server`). The realm import never overwrites an
   existing realm, so a new value in the Secret alone breaks sign-in.

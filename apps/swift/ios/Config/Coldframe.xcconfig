@@ -10,4 +10,25 @@ COLDFRAME_SERVER_URL =
 COLDFRAME_KEYCLOAK_ISSUER =
 COLDFRAME_KEYCLOAK_CLIENT_ID = coldframe-mobile
 
+// Push notifications (Story 6.5). Off by default: the app is then signed without an entitlement,
+// builds with any team, with a free personal team or with no signing at all (CI), asks for the
+// notification permission as usual, gets no device token from APNs and registers nothing.
+// For real pushes put in Coldframe.local.xcconfig:
+//   COLDFRAME_PUSH = YES
+//   DEVELOPMENT_TEAM = <your Apple Developer team ID>
+// The team must be in the Apple Developer Program and the App ID of the bundle identifier needs
+// the Push Notifications capability (automatic signing adds it). No provisioning profile, key or
+// team ID belongs in this repository.
+// COLDFRAME_APS_ENVIRONMENT is the aps-environment entitlement, which the app also reads from
+// Info.plist to tell the Server which APNs host its device token belongs to: "development"
+// (sandbox) for Debug, "production" for Release. It has to match the provisioning profile: a
+// Release build signed with a development profile needs
+//   COLDFRAME_APS_ENVIRONMENT[config=Release] = development
+COLDFRAME_PUSH = NO
+COLDFRAME_APS_ENVIRONMENT = production
+COLDFRAME_APS_ENVIRONMENT[config=Debug] = development
+COLDFRAME_PUSH_ENTITLEMENTS_YES = Config/Coldframe.entitlements
+COLDFRAME_PUSH_ENTITLEMENTS_NO =
+CODE_SIGN_ENTITLEMENTS = $(COLDFRAME_PUSH_ENTITLEMENTS_$(COLDFRAME_PUSH))
+
 #include? "Coldframe.local.xcconfig"

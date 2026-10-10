@@ -1,0 +1,174 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Coldframe notifications",
+    "version": "0.1.0",
+    "description": "What the Server sends to a phone when a notification is due (Story 6.5). The User grain alone decides when; the APNs and FCM channels behind the Notifier seam write the text and send it. A client only displays what it receives and routes a tap. SignalR messages for the web arrive with Story 6.6."
+  },
+  "servers": {
+    "apns": {
+      "host": "api.push.apple.com",
+      "protocol": "https",
+      "description": "Apple Push Notification service, HTTP/2 with a provider token (ES256). api.sandbox.push.apple.com for a device token of the sandbox environment."
+    },
+    "fcm": {
+      "host": "fcm.googleapis.com",
+      "protocol": "https",
+      "description": "Firebase Cloud Messaging HTTP v1 with a service-account access token."
+    }
+  },
+  "channels": {
+    "apnsDevice": {
+      "address": "/3/device/{deviceToken}",
+      "description": "One request per APNs registration of the User.",
+      "servers": [{ "$ref": "#/servers/apns" }],
+      "parameters": {
+        "deviceToken": { "description": "The APNs device token, as hex." }
+      },
+      "messages": {
+        "push": { "$ref": "#/components/messages/ApnsPush" }
+      }
+    },
+    "fcmMessages": {
+      "address": "/v1/projects/{projectId}/messages:send",
+      "description": "One request per FCM registration of the User.",
+      "servers": [{ "$ref": "#/servers/fcm" }],
+      "parameters": {
+        "projectId": { "description": "The Firebase project ID of the operator's service account." }
+      },
+      "messages": {
+        "push": { "$ref": "#/components/messages/FcmPush" }
+      }
+    }
+  },
+  "operations": {
+    "sendApnsPush": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/apnsDevice" },
+      "summary": "The Server pushes a notification to an iPhone.",
+      "messages": [{ "$ref": "#/channels/apnsDevice/messages/push" }]
+    },
+    "sendFcmPush": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/fcmMessages" },
+      "summary": "The Server pushes a notification to an Android phone.",
+      "messages": [{ "$ref": "#/channels/fcmMessages/messages/push" }]
+    }
+  },
+  "components": {
+    "messages": {
+      "ApnsPush": {
+        "name": "ApnsPush",
+        "title": "APNs notification",
+        "summary": "An alert push: the text, the Site as thread identifier, the standard interruption level, no badge, and the routing data under coldframe.",
+        "contentType": "application/json",
+        "headers": { "$ref": "#/components/schemas/ApnsHeaders" },
+        "payload": { "$ref": "#/components/schemas/ApnsPayload" }
+      },
+      "FcmPush": {
+        "name": "FcmPush",
+        "title": "FCM data message",
+        "summary": "A data message: FCM display notifications cannot set a notification group, so the app builds the notification from data (group = Site, a channel without badge). The text still comes only from the Server.",
+        "contentType": "application/json",
+        "payload": { "$ref": "#/components/schemas/FcmRequest" }
+      }
+    },
+    "schemas": {
+      "NotificationKind": {
+        "type": "string",
+        "description": "alert: an Alert opened. reminder: it is still open. summary: what was held for one Site outside the Notification Window. The set grows, so it is an x-extensible-enum: a client opens the Site overview for a kind it does not know.",
+        "x-extensible-enum": ["alert", "reminder", "summary"]
+      },
+      "CollapseId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$",
+        "description": "The stable identity of a send: the first 32 hex digits of SHA-256 over the UTF-8 text \"<kind>:<subject>:<dueAt as Unix milliseconds>\", where subject is the Alert ID for alert and reminder and the Site ID for summary. The same notification sent again carries the same value, so it replaces the earlier one on the device (apns-collapse-id on iOS, the notification tag on Android)."
+      },
+      "PushRoute": {
+        "type": "object",
+        "description": "What tap routing needs. alert and reminder open Lot detail of lotId after switching to siteId; summary opens the overview of siteId. An unknown Site or Lot ends on the overview of the current Site.",
+        "required": ["kind", "siteId", "collapseId"],
+        "properties": {
+          "kind": { "$ref": "#/components/schemas/NotificationKind" },
+          "siteId": { "type": "string", "format": "uuid", "description": "The Site the notification is about." },
+          "lotId": { "type": "string", "format": "uuid", "description": "The Lot the Alert was opened for; absent in a summary." },
+          "alertId": { "type": "string", "format": "uuid", "description": "The Alert; absent in a summary." },
+          "collapseId": { "$ref": "#/components/schemas/CollapseId" }
+        }
+      },
+      "ApnsHeaders": {
+        "type": "object",
+        "required": ["apns-push-type", "apns-priority", "apns-topic", "apns-collapse-id", "apns-expiration"],
+        "properties": {
+          "apns-push-type": { "const": "alert" },
+          "apns-priority": { "const": "10" },
+          "apns-topic": { "type": "string", "description": "The app's bundle ID." },
+          "apns-collapse-id": { "$ref": "#/components/schemas/CollapseId" },
+          "apns-expiration": { "type": "string", "pattern": "^[0-9]+$", "description": "Unix seconds, 24 h after the notification was sent: APNs stops trying then." }
+        }
+      },
+      "ApnsPayload": {
+        "type": "object",
+        "required": ["aps", "coldframe"],
+        "properties": {
+          "aps": {
+            "type": "object",
+            "description": "No badge key: Coldframe never sets the app-icon badge.",
+            "required": ["alert", "sound", "thread-id", "interruption-level"],
+            "properties": {
+              "alert": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string", "description": "The condition, such as \"Tomatoes needs water\"." },
+                  "body": { "type": "string", "description": "Value and context; absent when the Server found neither." }
+                }
+              },
+              "sound": { "const": "default" },
+              "thread-id": { "type": "string", "format": "uuid", "description": "The Site ID: notifications are grouped per Site." },
+              "interruption-level": { "const": "active" }
+            }
+          },
+          "coldframe": { "$ref": "#/components/schemas/PushRoute" }
+        }
+      },
+      "FcmData": {
+        "type": "object",
+        "description": "Every value is a string. The app shows title and body as they are, groups by siteId and names the group siteName.",
+        "required": ["kind", "siteId", "collapseId", "title"],
+        "properties": {
+          "kind": { "$ref": "#/components/schemas/NotificationKind" },
+          "siteId": { "type": "string", "format": "uuid" },
+          "siteName": { "type": "string", "description": "The Site's name; absent when the Server could not read it." },
+          "lotId": { "type": "string", "format": "uuid" },
+          "alertId": { "type": "string", "format": "uuid" },
+          "collapseId": { "$ref": "#/components/schemas/CollapseId" },
+          "title": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      },
+      "FcmRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": {
+            "type": "object",
+            "required": ["token", "data", "android"],
+            "properties": {
+              "token": { "type": "string", "description": "The FCM registration token." },
+              "data": { "$ref": "#/components/schemas/FcmData" },
+              "android": {
+                "type": "object",
+                "required": ["priority", "ttl"],
+                "properties": {
+                  "priority": { "const": "HIGH" },
+                  "ttl": { "const": "86400s" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

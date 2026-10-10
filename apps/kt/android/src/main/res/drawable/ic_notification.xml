@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status-bar icon of a push notification: Carbon "notification" (packages/design-tokens/generated/icons). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="24dp"
+  android:height="24dp"
+  android:viewportWidth="32"
+  android:viewportHeight="32">
+  <path
+    android:fillColor="#FFFFFFFF"
+    android:pathData="M 28.707 19.293 L 26 16.586 L 26 13 C 25.993 7.867 22.107 3.57 17 3.051 L 17 1 L 15 1 L 15 3.051 C 9.893 3.57 6.007 7.867 6 13 L 6 16.586 L 3.293 19.293 C 3.105 19.481 3 19.735 3 20 L 3 23 C 3 23.552 3.448 24 4 24 L 11 24 L 11 24.777 C 10.955 27.404 12.894 29.643 15.5 29.976 C 16.906 30.115 18.305 29.654 19.352 28.706 C 20.4 27.759 20.998 26.413 21 25 L 21 24 L 28 24 C 28.552 24 29 23.552 29 23 L 29 20 C 29 19.735 28.895 19.481 28.707 19.293 Z M 19 25 C 19 26.657 17.657 28 16 28 C 14.343 28 13 26.657 13 25 L 13 24 L 19 24 Z M 27 22 L 5 22 L 5 20.414 L 7.707 17.707 C 7.895 17.52 8 17.265 8 17 L 8 13 C 8 8.582 11.582 5 16 5 C 20.418 5 24 8.582 24 13 L 24 17 C 24 17.265 24.105 17.52 24.293 17.707 L 27 20.414 Z" />
+</vector>

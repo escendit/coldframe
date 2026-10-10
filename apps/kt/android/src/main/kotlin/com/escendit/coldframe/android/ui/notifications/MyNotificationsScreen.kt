@@ -46,12 +46,17 @@ import com.escendit.coldframe.designtokens.Typography
  * cadence (UX-DR50). Without a current Site only the window and the time zone show. The switch
  * and the segmented choice apply at once; the window has Save. A change that was not saved shows
  * its notice under its control, which is back at the Server's value.
+ *
+ * While [notificationsOff] (the OS permission is denied or revoked, UX-DR88) the notifications-off notice stays at
+ * the top with Open Settings, also over a failed load: the settings below still apply once notifications are on.
  */
 @Composable
 fun MyNotificationsScreen(
     state: NotificationSettingsState,
     actions: NotificationSettingsActions,
     modifier: Modifier = Modifier,
+    notificationsOff: Boolean = false,
+    onOpenSettings: () -> Unit = {},
 ) {
     val base = modifier.fillMaxSize().background(Coldframe.colors.background)
     when (state) {
@@ -60,7 +65,11 @@ fun MyNotificationsScreen(
         }
 
         is NotificationSettingsState.Failed -> {
-            Column(base.padding(Spacing.GUTTER_MOBILE.dp)) {
+            Column(
+                modifier = base.padding(Spacing.GUTTER_MOBILE.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.STEP_6.dp),
+            ) {
+                if (notificationsOff) NotificationsOffNotice(onOpenSettings)
                 InlineNotice(
                     message = stringResource(state.notice.message()),
                     action =
@@ -75,7 +84,7 @@ fun MyNotificationsScreen(
         }
 
         is NotificationSettingsState.Ready -> {
-            Ready(state, actions, base)
+            Ready(state, actions, base, notificationsOff, onOpenSettings)
         }
     }
 }
@@ -85,12 +94,15 @@ private fun Ready(
     state: NotificationSettingsState.Ready,
     actions: NotificationSettingsActions,
     modifier: Modifier,
+    notificationsOff: Boolean,
+    onOpenSettings: () -> Unit,
 ) {
     val colors = Coldframe.colors
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()).padding(Spacing.GUTTER_MOBILE.dp),
         verticalArrangement = Arrangement.spacedBy(Spacing.STEP_6.dp),
     ) {
+        if (notificationsOff) NotificationsOffNotice(onOpenSettings)
         Text(
             text = stringResource(R.string.notifications_window),
             style = Typography.section.textStyle(),

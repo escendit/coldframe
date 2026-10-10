@@ -48,6 +48,8 @@ import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.components.dashedBorder
 import com.escendit.coldframe.android.ui.components.styledText
+import com.escendit.coldframe.android.ui.notifications.OverviewPushNotice
+import com.escendit.coldframe.android.ui.notifications.PushActions
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
@@ -55,6 +57,7 @@ import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsOverview
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.site
+import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.sites.FirstRunStep
 import com.escendit.coldframe.core.sites.FirstRunSteps
 import com.escendit.coldframe.core.sites.FirstRunTile
@@ -87,6 +90,9 @@ import com.escendit.coldframe.core.sites.SiteMenu as SiteMenuModel
  * the Add a Hub tile starts Add a Hub (UX-DR66) and Members see the read-only notice instead. A
  * *no Node* tile starts Add a Node with its Lot when the core says so (UX-DR67).
  *
+ * Above the tiles the overview says what [push] asks for (Story 6.5): on the first landing the one line of why,
+ * which leads to the OS prompt (UX-DR122), and while notifications are off the notice with Open Settings (UX-DR88).
+ *
  * [now] is the clock ages and durations are told against; [zone] is the phone's.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,6 +111,8 @@ fun GardenScreen(
     now: () -> Instant = Instant::now,
     zone: ZoneId = ZoneId.systemDefault(),
     events: Flow<LotsEvent> = emptyFlow(),
+    push: PushState = PushState.None,
+    pushActions: PushActions = PushActions.None,
 ) {
     val colors = Coldframe.colors
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
@@ -183,6 +191,7 @@ fun GardenScreen(
                     menu = menu,
                 )
             }
+            OverviewPushNotice(push, pushActions)
             FirstRunTiles(steps, onAddHub = onAddHub)
             if (steps.memberNotice) {
                 InlineNotice(message = stringResource(R.string.garden_member_notice))

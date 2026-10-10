@@ -261,6 +261,16 @@ expect_failure "recovery into the source's archive folder fails" \
   "backup.serverName (coldframe-db) must differ from recovery.sourceServerName (coldframe-db)" \
   helm template database "${here}/database" --set recovery.enabled=true
 
+echo "# server with push notifications"
+# Push is optional (Story 6.5): the default render references no coldframe-push key, and an enabled
+# provider references only its own keys of the contract, never as an optional reference.
+render_and_check server "server (push enabled)" --set push.apns.enabled=true --set push.fcm.enabled=true
+check "server: the default render reads nothing of coldframe-push" \
+  bash -c "! helm template server '${here}/server' | grep -q coldframe-push"
+expect_failure "APNs without a topic fails naming the value" \
+  "push.apns.topic is required" \
+  helm template server "${here}/server" --set push.apns.enabled=true --set push.apns.topic=
+
 echo "# ingress without ACME"
 render_and_check ingress "ingress (external issuer)" --set acme.enabled=false --set externalIssuer.name=my-ca
 expect_failure "no ACME and no external issuer fails naming both values" \

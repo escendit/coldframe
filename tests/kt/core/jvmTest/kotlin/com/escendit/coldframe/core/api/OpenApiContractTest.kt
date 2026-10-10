@@ -499,4 +499,60 @@ class OpenApiContractTest {
             )
         }
     }
+
+    @Test
+    fun story65ThePushRegistrationOperationsAreInTheContract() {
+        val path = "/me/push-registrations/{installationId}"
+        val register = operation(path, "put")
+        val remove = operation(path, "delete")
+        assertEquals("registerPushDevice", register["operationId"]!!.jsonPrimitive.content)
+        assertEquals("removePushDevice", remove["operationId"]!!.jsonPrimitive.content)
+        // Both answer 204 without a body, which the client reads as Unit.
+        assertNotNull(register["responses"]!!.jsonObject["204"])
+        assertNotNull(remove["responses"]!!.jsonObject["204"])
+        val body =
+            register["requestBody"]!!
+                .jsonObject["content"]!!
+                .jsonObject["application/json"]!!
+                .jsonObject["schema"]!!
+                .jsonObject["\$ref"]!!
+                .jsonPrimitive.content
+        assertEquals("#/components/schemas/RegisterPushDeviceRequest", body)
+        val descriptor = RegisterPushDeviceRequestDto.serializer().descriptor
+        assertMirrors("RegisterPushDeviceRequest", descriptor)
+        assertEquals(
+            schema("RegisterPushDeviceRequest")["properties"]!!.jsonObject.keys,
+            (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
+        )
+    }
+
+    @Test
+    fun story65ThePlatformsEnvironmentsAndTheInstallationIdAreTheContractValues() {
+        assertEquals(
+            com.escendit.coldframe.core.push.PushPlatform.entries
+                .map { it.key }
+                .sorted(),
+            schema("PushPlatform")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.sorted(),
+        )
+        assertEquals(
+            com.escendit.coldframe.core.push.ApnsEnvironment.entries
+                .map { it.key }
+                .sorted(),
+            schema("ApnsEnvironment")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.sorted(),
+        )
+        val installationId =
+            contract["components"]!!
+                .jsonObject["parameters"]!!
+                .jsonObject["InstallationId"]!!
+                .jsonObject["schema"]!!
+                .jsonObject
+        val pattern = Regex(installationId["pattern"]!!.jsonPrimitive.content)
+        val maxLength = installationId["maxLength"]!!.jsonPrimitive.content.toInt()
+        // The core's installation ID is a random UUID.
+        val made =
+            com.escendit.coldframe.core.sites.SitesEngine
+                .randomKey()
+        assertTrue(pattern.matches(made), made)
+        assertTrue(made.length <= maxLength, made)
+    }
 }

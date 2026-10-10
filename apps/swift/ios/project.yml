@@ -7,6 +7,9 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
+# Config/Coldframe.xcconfig also wires the push entitlement (Story 6.5): CODE_SIGN_ENTITLEMENTS is
+# Config/Coldframe.entitlements when COLDFRAME_PUSH = YES and empty otherwise, which is the
+# default, so a build without an Apple Developer team or with signing off needs nothing.
 configFiles:
   Debug: Config/Coldframe.xcconfig
   Release: Config/Coldframe.xcconfig

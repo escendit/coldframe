@@ -108,6 +108,7 @@ private let coveredUxDrs: [String: [Int]] = [
   "5.4 Set Thresholds in the app and see them on the chart": [5, 32, 33, 45, 69, 84, 91],
   "6.2 See Alerts in the apps": [14, 25, 26, 64, 82, 98],
   "6.3 My notification settings and the Site Reminder cadence": [47, 48, 49, 50, 72],
+  "6.5 Push notifications on my phone": [88, 115, 120, 121, 122],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -224,6 +225,25 @@ func notificationsCatalogueMatchesAndroid() throws {
   #expect(copy.ios["notifications_window_range"] == "%1$@ to %2$@")
   // The window is told to a person: no Silence Window, no "Never".
   #expect(!copy.ios.values.contains { $0.contains("Silence Window") || $0.contains("Never") })
+}
+
+@Test("UX-DR124 UX-DR88 UX-DR122 the push strings are the Android ones, word for word")
+func pushCatalogueMatchesAndroid() throws {
+  let copy = try sharedCopy(["push_"])
+
+  #expect(
+    Set(copy.ios.keys) == [
+      "push_why", "push_why_continue", "push_off", "push_open_settings", "push_channel_alerts",
+    ])
+  #expect(copy.android == copy.ios)
+  #expect(copy.ios["push_why"] == "Coldframe tells you when a Lot needs water.")
+  #expect(
+    copy.ios["push_off"]
+      == "Notifications are off for Coldframe on this phone. You won't get Alerts.")
+  for notice in PushNoticeKind.allCases {
+    #expect(copy.ios[notice.message.rawValue] != nil, "\(notice)")
+    #expect(copy.ios[notice.actionLabel.rawValue] != nil, "\(notice)")
+  }
 }
 
 @Test("UX-DR124 UX-DR72 every notification settings notice has its catalogue entry")

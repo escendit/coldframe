@@ -51,6 +51,9 @@
 	<string>$(COLDFRAME_KEYCLOAK_ISSUER)</string>
 	<key>ColdframeKeycloakClientId</key>
 	<string>$(COLDFRAME_KEYCLOAK_CLIENT_ID)</string>
+	<!-- Push (Story 6.5): the aps-environment of Coldframe.entitlements, "development" or "production". -->
+	<key>ColdframeApsEnvironment</key>
+	<string>$(COLDFRAME_APS_ENVIRONMENT)</string>
 	<!-- Release: default App Transport Security, publicly trusted certificates only (AD-13). -->
 </dict>
 </plist>

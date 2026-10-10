@@ -1,0 +1,56 @@
+{
+  "description": "The morning summary of five Alerts held outside a 07:00 to 22:00 window (Europe/Zurich): needs-water lines first, then the footer.",
+  "notification": {
+    "kind": "summary",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "dueAt": "2026-10-09T05:00:00Z",
+    "sentAt": "2026-10-09T05:00:20Z"
+  },
+  "apns": {
+    "path": "/3/device/0011223300112233001122330011223300112233001122330011223300112233",
+    "headers": {
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      "apns-topic": "com.escendit.coldframe",
+      "apns-collapse-id": "b2efb891dc1c9672a2fcb77cd589bf6a",
+      "apns-expiration": "1791608420"
+    },
+    "payload": {
+      "aps": {
+        "alert": {
+          "title": "Home garden: 2 need water, 3 to check",
+          "body": "Tomatoes needs water\nPeppers needs water\nHerbs too wet\nBeans temperature below 5 °C\nLettuce humidity above 90 %\nHeld overnight, 22:00–07:00"
+        },
+        "sound": "default",
+        "thread-id": "0199c1f0-5a00-7000-8000-000000000001",
+        "interruption-level": "active"
+      },
+      "coldframe": {
+        "kind": "summary",
+        "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+        "collapseId": "b2efb891dc1c9672a2fcb77cd589bf6a"
+      }
+    }
+  },
+  "fcm": {
+    "message": {
+      "token": "dQw4w9WgXcQ:APA91bExampleRegistrationToken",
+      "data": {
+        "kind": "summary",
+        "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+        "siteName": "Home garden",
+        "collapseId": "b2efb891dc1c9672a2fcb77cd589bf6a",
+        "title": "Home garden: 2 need water, 3 to check",
+        "body": "Tomatoes needs water\nPeppers needs water\nHerbs too wet\nBeans temperature below 5 °C\nLettuce humidity above 90 %\nHeld overnight, 22:00–07:00"
+      },
+      "android": {
+        "priority": "HIGH",
+        "ttl": "86400s"
+      }
+    }
+  },
+  "route": {
+    "kind": "summary",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001"
+  }
+}

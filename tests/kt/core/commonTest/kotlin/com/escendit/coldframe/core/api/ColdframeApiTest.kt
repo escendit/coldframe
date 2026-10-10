@@ -921,4 +921,59 @@ class ColdframeApiTest {
             assertEquals(ApiResult.Failed(ApiFailure.Unauthorized), api().getMyNotificationSettings())
             assertEquals(1, unauthorized)
         }
+
+    @Test
+    fun uxDr115RegisterPushDevicePutsTheFcmRegistrationWithoutAnEnvironment() =
+        runTest {
+            answer = { respond("", HttpStatusCode.NoContent) }
+
+            val result = api().registerPushDevice("inst-1", RegisterPushDeviceRequestDto("fcm", "fcm-token"))
+
+            assertEquals(ApiResult.Ok(Unit), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Put, request.method)
+            assertEquals("https://server.example/me/push-registrations/inst-1", request.url.toString())
+            assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+            assertEquals(
+                """{"platform":"fcm","token":"fcm-token"}""",
+                (request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString(),
+            )
+        }
+
+    @Test
+    fun uxDr115RegisterPushDeviceNamesTheEnvironmentOfAnApnsToken() =
+        runTest {
+            answer = { respond("", HttpStatusCode.NoContent) }
+
+            api().registerPushDevice("inst-1", RegisterPushDeviceRequestDto("apns", "6f1d", "sandbox"))
+
+            assertEquals(
+                """{"platform":"apns","token":"6f1d","environment":"sandbox"}""",
+                (requests.single().body as OutgoingContent.ByteArrayContent).bytes().decodeToString(),
+            )
+        }
+
+    @Test
+    fun uxDr115ARefusedPushRegistrationIsAValidationFailure() =
+        runTest {
+            answer = { respond(problem("validation"), HttpStatusCode.BadRequest, problem) }
+
+            val result = api().registerPushDevice("inst-1", RegisterPushDeviceRequestDto("fcm", "t"))
+
+            assertEquals(ApiResult.Failed(ApiFailure.Validation), result)
+        }
+
+    @Test
+    fun uxDr115RemovePushDeviceDeletesTheRegistrationOfThisInstallation() =
+        runTest {
+            answer = { respond("", HttpStatusCode.NoContent) }
+
+            val result = api().removePushDevice("inst-1")
+
+            assertEquals(ApiResult.Ok(Unit), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Delete, request.method)
+            assertEquals("https://server.example/me/push-registrations/inst-1", request.url.toString())
+            assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+        }
 }

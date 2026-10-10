@@ -41,6 +41,17 @@ android {
         buildConfigField("String", "KEYCLOAK_ISSUER", coldframeProperty("keycloakIssuer").asBuildConfigString())
         buildConfigField("String", "KEYCLOAK_CLIENT_ID", coldframeProperty("keycloakClientId").asBuildConfigString())
 
+        // Push (Story 6.5): the adopter's own Firebase project, `-Pcoldframe.firebaseProjectId=…` and so on, the
+        // four values a google-services.json would carry. Unset, the app starts no Firebase and registers nothing.
+        buildConfigField("String", "FIREBASE_PROJECT_ID", coldframeProperty("firebaseProjectId").asBuildConfigString())
+        buildConfigField(
+            "String",
+            "FIREBASE_APPLICATION_ID",
+            coldframeProperty("firebaseApplicationId").asBuildConfigString(),
+        )
+        buildConfigField("String", "FIREBASE_API_KEY", coldframeProperty("firebaseApiKey").asBuildConfigString())
+        buildConfigField("String", "FIREBASE_SENDER_ID", coldframeProperty("firebaseSenderId").asBuildConfigString())
+
         // The redirect activity of kotlin-multiplatform-oidc listens on this scheme.
         manifestPlaceholders["oidcRedirectScheme"] = "com.escendit.coldframe"
     }
@@ -132,6 +143,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.androidx.browser)
+    implementation(libs.firebase.messaging)
 
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)

@@ -706,6 +706,39 @@
         }
       }
     },
+    "/me/push-registrations/{installationId}": {
+      "parameters": [{ "$ref": "#/components/parameters/InstallationId" }],
+      "put": {
+        "operationId": "registerPushDevice",
+        "summary": "Register this device for push notifications",
+        "description": "Registers the caller's device for push (Story 6.5); the User owns the registration. installationId is chosen by the app once per installation. platform is apns (an iPhone) or fcm (an Android phone), token is the device token of that provider, and an apns registration names the environment the token belongs to (production or sandbox); an fcm registration carries none. Registering the same installation again replaces its token; the same registration again changes nothing and saves nothing. A token another installation of the caller holds moves to this one. A User keeps at most 20 registrations: the one registered longest ago makes room. A token a provider reports as invalid is removed by the Server. Answers 204; a refusal changes nothing.",
+        "x-coldframe-minimum-role": "Authenticated",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterPushDeviceRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "The device is registered." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "delete": {
+        "operationId": "removePushDevice",
+        "summary": "Remove this device's push registration",
+        "description": "Removes the caller's registration of the installation (Story 6.5), as the apps do at sign-out. Removing a registration the caller does not hold changes nothing and answers 204 too. Another User's registration is never touched.",
+        "x-coldframe-minimum-role": "Authenticated",
+        "responses": {
+          "204": { "description": "The caller holds no registration for the installation." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/sites/{siteId}/notification-settings": {
       "get": {
         "operationId": "getSiteNotificationSettings",
@@ -826,6 +859,18 @@
       }
     },
     "parameters": {
+      "InstallationId": {
+        "name": "installationId",
+        "in": "path",
+        "required": true,
+        "description": "Identifies one installation of the app, chosen by the app when it first registers: 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-' (a UUID fits).",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        }
+      },
       "SiteId": {
         "name": "siteId",
         "in": "path",
@@ -1578,6 +1623,36 @@
           "cadence": { "$ref": "#/components/schemas/ReminderCadence" }
         },
         "examples": [{ "cadence": "daily" }]
+      },
+      "PushPlatform": {
+        "type": "string",
+        "description": "The push provider of a device: apns for an iPhone, fcm for an Android phone.",
+        "enum": ["apns", "fcm"]
+      },
+      "ApnsEnvironment": {
+        "type": "string",
+        "description": "The APNs environment a device token belongs to: sandbox for a development build, production otherwise.",
+        "enum": ["production", "sandbox"]
+      },
+      "RegisterPushDeviceRequest": {
+        "type": "object",
+        "description": "A device registration for push. environment is required for apns and refused for fcm.",
+        "required": ["platform", "token"],
+        "properties": {
+          "platform": { "$ref": "#/components/schemas/PushPlatform" },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[\\x21-\\x7E]+$",
+            "description": "The provider's device token: the APNs device token as hex, or the FCM registration token. Printable ASCII without spaces."
+          },
+          "environment": { "$ref": "#/components/schemas/ApnsEnvironment" }
+        },
+        "examples": [
+          { "platform": "apns", "token": "0011223300112233001122330011223300112233001122330011223300112233", "environment": "production" },
+          { "platform": "fcm", "token": "dQw4w9WgXcQ:APA91bExampleRegistrationToken" }
+        ]
       },
       "ProblemDetails": {
         "type": "object",

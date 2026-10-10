@@ -200,3 +200,60 @@ public sealed record NotificationSent(
 [GenerateSerializer]
 [Alias("coldframe.user-site-alerts-pulled")]
 public sealed record SiteAlertsPulled([property: Id(0)] string SiteId, [property: Id(1)] DateTimeOffset PulledAt);
+
+/// <summary>
+/// Why a push registration ended (Story 6.5).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.push-device-removal-reason")]
+public enum PushDeviceRemovalReason
+{
+    /// <summary>
+    /// The app removed it, as at sign-out.
+    /// </summary>
+    Requested = 0,
+
+    /// <summary>
+    /// The provider reported the token as invalid or unregistered.
+    /// </summary>
+    Invalid = 1,
+
+    /// <summary>
+    /// Another installation of the User registered the same token, or the User reached
+    /// <see cref="PushRegistrationLimits.MaxRegistrations"/> and this was the one registered longest ago.
+    /// </summary>
+    Replaced = 2,
+}
+
+/// <summary>
+/// The User registered a device for push, or the device's token changed (Story 6.5). One installation has one
+/// registration: this replaces the one it had.
+/// </summary>
+/// <param name="InstallationId">The app's own ID of the installation.</param>
+/// <param name="Platform">The push provider.</param>
+/// <param name="Token">The provider's device token.</param>
+/// <param name="Environment">The APNs environment of the token; <see langword="null"/> for <see cref="PushPlatform.Fcm"/>.</param>
+/// <param name="RegisteredAt">When it was registered.</param>
+[EventType("user.push-device-registered")]
+[GenerateSerializer]
+[Alias("coldframe.user-push-device-registered")]
+public sealed record PushDeviceRegistered(
+    [property: Id(0)] string InstallationId,
+    [property: Id(1)] PushPlatform Platform,
+    [property: Id(2)] string Token,
+    [property: Id(3)] ApnsEnvironment? Environment,
+    [property: Id(4)] DateTimeOffset RegisteredAt);
+
+/// <summary>
+/// A push registration of the User ended (Story 6.5).
+/// </summary>
+/// <param name="InstallationId">The installation.</param>
+/// <param name="Reason">Why it ended.</param>
+/// <param name="RemovedAt">When it ended.</param>
+[EventType("user.push-device-removed")]
+[GenerateSerializer]
+[Alias("coldframe.user-push-device-removed")]
+public sealed record PushDeviceRemoved(
+    [property: Id(0)] string InstallationId,
+    [property: Id(1)] PushDeviceRemovalReason Reason,
+    [property: Id(2)] DateTimeOffset RemovedAt);

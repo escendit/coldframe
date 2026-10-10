@@ -105,5 +105,45 @@ Site settings ends with **Reminders**: Owners and Administrators pick the Site's
 or "Every 2 days"; a Member reads it as text. The section is absent until the Server has answered.
 
 The zone confirmed on Create Site is no longer kept on the phone: the core sends it to the Server and reads
-it from there. Nothing here delivers a notification, asks for the notification permission or registers a
-push token (Stories 6.4 to 6.6).
+it from there. Nothing on this screen delivers a notification; the permission, the push token and the
+notification itself are Story 6.5, below.
+
+## Push notifications (Story 6.5)
+
+The core's `PushEngine` (`AndroidSignIn.push`) owns the permission state, the registration and the tap
+route; the shell holds the OS calls (`android/push/`) and draws the core's `PushState`. No shell code calls
+the Server.
+
+- **Permission timing** (UX-DR122). On the first landing on a Site overview the Garden shows one Inline
+  notice above its tiles, "Coldframe tells you when a Lot needs water.", with Continue, which opens the
+  `POST_NOTIFICATIONS` prompt. Whatever the answer, the core keeps "asked" per device and the line never
+  shows again, also not for the next User on the phone. Android 12 and earlier has no prompt and no line:
+  notifications count as granted there.
+- **Notifications off** (UX-DR88). While the permission is denied or revoked, or the app's notifications
+  are turned off in the system settings, "Notifications are off for Coldframe on this phone. You won't get
+  Alerts." shows at the top of My notifications and above the tiles of the overview, with Open Settings
+  (the app's notification settings). It cannot be dismissed. `MainActivity` reports the permission to the
+  core on every start of the activity, so both notices go at the next foreground that finds it granted.
+- **The notification** (UX-DR121). The Server sends an FCM data message (`packages/asyncapi`, `FcmPush`),
+  because an FCM display notification cannot set a group. `ColdframeMessagingService` hands its data to
+  `PushNotifications`, which shows `title` and `body` as they are: group = the Site (`siteId`) with a group
+  summary named by `siteName`, tag = `collapseId` (a repeated send replaces the earlier notification), the
+  one channel `alerts` ("Alerts") with default importance and no badge, no badge number, no actions. A
+  message without `kind`, `siteId` or `title` shows nothing.
+- **Firebase build properties.** There is no `google-services.json` and no google-services plugin. An
+  adopter builds with their own Firebase project: `-Pcoldframe.firebaseProjectId=…`,
+  `-Pcoldframe.firebaseApplicationId=…`, `-Pcoldframe.firebaseApiKey=…` and
+  `-Pcoldframe.firebaseSenderId=…` (or the same keys in `~/.gradle/gradle.properties`), which become the
+  `BuildConfig` fields `FIREBASE_PROJECT_ID`, `FIREBASE_APPLICATION_ID`, `FIREBASE_API_KEY` and
+  `FIREBASE_SENDER_ID`. `ColdframeApplication` initialises Firebase from them by hand
+  (`FirebasePush.start`) and hands the FCM registration to the core, which sends it to the Server after
+  sign-in, again when Firebase replaces it, and removes it at sign-out. Without all four the app starts no
+  Firebase (its start-up provider is removed in the manifest), works as before and registers nothing;
+  builds, tests and CI need no credential.
+- **Tap routing** (UX-DR120). The notification's content intent starts `MainActivity` (`singleTop`) with
+  the five routing keys; `onCreate` (a cold start) and `onNewIntent` hand them to the core. The core waits
+  until the Sites are loaded, switches to the notification's Site and, for an Alert or a Reminder, waits
+  for its Lots; the tab shell then opens Lot detail on the Garden tab, or the overview for a summary, an
+  unknown kind, a Lot that is gone and a Site the User does not hold (then of the current Site). A tap on
+  the group summary opens the Site's overview. A route that arrives while a flow covers the shell is shown
+  when the shell is back.

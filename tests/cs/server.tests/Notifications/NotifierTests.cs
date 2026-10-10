@@ -11,7 +11,8 @@ namespace Coldframe.Server.Tests.Notifications;
 /// <summary>
 /// The Notifier seam (Story 6.4) only sends and records: it stamps <c>sentAt</c> from the clock, calls every
 /// channel, and puts <c>dueAt</c> and <c>sentAt</c> in one structured log entry and on the notifications meter.
-/// It never filters, delays or schedules, and a channel that fails fails the send.
+/// It never filters, delays or schedules. A send fails only when a channel failed and none delivered, and the
+/// push registrations a provider no longer knows come back through it (Story 6.5).
 /// </summary>
 public sealed class NotifierTests
 {
@@ -29,9 +30,10 @@ public sealed class NotifierTests
         var notifier = host.Create(first, second);
         var notification = Summary();
 
-        var sentAt = await notifier.SendAsync(notification, Ct);
+        var result = await notifier.SendAsync(notification, Ct);
 
-        Assert.Equal(SentAt, sentAt);
+        Assert.Equal(SentAt, result.SentAt);
+        Assert.Empty(result.InvalidInstallations);
         Assert.Equal((notification, SentAt), Assert.Single(first.Sent));
         Assert.Equal((notification, SentAt), Assert.Single(second.Sent));
     }
@@ -99,7 +101,7 @@ public sealed class NotifierTests
         var notifier = host.Create(first, new Channel { Failure = new InvalidOperationException("The push provider is down.") }, last);
 
         // Sent: a retry would hand the channels that delivered the same notification again.
-        Assert.Equal(SentAt, await notifier.SendAsync(Summary(), Ct));
+        Assert.Equal(SentAt, (await notifier.SendAsync(Summary(), Ct)).SentAt);
 
         Assert.Single(first.Sent);
         Assert.Single(last.Sent);
@@ -114,10 +116,65 @@ public sealed class NotifierTests
         var failure = new InvalidOperationException("The push provider is down.");
         var notifier = host.Create(new Channel { Failure = failure }, new Channel { Failure = failure });
 
-        var thrown = await Assert.ThrowsAsync<AggregateException>(() => notifier.SendAsync(Summary(), Ct));
+        var thrown = await Assert.ThrowsAsync<NotificationNotDeliveredException>(() => notifier.SendAsync(Summary(), Ct));
 
-        Assert.Equal([failure, failure], thrown.InnerExceptions);
+        Assert.Equal([failure, failure], thrown.Failures);
         Assert.DoesNotContain(host.Logger.Entries, entry => entry.Level == LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task AChannelThatFailsWhileTheOtherHadNoDeviceFailsTheSendSoThatItIsRepeated()
+    {
+        // Story 6.5: the User has only an iPhone and APNs is down. The FCM channel has nothing to send, which
+        // is no delivery: without this rule the notification would count as sent and never reach the phone.
+        using var host = new NotifierHost();
+        var failure = new InvalidOperationException("The push provider is down.");
+        var nothing = new Channel { Delivery = ChannelDelivery.Nothing };
+        var notifier = host.Create(nothing, new Channel { Failure = failure });
+
+        var thrown = await Assert.ThrowsAsync<NotificationNotDeliveredException>(() => notifier.SendAsync(Summary(), Ct));
+
+        Assert.Equal([failure], thrown.Failures);
+        Assert.Single(nothing.Sent);
+        Assert.DoesNotContain(host.Logger.Entries, entry => entry.Level == LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task WhenNoChannelHasADeviceAndNoneFailsTheNotificationIsSentAndNotRepeated()
+    {
+        using var host = new NotifierHost();
+        var notifier = host.Create(new Channel { Delivery = ChannelDelivery.Nothing }, new Channel { Delivery = ChannelDelivery.Nothing });
+
+        Assert.Equal(SentAt, (await notifier.SendAsync(Summary(), Ct)).SentAt);
+        Assert.Equal(LogLevel.Information, Assert.Single(host.Logger.Entries).Level);
+    }
+
+    [Fact]
+    public async Task TheInstallationsAProviderNoLongerKnowsComeBackThroughTheSeam()
+    {
+        using var host = new NotifierHost();
+        var notifier = host.Create(
+            new Channel { Delivery = new ChannelDelivery(0, ["iphone"]) },
+            new Channel { Delivery = new ChannelDelivery(1, ["old-android", "iphone"]) });
+
+        var result = await notifier.SendAsync(Summary(), Ct);
+
+        // An invalid token is no failure: the send counts.
+        Assert.Equal(SentAt, result.SentAt);
+        Assert.Equal(["iphone", "old-android"], result.InvalidInstallations);
+    }
+
+    [Fact]
+    public async Task AFailedSendStillNamesTheInstallationsAProviderNoLongerKnows()
+    {
+        using var host = new NotifierHost();
+        var notifier = host.Create(
+            new Channel { Delivery = new ChannelDelivery(0, ["iphone"]) },
+            new Channel { Failure = new InvalidOperationException("The push provider is down.") });
+
+        var thrown = await Assert.ThrowsAsync<NotificationNotDeliveredException>(() => notifier.SendAsync(Summary(), Ct));
+
+        Assert.Equal(["iphone"], thrown.InvalidInstallations);
     }
 
     [Fact]
@@ -125,9 +182,9 @@ public sealed class NotifierTests
     {
         using var host = new NotifierHost();
 
-        var sentAt = await host.Create().SendAsync(Summary() with { Kind = NotificationKind.Alert, HeldFrom = null }, Ct);
+        var result = await host.Create().SendAsync(Summary() with { Kind = NotificationKind.Alert, HeldFrom = null }, Ct);
 
-        Assert.Equal(SentAt, sentAt);
+        Assert.Equal(SentAt, result.SentAt);
         Assert.Equal("alert", Assert.Single(host.Logger.Entries).Fields["Kind"]);
     }
 
@@ -191,7 +248,9 @@ public sealed class NotifierTests
 
         public Exception? Failure { get; init; }
 
-        public Task SendAsync(Notification notification, DateTimeOffset sentAt, CancellationToken cancellationToken = default)
+        public ChannelDelivery Delivery { get; init; } = ChannelDelivery.To(1);
+
+        public Task<ChannelDelivery> SendAsync(Notification notification, DateTimeOffset sentAt, CancellationToken cancellationToken = default)
         {
             if (Failure is not null)
             {
@@ -199,7 +258,7 @@ public sealed class NotifierTests
             }
 
             Sent.Add((notification, sentAt));
-            return Task.CompletedTask;
+            return Task.FromResult(Delivery);
         }
     }
 

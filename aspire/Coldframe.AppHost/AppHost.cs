@@ -108,7 +108,7 @@ var migrations = builder
 // consume the Keycloak event pipeline of the coldframe realm, whose ID the realm file fixes (AD-3, AD-5).
 var keycloakHttp = keycloak.GetEndpoint("http");
 
-builder
+var server = builder
     .AddProject<Projects.Coldframe_Server>("server")
     .WithReference(serverDatabase)
     .WithReference(nats)
@@ -136,6 +136,32 @@ builder
     .WaitFor(nats)
     .WaitFor(temporal)
     .WaitFor(keycloak);
+
+// Push notifications (Story 6.5) are optional, as the Secret coldframe-push is in a deployment: the Server
+// runs without them and logs once that a provider has no credentials. To send real pushes from the local
+// stack, give the AppHost your own credentials as environment variables (Push__Apns__KeyId,
+// Push__Apns__TeamId, Push__Apns__PrivateKeyPem, Push__Apns__Topic, Push__Fcm__ServiceAccountJson). Only what
+// is set is handed on; nothing is generated and nothing is written to the repository.
+string[] pushSettings =
+[
+    "Push:Apns:KeyId",
+    "Push:Apns:TeamId",
+    "Push:Apns:PrivateKeyPem",
+    "Push:Apns:Topic",
+    "Push:Apns:ProductionBaseUrl",
+    "Push:Apns:SandboxBaseUrl",
+    "Push:Fcm:ServiceAccountJson",
+    "Push:Fcm:BaseUrl",
+    "Push:Fcm:TokenUrl",
+];
+
+foreach (var setting in pushSettings)
+{
+    if (builder.Configuration[setting] is { Length: > 0 } value)
+    {
+        server.WithEnvironment(setting.Replace(":", "__", StringComparison.Ordinal), value);
+    }
+}
 
 await builder.Build().RunAsync().ConfigureAwait(false);
 

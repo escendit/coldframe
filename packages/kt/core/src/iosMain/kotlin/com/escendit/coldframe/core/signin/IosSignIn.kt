@@ -7,6 +7,8 @@ import com.escendit.coldframe.core.devices.IosDevices
 import com.escendit.coldframe.core.lots.IosLotDetail
 import com.escendit.coldframe.core.lots.IosLots
 import com.escendit.coldframe.core.notifications.IosNotificationSettings
+import com.escendit.coldframe.core.push.IosPush
+import com.escendit.coldframe.core.push.PushPlatform
 import com.escendit.coldframe.core.setup.IosHubSetup
 import com.escendit.coldframe.core.setup.IosNodeSetup
 import com.escendit.coldframe.core.setup.IosRadioState
@@ -76,6 +78,13 @@ public class IosSignIn private constructor(
      */
     public val notifications: IosNotificationSettings =
         IosNotificationSettings(SitesWiring.notifications(api, sitesEngine, engine, settings, scope), scope)
+
+    /**
+     * Push on this iPhone: the notification permission and its one prompt, the APNs device token, which the core
+     * registers after sign-in and removes at sign-out, and where a tapped notification leads.
+     */
+    public val push: IosPush =
+        IosPush(SitesWiring.push(api, sitesEngine, lotsEngine, engine, settings, scope, PushPlatform.Apns), scope)
 
     /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history. */
     public val lotDetail: IosLotDetail = IosLotDetail(lotDetailEngine, scope)

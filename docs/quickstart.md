@@ -164,6 +164,12 @@ Server". `10.0.2.2` is the host as seen from the Android emulator; only the debu
 plain HTTP, and only to `10.0.2.2` and `localhost`. Release builds trust public certificates only.
 Sign-in opens Keycloak in a Custom Tab; create a user through *Register* there.
 
+Push notifications need your own Firebase project; the repository holds no `google-services.json`.
+Add `-Pcoldframe.firebaseProjectId=…`, `-Pcoldframe.firebaseApplicationId=…`,
+`-Pcoldframe.firebaseApiKey=…` and `-Pcoldframe.firebaseSenderId=…` (the values of the Firebase
+Android app with the package name `com.escendit.coldframe`). Without all four the app starts no
+Firebase, works as before and registers no device; the build and the tests need none of them.
+
 ## Run the iOS app
 
 The iOS app in [`apps/swift/ios`](../apps/swift/ios) is a SwiftUI shell over the same core, which
@@ -187,6 +193,31 @@ The build runs `./gradlew :core:embedAndSignAppleFrameworkForXcode` first, so it
 because Gradle configures every project, the Android SDK. Only the Debug configuration allows
 plain HTTP to local-network hosts (`NSAllowsLocalNetworking`); Release uses the default App
 Transport Security. Sign-in opens Keycloak in `ASWebAuthenticationSession`.
+
+Push notifications need your own Apple Developer team and a real iPhone. Add `COLDFRAME_PUSH = YES`
+and `DEVELOPMENT_TEAM = <team id>` to `Coldframe.local.xcconfig`; the app is then signed with the
+`aps-environment` entitlement (Debug: APNs sandbox, Release: production). Without them the app
+builds with any team or with signing off, gets no device token and registers nothing.
+
+## Send push notifications
+
+The Server sends a notification to a phone only when it has the credentials of that phone's
+provider, and it runs without any. For the local stack, set them as environment variables before
+you start the AppHost, which hands on what is set:
+
+```sh
+export Push__Apns__KeyId='<key id>'
+export Push__Apns__TeamId='<team id>'
+export Push__Apns__PrivateKeyPem="$(cat /path/to/AuthKey_<KeyID>.p8)"
+export Push__Fcm__ServiceAccountJson="$(cat /path/to/service-account.json)"
+```
+
+`Push__Apns__Topic` is the bundle ID of the iOS app (default `com.escendit.coldframe`). At start the
+Server logs for each provider whether it is configured. With the apps built as above,
+[`docs/bench/push-checklist.md`](bench/push-checklist.md) leads to a real push on an iPhone and on
+an Android phone and names what to expect. How the channels work is in
+[`apps/cs/README.md`](../apps/cs/README.md#push-notifications); in a deployment the credentials are
+the optional Secret `coldframe-push` ([`deploy/SECRETS.md`](../deploy/SECRETS.md#push-notifications)).
 
 ## Run the tests and lints
 

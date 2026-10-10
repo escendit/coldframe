@@ -19,6 +19,7 @@ public sealed class RecordingNotificationChannel : INotificationChannel
     private readonly Lock _lock = new();
     private readonly List<RecordedNotification> _sent = [];
     private readonly ConcurrentDictionary<string, int> _failures = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _withoutDevice = new(StringComparer.Ordinal);
 
     /// <summary>
     /// How many sends were failed.
@@ -37,11 +38,17 @@ public sealed class RecordingNotificationChannel : INotificationChannel
     }
 
     /// <summary>
+    /// Makes the channel answer for <paramref name="userId"/> as a channel does on which the User has no device:
+    /// it still records, and reports nothing delivered, so the push channels alone decide whether a send counts.
+    /// </summary>
+    public void WithoutDevice(string userId) => _withoutDevice[userId] = true;
+
+    /// <summary>
     /// Makes the next <paramref name="sends"/> sends to <paramref name="userId"/> fail.
     /// </summary>
     public void FailNext(string userId, int sends) => _failures[userId] = sends;
 
-    public Task SendAsync(Notification notification, DateTimeOffset sentAt, CancellationToken cancellationToken = default)
+    public Task<ChannelDelivery> SendAsync(Notification notification, DateTimeOffset sentAt, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(notification);
 
@@ -55,8 +62,9 @@ public sealed class RecordingNotificationChannel : INotificationChannel
             }
 
             _sent.Add(new RecordedNotification(notification, sentAt));
-        }
 
-        return Task.CompletedTask;
+            // It stands for a device that took the notification, unless a test wants the User to have none here.
+            return Task.FromResult(_withoutDevice.ContainsKey(notification.UserId) ? ChannelDelivery.Nothing : ChannelDelivery.To(1));
+        }
     }
 }

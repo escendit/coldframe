@@ -553,6 +553,13 @@ public enum L10n: String, CaseIterable, Sendable {
   case notificationsNoticeSiteGone = "notifications_notice_site_gone"
   case remindersDaily = "reminders_daily"
   case remindersEvery2Days = "reminders_every_2_days"
+  case pushWhy = "push_why"
+  case pushWhyContinue = "push_why_continue"
+  case pushOff = "push_off"
+  case pushOpenSettings = "push_open_settings"
+  /// The name of Android's notification channel. iOS has no channels; the key is here because
+  /// the two catalogues match key for key.
+  case pushChannelAlerts = "push_channel_alerts"
 
   /// Keys whose catalogue entry has plural variations (UX-DR125).
   public static let plurals: Set<L10n> = [

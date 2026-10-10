@@ -192,6 +192,34 @@ For Swift, `IosNotificationSettings` (`IosSignIn.notifications`) observes a flat
 and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetReminderCadence` and
 `actionNoticeTryAgain` with `IosLots.setReminderCadence` / `retryReminderCadence`.
 
+**Push (Story 6.5).** `push/PushEngine` owns everything about push that is not an OS call, over
+`PUT`/`DELETE /me/push-registrations/{installationId}` (`PushApi`). The shells report, the engine decides, and
+`PushState` is what they draw.
+
+- **Permission.** The shell calls `reportPermission(OsPermission)` on start and on every foreground. `promptDue` is
+  true while a Site is current, the OS says `NotDetermined` and this device never asked: the overview shows the
+  why-line, then the OS prompt, and the shell calls `promptAnswered`. "Asked" is kept per device
+  (`DeviceChoices.notificationPermissionAsked`, `push.permissionAsked`) and outlives sign-out, so the prompt shows
+  once; from then on anything but `Granted` is `PushPermission.Denied` and `noticeVisible`. Android below 13 reports
+  `Granted` (nothing to ask) unless its notifications are turned off.
+- **Registration.** `tokenReceived(token, environment)` takes the token the OS gave (FCM, or APNs as hex with
+  `production` / `sandbox`). The engine sends it once per session, after sign-in, and again when it changes; the
+  same token is not sent twice in a session. A registration the Server did not answer is sent again with the next
+  `reportPermission`; one it refused (400) only when the token changes. The installation ID is a UUID made at the
+  first registration and kept in `DeviceChoices.installationId` (`push.installationId`); it is never cleared.
+- **Sign-out.** `SignInEngine.onSigningOut` runs before the tokens are cleared, so the removal is still this User's
+  call. `SitesWiring.push` registers `PushEngine.unregister` there: a registration on its way is cancelled, then
+  the `DELETE` goes out. It is held to 5 s and its outcome is ignored. A session the Server ended (401) removes
+  nothing; the next User's registration of the same token replaces it on the Server.
+- **Payload and tap.** `PushPayload.parse` reads the keys of `packages/asyncapi` (`fcm.message.data`, or the APNs
+  `coldframe` object); `PushFixturesTest` holds it to the fixtures' `route`. `opened(data)` starts the route: wait
+  for the Sites (a cold start; Sites kept on the device count when they hold the Site), `SitesEngine.select`, and
+  for `alert` / `reminder` wait for that Site's Lots. Then `PushState.route` is `LotDetail(siteId, lotId,
+  lotName)` or `Overview(siteId)`; the shell shows it and calls `routeHandled`. An unknown kind, a Lot that is gone
+  and Lots that could not be read end on the Site's overview, an unknown Site on the current Site's. The tap is
+  dropped when the session ends or there is no Site.
+
+For Swift, `IosPush` (`IosSignIn.push`) observes a flat `PushSnapshot`; Android reads `AndroidSignIn.push`.
+
 Absent until later epics: no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7), no Health
-Alert is produced by the Server (Epic 7), and no delivery, Reminder scheduling, push token, permission prompt or
-live update (Stories 6.4 to 6.6).
+Alert is produced by the Server (Epic 7), no routing to a Devices row (Epic 7), and no live update (Story 6.6).

@@ -14,6 +14,9 @@ import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.notifications.NotificationSettingsApi
 import com.escendit.coldframe.core.notifications.NotificationSettingsEngine
 import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
+import com.escendit.coldframe.core.push.PushApi
+import com.escendit.coldframe.core.push.PushEngine
+import com.escendit.coldframe.core.push.PushPlatform
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.setup.HubSetupEngine
 import com.escendit.coldframe.core.setup.NodeSetupEngine
@@ -26,7 +29,7 @@ import com.russhwolf.settings.Settings
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.CoroutineScope
 
-/** Builds the Sites, Lots, Devices, Alerts and notification settings engines over the Server API, with tokens from the sign-in engine. */
+/** Builds the Sites, Lots, Devices, Alerts, notification settings and push engines over the Server API, with tokens from the sign-in engine. */
 public object SitesWiring {
     public fun engine(
         config: CoreConfig,
@@ -82,6 +85,35 @@ public object SitesWiring {
             scope = scope,
             signIn = signIn.state,
         )
+
+    /**
+     * Push on this phone, for the [platform] of the app: it registers the device's token while [signIn] is signed
+     * in, removes the registration at the start of a deliberate sign-out, while the session is still valid, and
+     * routes a tapped notification through [sites] and [lots]. [settings] are the ones the Sites engine was built
+     * with: the installation ID and "the prompt was answered" are kept there and outlive every session.
+     */
+    public fun push(
+        api: PushApi,
+        sites: SitesEngine,
+        lots: LotsEngine,
+        signIn: SignInEngine,
+        settings: Settings,
+        scope: CoroutineScope,
+        platform: PushPlatform,
+    ): PushEngine {
+        val engine =
+            PushEngine(
+                api = api,
+                sites = sites,
+                lots = lots.state,
+                choices = DeviceChoices(settings),
+                platform = platform,
+                scope = scope,
+                signIn = signIn.state,
+            )
+        signIn.onSigningOut { engine.unregister() }
+        return engine
+    }
 
     /** Lot detail, following the current Site of [sites]; keeps the last good detail of each Lot in [settings]. */
     public fun lotDetail(

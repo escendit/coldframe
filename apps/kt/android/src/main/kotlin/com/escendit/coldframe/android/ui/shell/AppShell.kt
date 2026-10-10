@@ -46,6 +46,7 @@ import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.devices.DevicesScreen
 import com.escendit.coldframe.android.ui.notifications.MyNotificationsScreen
 import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
+import com.escendit.coldframe.android.ui.notifications.PushActions
 import com.escendit.coldframe.android.ui.settings.AppearanceScreen
 import com.escendit.coldframe.android.ui.settings.SettingsScreen
 import com.escendit.coldframe.android.ui.settings.SiteSettingsScreen
@@ -68,6 +69,8 @@ import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.notifications.NotificationSettingsState
+import com.escendit.coldframe.core.push.PushRoute
+import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
@@ -104,6 +107,11 @@ enum class Tab(
  * (Add a Hub, Add a Node) returns to the tab it was opened from. [now] is the clock last-seen times,
  * the stale age and the Lots' durations are told against; [lotsEvents] are the core's stale-mode
  * events, which the Garden announces.
+ *
+ * [push] is the core's push state (Story 6.5). Its route is where a tapped notification leads (UX-DR120): the core
+ * has already switched to the notification's Site, and the shell shows Lot detail or the overview on the Garden tab
+ * and says so with [PushActions.routeHandled]. A route that arrives while a flow covers the shell is shown when the
+ * shell is back.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,6 +140,8 @@ fun AppShell(
     alertsActions: AlertsActions = AlertsActions.None,
     notifications: NotificationSettingsState = NotificationSettingsState.Idle,
     notificationsActions: NotificationSettingsActions = NotificationSettingsActions.None,
+    push: PushState = PushState.None,
+    pushActions: PushActions = PushActions.None,
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -157,6 +167,26 @@ fun AppShell(
     LaunchedEffect(tab) {
         if (tab == Tab.Devices) devicesActions.load()
         if (tab == Tab.Alerts) alertsActions.load()
+    }
+
+    // A tapped notification: Lot detail or the overview, on the Garden tab of the Site the core switched to.
+    val route = push.route
+    LaunchedEffect(route) {
+        when (route) {
+            null -> {
+                return@LaunchedEffect
+            }
+
+            is PushRoute.LotDetail -> {
+                lotDetailActions.open(route.lotId, route.lotName)
+            }
+
+            is PushRoute.Overview -> {
+                if (lotDetail !is LotDetailState.Idle) lotDetailActions.close()
+            }
+        }
+        tab = Tab.Garden
+        pushActions.routeHandled()
     }
 
     // Every entry of My notifications reads the settings again from the Server.
@@ -316,13 +346,20 @@ fun AppShell(
                     onCalibrate = onCalibrate,
                     now = now,
                     events = lotsEvents,
+                    push = push,
+                    pushActions = pushActions,
                 )
             } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)
             } else if (showingSiteSettings) {
                 SiteSettingsScreen(lots = lots, actions = lotsActions)
             } else if (showingNotifications) {
-                MyNotificationsScreen(state = notifications, actions = notificationsActions)
+                MyNotificationsScreen(
+                    state = notifications,
+                    actions = notificationsActions,
+                    notificationsOff = push.noticeVisible,
+                    onOpenSettings = pushActions.openSettings,
+                )
             } else if (tab == Tab.Settings) {
                 SettingsScreen(
                     onOpenAppearance = { appearanceOpen = true },

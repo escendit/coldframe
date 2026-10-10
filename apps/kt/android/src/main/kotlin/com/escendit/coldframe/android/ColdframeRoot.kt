@@ -24,6 +24,7 @@ import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
+import com.escendit.coldframe.android.ui.notifications.PushActions
 import com.escendit.coldframe.android.ui.setup.AddHubFlow
 import com.escendit.coldframe.android.ui.setup.AddNodeFlow
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
@@ -48,6 +49,7 @@ import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.notifications.NotificationSettingsState
+import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
@@ -68,7 +70,10 @@ import java.time.Instant
  * [now] is the clock of the shell: last-seen times, the stale age and the Lots' durations are told
  * against it, and the Garden reads it again on its minute tick. [lotsEvents] are the core's
  * stale-mode events for the Garden's polite announcements. [onForeground] runs on every start of
- * the activity: the app resumes its session and reads the Lots and the Alerts again (UX-DR112).
+ * the activity: the app resumes its session, reads the Lots and the Alerts again (UX-DR112) and
+ * reports the notification permission. [push] is the core's push state: the why-line and the
+ * notifications-off notice on the overview and in My notifications, and the route of a tapped
+ * notification, which the tab shell shows.
  */
 @Composable
 fun ColdframeRoot(
@@ -102,6 +107,8 @@ fun ColdframeRoot(
     alertsActions: AlertsActions = AlertsActions.None,
     notifications: NotificationSettingsState = NotificationSettingsState.Idle,
     notificationsActions: NotificationSettingsActions = NotificationSettingsActions.None,
+    push: PushState = PushState.None,
+    pushActions: PushActions = PushActions.None,
 ) {
     // Every start of the activity, the first one and each return to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { onForeground() }
@@ -147,6 +154,8 @@ fun ColdframeRoot(
                     alertsActions,
                     notifications,
                     notificationsActions,
+                    push,
+                    pushActions,
                 )
             }
         }
@@ -181,6 +190,8 @@ private fun SignedIn(
     alertsActions: AlertsActions,
     notifications: NotificationSettingsState,
     notificationsActions: NotificationSettingsActions,
+    push: PushState,
+    pushActions: PushActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -255,6 +266,8 @@ private fun SignedIn(
                     alertsActions = alertsActions,
                     notifications = notifications,
                     notificationsActions = notificationsActions,
+                    push = push,
+                    pushActions = pushActions,
                 )
             }
         }

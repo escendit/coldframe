@@ -335,6 +335,33 @@ export type paths = {
         patch: operations["updateMyNotificationSettings"];
         trace?: never;
     };
+    "/me/push-registrations/{installationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identifies one installation of the app, chosen by the app when it first registers: 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-' (a UUID fits). */
+                installationId: components["parameters"]["InstallationId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Register this device for push notifications
+         * @description Registers the caller's device for push (Story 6.5); the User owns the registration. installationId is chosen by the app once per installation. platform is apns (an iPhone) or fcm (an Android phone), token is the device token of that provider, and an apns registration names the environment the token belongs to (production or sandbox); an fcm registration carries none. Registering the same installation again replaces its token; the same registration again changes nothing and saves nothing. A token another installation of the caller holds moves to this one. A User keeps at most 20 registrations: the one registered longest ago makes room. A token a provider reports as invalid is removed by the Server. Answers 204; a refusal changes nothing.
+         */
+        put: operations["registerPushDevice"];
+        post?: never;
+        /**
+         * Remove this device's push registration
+         * @description Removes the caller's registration of the installation (Story 6.5), as the apps do at sign-out. Removing a registration the caller does not hold changes nothing and answers 204 too. Another User's registration is never touched.
+         */
+        delete: operations["removePushDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites/{siteId}/notification-settings": {
         parameters: {
             query?: never;
@@ -1046,6 +1073,34 @@ export type components = {
         SiteReminderCadence: {
             cadence: components["schemas"]["ReminderCadence"];
         };
+        /**
+         * @description The push provider of a device: apns for an iPhone, fcm for an Android phone.
+         * @enum {string}
+         */
+        PushPlatform: "apns" | "fcm";
+        /**
+         * @description The APNs environment a device token belongs to: sandbox for a development build, production otherwise.
+         * @enum {string}
+         */
+        ApnsEnvironment: "production" | "sandbox";
+        /**
+         * @description A device registration for push. environment is required for apns and refused for fcm.
+         * @example {
+         *       "platform": "apns",
+         *       "token": "0011223300112233001122330011223300112233001122330011223300112233",
+         *       "environment": "production"
+         *     }
+         * @example {
+         *       "platform": "fcm",
+         *       "token": "dQw4w9WgXcQ:APA91bExampleRegistrationToken"
+         *     }
+         */
+        RegisterPushDeviceRequest: {
+            platform: components["schemas"]["PushPlatform"];
+            /** @description The provider's device token: the APNs device token as hex, or the FCM registration token. Printable ASCII without spaces. */
+            token: string;
+            environment?: components["schemas"]["ApnsEnvironment"];
+        };
         /** @description RFC 9457 Problem Details. */
         ProblemDetails: {
             /** @description Stable: urn:coldframe:problem:<slug>. The set grows as operations are added, so it is an x-extensible-enum: a client handles a type it does not know by its status. */
@@ -1203,6 +1258,8 @@ export type components = {
         };
     };
     parameters: {
+        /** @description Identifies one installation of the app, chosen by the app when it first registers: 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-' (a UUID fits). */
+        InstallationId: string;
         /** @description The Site ID, which is the Keycloak Organization ID. */
         SiteId: string;
         /** @description Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters. */
@@ -1938,6 +1995,56 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["NotificationSettings"];
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    registerPushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identifies one installation of the app, chosen by the app when it first registers: 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-' (a UUID fits). */
+                installationId: components["parameters"]["InstallationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterPushDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description The device is registered. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    removePushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identifies one installation of the app, chosen by the app when it first registers: 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-' (a UUID fits). */
+                installationId: components["parameters"]["InstallationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller holds no registration for the installation. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];

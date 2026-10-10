@@ -1,0 +1,61 @@
+{
+  "description": "The Reminder of the same Alert one day later: the Alert text with Still.",
+  "notification": {
+    "kind": "reminder",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "dueAt": "2026-10-10T05:45:00Z",
+    "sentAt": "2026-10-10T05:45:20Z"
+  },
+  "apns": {
+    "path": "/3/device/0011223300112233001122330011223300112233001122330011223300112233",
+    "headers": {
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      "apns-topic": "com.escendit.coldframe",
+      "apns-collapse-id": "0f1e2dd5870874461fa8092d26f8830f",
+      "apns-expiration": "1791697520"
+    },
+    "payload": {
+      "aps": {
+        "alert": {
+          "title": "Tomatoes needs water",
+          "body": "Still ~20 % in the soil, your low is 30 %."
+        },
+        "sound": "default",
+        "thread-id": "0199c1f0-5a00-7000-8000-000000000001",
+        "interruption-level": "active"
+      },
+      "coldframe": {
+        "kind": "reminder",
+        "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+        "lotId": "0199c1f0-5a00-7000-8000-0000000000a1",
+        "alertId": "5b0c0d6e-3f1a-5c2b-9d4e-7a8b9c0d1e2f",
+        "collapseId": "0f1e2dd5870874461fa8092d26f8830f"
+      }
+    }
+  },
+  "fcm": {
+    "message": {
+      "token": "dQw4w9WgXcQ:APA91bExampleRegistrationToken",
+      "data": {
+        "kind": "reminder",
+        "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+        "siteName": "Home garden",
+        "lotId": "0199c1f0-5a00-7000-8000-0000000000a1",
+        "alertId": "5b0c0d6e-3f1a-5c2b-9d4e-7a8b9c0d1e2f",
+        "collapseId": "0f1e2dd5870874461fa8092d26f8830f",
+        "title": "Tomatoes needs water",
+        "body": "Still ~20 % in the soil, your low is 30 %."
+      },
+      "android": {
+        "priority": "HIGH",
+        "ttl": "86400s"
+      }
+    }
+  },
+  "route": {
+    "kind": "reminder",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "lotId": "0199c1f0-5a00-7000-8000-0000000000a1"
+  }
+}

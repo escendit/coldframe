@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Sites;
 
 namespace Coldframe.Contracts.Notifications;
 
@@ -50,10 +51,102 @@ public sealed record NotificationEntry(
     [property: Id(7)] DateTimeOffset OpenedAt);
 
 /// <summary>
+/// The push provider of a device (Story 6.5).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.push-platform")]
+public enum PushPlatform
+{
+    /// <summary>
+    /// Apple Push Notification service: an iPhone.
+    /// </summary>
+    Apns = 0,
+
+    /// <summary>
+    /// Firebase Cloud Messaging: an Android phone.
+    /// </summary>
+    Fcm = 1,
+}
+
+/// <summary>
+/// The APNs environment a device token belongs to (Story 6.5).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.apns-environment")]
+public enum ApnsEnvironment
+{
+    /// <summary>
+    /// A build distributed through TestFlight or the App Store.
+    /// </summary>
+    Production = 0,
+
+    /// <summary>
+    /// A development build.
+    /// </summary>
+    Sandbox = 1,
+}
+
+/// <summary>
+/// One device a User registered for push (Story 6.5). The User grain owns it.
+/// </summary>
+/// <param name="InstallationId">The app's own ID of one installation; a User has one registration per installation.</param>
+/// <param name="Platform">The push provider.</param>
+/// <param name="Token">The provider's device token.</param>
+/// <param name="Environment">The APNs environment of the token; <see langword="null"/> for <see cref="PushPlatform.Fcm"/>.</param>
+/// <param name="RegisteredAt">When the token was registered.</param>
+[GenerateSerializer]
+[Alias("coldframe.push-registration")]
+public sealed record PushRegistration(
+    [property: Id(0)] string InstallationId,
+    [property: Id(1)] PushPlatform Platform,
+    [property: Id(2)] string Token,
+    [property: Id(3)] ApnsEnvironment? Environment,
+    [property: Id(4)] DateTimeOffset RegisteredAt);
+
+/// <summary>
+/// The limits of a push registration (Story 6.5).
+/// </summary>
+public static class PushRegistrationLimits
+{
+    /// <summary>
+    /// The longest installation ID.
+    /// </summary>
+    public const int MaxInstallationIdLength = 64;
+
+    /// <summary>
+    /// The longest device token.
+    /// </summary>
+    public const int MaxTokenLength = 4096;
+
+    /// <summary>
+    /// How many registrations a User keeps: the one registered longest ago makes room for a new one.
+    /// </summary>
+    public const int MaxRegistrations = 20;
+
+    /// <summary>
+    /// Whether <paramref name="installationId"/> is 1 to <see cref="MaxInstallationIdLength"/> characters of
+    /// <c>A-Z</c>, <c>a-z</c>, <c>0-9</c>, <c>.</c>, <c>_</c> and <c>-</c>.
+    /// </summary>
+    public static bool IsInstallationId(string? installationId) =>
+        installationId is { Length: > 0 and <= MaxInstallationIdLength }
+        && installationId.All(static character => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-');
+
+    /// <summary>
+    /// Whether <paramref name="token"/> is 1 to <see cref="MaxTokenLength"/> printable ASCII characters without a space.
+    /// </summary>
+    public static bool IsToken(string? token) =>
+        token is { Length: > 0 and <= MaxTokenLength } && token.All(static character => character is > ' ' and <= '~');
+}
+
+/// <summary>
 /// A notification the User grain hands to the Notifier (Story 6.4). The User grain has already decided that it
 /// is due, inside the Notification Window and not muted: nothing behind the Notifier filters, delays or
 /// schedules.
 /// </summary>
+/// <remarks>
+/// A channel runs inside the User grain's turn and so can never ask that grain for anything (Story 6.5): the
+/// grain puts in what only it knows, the push registrations and the time zone and window a text needs.
+/// </remarks>
 /// <param name="UserId">The User to notify (the OIDC <c>sub</c>).</param>
 /// <param name="SiteId">The Site the notification is about.</param>
 /// <param name="Kind">What the notification is.</param>
@@ -65,6 +158,9 @@ public sealed record NotificationEntry(
 /// The Alerts: exactly one for an <see cref="NotificationKind.Alert"/> or a
 /// <see cref="NotificationKind.Reminder"/>; for a summary one per Alert still open, oldest first.
 /// </param>
+/// <param name="Registrations">The User's push registrations; <see langword="null"/> or empty without a device.</param>
+/// <param name="TimeZone">The User's IANA time zone, chosen or detected; <see langword="null"/> reads as UTC.</param>
+/// <param name="Window">The User's Notification Window, which a summary's footer names; <see langword="null"/> is the default.</param>
 [GenerateSerializer]
 [Alias("coldframe.notification")]
 public sealed record Notification(
@@ -73,4 +169,7 @@ public sealed record Notification(
     [property: Id(2)] NotificationKind Kind,
     [property: Id(3)] DateTimeOffset DueAt,
     [property: Id(4)] DateTimeOffset? HeldFrom,
-    [property: Id(5)] IReadOnlyList<NotificationEntry> Entries);
+    [property: Id(5)] IReadOnlyList<NotificationEntry> Entries,
+    [property: Id(6)] IReadOnlyList<PushRegistration>? Registrations = null,
+    [property: Id(7)] string? TimeZone = null,
+    [property: Id(8)] NotificationWindow? Window = null);

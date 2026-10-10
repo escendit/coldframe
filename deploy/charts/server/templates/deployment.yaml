@@ -81,6 +81,35 @@ spec:
                 secretKeyRef:
                   name: coldframe-device-kek
                   key: kek
+            {{- if .Values.push.apns.enabled }}
+            # Push to iPhones (Story 6.5): the APNs auth key of the Secret coldframe-push. Rendered only
+            # when enabled; then the three keys are required, like every other credential.
+            - name: Push__Apns__PrivateKeyPem
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-push
+                  key: apns-key.p8
+            - name: Push__Apns__KeyId
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-push
+                  key: apns-key-id
+            - name: Push__Apns__TeamId
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-push
+                  key: apns-team-id
+            - name: Push__Apns__Topic
+              value: {{ required "push.apns.topic is required: the bundle ID of the iOS app" .Values.push.apns.topic | quote }}
+            {{- end }}
+            {{- if .Values.push.fcm.enabled }}
+            # Push to Android phones (Story 6.5): the Firebase service account of the Secret coldframe-push.
+            - name: Push__Fcm__ServiceAccountJson
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-push
+                  key: fcm-service-account.json
+            {{- end }}
             - name: KeycloakEvents__TargetHost
               value: {{ .Values.keycloakEvents.targetHost | quote }}
             - name: KeycloakEvents__Namespace

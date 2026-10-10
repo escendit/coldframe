@@ -726,7 +726,7 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         var sent = Assert.Single(identity.Notifications.For(garden.OwnerId));
         Assert.Equal(
             new Notification(garden.OwnerId, garden.SiteId, NotificationKind.Alert, openedAt, null, sent.Notification.Entries),
-            sent.Notification);
+            sent.Notification with { Registrations = null, TimeZone = null, Window = null });
         Assert.Equal(
             new NotificationEntry(alertId, AlertKind.Threshold, ThresholdSide.Low, garden.LotId, garden.Soil, garden.Node.DeviceId.ToString(), "soil_moisture", openedAt),
             Assert.Single(sent.Notification.Entries));

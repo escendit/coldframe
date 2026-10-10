@@ -52,23 +52,33 @@
   /// (UX-DR49) and my Reminder cadence (UX-DR50). Without a current Site only the window and the
   /// time zone show. The switch and the segmented choice apply at once; the window has Save. A
   /// change that was not saved shows its notice under its control, which is back at the Server's
-  /// value. Every entry reads the settings again.
+  /// value. Every entry reads the settings again. While notifications are off for the app on
+  /// this phone, the notice with Open Settings stands first, whatever the settings' own surface
+  /// is (Story 6.5, UX-DR88).
   public struct MyNotificationsView: View {
     let presentation: NotificationSettingsPresentation
     let actions: NotificationSettingsActions
+    let push: PushPresentation
+    let pushActions: PushActions
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
 
     public init(
-      presentation: NotificationSettingsPresentation, actions: NotificationSettingsActions = .none
+      presentation: NotificationSettingsPresentation, actions: NotificationSettingsActions = .none,
+      push: PushPresentation = .idle, pushActions: PushActions = .none
     ) {
       self.presentation = presentation
       self.actions = actions
+      self.push = push
+      self.pushActions = pushActions
     }
 
     public var body: some View {
       ScrollView {
-        Group {
+        VStack(alignment: .leading, spacing: Spacing.step6) {
+          if let notice = push.settingsNotice {
+            PushNotice(notice: notice, actions: pushActions)
+          }
           switch presentation.surface {
           case .idle, .loading:
             EmptyView()

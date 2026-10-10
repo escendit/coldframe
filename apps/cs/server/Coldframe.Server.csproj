@@ -19,6 +19,10 @@
     <PackageReference Include="Temporalio.Extensions.Hosting" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The English push templates (Story 6.5): externalised text, read once at start. Embedded in the Server itself, not in an "en" satellite assembly. -->
+    <EmbeddedResource Include="Notifications\Push\PushText.en.json" WithCulture="false" LogicalName="Coldframe.Server.Notifications.Push.PushText.en.json" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Coldframe.Server.Tests" />
     <InternalsVisibleTo Include="Coldframe.Server.IntegrationTests" />
   </ItemGroup>

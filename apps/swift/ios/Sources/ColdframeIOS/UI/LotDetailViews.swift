@@ -32,12 +32,6 @@
     public static let none = LotDetailActions()
   }
 
-  /// A Lot opened from a tile: what the destination needs before the Server answers.
-  struct OpenedLot: Hashable {
-    let id: String
-    let name: String
-  }
-
   /// Lot detail (UX-DR63): the full-width hero, a 3-up row of Sensor cells, the 30-day History
   /// chart with its Sensor picker, then a 2-up row of Device cells; the rows go 1-up from
   /// Accessibility 1. The core decided everything shown; this draws it with catalogue words.

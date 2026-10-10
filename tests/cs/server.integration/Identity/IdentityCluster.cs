@@ -10,6 +10,7 @@ using Coldframe.Server.IntegrationTests.Journal;
 using Coldframe.Server.Journal;
 using Coldframe.Server.Lots;
 using Coldframe.Server.Notifications;
+using Coldframe.Server.Notifications.Push;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
@@ -22,7 +23,7 @@ namespace Coldframe.Server.IntegrationTests.Identity;
 
 /// <summary>
 /// A one-silo <see cref="TestCluster"/> with the User, Site, Lot, Device, Sensor and Alert grains, Device enrolment keys, the identity and lots projectors, a
-/// <see cref="FakePhaseTwoOrganizations"/>, the Notifier with a <see cref="RecordingNotificationChannel"/> and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
+/// <see cref="FakePhaseTwoOrganizations"/>, the Notifier with a <see cref="RecordingNotificationChannel"/> and the push channels over <see cref="PushProviderStubs"/>, and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
 /// </summary>
 public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
@@ -85,6 +86,12 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     /// A silo restart starts with an empty one.
     /// </summary>
     public RecordingNotificationChannel Notifications => SiloServices.GetRequiredService<RecordingNotificationChannel>();
+
+    /// <summary>
+    /// The stub APNs and FCM the silo's push channels send to (Story 6.5): they record every request and answer
+    /// what a test says. A silo restart starts with empty ones.
+    /// </summary>
+    public PushProviderStubs Push => SiloServices.GetRequiredService<PushProviderStubs>();
 
     /// <summary>
     /// The silo's Sensor call filter, which a test can make fail the declarations of one Sensor and the next evaluations.
@@ -245,6 +252,19 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             siloBuilder.Services.AddNotifications();
             siloBuilder.Services.AddSingleton<RecordingNotificationChannel>();
             siloBuilder.Services.AddSingleton<INotificationChannel>(provider => provider.GetRequiredService<RecordingNotificationChannel>());
+
+            // Push (Story 6.5): the real APNs and FCM channels with generated credentials, against stub providers.
+            // A User without a registration is sent nothing by them, so the other suites do not notice.
+            siloBuilder.Services.AddSingleton<PushProviderStubs>();
+            siloBuilder.Services.AddOptions<PushOptions>().Configure(PushProviderStubs.Configure);
+            siloBuilder.Services.AddApnsChannel();
+            siloBuilder.Services.AddFcmChannel();
+            siloBuilder.Services
+                .AddHttpClient(ApnsChannel.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<PushProviderStubs>().CreateHandler());
+            siloBuilder.Services
+                .AddHttpClient(FcmServiceAccount.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<PushProviderStubs>().CreateHandler());
 
             // Registered before AddDevices, which adds the real store only when there is none.
             siloBuilder.Services.AddSingleton<DeviceIngestionStore, FaultyIngestionStore>();

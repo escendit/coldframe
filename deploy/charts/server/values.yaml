@@ -1,6 +1,6 @@
 # The Coldframe Server. Credentials are never values: they come from the Secrets
-# coldframe-db-coldframe, coldframe-oidc-clients, coldframe-enrolment-key and coldframe-device-kek
-# (deploy/SECRETS.md).
+# coldframe-db-coldframe, coldframe-oidc-clients, coldframe-enrolment-key and coldframe-device-kek,
+# and, when push is enabled, coldframe-push (deploy/SECRETS.md).
 
 # Resource names default to the release name.
 fullnameOverride: ""
@@ -70,6 +70,18 @@ keycloakEvents:
   targetHost: temporal:7233
   namespace: coldframe
   realmId: coldframe
+
+# Push notifications (Story 6.5). Off by default: the Server starts and runs without push, and logs
+# once at start that a provider has no credentials. Enabling a provider makes its keys of the
+# Secret coldframe-push required (deploy/SECRETS.md): apns-key.p8, apns-key-id and apns-team-id
+# for APNs, fcm-service-account.json for FCM. A Secret may hold the keys of one provider only.
+push:
+  apns:
+    enabled: false
+    # The bundle ID of the iOS app the APNs key belongs to (apns-topic).
+    topic: com.escendit.coldframe
+  fcm:
+    enabled: false
 
 # Graceful shutdown: the host gets shutdownTimeoutSeconds to drain the silo, and Kubernetes waits
 # terminationGracePeriodSeconds before it kills the pod. The grace period must be longer.

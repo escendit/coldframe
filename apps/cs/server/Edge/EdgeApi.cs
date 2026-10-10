@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
+using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
@@ -292,6 +293,14 @@ public sealed record NotificationWindowResponse(string From, string To);
 public sealed record NotificationSettingsResponse(NotificationWindowResponse Window, string? TimeZone, bool TimeZoneConfirmed);
 
 /// <summary>
+/// The body of <c>PUT /me/push-registrations/{installationId}</c> (Story 6.5).
+/// </summary>
+/// <param name="Platform"><c>apns</c> or <c>fcm</c>.</param>
+/// <param name="Token">The provider's device token.</param>
+/// <param name="Environment"><c>production</c> or <c>sandbox</c>: required for <c>apns</c>, refused for <c>fcm</c>.</param>
+public sealed record RegisterPushDeviceRequest(string? Platform, string? Token, string? Environment = null);
+
+/// <summary>
 /// The body of <c>PUT /sites/{siteId}/notification-settings</c> (Story 6.3).
 /// </summary>
 /// <param name="Muted">Whether the caller mutes the Site.</param>
@@ -542,6 +551,14 @@ public static partial class EdgeApi
 
         endpoints.MapPatch("/me/notification-settings", UpdateMyNotificationSettingsAsync)
             .WithName("updateMyNotificationSettings")
+            .RequireAuthenticatedCaller();
+
+        endpoints.MapPut("/me/push-registrations/{installationId}", RegisterPushDeviceAsync)
+            .WithName("registerPushDevice")
+            .RequireAuthenticatedCaller();
+
+        endpoints.MapDelete("/me/push-registrations/{installationId}", RemovePushDeviceAsync)
+            .WithName("removePushDevice")
             .RequireAuthenticatedCaller();
 
         endpoints.MapGet("/sites/{siteId}/notification-settings", GetSiteNotificationSettingsAsync)
@@ -900,6 +917,67 @@ public static partial class EdgeApi
             "The Site holds the cadence. Send the same request again to hand it to every member."),
         _ => SiteNotFound(),
     };
+
+    private static async Task<IResult> RegisterPushDeviceAsync(
+        string installationId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<RegisterPushDeviceRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (!PushRegistrationLimits.IsInstallationId(installationId))
+        {
+            return InvalidPushRegistration("An installation ID is 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-'. Nothing changed.");
+        }
+
+        var platform = EdgeValidation.NormalizePushPlatform(request?.Platform);
+
+        if (request is not { } body || platform is null || !PushRegistrationLimits.IsToken(body.Token))
+        {
+            return InvalidPushRegistration("Send a JSON body with platform apns or fcm and token, 1 to 4096 printable characters without spaces. Nothing changed.");
+        }
+
+        var environment = EdgeValidation.NormalizeApnsEnvironment(body.Environment);
+
+        if ((body.Environment is not null && environment is null) || (platform == PushPlatform.Apns) != (environment is not null))
+        {
+            return InvalidPushRegistration("environment is production or sandbox: required for apns, not allowed for fcm. Nothing changed.");
+        }
+
+        var outcome = await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .RegisterPushDevice(new RegisterPushDevice(installationId, platform.Value, body.Token!, environment), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return outcome == PushRegistrationOutcome.Invalid
+            ? InvalidPushRegistration("The registration is not valid. Nothing changed.")
+            : TypedResults.NoContent();
+    }
+
+    private static async Task<IResult> RemovePushDeviceAsync(
+        string installationId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        if (!PushRegistrationLimits.IsInstallationId(installationId))
+        {
+            return InvalidPushRegistration("An installation ID is 1 to 64 characters of A-Z, a-z, 0-9, '.', '_' and '-'. Nothing changed.");
+        }
+
+        // Only the caller's own grain: another User's registration of the same installation is never touched.
+        await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .RemovePushDevice(installationId, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return TypedResults.NoContent();
+    }
+
+    private static IResult InvalidPushRegistration(string detail) =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The push registration is not valid.",
+            detail);
 
     private static IResult InvalidNotificationSettings(string detail) =>
         EdgeProblems.Result(
@@ -2087,22 +2165,9 @@ public static partial class EdgeApi
 
     private const decimal MaximumDisplayValue = 1_000_000_000_000m;
 
-    // How many stored units make one display unit: a calibrating Sensor is percent already.
-    private static decimal DisplayFactor(SensorSpecification specification) =>
-        specification.Calibration ? 1m : specification.Unit switch
-        {
-            SensorUnit.MilliDegreeCelsius or SensorUnit.MilliPercent or SensorUnit.Ohm => 1000m,
-            _ => 1m,
-        };
+    private static decimal DisplayFactor(SensorSpecification specification) => SensorDisplay.Factor(specification);
 
-    private static string DisplayUnit(SensorSpecification specification) =>
-        specification.Calibration ? "%" : specification.Unit switch
-        {
-            SensorUnit.MilliDegreeCelsius => "°C",
-            SensorUnit.MilliPercent => "%",
-            SensorUnit.Ohm => "kΩ",
-            _ => "raw",
-        };
+    private static string DisplayUnit(SensorSpecification specification) => SensorDisplay.Unit(specification);
 
     private static ThresholdsResponse ToThresholdsResponse(SensorThresholds thresholds)
     {

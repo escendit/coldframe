@@ -231,6 +231,11 @@
   /// tiles' durations; it fetches nothing and announces nothing. The Site menu's Site settings
   /// opens Site settings (UX-DR74). A *no Node* Lot tile starts Add a Node with its Lot for
   /// Administrators and Owners; the first-run "Add a Node" step tile starts nothing.
+  /// Above the tiles stands what the core says about notifications (Story 6.5): on the first
+  /// landing the one line of why, whose Continue leads to the OS prompt (UX-DR122), afterwards
+  /// the notifications-off notice while the permission is denied (UX-DR88). `path` is what the
+  /// stack shows over the overview; the root hoists it, so a tapped notification can open Lot
+  /// detail from outside this view (UX-DR120).
   public struct GardenView: View {
     let presentation: GardenPresentation
     let lots: LotsPresentation
@@ -243,11 +248,13 @@
     let lotDetail: LotDetailPresentation
     let lotDetailActions: LotDetailActions
     let onOpenDevices: () -> Void
+    let push: PushPresentation
+    let pushActions: PushActions
+    let hoistedPath: Binding<GardenPath>?
     let now: () -> Date
     let timeZone: TimeZone
     @State private var switching = false
-    @State private var openingSiteSettings = false
-    @State private var openedLot: OpenedLot?
+    @State private var ownPath = GardenPath.root
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
@@ -260,8 +267,13 @@
       onSetThresholds: @escaping (String, String, String) -> Void = { _, _, _ in },
       lotDetail: LotDetailPresentation = .idle, lotDetailActions: LotDetailActions = .none,
       onOpenDevices: @escaping () -> Void = {},
-      now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current
+      now: @escaping () -> Date = { Date() }, timeZone: TimeZone = .current,
+      push: PushPresentation = .idle, pushActions: PushActions = .none,
+      path: Binding<GardenPath>? = nil
     ) {
+      self.push = push
+      self.pushActions = pushActions
+      self.hoistedPath = path
       self.presentation = presentation
       self.lots = lots
       self.actions = actions
@@ -277,18 +289,24 @@
       self.timeZone = timeZone
     }
 
+    private var path: Binding<GardenPath> { hoistedPath ?? $ownPath }
+
     public var body: some View {
       let context = CopyContext.catalogue(now: now(), timeZone: timeZone, locale: locale)
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.step6) {
           header(context)
+          if let notice = push.overviewNotice {
+            PushNotice(notice: notice, actions: pushActions)
+          }
           tiles
           if let notice = presentation.memberNotice {
             InlineNotice(message: notice)
           }
           LotGrid(
             lots: lots, context: context, onTryAgain: lotsActions.load, onAddNode: onAddNode,
-            onOpenLot: { openedLot = OpenedLot(id: $0, name: $1) }, onCalibrate: onCalibrate)
+            onOpenLot: { path.wrappedValue.lot = OpenedLot(id: $0, name: $1) },
+            onCalibrate: onCalibrate)
         }
         .padding(Spacing.gutterMobile)
       }
@@ -305,7 +323,7 @@
           }
         }
       }
-      .navigationDestination(item: $openedLot) { lot in
+      .navigationDestination(item: path.lot) { lot in
         // The core reads the Lot while the destination is on screen and forgets it on leaving.
         LotDetailView(
           presentation: lotDetail, siteName: presentation.siteName, actions: lotDetailActions,
@@ -316,7 +334,12 @@
         .onAppear { lotDetailActions.open(lot.id, lot.name) }
         .onDisappear { lotDetailActions.close() }
       }
-      .navigationDestination(isPresented: $openingSiteSettings) {
+      // A tapped notification can name another Lot while one is open: the destination stays on
+      // screen and does not appear again, so the core is told here.
+      .onChange(of: path.wrappedValue.lot) { old, new in
+        if let new, old != nil { lotDetailActions.open(new.id, new.name) }
+      }
+      .navigationDestination(isPresented: path.siteSettings) {
         SiteSettingsView(presentation: lots, actions: lotsActions)
       }
       .sheet(isPresented: $switching) {
@@ -356,7 +379,7 @@
           Spacer(minLength: 0)
           SiteMenu(
             siteName: presentation.siteName, items: menu.items, enabled: menu.enabled,
-            onOpenSiteSettings: { openingSiteSettings = true })
+            onOpenSiteSettings: { path.wrappedValue.siteSettings = true })
         }
         switch presentation.header(lots: lots) {
         case .summary(let summary):

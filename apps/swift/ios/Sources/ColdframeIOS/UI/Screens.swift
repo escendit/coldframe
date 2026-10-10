@@ -76,6 +76,11 @@
   /// `selection` is the selected tab: the root hoists it, so closing a flow that replaced the
   /// shell (Add a Hub, Add a Node) returns to the tab it was opened from. `onAddNode` takes the
   /// Lot of a *no Node* tile, or nil from Devices.
+  /// `push` is the core's push state (Story 6.5). Its route is where a tapped notification leads
+  /// (UX-DR120): the core has already switched to the notification's Site, and the shell shows
+  /// Lot detail or the overview on the Garden tab, whose stack `gardenPath` holds, and says so
+  /// with `PushActions.routeHandled`. A route that arrives while a flow replaces the shell is
+  /// shown when the shell is back.
   public struct AppTabView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
@@ -96,11 +101,16 @@
     let alertsActions: AlertsActions
     let notifications: NotificationSettingsPresentation
     let notificationsActions: NotificationSettingsActions
+    let push: PushPresentation
+    let pushActions: PushActions
     let hoistedSelection: Binding<AppTab>?
+    let hoistedGardenPath: Binding<GardenPath>?
     @State private var ownSelection: AppTab = .garden
+    @State private var ownGardenPath = GardenPath.root
     @Environment(\.palette) private var palette
 
     private var selection: Binding<AppTab> { hoistedSelection ?? $ownSelection }
+    private var gardenPath: Binding<GardenPath> { hoistedGardenPath ?? $ownGardenPath }
 
     public init(
       theme: ThemePreference, onSelectTheme: @escaping (ThemePreference) -> Void,
@@ -115,8 +125,13 @@
       selection: Binding<AppTab>? = nil, alerts: AlertsPresentation = .waiting,
       alertsActions: AlertsActions = .none,
       notifications: NotificationSettingsPresentation = .idle,
-      notificationsActions: NotificationSettingsActions = .none
+      notificationsActions: NotificationSettingsActions = .none,
+      push: PushPresentation = .idle, pushActions: PushActions = .none,
+      gardenPath: Binding<GardenPath>? = nil
     ) {
+      self.push = push
+      self.pushActions = pushActions
+      self.hoistedGardenPath = gardenPath
       self.notifications = notifications
       self.notificationsActions = notificationsActions
       self.alerts = alerts
@@ -166,6 +181,14 @@
         // So does every entry of the Alerts tab; the rows shown stay meanwhile.
         if tab == .alerts { alertsActions.load() }
       }
+      // A tapped notification: Lot detail or the overview, on the Garden tab of the Site the
+      // core switched to. Handed over once; the core then has no route.
+      .onChange(of: push.route, initial: true) { _, route in
+        guard let route else { return }
+        gardenPath.wrappedValue = route.gardenPath
+        selection.wrappedValue = route.tab
+        pushActions.routeHandled()
+      }
     }
 
     @ViewBuilder
@@ -175,7 +198,8 @@
         SettingsView(
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut,
           siteName: garden?.siteName, lots: lots, lotsActions: lotsActions,
-          notifications: notifications, notificationsActions: notificationsActions)
+          notifications: notifications, notificationsActions: notificationsActions,
+          push: push, pushActions: pushActions)
       case .garden:
         if let garden {
           GardenView(
@@ -183,7 +207,8 @@
             onAddHub: onAddHub, onAddNode: { onAddNode($0) }, onCalibrate: onCalibrate,
             onSetThresholds: onSetThresholds, lotDetail: lotDetail,
             lotDetailActions: lotDetailActions,
-            onOpenDevices: { selection.wrappedValue = .devices }
+            onOpenDevices: { selection.wrappedValue = .devices },
+            push: push, pushActions: pushActions, path: gardenPath
           )
         } else {
           palette.background.ignoresSafeArea()
@@ -214,6 +239,8 @@
     let lotsActions: LotsActions
     let notifications: NotificationSettingsPresentation
     let notificationsActions: NotificationSettingsActions
+    let push: PushPresentation
+    let pushActions: PushActions
     @State private var confirmingSignOut = false
     @Environment(\.palette) private var palette
 
@@ -222,8 +249,11 @@
       onSignOut: @escaping () -> Void, siteName: String? = nil,
       lots: LotsPresentation = .waiting, lotsActions: LotsActions = .none,
       notifications: NotificationSettingsPresentation = .idle,
-      notificationsActions: NotificationSettingsActions = .none
+      notificationsActions: NotificationSettingsActions = .none,
+      push: PushPresentation = .idle, pushActions: PushActions = .none
     ) {
+      self.push = push
+      self.pushActions = pushActions
       self.notifications = notifications
       self.notificationsActions = notificationsActions
       self.theme = theme
@@ -239,7 +269,9 @@
       List {
         // My notifications is the User's own: it needs no current Site.
         NavigationLink {
-          MyNotificationsView(presentation: notifications, actions: notificationsActions)
+          MyNotificationsView(
+            presentation: notifications, actions: notificationsActions, push: push,
+            pushActions: pushActions)
         } label: {
           VStack(alignment: .leading, spacing: Spacing.step1) {
             SettingsRow.notifications.title.text.role(Typography.bodyLg)
@@ -347,9 +379,13 @@
     let alertsActions: AlertsActions
     let notifications: NotificationSettingsPresentation
     let notificationsActions: NotificationSettingsActions
+    let push: PushPresentation
+    let pushActions: PushActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
+    /// So does what the Garden tab's stack shows, which a tapped notification sets (UX-DR120).
+    @State private var gardenPath = GardenPath.root
     @Environment(\.colorScheme) private var systemScheme
 
     public init(
@@ -366,8 +402,11 @@
       thresholds: ThresholdsPresentation = .idle, thresholdsActions: ThresholdsActions = .none,
       alerts: AlertsPresentation = .waiting, alertsActions: AlertsActions = .none,
       notifications: NotificationSettingsPresentation = .idle,
-      notificationsActions: NotificationSettingsActions = .none
+      notificationsActions: NotificationSettingsActions = .none,
+      push: PushPresentation = .idle, pushActions: PushActions = .none
     ) {
+      self.push = push
+      self.pushActions = pushActions
       self.notifications = notifications
       self.notificationsActions = notificationsActions
       self.alerts = alerts
@@ -410,6 +449,16 @@
       .environment(\.palette, ColdframePalette(isDark: isDark))
       .preferredColorScheme(theme.forcedDark.map { $0 ? .dark : .light })
       .transaction { $0.animation = nil }
+      // The path outlives the tab shell but not the session: the next User who signs in on this
+      // phone starts on the overview, not on the Lot the last one had open.
+      .onChange(of: isSignedIn) { _, signedIn in
+        if !signedIn { gardenPath = .root }
+      }
+    }
+
+    private var isSignedIn: Bool {
+      if case .signedIn = presentation.surface { return true }
+      return false
     }
 
     /// No Membership: Create Site replaces the tab shell; "New Site" puts it over the shell.
@@ -447,7 +496,8 @@
           devicesActions: devicesActions, lotDetail: lotDetail,
           lotDetailActions: lotDetailActions, selection: $tab, alerts: alerts,
           alertsActions: alertsActions, notifications: notifications,
-          notificationsActions: notificationsActions
+          notificationsActions: notificationsActions, push: push, pushActions: pushActions,
+          gardenPath: $gardenPath
         )
         // Thresholds is a modal over the shell, so the open Lot detail stays and reads again once saved.
         .coverOrSheet(
@@ -488,6 +538,7 @@
     @Published public private(set) var thresholds = ThresholdsPresentation.idle
     @Published public private(set) var alerts = AlertsPresentation.waiting
     @Published public private(set) var notifications = NotificationSettingsPresentation.idle
+    @Published public private(set) var push = PushPresentation.idle
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -500,6 +551,7 @@
     public let thresholdsService: ThresholdsService?
     public let alertsService: AlertsService?
     public let notificationsService: NotificationSettingsService?
+    public let pushService: PushService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
@@ -507,8 +559,9 @@
       devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
       lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil,
       thresholds: ThresholdsService? = nil, alerts: AlertsService? = nil,
-      notifications: NotificationSettingsService? = nil
+      notifications: NotificationSettingsService? = nil, push: PushService? = nil
     ) {
+      self.pushService = push
       self.notificationsService = notifications
       self.alertsService = alerts
       self.thresholdsService = thresholds
@@ -543,12 +596,18 @@
       thresholds?.observe { [weak self] in self?.thresholds = $0 }
       alerts?.observe { [weak self] in self?.alerts = $0 }
       notifications?.observe { [weak self] in self?.notifications = $0 }
+      push?.observe { [weak self] in self?.push = $0 }
     }
 
     private static func announce(_ event: LotsEventPresentation) {
       if let text = event.text(.catalogue()) {
         AccessibilityNotification.Announcement(AttributedString(text)).post()
       }
+    }
+
+    /// The push actions for the views; nothing happens without a service.
+    public var pushActions: PushActions {
+      pushService.map(PushActions.init(service:)) ?? .none
     }
 
     /// The My notifications actions for the views; nothing happens without a service.
