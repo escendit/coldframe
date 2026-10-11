@@ -88,7 +88,9 @@ describe('voice and glossary', () => {
   });
 
   test('UX-DR131 glossary terms are capitalised wherever they appear', () => {
-    for (const [key, value] of strings()) {
+    for (const [key, text] of strings()) {
+      // UX-DR89 gives this notice verbatim: "this site's browser settings" is the web site, not a Site.
+      const value = key === 'notifications.browser.blocked' ? text.replace("this site's browser settings", '') : text;
       for (const term of glossary.terms) {
         const pattern = new RegExp(`\\b${escape(term)}s?\\b`, 'giu');
         for (const match of value.matchAll(pattern)) {

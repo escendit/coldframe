@@ -309,7 +309,7 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
 
             foreach (var journalEvent in again)
             {
-                await projector.ApplyAsync(journalEvent, transaction, cancellationToken);
+                await projector.ApplyAsync(journalEvent, transaction, new ReadModelChanges(), cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
@@ -432,7 +432,7 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         await using (var connection = await edge.Database.OpenConnectionAsync(cancellationToken))
         await using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
         {
-            await new LotsProjector().ApplyAsync(again[0], transaction, cancellationToken);
+            await new LotsProjector().ApplyAsync(again[0], transaction, new ReadModelChanges(), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
 

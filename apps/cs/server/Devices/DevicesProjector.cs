@@ -27,17 +27,19 @@ public sealed class DevicesProjector : IProjector
         VALUES (@device_id, @site_id, @kind, NULL, @enrolled_at, NULL)
         ON CONFLICT (device_id) DO UPDATE
         SET site_id = EXCLUDED.site_id, kind = EXCLUDED.kind, enrolled_at = EXCLUDED.enrolled_at
+        RETURNING site_id
         """;
 
-    private const string AssignSql = "UPDATE devices SET lot_id = @lot_id WHERE device_id = @device_id";
+    private const string AssignSql = "UPDATE devices SET lot_id = @lot_id WHERE device_id = @device_id RETURNING site_id";
 
-    private const string UnassignSql = "UPDATE devices SET lot_id = NULL WHERE device_id = @device_id";
+    private const string UnassignSql = "UPDATE devices SET lot_id = NULL WHERE device_id = @device_id RETURNING site_id";
 
     // Never moves backwards, so applying an older heartbeat again changes nothing.
     private const string SeenSql =
         """
         UPDATE devices SET last_seen_at = @seen_at
         WHERE device_id = @device_id AND (last_seen_at IS NULL OR last_seen_at < @seen_at)
+        RETURNING site_id
         """;
 
     /// <inheritdoc />
@@ -54,10 +56,11 @@ public sealed class DevicesProjector : IProjector
     }
 
     /// <inheritdoc />
-    public Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    public Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(journalEvent);
         ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(changes);
 
         if (DeviceIdOf(journalEvent.StreamId) is not { } deviceId)
         {
@@ -69,6 +72,8 @@ public sealed class DevicesProjector : IProjector
             DeviceEnrolled enrolled => ExecuteAsync(
                 transaction,
                 EnrolSql,
+                deviceId,
+                changes,
                 cancellationToken,
                 ("device_id", deviceId),
                 ("site_id", enrolled.SiteId),
@@ -77,23 +82,31 @@ public sealed class DevicesProjector : IProjector
             DeviceAssigned assigned => ExecuteAsync(
                 transaction,
                 AssignSql,
+                deviceId,
+                changes,
                 cancellationToken,
                 ("device_id", deviceId),
                 ("lot_id", assigned.LotId)),
             DeviceMoved moved => ExecuteAsync(
                 transaction,
                 AssignSql,
+                deviceId,
+                changes,
                 cancellationToken,
                 ("device_id", deviceId),
                 ("lot_id", moved.ToLotId)),
             DeviceUnassigned => ExecuteAsync(
                 transaction,
                 UnassignSql,
+                deviceId,
+                changes,
                 cancellationToken,
                 ("device_id", deviceId)),
             DeviceSeen seen => ExecuteAsync(
                 transaction,
                 SeenSql,
+                deviceId,
+                changes,
                 cancellationToken,
                 ("device_id", deviceId),
                 ("seen_at", seen.SeenAt.ToUniversalTime())),
@@ -101,9 +114,13 @@ public sealed class DevicesProjector : IProjector
         };
     }
 
+    // Every statement returns the Site of the row it changed, and nothing when it changed none: only a row
+    // that changed is reported (Story 6.6).
     private static async Task ExecuteAsync(
         NpgsqlTransaction transaction,
         string sql,
+        string deviceId,
+        ReadModelChanges changes,
         CancellationToken cancellationToken,
         params (string Name, object Value)[] parameters)
     {
@@ -114,6 +131,9 @@ public sealed class DevicesProjector : IProjector
             command.Parameters.AddWithValue(name, value);
         }
 
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string siteId)
+        {
+            changes.Touch(siteId, ReadModelResources.Devices, deviceId);
+        }
     }
 }

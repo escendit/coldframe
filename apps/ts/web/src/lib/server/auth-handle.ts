@@ -1,3 +1,4 @@
+import { liveHubPath } from '@coldframe/api-client';
 import { isHttpError, isRedirect, redirect, type Handle, type RequestEvent } from '@sveltejs/kit';
 import type { Notice } from '$lib/notices';
 import { classifyFailure, type Failure } from './failures';
@@ -93,6 +94,15 @@ function isOidcPath(path: string): boolean {
   return path === oidcRoutes.signin || path === oidcRoutes.callback || path === oidcRoutes.signout || path === oidcRoutes.signoutCallback;
 }
 
+/** `/live` and what lies below it: the SignalR hub as the browser sees it. */
+function isHubPath(path: string): boolean {
+  return path === liveHubPath || path.startsWith(`${liveHubPath}/`);
+}
+
+function hubUnauthorized(): Response {
+  return new Response(null, { status: 401, headers: { 'cache-control': 'no-store' } });
+}
+
 function isRedirectStatus(status: number): boolean {
   return status >= 300 && status < 400;
 }
@@ -178,6 +188,10 @@ export function createAuthHandle(options: AuthHandleOptions): Handle {
         },
       });
     } catch (error) {
+      if (isRedirect(error) && isHubPath(path) && identityOf(event) === null) {
+        // The hub route is no page: a signed-out caller is not sent to Sign in.
+        return hubUnauthorized();
+      }
       if (isRedirect(error) || isHttpError(error) || !isOidcPath(path)) {
         throw error;
       }
@@ -214,6 +228,11 @@ export function createAuthHandle(options: AuthHandleOptions): Handle {
       if (location !== null) {
         redirect(303, location);
       }
+    }
+
+    if (isHubPath(path) && identityOf(event) === null && response.status !== 401) {
+      // The hub route (Story 6.6) is no page: signed out it is a plain 401, not the package's 405 or a redirect.
+      return hubUnauthorized();
     }
 
     return response;

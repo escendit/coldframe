@@ -40,6 +40,7 @@ jobs:
       kotlin: ${{ steps.filter.outputs.kotlin }}
       typescript: ${{ steps.filter.outputs.typescript }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      web_e2e: ${{ steps.filter.outputs.web_e2e }}
       swift: ${{ steps.filter.outputs.swift }}
       ios: ${{ steps.filter.outputs.ios }}
       charts: ${{ steps.filter.outputs.charts }}
@@ -76,6 +77,8 @@ jobs:
             [kotlin]="${kotlin}|${shared}"
             [typescript]="${typescript}|${shared}"
             [contracts]='^packages/(proto|openapi|asyncapi)/'
+            # The journey test runs the Server, the AppHost and the built web app together.
+            [web_e2e]="${dotnet}|${typescript}|${shared}"
             [swift]="${swift}|${shared}"
             # The iOS build compiles the Kotlin core with Gradle.
             [ios]="${swift}|${kotlin}|${shared}"
@@ -149,9 +152,16 @@ jobs:
       - name: Lint
         run: dotnet format --verify-no-changes --no-restore
 
-      # Starts the Aspire AppHost on the runner's Docker engine.
+      # Starts the Aspire AppHost on the runner's Docker engine. Every test project but tests/cs/web.e2e,
+      # which needs the built web app and a browser: the "Web end-to-end" job runs it.
       - name: Test
-        run: dotnet test --no-build
+        shell: bash
+        run: |
+          mapfile -t projects < <(grep -l 'Include="xunit.v3"' tests/cs/*/*.csproj | grep -v '^tests/cs/web\.e2e/')
+          [[ "${#projects[@]}" -gt 0 ]]
+          for project in "${projects[@]}"; do
+            dotnet test --no-build --project "${project}"
+          done
 
   rust:
     name: Rust
@@ -400,6 +410,60 @@ jobs:
       # (AD-10); tests/rs/uplink checks the Hub's hand-written structs against them.
       - name: OpenAPI fixtures
         run: pnpm --filter @coldframe/openapi run check
+
+  # The morning-nudge journey (UJ-2, Story 6.6) from a Reading to a browser notification: the built web app
+  # in Chromium against the Aspire AppHost (Keycloak, the Server with its test-only clock, PostgreSQL) on the
+  # runner's Docker engine. It runs for a change on either side, or to a contract.
+  web-e2e:
+    name: Web end-to-end
+    needs: changes
+    if: needs.changes.outputs.web_e2e == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the pnpm version named in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The test starts `node build` on port 5173, the redirect the realm's coldframe-web client allows.
+      - name: Build the web app
+        run: pnpm --filter @coldframe/web build
+
+      - name: Restore in locked mode
+        run: dotnet restore --locked-mode tests/cs/web.e2e
+
+      - name: Build
+        run: dotnet build --no-restore -warnaserror tests/cs/web.e2e
+
+      # Microsoft.Playwright and @playwright/test are the same version (Directory.Packages.props,
+      # tests/ts/web.e2e/package.json), so they use the same Chromium revision.
+      - name: Install Playwright Chromium
+        run: pnpm --filter @coldframe/web-e2e exec playwright install --with-deps chromium
+
+      - name: Test
+        run: dotnet test --no-build --project tests/cs/web.e2e
 
   # Wire-contract compatibility (AD-10, AD-24): buf lint, buf breaking (FILE) and oasdiff breaking against
   # the merge base of a pull request, or the previous commit on a push. The self-test first proves that a

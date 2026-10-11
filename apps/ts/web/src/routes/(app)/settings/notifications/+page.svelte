@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { enhance } from '$app/forms';
   import Button from '$lib/components/Button.svelte';
@@ -10,6 +10,7 @@
   import TimeZonePanel from '$lib/components/TimeZonePanel.svelte';
   import Toggle from '$lib/components/Toggle.svelte';
   import { announce } from '$lib/announcer.svelte';
+  import { browserNotificationsOn, turnOffBrowserNotifications, turnOnBrowserNotifications } from '$lib/browser-notifications';
   import { t, type MessageKey } from '$lib/i18n';
   import {
     cadenceLabel,
@@ -41,6 +42,11 @@
   /** The browser's zone; `undefined` until the page has asked the browser. */
   let browserZone: string | undefined = $state();
   let zones: readonly string[] = $state([]);
+
+  /** Browser notifications (UX-DR123): this browser's own choice, known only once the page runs there. */
+  let browserOn = $state(false);
+  /** Turning them on failed because the browser blocks them (UX-DR89). */
+  let browserBlocked = $state(false);
 
   const pageNotice = $derived(notificationsNoticeOf(data.notice, 'mine'));
   const siteNotice = $derived(notificationsNoticeOf(data.siteNotice, 'site'));
@@ -113,6 +119,26 @@
     await tick();
     zoneForm?.requestSubmit();
   }
+
+  /** The permission prompt comes only from here: the User turned the toggle on. */
+  async function changeBrowserNotifications(checked: boolean): Promise<void> {
+    if (!checked) {
+      turnOffBrowserNotifications();
+      browserBlocked = false;
+      return;
+    }
+    const result = await turnOnBrowserNotifications();
+    browserOn = result === 'on';
+    browserBlocked = result === 'blocked';
+    if (browserBlocked) {
+      announce(t('notifications.browser.blocked'), 'assertive');
+    }
+  }
+
+  onMount(() => {
+    // Off when the permission was taken away since it was turned on.
+    browserOn = browserNotificationsOn();
+  });
 
   $effect(() => {
     // Detection runs in the browser only; a zone the User chose is never replaced by it.
@@ -234,6 +260,23 @@
             <RetryNotice id="cf-notifications" message={failureIn(action)?.message ?? ''} action={failureIn(action)?.retry ?? null} fields={failed?.fields} submitting={submitting(action)} />
           {/if}
         {/each}
+      {/if}
+    </section>
+
+    <!-- Browser notifications (UX-DR123): kept in this browser, like the permission; no form, no Server. -->
+    <section class="cf-notifications__section" aria-labelledby="cf-notifications-browser">
+      <h2 id="cf-notifications-browser" class="cf-section-title">{t('notifications.browser.title')}</h2>
+      <Toggle
+        id="cf-browser-notifications"
+        label={t('notifications.browser.toggle')}
+        helper={t('notifications.browser.helper')}
+        bind:checked={browserOn}
+        onchange={(checked: boolean) => {
+          void changeBrowserNotifications(checked);
+        }}
+      />
+      {#if browserBlocked}
+        <InlineNotice id="cf-browser-notifications-blocked" message={t('notifications.browser.blocked')} />
       {/if}
     </section>
   {/if}

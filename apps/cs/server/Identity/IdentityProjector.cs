@@ -54,10 +54,11 @@ public sealed class IdentityProjector : IProjector
     }
 
     /// <inheritdoc />
-    public async Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    public async Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(journalEvent);
         ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(changes);
 
         if (SiteIdOf(journalEvent.StreamId) is not { } siteId)
         {
@@ -76,6 +77,7 @@ public sealed class IdentityProjector : IProjector
                     await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
+                changes.Touch(siteId, ReadModelResources.Sites, siteId);
                 break;
             case MembershipGranted granted:
                 await using (var command = new NpgsqlCommand(UpsertMembershipSql, transaction.Connection, transaction))
@@ -86,18 +88,23 @@ public sealed class IdentityProjector : IProjector
                     await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
+                // The User is told too: the Site's members do not include a User who just joined or just left.
+                changes.Touch(siteId, ReadModelResources.Sites, siteId, granted.UserId);
                 break;
             case SiteRenamed renamed:
                 await ExecuteAsync(transaction, RenameSiteSql, cancellationToken, ("site_id", siteId), ("name", renamed.Name))
                     .ConfigureAwait(false);
+                changes.Touch(siteId, ReadModelResources.Sites, siteId);
                 break;
             case SiteDeleted:
                 await ExecuteAsync(transaction, DeleteSiteSql, cancellationToken, ("site_id", siteId), ("lifecycle", nameof(SiteLifecycle.Deleted)))
                     .ConfigureAwait(false);
+                changes.Touch(siteId, ReadModelResources.Sites, siteId);
                 break;
             case MembershipRevoked revoked:
                 await ExecuteAsync(transaction, RevokeMembershipSql, cancellationToken, ("site_id", siteId), ("user_id", revoked.UserId))
                     .ConfigureAwait(false);
+                changes.Touch(siteId, ReadModelResources.Sites, siteId, revoked.UserId);
                 break;
         }
     }

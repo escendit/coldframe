@@ -33,6 +33,7 @@ public sealed class AlertsProjector : IProjector
         """
         UPDATE alerts SET closed_at = @closed_at, reason = @reason
         WHERE alert_id = @alert_id AND closed_at IS NULL
+        RETURNING site_id
         """;
 
     /// <inheritdoc />
@@ -53,10 +54,11 @@ public sealed class AlertsProjector : IProjector
     }
 
     /// <inheritdoc />
-    public async Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    public async Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(journalEvent);
         ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(changes);
 
         if (AlertIdOf(journalEvent.StreamId) is not { } alertId)
         {
@@ -77,7 +79,12 @@ public sealed class AlertsProjector : IProjector
                     command.Parameters.AddWithValue("side", NpgsqlDbType.Text, (object?)AlertNames.Side(opened.Side) ?? DBNull.Value);
                     command.Parameters.AddWithValue("quantity", opened.Quantity);
                     command.Parameters.AddWithValue("opened_at", opened.OpenedAt.ToUniversalTime());
-                    await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                    // Only a row that is new is a change: an open applied again touches nothing.
+                    if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+                    {
+                        changes.Touch(opened.SiteId, ReadModelResources.Alerts, alertId.ToString("D"));
+                    }
                 }
 
                 break;
@@ -87,7 +94,11 @@ public sealed class AlertsProjector : IProjector
                     command.Parameters.AddWithValue("alert_id", alertId);
                     command.Parameters.AddWithValue("closed_at", closed.ClosedAt.ToUniversalTime());
                     command.Parameters.AddWithValue("reason", AlertNames.Reason(closed.Reason));
-                    await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                    if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string siteId)
+                    {
+                        changes.Touch(siteId, ReadModelResources.Alerts, alertId.ToString("D"));
+                    }
                 }
 
                 break;

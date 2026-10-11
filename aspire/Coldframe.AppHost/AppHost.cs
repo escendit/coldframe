@@ -163,6 +163,14 @@ foreach (var setting in pushSettings)
     }
 }
 
+// The test-only clock (Story 6.6) is off unless the AppHost itself is given Testing:ManualClock=true, as the
+// end-to-end test of the morning-nudge journey does (tests/cs/web.e2e). Only then is the setting handed on; the
+// Server honours it only in a Development host, and then maps /testing/clock. `aspire run` never sets it.
+if (bool.TryParse(builder.Configuration["Testing:ManualClock"], out var manualClock) && manualClock)
+{
+    server.WithEnvironment("Testing__ManualClock", "true");
+}
+
 await builder.Build().RunAsync().ConfigureAwait(false);
 
 // PKCS#8 PEM of the X25519 private key SHA-256(seed), as "openssl genpkey -algorithm X25519" writes it.

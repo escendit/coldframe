@@ -3,9 +3,18 @@
  * generates from `packages/openapi` (AD-10); nothing here restates an API type by hand.
  */
 import createClient, { type Client } from 'openapi-fetch';
+import type { LiveMessagePayloads, components as liveComponents } from './live';
 import type { components, paths } from './schema';
 
 export type { components, operations, paths } from './schema';
+
+// The SignalR hub's messages (Story 6.6), generated from `packages/asyncapi`.
+export { liveHubPath, liveMessages } from './live';
+export type { LiveMessagePayloads, components as liveComponents } from './live';
+export type NotificationDelivered = liveComponents['schemas']['NotificationDelivered'];
+export type ReadModelChanged = liveComponents['schemas']['ReadModelChanged'];
+export type ReadModelResource = liveComponents['schemas']['ReadModelResource'];
+export type LiveMessageName = keyof LiveMessagePayloads;
 
 export type Site = components['schemas']['Site'];
 export type SiteList = components['schemas']['SiteList'];

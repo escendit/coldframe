@@ -1,0 +1,9 @@
+{
+  "description": "The lots read model changed for the Lot Tomatoes at journal position 48213: the open overview and that Lot's detail read again.",
+  "target": "readmodel.changed",
+  "message": {
+    "resource": "lots",
+    "id": "0199c1f0-5a00-7000-8000-0000000000a1",
+    "version": 48213
+  }
+}

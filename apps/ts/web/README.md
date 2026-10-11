@@ -61,7 +61,8 @@ signed out. Sign in again to see live data."
 
 ## Sites
 
-The web app is the only caller of the Server; the browser never calls it (AD-14).
+The web app is the only caller of the Server; the browser never calls it (AD-14), not even for live
+updates: see [Live updates](#live-updates-story-66).
 [`src/lib/server/sites.ts`](src/lib/server/sites.ts) calls `GET /sites` and `POST /sites` through
 [`@coldframe/api-client`](../../../packages/ts/api-client) with the session's access token and turns
 every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachable`, `certificate`,
@@ -122,8 +123,10 @@ row of the Settings index. It reads `GET /me/notification-settings` and, for the
   from it. The notice (`RetryNotice.svelte`) has Try again where repeating can help: it is a form
   that sends the same fields again. A certificate failure, a refused value and a Site that is no
   longer the caller's have no Try again. A 401 signs out.
-- Not here: the "Browser notifications while Coldframe is open" toggle (Story 6.6) and the
-  notifications-off notice (Story 6.5).
+- Below the Site's controls sits "Browser notifications while Coldframe is open", which is this browser's
+  own and no form of the page: see [Browser notifications](#browser-notifications). It shows only with a
+  current Site.
+- Not here: the notifications-off notice (Story 6.5), which is the phones'.
 
 ### Time zone
 
@@ -188,8 +191,9 @@ tells durations from the Server's timestamps and the browser's clock.
   unknown or needing calibration → "2 Lots can't be read"; every Lot with a Node paused by the Site →
   "Paused until ‹date›" (when they share one end) or "Paused", in the paused ink; otherwise "Nothing
   needs water". The subline counts the other statuses in the Server's order.
-- **Refetch on focus.** Garden loads again when its tab gets focus or becomes visible. There is no
-  polling and no SignalR yet.
+- **Refetch on focus.** Garden loads again when its tab gets focus or becomes visible, and when the
+  Server hints that something it shows changed ([Live updates](#live-updates-story-66)). There is no
+  polling.
 
 ## Lot detail, History and Nodes
 
@@ -257,6 +261,85 @@ There is no Open Alerts rail, no count in the side nav and no stale mode: a fail
 with Try again and no rows. The fake Server has `POST /control/alerts` (`setAlerts`: the Alerts, or a
 status for their list) and serves them in pages.
 
+## Live updates (Story 6.6)
+
+While a tab is open, the Server tells it two things over one SignalR connection: `readmodel.changed
+{ resource, id, version }`, a hint without domain data after which the page reads again over REST, and
+`notification.delivered`, a notification that is due for this User. The message shapes are the contract
+in [`packages/asyncapi`](../../../packages/asyncapi); their types and names come generated from
+`@coldframe/api-client` (`liveHubPath`, `liveMessages`, `ReadModelChanged`, `NotificationDelivered`).
+
+- **The BFF route.** The browser talks only to the web origin (AD-14):
+  [`src/routes/(app)/live/[...path]/+server.ts`](<src/routes/(app)/live/[...path]/+server.ts>) hands every
+  request to `proxyLive` in [`src/lib/server/live.ts`](src/lib/server/live.ts), which forwards the hub's own
+  requests to `${COLDFRAME_SERVER_URL}/live` and nothing else:
+
+  | Request | What it is |
+  | --- | --- |
+  | `POST /live/negotiate` | SignalR's negotiation; the answer carries the connection token |
+  | `GET /live?id=…` | the Server-Sent Events stream (or one long poll) |
+  | `POST /live?id=…` | what the client sends: the handshake and keep-alive pings |
+  | `DELETE /live?id=…` | the end of a long-polling connection |
+
+  It adds `Authorization: Bearer <the session's access token>` and passes on only `accept`,
+  `content-type`, and the query parameters `id` and `negotiateVersion`: no cookie, no other header, never a
+  token in a URL. The Server's status and body are passed through. Without a session the answer is 401 and
+  the Server is not asked (the auth handle makes that a 401 also where the OIDC package would answer 405 or
+  redirect); any other path is 404, any other method 405, a body over 64 KiB 413, and a Server that does
+  not answer 502. The stream has no time limit (the other requests keep the 10 s bound of every Server
+  call), and the upstream request is aborted when the browser leaves.
+- **No WebSockets.** SvelteKit on `adapter-node` cannot upgrade a connection, so the hub is used over
+  Server-Sent Events, with long polling as the fallback; both are plain HTTP.
+- **A reverse proxy must not buffer the stream.** The route answers `text/event-stream` with
+  `Cache-Control: no-store` and `X-Accel-Buffering: no`. An ingress in front of the web app has to hand
+  events on as they come (nginx: `proxy_buffering off` for `/live`, and a read timeout above the hub's
+  15 s keep-alive); behind a buffering proxy the connection times out and is opened again every 30 s, and
+  nothing arrives.
+- **One connection per tab.** The `(app)` layout mounts it once (`mountLive` in
+  [`src/lib/live`](src/lib/live)); `hub.ts` holds the `@microsoft/signalr` client, loaded in the browser
+  only, and `live.ts` decides when to connect again. The hub has no method a client can call.
+- **Which page reads again** (`showsResource` in [`src/lib/live/rule.ts`](src/lib/live/rule.ts)); the
+  page's data is loaded again with `invalidateAll()`, without a reload and without animation:
+
+  | `resource` | `id` | Pages |
+  | --- | --- | --- |
+  | `sites` | Site | every app page |
+  | `lots` | Lot | the overview; Lot detail and its sub-pages of that Lot |
+  | `readings` | Lot | the overview; Lot detail of that Lot |
+  | `alerts` | Alert | Alerts; the overview |
+  | `devices` | Device | Devices |
+
+  A hint for anything else is dropped. Hints that arrive while a refetch runs cause one more refetch, not
+  one each. A refetch that fails is quiet: the page keeps its data and its own stale handling.
+- **Losing the connection** shows nothing: no notice, no indicator. It is opened again at once, then
+  after 2 s, 5 s, 10 s and every 30 s, and the open page refetches once when it is back, because hints may
+  have been missed. The Server closes a connection when its access token expires; the next negotiation
+  goes through the web app again and carries the refreshed token. A 401 means signed out: nothing is
+  tried again until the next navigation, where the shell signs out if the session is gone.
+
+### Browser notifications
+
+"Browser notifications while Coldframe is open" on My notifications
+([`src/lib/browser-notifications.ts`](src/lib/browser-notifications.ts)) belongs to this browser, like
+the permission it follows. It is `localStorage` key `cf_browser_notifications` (`on`, or absent), off by
+default, and never reaches the Server: the Server sends every delivery to every open tab of the User, and
+each browser decides whether to show it. Window, mute and timing were applied on the Server before.
+
+| Turning it on | Result |
+| --- | --- |
+| The browser asks and the User allows, or it was allowed before | on, and kept for this browser |
+| The browser blocks Coldframe, the User refuses, or it has no notifications | back to off, with "Your browser blocks notifications for Coldframe. Allow them in this site's browser settings, then turn this on again." (UX-DR89) |
+| The prompt is closed without an answer | back to off, no notice |
+
+The permission prompt appears only from that change of the toggle. When the permission is taken away
+later, the toggle renders off and the choice is dropped, so allowing it again needs the toggle too. A
+delivery is shown only while the toggle is on and the permission granted, as `new Notification(title,
+{ body, tag })` with the Server's title and body (the push text) and the delivery's `collapseId` as
+`tag`: two tabs or a repeated delivery replace the notification instead of stacking. A click focuses the
+tab and opens `/garden/{lotId}?site={siteId}` for an Alert or a Reminder and `/garden?site={siteId}` for
+a summary or a kind this client does not know. The page never writes a notification of its own, and
+with no tab open nothing is delivered: there is no service worker and no web push.
+
 ## Stale mode
 
 When the Server cannot be reached, the Site overview shows the last good data and says how old it
@@ -275,7 +358,7 @@ unreachable notice shows.
   Server", the age, "Last data 7:02 AM. …"); every tile is the stale variant ("Was needs water",
   "as of 7:02 AM", outline only, `cloud--offline`); the Site menu items are disabled with "Needs
   your Server". Both times are the last successful read. The age ticks once a minute in the browser,
-  the only timer in the app, and is never announced.
+  the only timer that changes what a page shows (the hub connection waits before it is opened again), and is never announced.
 - **Leaving.** The next load that succeeds is live again. Loads happen on navigation and on focus;
   nothing retries in the background.
 - **The web app itself out of reach.** A laptop away from home cannot reach the web app at all, and
@@ -319,6 +402,11 @@ and dark, with axe. `specs/notifications.spec.ts` sets the window, the zone, the
 the failed-save and time-zone hand-over cases, and compares screenshots of My notifications (zone unconfirmed, then
 everything set) in light and dark, with axe; the fake Server has the three notification-settings resources and
 `POST /control/notifications` (`setNotifications`: seeds them, and the status the next write answers). On the web
-My notifications is never shown without a Site (no Membership opens Create Site), so that state has unit tests only. Run the e2e tests with
+My notifications is never shown without a Site (no Membership opens Create Site), so that state has unit tests only. `specs/live.spec.ts` runs the live updates
+against a fake SignalR hub in the fake Server (negotiate, a Server-Sent Events stream, the handshake by POST; `POST /control/live` sends a hub message to every open
+connection, drops them, or makes the hub answer 401, and `GET /control/live` lists what the hub was asked): the hub is reached on the web origin only and with the
+session's token, a hint refetches the page that shows it without a reload, a lost connection comes back and refetches once, a 401 ends the retries until a navigation,
+and the browser toggle, the blocked notice and a delivered notification are checked with a stand-in for the browser's Notification API, with screenshots of
+My notifications with the toggle on and with the blocked notice in light and dark. Run the e2e tests with
 `pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots
 with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test --update-snapshots`.
