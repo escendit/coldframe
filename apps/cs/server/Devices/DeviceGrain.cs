@@ -1,10 +1,12 @@
 using System.Security.Cryptography;
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Sensors;
 using Coldframe.Contracts.Sites;
 using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
+using Coldframe.Server.Alerts;
 using Coldframe.Server.Journal;
 using Google.Protobuf;
 
@@ -21,9 +23,18 @@ namespace Coldframe.Server.Devices;
 /// Readings, device-report, Reading-key and replay tables (AD-9), through <see cref="DeviceIngestionStore"/>.
 /// It keeps a Node's known <c>spec_hash</c> and Sensor list (AD-19), and declares each Sensor of an accepted
 /// Specification set to its <see cref="ISensorGrain"/>. After a frame is committed it hands every declared
-/// Sensor of an assigned Node its Reading to evaluate (Story 6.1).
+/// Sensor of an assigned Node its Reading to evaluate (Story 6.1). It measures its own silence against a
+/// journaled expiry and opens and closes its Health Alert of kind <c>silent</c> (Story 7.1).
 /// </summary>
 /// <remarks>
+/// <para>
+/// Silence (Story 7.1, AD-6, AD-7): the expiry is <see cref="DeviceState.SilenceDueAt"/>, the journaled clock
+/// start plus the Silence Window. The <c>silence-window</c> reminder only wakes the grain; every wake, every
+/// activation and every accepted heartbeat or frame processes what is overdue (<see cref="EvaluateSilenceAsync"/>).
+/// The episode is journaled before <see cref="IAlertGrain.OpenForDevice"/> is called, and an open or a close the
+/// Alert grain did not acknowledge is delivered again from state, the open before the close. A Node whose window
+/// expired asks its last relay Hub first and opens nothing while that Hub is silent. A paused Device opens nothing.
+/// </para>
 /// <para>
 /// Frames (AD-9, AD-17): the replay window is loaded from <c>device_replay</c> on first use and commits with
 /// the Readings in one transaction; the downlink counter is reserved in that transaction and never kept in
@@ -56,6 +67,15 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     private static readonly TimeSpan ReleaseReminderPeriod = TimeSpan.FromMinutes(1);
 
     private IGrainTimer? _releaseTimer;
+
+    /// <summary>
+    /// The name of the reminder that wakes the grain to look at its Silence Window (Story 7.1). Every enrolled
+    /// Device keeps it registered; its period is <see cref="SilenceRule.WakePeriod"/>.
+    /// </summary>
+    public const string SilenceReminderName = "silence-window";
+
+    // Whether this activation registered the silence reminder already.
+    private bool _silenceReminderRegistered;
 
     // The length of an HMAC-SHA256 signature.
     private const int SignatureLength = 32;
@@ -157,6 +177,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             await ConfirmEvents();
         }
 
+        // 6. From now on the Device is woken to look at its Silence Window (Story 7.1).
+        await EnsureSilenceReminderAsync();
+
         return new DeviceEnrolmentResult(
             DeviceEnrolmentOutcome.Enrolled,
             new DeviceSummary(DeviceId, State.Kind, State.SiteId!, State.LotId));
@@ -173,6 +196,10 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         {
             await StartReleasingAsync();
         }
+
+        // Every activation processes what is overdue (AD-6), and applies the Server start to the silence clock.
+        // It never throws, so a grain that cannot be reached never fails the activation.
+        await EvaluateSilenceAsync(reported: false);
     }
 
     /// <inheritdoc />
@@ -265,8 +292,19 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             // A stray reminder (its unregister failed earlier) finds nothing pending and removes itself.
             if (State.PendingReleases.Count == 0)
             {
-                await UnregisterReminderAsync();
+                await UnregisterReminderAsync(ReleaseReminderName);
             }
+        }
+        else if (string.Equals(reminderName, SilenceReminderName, StringComparison.Ordinal))
+        {
+            // Only an enrolled Device has a Silence Window; a stray reminder removes itself.
+            if (State.SiteId is null)
+            {
+                await UnregisterReminderAsync(SilenceReminderName);
+                return;
+            }
+
+            await EvaluateSilenceAsync(reported: false);
         }
     }
 
@@ -374,14 +412,14 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         _releaseTimer.Dispose();
         _releaseTimer = null;
-        await UnregisterReminderAsync();
+        await UnregisterReminderAsync(ReleaseReminderName);
     }
 
-    private async Task UnregisterReminderAsync()
+    private async Task UnregisterReminderAsync(string reminderName)
     {
         try
         {
-            if (await this.GetReminder(ReleaseReminderName) is { } reminder)
+            if (await this.GetReminder(reminderName) is { } reminder)
             {
                 await this.UnregisterReminder(reminder);
             }
@@ -430,6 +468,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         // Only once the heartbeat is journaled: a failed write accepted nothing.
         _nonces[nonce] = request.TimestampMs;
+
+        // The heartbeat moved the silence clock: a silent Hub has recovered (Story 7.1). Never throws.
+        await EvaluateSilenceAsync(reported: true);
 
         return new DeviceHeartbeatResult(DeviceHeartbeatOutcome.Accepted);
     }
@@ -570,22 +611,46 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             }
 
             // 7. The Hub that relayed the frame, journaled only when it changes and only once the frame is
-            // committed (AD-18, DW-45). When that fails the answer is retry: the Node resends, and the resend
-            // is a duplicate that records the relay.
-            if (!string.Equals(State.LastRelayHubId, request.RelayHubId, StringComparison.Ordinal))
+            // committed (AD-18, DW-45), and the Node's liveness (Story 7.1): the frame's measured_at when it is
+            // newer than any accepted before, never the arrival time. A paused Node's frame was discarded and is
+            // no report. When the write fails the answer is retry: the Node resends, and the resend is a
+            // duplicate that records both.
+            var relayChanged = !string.Equals(State.LastRelayHubId, request.RelayHubId, StringComparison.Ordinal);
+            var liveness = !paused && frame.Rows is { } accepted && (State.LastReportedAt is not { } last || accepted.MeasuredAt > last)
+                ? accepted.MeasuredAt
+                : (DateTimeOffset?)null;
+
+            if (relayChanged || liveness is not null)
             {
                 try
                 {
-                    RaiseEvent(new DeviceRelayChanged(request.RelayHubId, receivedAt));
+                    if (relayChanged)
+                    {
+                        RaiseEvent(new DeviceRelayChanged(request.RelayHubId, receivedAt));
+                    }
+
+                    if (liveness is { } measuredAt)
+                    {
+                        RaiseEvent(new DeviceReported(measuredAt, receivedAt));
+                    }
+
                     await ConfirmEvents();
                 }
-#pragma warning disable CA1031 // The relay Hub could not be persisted: no acknowledgement, the Node resends.
+#pragma warning disable CA1031 // The relay Hub or the liveness could not be persisted: no acknowledgement, the Node resends.
                 catch (Exception exception)
 #pragma warning restore CA1031
                 {
                     LogIngestFailed(Logger, DeviceId, exception);
                     return new DeviceIngestResult(DeviceIngestStatus.Retry);
                 }
+            }
+
+            // 7a. Silence (Story 7.1): an accepted frame may end the Node's silence, and whatever is overdue is
+            // processed. It never throws and never changes the frame's answer: an Alert that could not be
+            // delivered is delivered again by the next wake.
+            if (!paused)
+            {
+                await EvaluateSilenceAsync(reported: true);
             }
 
             // 8. The Specification set (AD-19), after the commit and whether or not the Device is paused. A known
@@ -679,7 +744,215 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         await ConfirmEvents();
     }
 
+    /// <inheritdoc />
+    public async Task<DeviceSilenceWindowResult> SetSilenceWindow(string siteId, TimeSpan? window, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        // A Device of another Site is not disclosed.
+        if (State.SiteId is not { } current || !string.Equals(current, siteId, StringComparison.Ordinal))
+        {
+            return new DeviceSilenceWindowResult(DeviceSilenceWindowOutcome.NotFound);
+        }
+
+        if (window is { } requested && !SilenceRule.IsValid(requested))
+        {
+            return new DeviceSilenceWindowResult(DeviceSilenceWindowOutcome.OutOfRange, State.SilenceWindow);
+        }
+
+        if (State.SilenceWindowOverride == window)
+        {
+            return new DeviceSilenceWindowResult(DeviceSilenceWindowOutcome.Unchanged, State.SilenceWindow);
+        }
+
+        RaiseEvent(new DeviceSilenceWindowSet(window is { } set ? (long)set.TotalSeconds : null, Clock.GetUtcNow()));
+        await ConfirmEvents();
+
+        return new DeviceSilenceWindowResult(DeviceSilenceWindowOutcome.Set, State.SilenceWindow);
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceSilence?> Silence(CancellationToken cancellationToken = default)
+    {
+        if (State.SiteId is null || State.SilenceFrom is null)
+        {
+            return null;
+        }
+
+        // First what is overdue: the answer must not depend on whose reminder fired first.
+        await EvaluateSilenceAsync(reported: false);
+
+        return new DeviceSilence(
+            State.Kind,
+            State.SilenceWindow,
+            State.SilenceWindowOverride is not null,
+            State.SilenceFrom!.Value,
+            State.SilenceDueAt!.Value,
+            State.IsPaused,
+            State.OpenSilentAlert,
+            State.LastRecoveredAt);
+    }
+
     private ILogger Logger => ServiceProvider.GetRequiredService<ILogger<DeviceGrain>>();
+
+    // Processes what is overdue of the Device's Silence Window (Story 7.1), in this order: the Server start
+    // restarts the clock, an accepted report ends an open silence whose expiry is ahead again, an expiry that
+    // passed starts the next episode (unless the Device is paused or its relay Hub is silent), and every open and
+    // close the Alert grain has not acknowledged is delivered. `reported` says that the Server just accepted a
+    // heartbeat or a frame: only then an open Alert may close, so a Server start or a longer window never closes
+    // one. Never throws: whatever failed is state in the journal, and the next wake goes on from there.
+    private async Task EvaluateSilenceAsync(bool reported)
+    {
+        if (State.SiteId is not { } siteId)
+        {
+            return;
+        }
+
+        try
+        {
+            await EnsureSilenceReminderAsync();
+
+            // 1. Server downtime is never Device silence: the clock restarts at the Server's start. Not while an
+            // Alert is open, where only a report of the Device counts.
+            var serverStart = ServiceProvider.GetRequiredService<ServerStart>().At;
+            if (State.OpenSilentAlert is null && State.SilenceFrom is { } from && serverStart > from)
+            {
+                RaiseEvent(new DeviceSilenceClockRestarted(serverStart, SilenceClockRestartCause.ServerStarted, HubId: null, Clock.GetUtcNow()));
+                await ConfirmEvents();
+            }
+
+            var now = Clock.GetUtcNow();
+
+            if (State.OpenSilentAlert is { } open)
+            {
+                // 2. Open means overdue: a report closes the Alert only when the expiry is ahead again. A Hub's
+                // heartbeat always does that; a Node flushing an old backlog does not.
+                if (reported && State.SilenceDueAt is { } dueAt && !SilenceRule.IsOverdue(dueAt, now))
+                {
+                    RaiseEvent(new DeviceSilenceEnded(open.Episode, open.AlertId, AlertCloseReason.Recovered, now));
+                    await ConfirmEvents();
+                }
+            }
+            else if (!State.IsPaused
+                && State.SilenceDueAt is { } dueAt
+                && SilenceRule.IsOverdue(dueAt, now)
+                && await RelayHubAllowsAsync(now))
+            {
+                // 3. The episode first, so a retry derives the same Alert ID.
+                var episode = State.SilenceEpisode + 1;
+                RaiseEvent(new DeviceSilenceStarted(
+                    episode,
+                    AlertIds.Silent(DeviceId, episode),
+                    siteId,
+                    State.LotId,
+                    State.SilenceDueAt ?? dueAt,
+                    now));
+                await ConfirmEvents();
+            }
+
+            // 4. Whatever the Alert grain has not acknowledged, the open before the close.
+            await DeliverAlertsAsync();
+        }
+#pragma warning disable CA1031 // Whatever failed, the journaled state stands and the next wake tries again.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogSilenceEvaluationFailed(Logger, DeviceId, exception);
+        }
+    }
+
+    // Hub silence is reported as the Hub only (AD-7): a Node whose window expired asks its last relay Hub, which
+    // first processes its own expiry. A silent Hub suppresses the Node's Alert. A Hub that recovered after the
+    // Node's clock start restarts the Node's clock at its recovery, because until then the Node could not have
+    // reported; the Node is silent only when the window counted from there has passed too. A relay Hub that is
+    // no enrolled Hub suppresses nothing. A Hub that cannot be reached throws: nothing opens, and the next wake
+    // asks again. The Hub relation never decides whether a frame is accepted.
+    private async Task<bool> RelayHubAllowsAsync(DateTimeOffset now)
+    {
+        if (State.Kind != DeviceKind.Node
+            || State.LastRelayHubId is not { } hubId
+            || string.Equals(hubId, DeviceId, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Not cancelled by the caller: a wake has no caller to cancel it.
+        var hub = await GrainFactory.GetGrain<IDeviceGrain>(hubId).Silence(CancellationToken.None);
+
+        if (hub is not { Kind: DeviceKind.Hub })
+        {
+            return true;
+        }
+
+        if (hub.OpenAlert is not null)
+        {
+            return false;
+        }
+
+        if (hub.LastRecoveredAt is { } recoveredAt && State.SilenceFrom is { } from && recoveredAt > from)
+        {
+            RaiseEvent(new DeviceSilenceClockRestarted(recoveredAt, SilenceClockRestartCause.RelayHubRecovered, hubId, now));
+            await ConfirmEvents();
+
+            return State.SilenceDueAt is { } dueAt && SilenceRule.IsOverdue(dueAt, now);
+        }
+
+        return true;
+    }
+
+    // Delivers every open and close of the Device's Alerts that the Alert grain has not acknowledged, oldest
+    // first, and journals each acknowledgement. It stops at the first one that fails, so a close never overtakes
+    // its open. An Alert whose Site has not acknowledged it yet counts as not delivered. Throws when a delivery
+    // fails; its caller leaves the rest pending for the next wake.
+    private async Task DeliverAlertsAsync()
+    {
+        foreach (var delivery in State.PendingAlertDeliveries.ToList())
+        {
+            var alert = GrainFactory.GetGrain<IAlertGrain>(delivery.AlertId.ToString("D"));
+
+            // Not cancelled by the caller: the journaled episode is delivered until the Alert grain holds it.
+            var result = delivery.Change == AlertLifecycle.Open
+                ? await alert.OpenForDevice(
+                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At),
+                    CancellationToken.None)
+                : await alert.Close(new CloseAlert(delivery.Reason ?? AlertCloseReason.Recovered, delivery.At), CancellationToken.None);
+
+            var accepted = delivery.Change == AlertLifecycle.Open
+                ? result.Outcome is AlertOutcome.Open or AlertOutcome.Closed
+                : result.Outcome == AlertOutcome.Closed;
+
+            if (!accepted || !result.Reported)
+            {
+                throw new InvalidOperationException(
+                    $"Alert {delivery.AlertId:D} answered {result.Outcome} (reported: {result.Reported}) to {delivery.Change}.");
+            }
+
+            RaiseEvent(new DeviceAlertDelivered(delivery.AlertId, delivery.Change, Clock.GetUtcNow()));
+            await ConfirmEvents();
+        }
+    }
+
+    // Registered once per activation; RegisterOrUpdateReminder keeps one reminder however often it is called, so
+    // a Device enrolled before Story 7.1 gets its reminder with its next activation.
+    private async Task EnsureSilenceReminderAsync()
+    {
+        if (_silenceReminderRegistered || State.SiteId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await this.RegisterOrUpdateReminder(SilenceReminderName, SilenceRule.WakePeriod, SilenceRule.WakePeriod);
+            _silenceReminderRegistered = true;
+        }
+#pragma warning disable CA1031 // Without a reminder the next activation and the next report still evaluate, and register it again.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogSilenceReminderFailed(Logger, DeviceId, exception);
+        }
+    }
 
     // Stamps each Reading with the Calibration in force for its Sensor (Story 5.1): the Sensor grain set it, and
     // only Readings stored from now on carry it. A Sensor without a Calibration stores none.
@@ -841,6 +1114,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     [LoggerMessage(EventId = 7, EventName = "ReadingsHintFailed", Level = LogLevel.Warning, Message = "The readings hint for Device {DeviceId} could not be published; the frame is stored and acknowledged all the same.")]
     private static partial void LogHintFailed(ILogger logger, string deviceId, Exception exception);
+
+    [LoggerMessage(EventId = 8, EventName = "SilenceEvaluationFailed", Level = LogLevel.Warning, Message = "The Silence Window of Device {DeviceId} could not be evaluated or its Alert not delivered; the next wake tries again.")]
+    private static partial void LogSilenceEvaluationFailed(ILogger logger, string deviceId, Exception exception);
+
+    [LoggerMessage(EventId = 9, EventName = "SilenceReminderFailed", Level = LogLevel.Warning, Message = "The silence reminder of Device {DeviceId} could not be registered; the next activation tries again.")]
+    private static partial void LogSilenceReminderFailed(ILogger logger, string deviceId, Exception exception);
 
     // Unwraps K_dev, derives the hub-auth/v1 key, verifies, and zeroes both keys on every path.
     private bool Verify(WrappedDeviceKey wrapped, string method, string path, byte[] body, long timestampMs, byte[] nonce, byte[] signature)

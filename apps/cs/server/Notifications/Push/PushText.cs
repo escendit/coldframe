@@ -28,7 +28,7 @@ public sealed record PushReading(PushValue Value, DateTimeOffset MeasuredAt);
 /// and is left out of the text.
 /// </summary>
 /// <param name="Entry">The Alert as the User grain holds it.</param>
-/// <param name="LotName">The name of the Alert's Lot; <see langword="null"/> when it is gone or was not found in time.</param>
+/// <param name="LotName">The name of the Alert's Lot; <see langword="null"/> when the Alert has no Lot, or the Lot is gone or was not found in time.</param>
 /// <param name="Reading">The newest Reading of the Alert's Sensor.</param>
 /// <param name="Threshold">The Threshold of the side that was crossed.</param>
 /// <param name="LotGone">
@@ -84,6 +84,14 @@ public sealed class PushText
         ArgumentNullException.ThrowIfNull(facts);
 
         var entry = facts.Entry;
+
+        // An Alert without a Lot (a Hub's Health Alert, Story 7.1) names none. Neutral text: the final copy of
+        // every Health Alert arrives with Story 7.2.
+        if (entry.LotId is null)
+        {
+            return _templates["title.noLot"];
+        }
+
         var lot = facts.LotName ?? _templates["lot.unknown"];
 
         if (entry is not { Kind: AlertKind.Threshold, Side: { } side })

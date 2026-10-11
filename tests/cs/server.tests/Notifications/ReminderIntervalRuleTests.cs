@@ -10,8 +10,8 @@ namespace Coldframe.Server.Tests.Notifications;
 /// </summary>
 public sealed class ReminderIntervalRuleTests
 {
-    // No Health kind exists before Epic 7: any kind that is not a Threshold Alert is one.
-    private const AlertKind Health = (AlertKind)1;
+    // Any kind that is not a Threshold Alert is a Health Alert; a Silent Device Alert is the first (Story 7.1).
+    private const AlertKind Health = AlertKind.Silent;
 
     private static readonly DateTimeOffset OpenedAt = new(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
 

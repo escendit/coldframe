@@ -31,8 +31,8 @@ public sealed class PushTextTests
         var lookups = new FakeLookups();
         var entry = Entry("lot-herbs", side: ThresholdSide.High);
         lookups.Lots["lot-herbs"] = "Herbs";
-        lookups.Readings[entry.SensorId] = new PushReading(new PushValue(65, "%"), AlertDueAt);
-        lookups.Thresholds[(entry.SensorId, ThresholdSide.High)] = new PushValue(60, "%");
+        lookups.Readings[entry.SensorId!.Value] = new PushReading(new PushValue(65, "%"), AlertDueAt);
+        lookups.Thresholds[(entry.SensorId!.Value, ThresholdSide.High)] = new PushValue(60, "%");
 
         var content = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [entry] }, SentAt);
 
@@ -47,8 +47,8 @@ public sealed class PushTextTests
         lookups.Lots[TomatoesLot] = "Tomatoes";
 
         // 03:15 UTC is 05:15 in Zurich in October.
-        lookups.Readings[entry.SensorId] = new PushReading(new PushValue(4, "°C"), new DateTimeOffset(2026, 10, 9, 3, 15, 0, TimeSpan.Zero));
-        lookups.Thresholds[(entry.SensorId, ThresholdSide.Low)] = new PushValue(5, "°C");
+        lookups.Readings[entry.SensorId!.Value] = new PushReading(new PushValue(4, "°C"), new DateTimeOffset(2026, 10, 9, 3, 15, 0, TimeSpan.Zero));
+        lookups.Thresholds[(entry.SensorId!.Value, ThresholdSide.Low)] = new PushValue(5, "°C");
 
         var content = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [entry] }, SentAt);
 
@@ -204,6 +204,75 @@ public sealed class PushTextTests
         Assert.Null(await Builder(lookups).BuildAsync(summary, SentAt));
     }
 
+    // Story 7.1: a Health Alert has no Sensor, so no Reading and no Threshold is looked up for it, and its text
+    // is neutral until Story 7.2 writes the final copy.
+    [Fact]
+    public async Task ASilentAlertOfANodeIsTitledNeutrallyWithItsLotAndLooksUpNoReadingOrThreshold()
+    {
+        var lookups = TomatoesLookups();
+        var silent = Silent(TomatoesLot);
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [silent] }, SentAt);
+
+        Assert.Equal(("Tomatoes needs attention", null, TomatoesLot, (Guid?)silent.AlertId), (alert!.Title, alert.Body, alert.LotId, alert.AlertId));
+
+        // The Site's name and the Lot's name, nothing of a Sensor.
+        Assert.Equal(2, lookups.Calls);
+
+        var reminder = await Builder(lookups).BuildAsync(Reminder(IPhone) with { Entries = [silent] }, SentAt.AddDays(1));
+
+        Assert.Equal(("reminder", "Tomatoes needs attention", "Still open."), (reminder!.Kind, reminder.Title, reminder.Body));
+    }
+
+    [Fact]
+    public async Task ASilentAlertWithoutALotIsSentAloneWithNeutralText()
+    {
+        var lookups = new FakeLookups();
+        var silent = Silent(lotId: null);
+
+        var content = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [silent] }, SentAt);
+
+        Assert.NotNull(content);
+        Assert.Equal(("alert", "A device needs attention", null, null), (content.Kind, content.Title, content.Body, content.LotId));
+        Assert.Equal((Guid?)silent.AlertId, content.AlertId);
+
+        // Only the Site's name: an Alert without a Lot has no Lot to look up.
+        Assert.Equal(1, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task ASilentAlertWithoutALotKeepsItsLineInASummaryAlsoWhenEveryLotIsGone()
+    {
+        var lookups = new FakeLookups();
+        var summary = Summary(lookups, IPhone);
+        var withSilent = summary with { Entries = [.. summary.Entries, Silent(lotId: null)] };
+
+        var content = await Builder(lookups).BuildAsync(withSilent, SentAt);
+
+        Assert.Equal("Home garden: 2 need water, 4 to check", content!.Title);
+        Assert.Equal("A device needs attention", content.Body!.Split('\n')[^2]);
+
+        // No Lot is no Lot that is gone: the summary of that Alert alone is still pushed.
+        lookups.Lots.Clear();
+        var alone = await Builder(lookups).BuildAsync(withSilent, SentAt);
+
+        Assert.NotNull(alone);
+        Assert.Equal("Home garden: 1 to check", alone.Title);
+        Assert.Equal(["A device needs attention", "Held overnight, 22:00–07:00"], alone.Body!.Split('\n'));
+    }
+
+    [Fact]
+    public async Task ASilentAlertNeverFailsThePushWhenEveryLookupFails()
+    {
+        var failing = new FakeLookups { Fail = true };
+
+        var withLot = await Builder(failing).BuildAsync(Alert(IPhone) with { Entries = [Silent(TomatoesLot)] }, SentAt);
+        var withoutLot = await Builder(failing).BuildAsync(Alert(IPhone) with { Entries = [Silent(lotId: null)] }, SentAt);
+
+        Assert.Equal(("A Lot needs attention", null), (withLot!.Title, withLot.Body));
+        Assert.Equal(("A device needs attention", null), (withoutLot!.Title, withoutLot.Body));
+    }
+
     [Theory]
     [InlineData(1, 0, "Home garden: 1 needs water")]
     [InlineData(2, 0, "Home garden: 2 need water")]
@@ -279,4 +348,9 @@ public sealed class PushTextTests
         Assert.Same(first, second);
         Assert.Equal(calls, lookups.Calls);
     }
+
+    // A Silent Device Alert as the User grain holds it: no side, no Sensor, no quantity, and a Lot only for a
+    // Node that is on one.
+    private static NotificationEntry Silent(string? lotId) =>
+        new(Guid.NewGuid(), AlertKind.Silent, null, lotId, null, "92064422c012f481", null, AlertDueAt.AddMinutes(-30));
 }

@@ -24,7 +24,10 @@ namespace Coldframe.Server.IntegrationTests.Identity;
 /// <summary>
 /// A one-silo <see cref="TestCluster"/> with the User, Site, Lot, Device, Sensor and Alert grains, Device enrolment keys, the identity and lots projectors, a
 /// <see cref="FakePhaseTwoOrganizations"/>, the Notifier with a <see cref="RecordingNotificationChannel"/> and the push channels over <see cref="PushProviderStubs"/>, and a <see cref="FakeTimeProvider"/>. Hints are off and the poll
-/// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date.
+/// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date. A Device's
+/// <c>silence-window</c> reminder (Story 7.1) ticks on the real clock, as every reminder does; the cluster drops
+/// those ticks (<see cref="SilenceWakes"/>), so only <see cref="WakeDeviceAsync"/> wakes a Device and the fake
+/// clock alone decides what is overdue.
 /// </summary>
 public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
 {
@@ -35,6 +38,9 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     private const string ConnectionStringKey = "Coldframe:Tests:ConnectionString";
 
     private const string DeviceKekKey = "Coldframe:Tests:DeviceKek";
+
+    // Where the fake clock of a cluster's next silo starts, by the cluster's connection string; Start without one.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> ClockStarts = new(StringComparer.Ordinal);
 
     private TestCluster? _cluster;
 
@@ -124,8 +130,63 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     /// </summary>
     public async Task RestartSiloAsync()
     {
+        ClockStarts.TryRemove(Database.ConnectionString, out _);
         await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
         await Cluster.WaitForLivenessToStabilizeAsync();
+    }
+
+    /// <summary>
+    /// Stops the silo and starts it again like <see cref="RestartSiloAsync()"/>, with the fake clock starting at
+    /// <paramref name="startAt"/>: the Server was down until then, and that is the time it reads as its start
+    /// (Story 7.1).
+    /// </summary>
+    public async Task RestartSiloAsync(DateTimeOffset startAt)
+    {
+        ClockStarts[Database.ConnectionString] = startAt;
+        await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
+        await Cluster.WaitForLivenessToStabilizeAsync();
+    }
+
+    /// <summary>
+    /// Wakes the Device grain the way its <c>silence-window</c> reminder does (Story 7.1), and returns once the
+    /// wake has processed everything overdue. The reminder's own ticks are dropped in this cluster.
+    /// </summary>
+    public async Task WakeDeviceAsync(string deviceId)
+    {
+        RequestContext.Set(SilenceWakes.ByHandKey, true);
+
+        try
+        {
+            await Device(deviceId).AsReference<IRemindable>().ReceiveReminder(DeviceGrain.SilenceReminderName, default);
+        }
+        finally
+        {
+            RequestContext.Remove(SilenceWakes.ByHandKey);
+        }
+    }
+
+    /// <summary>
+    /// Whether the Device grain has its silence reminder registered.
+    /// </summary>
+    public async Task<bool> HasSilenceReminderAsync(string deviceId)
+    {
+        var rows = await SiloServices.GetRequiredService<IReminderTable>().ReadRows(GrainId.Create("device", deviceId));
+        return rows.Reminders.Any(reminder => string.Equals(reminder.ReminderName, DeviceGrain.SilenceReminderName, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The Device grain's state, replayed from its journal stream.
+    /// </summary>
+    public async Task<DeviceState> DeviceStateAsync(string deviceId)
+    {
+        var state = new DeviceState();
+
+        foreach (var @event in await Store.ReadStreamAsync($"device/{deviceId}", TestContext.Current.CancellationToken))
+        {
+            ((dynamic)state).Apply((dynamic)@event.Data);
+        }
+
+        return state;
     }
 
     /// <summary>
@@ -228,7 +289,8 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
                 ?? throw new InvalidOperationException("The test cluster has no connection string.");
 
             // Registered first: the Server's registrations add TimeProvider.System only with TryAdd.
-            siloBuilder.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Start));
+            siloBuilder.Services.AddSingleton<TimeProvider>(
+                new FakeTimeProvider(ClockStarts.TryGetValue(connectionString, out var startAt) ? startAt : Start));
 
             // Orleans' own runtime keeps the real clock; only Coldframe code sees the fake one.
             foreach (var clock in OrleansClocks)
@@ -275,6 +337,7 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
                 options.PrivateKeyPem = EnrolmentKeyring.ToPrivateKeyPem(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
                 options.DeviceKeyEncryptionKey = deviceKek;
             });
+            siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter, SilenceWakes>();
             siloBuilder.Services.AddSingleton<SensorFaults>();
             siloBuilder.Services.AddSingleton<IIncomingGrainCallFilter>(provider => provider.GetRequiredService<SensorFaults>());
             siloBuilder.Services.AddSingleton<LotFaults>();
@@ -402,6 +465,35 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
 }
 
 /// <summary>
+/// Passes every grain call on, except the ticks of a Device's <c>silence-window</c> reminder that no test sent
+/// (Story 7.1). Reminders tick on the real clock, a minute after they were registered, while the tests move a fake
+/// clock by hours: a tick at an arbitrary moment would open Alerts in the middle of another test. A wake a test
+/// sends through <see cref="IdentityCluster.WakeDeviceAsync"/> carries <see cref="ByHandKey"/> and passes.
+/// </summary>
+public sealed class SilenceWakes : IIncomingGrainCallFilter
+{
+    /// <summary>
+    /// The request-context key of a wake a test sent.
+    /// </summary>
+    public const string ByHandKey = "coldframe.tests.silence-wake";
+
+    public Task Invoke(IIncomingGrainCallContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Grain is IDeviceGrain
+            && string.Equals(context.MethodName, nameof(IRemindable.ReceiveReminder), StringComparison.Ordinal)
+            && context.Request.GetArgument(0) is DeviceGrain.SilenceReminderName
+            && RequestContext.Get(ByHandKey) is not true)
+        {
+            return Task.CompletedTask;
+        }
+
+        return context.Invoke();
+    }
+}
+
+/// <summary>
 /// Passes every grain call on, except that a test can make <see cref="ILotGrain.Release"/> throw for chosen
 /// Lots, the way a Lot grain that cannot be reached does. Nothing reaches the grain then.
 /// </summary>
@@ -435,18 +527,30 @@ public sealed class LotFaults : IIncomingGrainCallFilter
 }
 
 /// <summary>
-/// Passes every grain call on, except that a test can make <see cref="IDeviceGrain.SetCalibration"/> throw for
-/// chosen Devices, the way a Device grain that cannot be reached or cannot write its journal does. Nothing
-/// reaches the grain then.
+/// Passes every grain call on, except that a test can make <see cref="IDeviceGrain.SetCalibration"/>, or
+/// <see cref="IDeviceGrain.Silence"/>, throw for chosen Devices, the way a Device grain that cannot be reached or
+/// cannot write its journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class DeviceFaults : IIncomingGrainCallFilter
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failingSilence = new(StringComparer.Ordinal);
 
     /// <summary>
     /// How many calls were failed.
     /// </summary>
     public int Failed { get; private set; }
+
+    /// <summary>
+    /// Makes every read of the silence of <paramref name="deviceId"/> fail until <see cref="RestoreSilence"/>:
+    /// a relay Hub that cannot be reached (Story 7.1).
+    /// </summary>
+    public void FailSilence(string deviceId) => _failingSilence[deviceId] = true;
+
+    /// <summary>
+    /// Lets the silence of <paramref name="deviceId"/> be read again.
+    /// </summary>
+    public void RestoreSilence(string deviceId) => _failingSilence.TryRemove(deviceId, out _);
 
     /// <summary>
     /// Makes every Calibration set on <paramref name="deviceId"/> fail until <see cref="Restore"/>.
@@ -470,13 +574,20 @@ public sealed class DeviceFaults : IIncomingGrainCallFilter
             throw new InvalidOperationException("The test failed this Calibration.");
         }
 
+        if (context.Grain is IDeviceGrain
+            && string.Equals(context.MethodName, nameof(IDeviceGrain.Silence), StringComparison.Ordinal)
+            && _failingSilence.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            throw new InvalidOperationException("The test failed this read of a Device's silence.");
+        }
+
         return context.Invoke();
     }
 }
 
 /// <summary>
-/// Passes every grain call on, except that a test can make the next <see cref="IAlertGrain.Open"/> and
-/// <see cref="IAlertGrain.Close"/> calls throw, the way an Alert grain that cannot be reached or cannot write its
+/// Passes every grain call on, except that a test can make the next <see cref="IAlertGrain.Open"/>,
+/// <see cref="IAlertGrain.OpenForDevice"/> and <see cref="IAlertGrain.Close"/> calls throw, the way an Alert grain that cannot be reached or cannot write its
 /// journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class AlertFaults : IIncomingGrainCallFilter
@@ -492,7 +603,7 @@ public sealed class AlertFaults : IIncomingGrainCallFilter
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (context.Grain is IAlertGrain && context.MethodName is nameof(IAlertGrain.Open) or nameof(IAlertGrain.Close))
+        if (context.Grain is IAlertGrain && context.MethodName is nameof(IAlertGrain.Open) or nameof(IAlertGrain.OpenForDevice) or nameof(IAlertGrain.Close))
         {
             if (Interlocked.Decrement(ref _failures) >= 0)
             {

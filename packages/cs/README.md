@@ -89,7 +89,9 @@ which only the Alert grain calls. `ISiteGrain.AlertOpened` and `AlertClosed` ans
 User grains. `Notifications/` holds what the User grain hands to the Server's Notifier:
 `Notification(UserId, SiteId, Kind, DueAt, HeldFrom, Entries)` with `NotificationKind` `Alert`, `Reminder` or
 `Summary`, and one `NotificationEntry(AlertId, Kind, Side, LotId, SensorId, DeviceId, Quantity, OpenedAt)` per
-Alert. It carries no text.
+Alert. It carries no text. `LotId`, `SensorId` and `Quantity` are nullable there, on `SiteAlert`, on `AlertOpened`
+and on `AlertSnapshot` (Story 7.1): a Device's Health Alert has no Sensor and no quantity, and no Lot when it is
+a Hub's or an unassigned Node's. Rows journaled before are read unchanged.
 
 ## Devices
 
@@ -111,3 +113,19 @@ inside the grain and returns `DeviceHeartbeatResult(Outcome)` with `Outcome` one
 | `DeviceRegistered(DeviceId, Kind, IdempotencyKey, RegisteredAt)` | `site.device-registered` | The Device joined the Site's roster; the caller-scoped key expires 24 h after `RegisteredAt` |
 | `DeviceEnrolled(SiteId, Kind, WrappedKey, EnrolledAt)` | `device.enrolled` | The Device is enrolled on the Site; the Server holds its `K_dev` wrapped |
 | `DeviceSeen(SeenAt, DeviceTimestampMs, UptimeMs?)` | `device.seen` | The Server accepted an authentic, new heartbeat: the Device's last-seen time; the next heartbeat must be stamped above `DeviceTimestampMs` |
+| `DeviceReported(MeasuredAt, ReportedAt)` | `device.reported` | The Server accepted a frame of the Node whose `measured_at` is newer than any before: the Node's liveness (Story 7.1) |
+| `DeviceSilenceWindowSet(WindowSeconds?, SetAt)` | `device.silence-window-set` | The Device's own Silence Window was set; `null` returns to the default of its kind |
+| `DeviceSilenceClockRestarted(From, Cause, HubId?, RestartedAt)` | `device.silence-clock-restarted` | A Server start (`ServerStarted`) or the recovery of the Node's relay Hub (`RelayHubRecovered`) moved the start of the Silence Window to `From` |
+| `DeviceSilenceStarted(Episode, AlertId, SiteId, LotId?, DueAt, StartedAt)` | `device.silence-started` | The Silence Window expired: the Device's next silence episode, journaled before its Alert is opened |
+| `DeviceSilenceEnded(Episode, AlertId, Reason, EndedAt)` | `device.silence-ended` | The Device reported again inside its window: the episode's Alert closes |
+| `DeviceAlertDelivered(AlertId, Change, DeliveredAt)` | `device.alert-delivered` | The Alert grain acknowledged the open or the close of one of the Device's Alerts |
+
+Silence (Story 7.1) adds `IDeviceGrain.SetSilenceWindow(siteId, window?)`, which returns
+`DeviceSilenceWindowResult(Outcome, Window)` with `Outcome` one of `Set`, `Unchanged`, `NotFound` and `OutOfRange`
+(1 min to 30 days, whole seconds), and `IDeviceGrain.Silence()`, which processes what is overdue and returns
+`DeviceSilence(Kind, Window, WindowOverridden, ClockStart, DueAt, Paused, OpenAlert?, LastRecoveredAt?)`, or
+`null` for a Device that is not enrolled. A Node asks its last relay Hub through it. `Alerts/` gains
+`AlertKind.Silent` and `IAlertGrain.OpenForDevice(OpenDeviceAlert(Kind, DeviceId, Episode, SiteId, LotId?,
+OpenedAt))`; `IAlertGrain.Close` is accepted from the Device grain that opened such an Alert. The HTTP contract
+and the clients follow in Story 7.2. See
+[`apps/cs/README.md`](../../apps/cs/README.md#silent-devices).

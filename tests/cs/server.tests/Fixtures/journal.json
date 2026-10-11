@@ -666,5 +666,124 @@
     "alias": "user.push-device-removed",
     "schemaVersion": 1,
     "payload": {"installationId": "c0ldf4a3-1111-4a6b-9c2d-000000000001", "reason": "Invalid", "removedAt": "2026-10-13T21:30:06+00:00"}
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 6,
+    "alias": "device.reported",
+    "schemaVersion": 1,
+    "payload": { "measuredAt": "2026-10-14T10:15:00Z", "reportedAt": "2026-10-14T10:15:02Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 7,
+    "alias": "device.silence-window-set",
+    "schemaVersion": 1,
+    "payload": { "windowSeconds": 7200, "setAt": "2026-10-14T10:20:00Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 8,
+    "alias": "device.silence-clock-restarted",
+    "schemaVersion": 1,
+    "payload": { "from": "2026-10-14T11:00:00Z", "cause": "ServerStarted", "restartedAt": "2026-10-14T11:00:05Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 9,
+    "alias": "device.silence-clock-restarted",
+    "schemaVersion": 1,
+    "payload": { "from": "2026-10-14T11:30:00Z", "cause": "RelayHubRecovered", "hubId": "92064422c012f481", "restartedAt": "2026-10-14T13:00:10Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 10,
+    "alias": "device.silence-started",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "dfa1c207-f801-5c34-9795-559203085894", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "dueAt": "2026-10-14T13:30:00Z", "startedAt": "2026-10-14T13:30:20Z" }
+  },
+  {
+    "streamId": "alert/dfa1c207-f801-5c34-9795-559203085894",
+    "version": 1,
+    "alias": "alert.opened",
+    "schemaVersion": 1,
+    "payload": { "kind": "Silent", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "deviceId": "5a4b3c2d1e0f7c21", "episode": 1, "openedAt": "2026-10-14T13:30:20Z" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 11,
+    "alias": "site.alert-opened",
+    "schemaVersion": 1,
+    "payload": { "alert": { "alertId": "dfa1c207-f801-5c34-9795-559203085894", "kind": "Silent", "deviceId": "5a4b3c2d1e0f7c21", "openedAt": "2026-10-14T13:30:20Z" } }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 21,
+    "alias": "user.alert-tracked",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "dfa1c207-f801-5c34-9795-559203085894", "kind": "Silent", "deviceId": "5a4b3c2d1e0f7c21", "openedAt": "2026-10-14T13:30:20Z" }, "told": true, "remindFrom": "2026-10-14T13:30:20+00:00", "trackedAt": "2026-10-14T13:30:21+00:00" }
+  },
+  {
+    "streamId": "alert/dfa1c207-f801-5c34-9795-559203085894",
+    "version": 2,
+    "alias": "alert.site-notified",
+    "schemaVersion": 1,
+    "payload": { "change": "Open", "notifiedAt": "2026-10-14T13:30:21Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 11,
+    "alias": "device.alert-delivered",
+    "schemaVersion": 1,
+    "payload": { "alertId": "dfa1c207-f801-5c34-9795-559203085894", "change": "Open", "deliveredAt": "2026-10-14T13:30:21Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 12,
+    "alias": "device.reported",
+    "schemaVersion": 1,
+    "payload": { "measuredAt": "2026-10-14T14:00:00Z", "reportedAt": "2026-10-14T14:00:03Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 13,
+    "alias": "device.silence-ended",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "dfa1c207-f801-5c34-9795-559203085894", "reason": "Recovered", "endedAt": "2026-10-14T14:00:03Z" }
+  },
+  {
+    "streamId": "alert/dfa1c207-f801-5c34-9795-559203085894",
+    "version": 3,
+    "alias": "alert.closed",
+    "schemaVersion": 1,
+    "payload": { "reason": "Recovered", "closedAt": "2026-10-14T14:00:03Z" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 12,
+    "alias": "site.alert-closed",
+    "schemaVersion": 1,
+    "payload": { "alertId": "dfa1c207-f801-5c34-9795-559203085894", "reason": "Recovered", "closedAt": "2026-10-14T14:00:03Z" }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 22,
+    "alias": "user.alert-dropped",
+    "schemaVersion": 1,
+    "payload": { "alertId": "dfa1c207-f801-5c34-9795-559203085894", "droppedAt": "2026-10-14T14:00:04+00:00" }
+  },
+  {
+    "streamId": "alert/dfa1c207-f801-5c34-9795-559203085894",
+    "version": 4,
+    "alias": "alert.site-notified",
+    "schemaVersion": 1,
+    "payload": { "change": "Closed", "notifiedAt": "2026-10-14T14:00:04Z" }
+  },
+  {
+    "streamId": "device/5a4b3c2d1e0f7c21",
+    "version": 14,
+    "alias": "device.silence-window-set",
+    "schemaVersion": 1,
+    "payload": { "windowSeconds": null, "setAt": "2026-10-14T15:00:00Z" }
   }
 ]

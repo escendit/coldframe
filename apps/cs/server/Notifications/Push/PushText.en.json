@@ -12,6 +12,7 @@
   "title.tooLow": "{lot} {quantity} too low",
   "title.tooHigh": "{lot} {quantity} too high",
   "title.other": "{lot} needs attention",
+  "title.noLot": "A device needs attention",
   "body.soil.low": "~{value} % in the soil, your low is {threshold} %.",
   "body.soil.high": "~{value} % in the soil, your high is {threshold} %.",
   "body.reading": "Reading {value} {unit} at {time}.",

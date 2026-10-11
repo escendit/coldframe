@@ -8,13 +8,13 @@ namespace Coldframe.Contracts.Alerts;
 /// </summary>
 /// <param name="Kind">What the Alert is about.</param>
 /// <param name="Side">The Threshold that was crossed; <see langword="null"/> for an Alert that is not a Threshold Alert.</param>
-/// <param name="SiteId">The Site of the Sensor's Node when the Alert opened.</param>
-/// <param name="LotId">The Lot of the Sensor's Node when the Alert opened.</param>
-/// <param name="SensorId">The Sensor that opened the Alert; only it closes the Alert.</param>
-/// <param name="DeviceId">The Device ID of that Sensor's Node.</param>
-/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>.</param>
-/// <param name="Episode">The Sensor's episode the Alert ID is derived from.</param>
-/// <param name="OpenedAt">When the Sensor journaled the episode.</param>
+/// <param name="SiteId">The Site of the Sensor's Node, or of the Device, when the Alert opened.</param>
+/// <param name="LotId">The Lot of the Node when the Alert opened; <see langword="null"/> for a Device's Alert without a Lot (Story 7.1).</param>
+/// <param name="SensorId">The Sensor that opened the Alert, which alone closes it; <see langword="null"/> for a Device's Alert, which its Device closes.</param>
+/// <param name="DeviceId">The Device ID of that Sensor's Node, or of the Device the Alert is about.</param>
+/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>; <see langword="null"/> for a Device's Alert.</param>
+/// <param name="Episode">The episode of the opening grain the Alert ID is derived from.</param>
+/// <param name="OpenedAt">When the opening grain journaled the episode.</param>
 [EventType("alert.opened")]
 [GenerateSerializer]
 [Alias("coldframe.alert-opened")]
@@ -22,10 +22,10 @@ public sealed record AlertOpened(
     [property: Id(0)] AlertKind Kind,
     [property: Id(1)] ThresholdSide? Side,
     [property: Id(2)] string SiteId,
-    [property: Id(3)] string LotId,
-    [property: Id(4)] Guid SensorId,
+    [property: Id(3)] string? LotId,
+    [property: Id(4)] Guid? SensorId,
     [property: Id(5)] string DeviceId,
-    [property: Id(6)] string Quantity,
+    [property: Id(6)] string? Quantity,
     [property: Id(7)] int Episode,
     [property: Id(8)] DateTimeOffset OpenedAt);
 

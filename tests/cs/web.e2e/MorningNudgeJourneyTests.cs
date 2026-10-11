@@ -19,6 +19,8 @@ namespace Coldframe.Web.E2ETests;
 /// Notification Window opens at 07:00 exactly one browser notification arrives with the Server's words, and
 /// the open overview shows <em>needs water</em> without a reload. Readings that recover close the Alert, and
 /// a day later no Reminder arrives. Time is the Server's test-only clock; nothing sleeps through a night.
+/// The clock jumps by hours, which the Server would read as a silent Hub and a silent Node (Story 7.1), so the
+/// Hub heartbeats right after every jump, as a real Hub does every minute, and the Node reports after the last.
 /// </summary>
 public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
 {
@@ -141,6 +143,7 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
 
             // 02:40: three Readings in a row below the low of 30 %. The Alert opens, outside the window.
             await SetClockAsync(user, crossing);
+            await HeartbeatAsync(user, hub);
             await WakeAsync(user, hub, node, TwentyPercent, crossing.AddMinutes(-2));
             await WakeAsync(user, hub, node, TwentyPercent, crossing.AddMinutes(-1));
             await WakeAsync(user, hub, node, TwentyPercent, crossing);
@@ -152,6 +155,7 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
             // 07:00: the window opens, and the one notification of the night arrives with the Server's words.
             var opening = NextLocal(zone, crossing, new TimeOnly(7, 0));
             await SetClockAsync(user, opening);
+            await HeartbeatAsync(user, hub);
             await UntilAsync(user, () => ListAsync(page, "__cf_notifications"), shown => shown.Count >= 1, "the browser notification arrives");
 
             var shown = Assert.Single(await ListAsync(page, "__cf_notifications"));
@@ -174,6 +178,8 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
 
             // A day later, inside the window: a closed Alert sends no Reminder and closing sent nothing.
             await SetClockAsync(user, opening.AddHours(25));
+            await HeartbeatAsync(user, hub);
+            await WakeAsync(user, hub, node, FiftyPercent, await ServerNowAsync(user));
             await WakeUserAsync(user);
             await Task.Delay(TimeSpan.FromSeconds(8), Ct);
             await WakeUserAsync(user);
@@ -328,6 +334,15 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
         using var enrolled = await SendAsync(user, HttpMethod.Post, $"/sites/{siteId}/devices", body, idempotent: true);
 
         return device;
+    }
+
+    // One heartbeat of the Hub, stamped from the Server's clock: the Hub is alive, whatever the clock jumped over.
+    private async Task HeartbeatAsync(JourneyUser user, SimulatedDevice hub)
+    {
+        using var server = stack.CreateDeviceClient();
+        using var request = hub.HeartbeatRequest(await ServerNowAsync(user));
+        using var response = await server.SendAsync(request, Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     // One wake of the Node, relayed by the Hub and stamped from the Server's clock. The Node follows the

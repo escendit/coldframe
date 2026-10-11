@@ -16,7 +16,7 @@ namespace Coldframe.Server.Notifications.Push;
 /// <param name="Kind">The contract's kind: <c>alert</c>, <c>reminder</c> or <c>summary</c>.</param>
 /// <param name="SiteId">The Site the notification is about, by which notifications are grouped.</param>
 /// <param name="SiteName">The Site's name; <see langword="null"/> when it was not found.</param>
-/// <param name="LotId">The Lot of the Alert; <see langword="null"/> for a summary.</param>
+/// <param name="LotId">The Lot of the Alert; <see langword="null"/> for a summary and for an Alert without a Lot.</param>
 /// <param name="AlertId">The Alert; <see langword="null"/> for a summary.</param>
 /// <param name="CollapseId">The stable identity of the send, so that a repeated one replaces the earlier one.</param>
 /// <param name="Title">The condition.</param>
@@ -136,7 +136,8 @@ public sealed partial class PushContentBuilder(
     }
 
     // What the text of one Alert needs. Soil moisture names no Threshold in its title, so a summary line of it
-    // needs only the Lot; a summary has no body, so it needs no Reading.
+    // needs only the Lot; a summary has no body, so it needs no Reading. Only a Threshold Alert has a Sensor with
+    // a Reading and a Threshold: for any other kind (a Health Alert, Story 7.1) neither is looked up.
     private async Task<PushEntryFacts> FactsAsync(
         Notification notification,
         NotificationEntry entry,
@@ -144,13 +145,16 @@ public sealed partial class PushContentBuilder(
         bool summary,
         CancellationToken cancellationToken)
     {
+        var sensor = entry is { Kind: AlertKind.Threshold, SensorId: { } sensorId, Quantity: { } quantity }
+            ? (Id: sensorId, Quantity: quantity)
+            : ((Guid Id, string Quantity)?)null;
         var soil = string.Equals(entry.Quantity, "soil_moisture", StringComparison.Ordinal);
-        var threshold = entry is { Kind: AlertKind.Threshold, Side: { } side } && !(summary && soil)
-            ? FoundAsync(lookups.ThresholdAsync(entry.SensorId, side, cancellationToken), notification, "Threshold", cancellationToken)
+        var threshold = sensor is { } measured && entry.Side is { } side && !(summary && soil)
+            ? FoundAsync(lookups.ThresholdAsync(measured.Id, side, cancellationToken), notification, "Threshold", cancellationToken)
             : Task.FromResult<PushValue?>(null);
-        var reading = summary
+        var reading = summary || sensor is not { } read
             ? Task.FromResult<PushReading?>(null)
-            : FoundAsync(lookups.NewestReadingAsync(entry.SensorId, entry.Quantity, sentAt - ReadingAge, cancellationToken), notification, "Reading", cancellationToken);
+            : FoundAsync(lookups.NewestReadingAsync(read.Id, read.Quantity, sentAt - ReadingAge, cancellationToken), notification, "Reading", cancellationToken);
         var (lotName, lotGone) = await LotAsync(notification, entry, cancellationToken).ConfigureAwait(false);
 
         return new PushEntryFacts(
@@ -161,12 +165,18 @@ public sealed partial class PushContentBuilder(
             lotGone);
     }
 
-    // The Lot's name, and whether the Lot is gone: only a lookup that answered can say so.
+    // The Lot's name, and whether the Lot is gone: only a lookup that answered can say so. An Alert without a
+    // Lot (a Hub's, Story 7.1) has no name and is not gone: it keeps its line.
     private async Task<(string? Name, bool Gone)> LotAsync(Notification notification, NotificationEntry entry, CancellationToken cancellationToken)
     {
+        if (entry.LotId is not { } lotId)
+        {
+            return (null, false);
+        }
+
         try
         {
-            var name = await lookups.LotNameAsync(notification.SiteId, entry.LotId, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
+            var name = await lookups.LotNameAsync(notification.SiteId, lotId, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
 
             return (name, name is null);
         }

@@ -7,13 +7,15 @@ namespace Coldframe.Server.Alerts;
 /// <summary>
 /// An Alert, keyed by its Alert ID (Story 6.1). The only writer of the Alert's state: it journals
 /// <see cref="AlertOpened"/> and <see cref="AlertClosed"/> once each, whatever is retried, and records the
-/// side, Site, Lot, Sensor, Device and quantity it was opened with.
+/// side, Site, Lot, Sensor, Device and quantity it was opened with. A Device's Health Alert (Story 7.1) has no
+/// side, Sensor or quantity, and a Lot only when its Node was on one.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Who may close: only the Sensor grain that opened the Alert. The grain reads the caller of every call from the
-/// call itself (it is its own incoming call filter), so a close from a client, from another grain or from
-/// another Sensor is refused and the Alert stays open.
+/// Who may close: only the grain that opened the Alert, the Sensor grain of a Threshold Alert and the Device
+/// grain of a Device's Alert. The grain reads the caller of every call from the call itself (it is its own
+/// incoming call filter), so a close from a client, from another grain, from another Sensor or from another
+/// Device is refused and the Alert stays open.
 /// </para>
 /// <para>
 /// Fan-out (AD-5: grain calls and the journal only): every open and close is reported to the Site grain of the
@@ -31,6 +33,8 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
     private const string ReportReminderName = "report-alert";
 
     private const string SensorGrainType = "sensor";
+
+    private const string DeviceGrainType = "device";
 
     private static readonly TimeSpan ReportTimerDue = TimeSpan.FromSeconds(1);
 
@@ -115,6 +119,42 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
     }
 
     /// <inheritdoc />
+    public async Task<AlertResult> OpenForDevice(OpenDeviceAlert request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.SiteId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DeviceId);
+
+        // The Alert ID is its Device, kind and episode: a request for another Alert, or of a kind no Device
+        // opens, is refused.
+        if (request.Episode < 1
+            || request.Kind != AlertKind.Silent
+            || !string.Equals(AlertIds.Silent(request.DeviceId, request.Episode).ToString("D"), AlertId, StringComparison.Ordinal))
+        {
+            return new AlertResult(AlertOutcome.Refused);
+        }
+
+        if (State.Lifecycle == AlertLifecycle.None)
+        {
+            RaiseEvent(new AlertOpened(
+                request.Kind,
+                Side: null,
+                request.SiteId,
+                request.LotId,
+                SensorId: null,
+                request.DeviceId,
+                Quantity: null,
+                request.Episode,
+                request.OpenedAt));
+            await ConfirmEvents();
+        }
+
+        var reported = await ReportAsync();
+
+        return new AlertResult(State.Lifecycle == AlertLifecycle.Closed ? AlertOutcome.Closed : AlertOutcome.Open, reported);
+    }
+
+    /// <inheritdoc />
     public async Task<AlertResult> Close(CloseAlert request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -127,8 +167,12 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
             return new AlertResult(AlertOutcome.NotOpened);
         }
 
-        // Only the grain that opened the Alert closes it.
-        if (caller is not { } source || source != GrainId.Create(SensorGrainType, State.SensorId.ToString("D")))
+        // Only the grain that opened the Alert closes it: its Sensor, or the Device of a Device's Alert.
+        var opener = State.SensorId is { } sensorId
+            ? GrainId.Create(SensorGrainType, sensorId.ToString("D"))
+            : GrainId.Create(DeviceGrainType, State.DeviceId!);
+
+        if (caller is not { } source || source != opener)
         {
             LogCloseRefused(Logger, AlertId, caller?.ToString() ?? "an unknown caller");
             return new AlertResult(AlertOutcome.Refused);
@@ -154,10 +198,10 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
                     State.Lifecycle,
                     State.Side,
                     State.SiteId!,
-                    State.LotId!,
+                    State.LotId,
                     State.SensorId,
                     State.DeviceId!,
-                    State.Quantity!,
+                    State.Quantity,
                     State.OpenedAt,
                     State.Reason,
                     State.ClosedAt));
@@ -195,7 +239,7 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
 
             if (!State.OpenReported)
             {
-                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId!, State.SensorId, State.DeviceId!, State.Quantity!, State.OpenedAt);
+                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId, State.SensorId, State.DeviceId!, State.Quantity, State.OpenedAt);
 
                 // Not cancelled by the caller: the journaled Alert is reported until the Site holds it.
                 var acknowledged = await site.AlertOpened(alert, CancellationToken.None);
@@ -310,6 +354,6 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Reporting Alert {AlertId} to Site {SiteId} failed; it stays pending and is reported again.")]
     private static partial void LogReportFailed(ILogger logger, string alertId, string siteId, Exception exception);
 
-    [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "A close of Alert {AlertId} from {Caller} was refused: only the Sensor that opened an Alert closes it.")]
+    [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "A close of Alert {AlertId} from {Caller} was refused: only the grain that opened an Alert closes it.")]
     private static partial void LogCloseRefused(ILogger logger, string alertId, string caller);
 }

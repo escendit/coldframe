@@ -63,10 +63,13 @@ public sealed class IngestGrainTests(IdentityCluster identity) : IClassFixture<I
             await ReportAsync(node));
         Assert.Equal(5L, await CountAsync("reading_keys", node));
 
-        // The replay window and the next downlink counter committed with the rows; nothing was journaled
-        // per frame, only the relay Hub once.
+        // The replay window and the next downlink counter committed with the rows. Journaled: the relay Hub
+        // once, and the Node's liveness, the frame's measured_at (Story 7.1).
         Assert.Equal((0m, 1L, 1m), await ReplayRowAsync(node));
-        Assert.Equal(["device.enrolled", "device.relay-changed"], await identity.AliasesAsync($"device/{node.DeviceId}"));
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.reported"], await identity.AliasesAsync($"device/{node.DeviceId}"));
+        Assert.Equal(
+            new DeviceReported(measuredAt, now),
+            (await identity.Store.ReadStreamAsync($"device/{node.DeviceId}", Ct))[^1].Data);
     }
 
     [Fact]
@@ -324,7 +327,7 @@ public sealed class IngestGrainTests(IdentityCluster identity) : IClassFixture<I
         Assert.Null(failed.Downlink);
         Assert.Equal(before, await ReplayRowAsync(node));
         Assert.Equal((4L, 1L, 5L), await CountsAsync(node));
-        Assert.Equal(["device.enrolled", "device.relay-changed"], await identity.AliasesAsync($"device/{node.DeviceId}"));
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.reported"], await identity.AliasesAsync($"device/{node.DeviceId}"));
 
         // The very same sealed frame is accepted afterwards: its counter was not consumed in memory either.
         var again = await IngestAsync(node, frame);
@@ -399,24 +402,27 @@ public sealed class IngestGrainTests(IdentityCluster identity) : IClassFixture<I
         var now = identity.Time.GetUtcNow();
         var stream = $"device/{node.DeviceId}";
 
+        // Four frames measured at the same time: the Node's liveness (Story 7.1) is journaled with the first
+        // only, because none of the others is newer.
         await IngestAsync(node, node.SealFrame(node.Wake(now)), HubA);
         await IngestAsync(node, node.SealFrame(node.Wake(now)), HubA);
-        Assert.Equal(["device.enrolled", "device.relay-changed"], await identity.AliasesAsync(stream));
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.reported"], await identity.AliasesAsync(stream));
 
         await IngestAsync(node, node.SealFrame(node.Wake(now)), HubB);
         await IngestAsync(node, node.SealFrame(node.Wake(now)), HubB);
-        Assert.Equal(["device.enrolled", "device.relay-changed", "device.relay-changed"], await identity.AliasesAsync(stream));
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.reported", "device.relay-changed"], await identity.AliasesAsync(stream));
 
         var events = await identity.Store.ReadStreamAsync(stream, Ct);
         Assert.Equal(new DeviceRelayChanged(HubA, now), events[1].Data);
-        Assert.Equal(new DeviceRelayChanged(HubB, now), events[2].Data);
+        Assert.Equal(new DeviceReported(now, now), events[2].Data);
+        Assert.Equal(new DeviceRelayChanged(HubB, now), events[3].Data);
 
         // A frame that is not accepted records no relay.
         var other = await SeedNodeAsync();
         var replayed = other.SealFrame(other.Wake(now));
         await IngestAsync(other, replayed, HubA);
         await IngestAsync(other, replayed, HubB);
-        Assert.Equal(["device.enrolled", "device.relay-changed"], await identity.AliasesAsync($"device/{other.DeviceId}"));
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.reported"], await identity.AliasesAsync($"device/{other.DeviceId}"));
     }
 
     [Fact]

@@ -40,6 +40,36 @@ public sealed class AlertStateTests
     }
 
     [Fact]
+    public void TheIdOfASilentAlertIsTheUuidV5OfItsDeviceAndEpisode()
+    {
+        Assert.Equal("device:5a4b3c2d1e0f7c20:silent:2", AlertIds.SilentName("5a4b3c2d1e0f7c20", 2));
+        Assert.Equal(
+            Coldframe.Crypto.SensorIds.UuidV5(AlertIds.Namespace, "device:5a4b3c2d1e0f7c20:silent:2"),
+            AlertIds.Silent("5a4b3c2d1e0f7c20", 2));
+        Assert.Equal(5, AlertIds.Silent("5a4b3c2d1e0f7c20", 2).Version);
+        Assert.NotEqual(AlertIds.Silent("5a4b3c2d1e0f7c20", 2), AlertIds.Silent("5a4b3c2d1e0f7c20", 3));
+        Assert.NotEqual(AlertIds.Silent("5a4b3c2d1e0f7c20", 2), AlertIds.Silent("92064422c012f481", 2));
+    }
+
+    [Fact]
+    public void ADevicesAlertHasNoSideSensorOrQuantityAndMaybeNoLot()
+    {
+        var state = new AlertState();
+
+        state.Apply(new AlertOpened(AlertKind.Silent, null, Opened.SiteId, null, null, "92064422c012f481", null, 1, Now));
+
+        Assert.Equal(AlertLifecycle.Open, state.Lifecycle);
+        Assert.Equal(
+            (AlertKind.Silent, (ThresholdSide?)null, Opened.SiteId, (string?)null, (Guid?)null, "92064422c012f481", (string?)null),
+            (state.Kind, state.Side, state.SiteId, state.LotId, state.SensorId, state.DeviceId, state.Quantity));
+        Assert.True(state.ReportPending);
+
+        state.Apply(new AlertClosed(AlertCloseReason.Recovered, Now.AddMinutes(1)));
+
+        Assert.Equal((AlertLifecycle.Closed, (AlertCloseReason?)AlertCloseReason.Recovered), (state.Lifecycle, state.Reason));
+    }
+
+    [Fact]
     public void ANewAlertWasNeverOpened()
     {
         var state = new AlertState();

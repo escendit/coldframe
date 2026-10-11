@@ -274,13 +274,15 @@ verified by the Device grain.
    `DeviceKeyVault`, derives the `hub-auth/v1` key, checks the HMAC with
    `Coldframe.Crypto.Heartbeat.Verify` and zeroes both keys.
 4. An accepted heartbeat journals `device.seen` `{seenAt, deviceTimestampMs, uptimeMs?}` and the
-   handler answers 200 `{"serverTime":"yyyy-MM-ddTHH:mm:ss.fffZ"}` from `TimeProvider`.
+   handler answers 200 `{"serverTime":"yyyy-MM-ddTHH:mm:ss.fffZ"}` from `TimeProvider`. It is the
+   Hub's liveness: it restarts the Hub's Silence Window and ends an open silence
+   ([Silent Devices](#silent-devices)).
 
 Replay protection needs no shared cache: Orleans keeps one activation per Device, so the in-memory
 nonce set (pruned beyond the skew window) is authoritative while it is active, and the persisted
 timestamp rule covers a reactivation. The Hub's timestamps strictly increase, so neither rule
 refuses a legitimate Hub. Every accepted heartbeat is journaled (about 2 000 small rows per Hub per
-day), so the Devices projection (Story 3.7) and Silence evaluation (Epic 7) read real events.
+day), so the Devices projection (Story 3.7) and Silence evaluation (Story 7.1) read real events.
 
 Tests drive the Device path through the Device simulator only
 (`SimulatedDevice.HeartbeatRequest`), never through hand-built headers.
@@ -320,8 +322,12 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
       before `reading_keys` kept the time holds none). The transaction fails
       (`retry`) when the stored high-water mark is above the one being written: the window was
       moved underneath the grain, which then reads it again.
-   7. The relay Hub, after the commit: `device.relay-changed` is journaled only when it differs
-      from the last one; a frame that is not committed records none.
+   7. The relay Hub and the Node's liveness, after the commit, in one write: `device.relay-changed`
+      is journaled only when the Hub differs from the last one, and `device.reported` `{measuredAt,
+      reportedAt}` only when the frame's `measured_at` is newer than any accepted before; a frame
+      that is not committed records neither, and a paused Node's frame is no report. Then the Node's
+      silence is evaluated ([Silent Devices](#silent-devices)): a frame measured inside the Silence
+      Window ends an open silence. That never changes the frame's status.
    8. The Specification set, when the frame's `spec_hash` is not the known one and a set is
       attached (see [Sensor Specifications](#sensor-specifications)).
    9. Evaluation ([Alerts](#alerts)): every declared Sensor of an assigned Node is handed its Reading
@@ -337,9 +343,11 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
 
 A failed transaction answers `retry` and leaves no trace: the grain drops its in-memory window and
 reads it again for the next frame, so memory never runs ahead of the database. The downlink counter
-is never kept in memory, so no counter is reused after a restart. No event is journaled per frame.
-Three kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub could
-not be journaled, its Specification set could not be declared, or a Reading could not be evaluated
+is never kept in memory, so no counter is reused after a restart. One small event is journaled per
+frame that moves the Node's liveness forward (`device.reported`, about one per 15 minutes per Node),
+so the Silence Window's expiry is in the journal (AD-6); nothing else is journaled per frame.
+Three kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub or the
+liveness could not be journaled, its Specification set could not be declared, or a Reading could not be evaluated
 (or the Alert it opened or closed not delivered), the frame is not acknowledged, and the Node's resend
 is a `duplicate`, which finishes what was left.
 
@@ -502,8 +510,10 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 
 ### Alerts
 
-A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). Clients
-read them from [the Alerts list](#the-alerts-list) (Story 6.2); when a User may be notified is set in
+A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). A Health
+Alert of kind `silent` opens when a Device stops reporting ([Silent Devices](#silent-devices), Story 7.1); it
+uses the same Alert grain and the same fan-out from step 6 on. Clients
+read Threshold Alerts from [the Alerts list](#the-alerts-list) (Story 6.2); when a User may be notified is set in
 [Notification settings](#notification-settings) (Story 6.3), each member's User grain decides when to notify
 ([Delivery timing](#delivery-timing), Story 6.4), and the channels are [Push notifications](#push-notifications)
 (Story 6.5) and the open web app ([Live updates](#live-updates), Story 6.6). Three grains
@@ -552,10 +562,12 @@ open and close an Alert, through grain calls and the journal only (AD-5):
 6. **The Alert grain** (`server/Alerts/AlertGrain.cs`, `alert/{alertId}`) is event-sourced and idempotent:
    `alert.opened` `{kind, side, siteId, lotId, sensorId, deviceId, quantity, episode, openedAt}` and `alert.closed`
    `{reason, closedAt}` are journaled once each, whatever is retried. `Open` refuses a request that does not derive
-   its own Alert ID. `Close` is accepted only from the Sensor grain that opened the Alert: the grain reads the
-   caller of the call itself, so a client, another grain or another Sensor is refused and the Alert stays open. The
-   reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`; only `recovered` is produced
-   before Epics 7 and 8.
+   its own Alert ID. `OpenForDevice` opens a Device's Health Alert the same way; its `alert.opened` has no `side`,
+   `sensorId` or `quantity`, and a `lotId` only for a Node on a Lot. `Close` is accepted only from the grain that
+   opened the Alert, the Sensor grain of a Threshold Alert and the Device grain of a Device's Alert: the grain
+   reads the caller of the call itself, so a client, another grain, another Sensor or another Device is refused and
+   the Alert stays open. The reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`; only
+   `recovered` is produced before Epic 8.
 7. **The Site's open Alerts and its members.** The Alert grain reports each open and close to its Site grain
    (`ISiteGrain.AlertOpened`, `AlertClosed`), the open before the close. The Site grain journals
    `site.alert-opened` and `site.alert-closed`, once per Alert, and answers with its current members
@@ -578,6 +590,100 @@ from the Alert events ([Lot status](#lot-status)).
 that Sensor may be awaiting the Device to acknowledge a Calibration, and without interleaving the two calls would
 wait for each other until one times out.
 
+### Silent Devices
+
+Story 7.1: a Node or Hub that stops reporting raises a Health Alert of kind `silent`, so silence is never read as
+"all fine". The Device grain (`server/Devices/DeviceGrain.cs`) evaluates its own silence; `SilenceRule`
+(`server/Devices/`) is the pure arithmetic. Nothing here has an endpoint, and no client shows it yet: the Devices
+list, the Alerts list and the apps follow in Story 7.2, with the final notification text.
+
+**The Silence Window** is 6 h for a Node and 5 min for a Hub (a Hub heartbeats every 30 to 60 s, a Node reports
+about every 15 min). `IDeviceGrain.SetSilenceWindow(siteId, window)` gives a Device its own, 1 min to 30 days in
+whole seconds; `null` returns to the default. Anything else is refused and journals nothing. There is no HTTP
+endpoint for it before Story 7.2.
+
+**Liveness.** A Hub's liveness is its last accepted heartbeat (`device.seen`). A Node's is the newest
+`measured_at` the Server accepted from it (`device.reported`), never the arrival time, so a Node that flushes a
+backlog of old Readings does not look alive.
+
+**The expiry is journaled state (AD-6).** `DeviceState.SilenceFrom` is the clock start, the latest of:
+
+| Clock start | From |
+| --- | --- |
+| Enrolment | `device.enrolled` |
+| The last accepted report | `device.seen` (Hub), `device.reported` (Node) |
+| The last Server start | `device.silence-clock-restarted` with cause `ServerStarted` |
+| The last resume | `device.resumed` that clears the last Pause source |
+| The recovery of a Node's last relay Hub | `device.silence-clock-restarted` with cause `RelayHubRecovered` |
+
+`SilenceDueAt` is `SilenceFrom` plus the window in force. Both are derived from the Device's own stream, so the
+expiry survives a restart and a changed window moves it without another event. A stream written before this
+story reads the same way: its clock comes from the events it always had. The clock never moves backwards.
+
+**Waking.** Every enrolled Device keeps the Orleans reminder `silence-window` (period 1 min). It only wakes the
+grain. Every wake, every activation and every accepted heartbeat or frame runs `EvaluateSilenceAsync`, which
+processes what is overdue, in this order:
+
+1. **Server start.** `ServerStart` (`server/Devices/`, registered by `AddDevices()`) reads the `TimeProvider`
+   once as the host starts. A Device whose clock start is older journals `device.silence-clock-restarted`:
+   while the Server was down it accepted nothing, and that is no silence of the Device. A Node last heard at T
+   whose Server was down from T + 5 h to T + 7 h is silent at T + 13 h, not at the restart. Not while its Alert is
+   open: only a report of the Device ends a silence.
+2. **Recovery.** Open means overdue. After an accepted report, an open Alert closes only when the expiry is
+   ahead again: `device.silence-ended` with reason `recovered`. A Hub's heartbeat always does that; a frame whose
+   `measured_at` is older than the window does not.
+3. **Silence.** Without an open Alert, not paused, and `now >= SilenceDueAt`: the Device journals
+   `device.silence-started` with its next episode and the Alert ID
+   `UUIDv5(AlertIds.Namespace, "device:{deviceId}:silent:{episode}")`, and only then calls
+   `IAlertGrain.OpenForDevice`. A Device has at most one open `silent` Alert, and the next silence is another
+   episode with another Alert ID. A paused Device opens nothing, and its window restarts when it resumes.
+4. **Delivery.** Every open and close the Alert grain has not acknowledged (journaled in
+   `DeviceState.PendingAlertDeliveries`) is delivered, the open before the close; `device.alert-delivered` ends
+   it. A delivery that fails stays pending and is made again by the next wake, at most a minute later. It never
+   fails a heartbeat or a frame.
+
+From the Alert grain on, a `silent` Alert takes the path of every Alert (steps 6 and 7 of [Alerts](#alerts)): the
+Site grain lists it, every member's User grain is told, and the windows, summaries and mute of
+[Delivery timing](#delivery-timing) apply. As a Health Alert it reminds at most once per day.
+
+**A silent Hub is reported as the Hub only (AD-7).** A Hub does not know the Nodes behind it, so suppression is
+pulled: a Node whose window expired asks its last relay Hub (`device.relay-changed`) through
+`IDeviceGrain.Silence()`, which first processes the Hub's own expiry, so the answer does not depend on whose
+reminder fired first.
+
+| The relay Hub | The Node |
+| --- | --- |
+| has an open `silent` Alert | opens nothing |
+| recovered after the Node's clock start | restarts its clock at the Hub's recovery (`device.silence-clock-restarted`), and is silent only once the window counted from there has passed |
+| is alive, or recovered before the Node's clock start | opens its Alert |
+| is no enrolled Hub | opens its Alert |
+| cannot be reached | opens nothing; the next wake asks again |
+
+Five Nodes behind a silent Hub are one Alert, the Hub's. A Node whose Alert was open before its Hub went silent
+keeps it; both are open then. The Hub relation serves only this and the Lot status: it never decides whether a
+frame is accepted.
+
+| Event on `device/{id}` | Journaled when |
+| --- | --- |
+| `device.reported` `{measuredAt, reportedAt}` | A frame of the Node was accepted whose `measured_at` is newer than any before; never for a paused Node |
+| `device.silence-window-set` `{windowSeconds?, setAt}` | The Device's own window was set, or cleared (`null`) |
+| `device.silence-clock-restarted` `{from, cause, hubId?, restartedAt}` | A Server start (`ServerStarted`) or the recovery of the relay Hub (`RelayHubRecovered`) moved the clock start forward |
+| `device.silence-started` `{episode, alertId, siteId, lotId?, dueAt, startedAt}` | The window expired: the next episode, journaled before its Alert is opened |
+| `device.silence-ended` `{episode, alertId, reason, endedAt}` | The Device reported again inside its window |
+| `device.alert-delivered` `{alertId, change, deliveredAt}` | The Alert grain holds the open or the close and its Site knows it |
+
+**At start** the silo activates every enrolled Device (`SiloExtensions.ActivateDevicesAsync`, the Device IDs
+from the `devices` read model), so that a Device enrolled before this story registers its reminder and every
+Device applies the Server start. A failure only logs (`DevicesNotRead`, `DeviceNotActivated`): the next report
+or reminder activates the Device all the same.
+
+**Lot status.** The lots projector turns an open `silent` Alert into `unknown` ([Lot status](#lot-status)).
+
+Tests: `SilenceRuleTests` and `DeviceStateSilenceTests` (`tests/cs/server.tests`), and
+`SilentDeviceAlertGrainTests` (`tests/cs/server.integration`), a TestCluster with a fake clock where a test fires
+the reminder by hand (`IdentityCluster.WakeDeviceAsync`) and restarts the silo at a given time
+(`RestartSiloAsync(DateTimeOffset)`). The cluster drops the reminder's own ticks, which run on the real clock.
+
 ### The Alerts list
 
 `GET /sites/{siteId}/alerts?cursor&limit` (`listAlerts`, Story 6.2, Member and up) reads the `alerts` table, which
@@ -596,9 +702,15 @@ from position 0 and writes the same rows. `kind`, `side` and `reason` are stored
 names, mapped by hand in `AlertNames` (`threshold`; `low`, `high`; `recovered`, `paused`, `unassigned`,
 `calibrated`, `removed`). A value added to one of those enums must be named there first: the projector refuses
 an event it cannot name. The contract's `AlertKind` is an extensible enum that already names `silent`, `battery`
-and `uncalibrated` for Epic 7; the Server produces only `threshold`.
+and `uncalibrated`; the Server produces `threshold` and `silent` (Story 7.1).
 
-**The list** (`AlertsReadModel.ListAlertsAsync`) is one ordered list: every open Alert, newest `openedAt` first,
+**Health Alerts are stored, not listed.** A `silent` Alert has its row like any other, with `sensor_id` and
+`quantity` null and `lot_id` null for a Hub or an unassigned Node. The contract's `Alert` requires `quantity`,
+`lotId` and `lotName`, and relaxing that breaks the generated clients, so `ListSql` and `CountOpenSql` select
+`kind = 'threshold'` only: `listAlerts` and its `openCount` are what they were. Story 7.2 extends the contract
+together with the clients.
+
+**The list** (`AlertsReadModel.ListAlertsAsync`) is one ordered list: every open Threshold Alert, newest `openedAt` first,
 then the Alerts whose `closedAt` is within `AlertsReadModel.ClosedRetention` (7 days) of the Server clock, newest
 `closedAt` first; Alerts of the same time go by Alert ID. The handler takes the cut-off from the injected
 `TimeProvider` and passes it in, so the query never reads the database clock. An item is `{id, kind, side?,
@@ -607,7 +719,7 @@ quantity, lotId, lotName, deviceId, openedAt, closedAt?, reason?}`: no value, no
 - **`lotName` is joined, not projected.** The query inner-joins `lots` on the Lot the Alert was opened for, so a
   rename shows at once and a removed Lot (a tombstone row) keeps naming its Alerts. A row is absent only while
   the lots read model is being rebuilt. The Alert of a Node that moved still names the Lot it was opened for.
-- **`openCount`** counts the open Alerts of the Site with the same join, and is the same on every page.
+- **`openCount`** counts the open Threshold Alerts of the Site with the same join, and is the same on every page.
 - **Paging** is keyset: `limit` is 1 to 200 (default 50), and `nextCursor` is present only when more Alerts
   follow. The cursor is opaque and versioned (`AlertsReadModel.EncodeCursor`: `a1`, the section open or closed,
   the section's time in microseconds as PostgreSQL keeps it, and the Alert ID). A `limit` out of range or
@@ -734,8 +846,8 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
   reads as UTC). The opening stays at its local time across daylight-saving changes; a start the clocks skip
   opens at the first valid instant after it, a start that occurs twice at its first occurrence.
 - **Reminders** are `ReminderIntervalRule`, pure: `Daily` is 24 h, `Every2Days` 48 h, the cadence is the User's
-  own, else the Site's as the grain holds it, else daily. A Health Alert (any kind that is not `Threshold`;
-  none exists before Epic 7) uses `max(resolved, 24 h)`.
+  own, else the Site's as the grain holds it, else daily. A Health Alert (any kind that is not `Threshold`,
+  such as `silent`) uses `max(resolved, 24 h)`: it reminds at most once per day.
 - **Mute.** A muted Site has nothing due and nothing held: its deliveries are discarded, also the ones held
   when it is muted, without an event. `user.site-mute-changed` to unmuted moves every deadline that passed
   meanwhile to the last `due-at + n × interval` not after the unmute, so the Reminder advanced all the while
@@ -746,8 +858,9 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
 
 **The Notifier seam** (`server/Notifications/`, registered by `AddNotifications()`):
 `INotifier.SendAsync(Notification)` takes `{userId, siteId, kind: Alert | Reminder | Summary, dueAt, heldFrom?,
-entries, registrations, timeZone?, window}`, each entry `{alertId, kind, side?, lotId, sensorId, deviceId,
-quantity, openedAt}` (`packages/cs/contracts/Notifications/`). It carries identifiers and the facts the grains
+entries, registrations, timeZone?, window}`, each entry `{alertId, kind, side?, lotId?, sensorId?, deviceId,
+quantity?, openedAt}` (`packages/cs/contracts/Notifications/`; a Health Alert has no Sensor and no quantity, and
+no Lot when it is a Hub's). It carries identifiers and the facts the grains
 hold; names, values and wording belong to the channels. `registrations`, `timeZone` and `window` are what only
 the User grain knows and a channel needs ([Push notifications](#push-notifications)). The one implementation,
 `Notifier`, stamps `sentAt` from the `TimeProvider`, calls every registered `INotificationChannel` in
@@ -808,7 +921,8 @@ before `user.notification-sent`. The next notification is not sent to it.
 2. `PushContentBuilder` builds the content once per notification, for both channels: the Site's name
    (`IdentityReadModel`), each Lot's name (`LotsReadModel`; a removed Lot has none), the newest Reading of the
    Alert's Sensor of the last 2 days with the Calibration it was stored with (`readings`, `calibrations`,
-   `SensorConversion`), and the Threshold of the side that was crossed (`ISensorGrain.GetThresholds`). All of it
+   `SensorConversion`), and the Threshold of the side that was crossed (`ISensorGrain.GetThresholds`). The
+   Reading and the Threshold are looked up for a Threshold Alert only: a Health Alert has no Sensor. All of it
    within `Push:LookupBudget` (2 s); what was not found is left out of the text and never fails the push. A Lot
    name that could not be read (a failure, the budget) is no removed Lot: its Alert keeps its line as "A Lot …".
 3. One request per registration, in parallel, within `Push:SendBudget` (5 s) for the whole notification. A
@@ -836,11 +950,13 @@ grain a channel calls.
 | Another quantity | "Tomatoes temperature below 5 °C" | "Reading 4 °C at 05:15." (the User's zone) |
 | Reminder | the Alert's title | the Alert's body with "Still": "Still ~20 % in the soil, your low is 30 %." |
 | Summary | "Home garden: 2 need water, 3 to check" | one line per Alert (its title), needs water first, then "Held overnight, 22:00–07:00" |
+| Health Alert (Story 7.1), neutral until Story 7.2 writes the final copy | "Tomatoes needs attention"; without a Lot "A device needs attention" | none; a Reminder says "Still open." |
 
 Soil moisture is the percentage `CalibrationMath.Percent` gives, rounded to 5, with `~`. Without the value or
 the Threshold an Alert is its title only, and a Reminder says "Still open."; a quantity whose Threshold was not
 found reads "too low" or "too high". A summary counts with plural rules and leaves an empty group out, leaves
-out the line of a Lot that is gone (and sends nothing when no line is left), names the User's own window in the
+out the line of a Lot that is gone (and sends nothing when no line is left; an Alert that never had a Lot keeps
+its line), names the User's own window in the
 footer, and lists at most 12 Alerts, then "and 3 more": a push payload is 4 KiB.
 
 **Presentation and identity.**
@@ -971,6 +1087,9 @@ their real length; only what the Server reads as "now" moves.
   the hub closes a connection at its token's expiry on the real clock (`AccessTokenClock`).
 - **What to stamp.** A Device's signature and a frame's `measured_at` are checked against the Server's clock,
   so a test reads `GET /testing/clock` for them.
+- **A jump is silence.** Moving the clock by more than a Silence Window makes every Device that does not report
+  silent at its next wake ([Silent Devices](#silent-devices)). A test whose Devices are meant to be alive sends
+  a Hub heartbeat and a Node frame right after the jump.
 
 It is test-only code in the production binary, guarded by those two conditions.
 
@@ -1004,8 +1123,8 @@ Alert stays open.
 | `device.unassigned` | Sets `lot_id` to `NULL`: the Node lists as unassigned (Story 4.9) |
 | `device.lot-released` | Nothing: it only clears a Lot from the Device's pending releases |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
-| `device.relay-changed` | Nothing (Epic 7 reads it) |
-| `device.paused`, `device.resumed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |
+| `device.relay-changed`, `device.paused`, `device.resumed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |
+| `device.reported`, `device.silence-window-set`, `device.silence-clock-restarted`, `device.silence-started`, `device.silence-ended`, `device.alert-delivered` | Nothing: the list shows no silence before Story 7.2 ([Silent Devices](#silent-devices)) |
 
 `site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
 never journaled. `device.seen` carries no Site, so the projector keys on the stream ID. The projector
@@ -1016,7 +1135,7 @@ poll (`JournalOptions.PollInterval`).
 `DeviceLiveness.IsOnline(lastSeenAt, now)`, `now` from the injected `TimeProvider`: a Device is online
 when it was seen and `now - lastSeenAt <= DeviceLiveness.HubOnlineWindow`. The window is 120 s, two
 missed heartbeats at the slowest interval of 60 s, so one late beat does not flip a Hub to offline.
-It is not the Hub Silence Window of the Silent Alert (Epic 7). A Device that never sent a heartbeat
+It is not the Hub's Silence Window of 5 minutes ([Silent Devices](#silent-devices)). A Device that never sent a heartbeat
 has no `lastSeenAt` and is offline. Clients show `online` as received and read the list again to
 refresh it; they never compute it and never keep it past a failed reload.
 
@@ -1051,9 +1170,10 @@ the Lots it touches through the rule again:
 | `lot.claimed`, `lot.released` | `claimed_by` and `claimed_at`; the Lot is evaluated |
 | `device.paused`, `device.resumed` | The Device's Pause sources and their ends in `lot_status_devices`; its Lot is evaluated |
 | `device.specifications-declared` | The Sensor IDs of the Device's accepted set in `lot_status_devices`; its Lot is evaluated |
+| `device.relay-changed` | The Node's last relay Hub in `lot_status_devices.relay_hub_id`; its Lot is evaluated |
 | `sensor.declared`, `sensor.specification-changed` | The Sensor's Device, quantity and `calibration` flag in `lot_status_sensors`; the Lot of its Device is evaluated |
 | `sensor.calibrated` | The Calibration's points in `calibrations` (by Calibration ID) and `lot_status_sensors.calibrated`; the Lot of its Device is evaluated |
-| `alert.opened`, `alert.closed` | The Alert's Node, Sensor, quantity, kind and side in `lot_status_alerts`, and its `closed_at`; the Lot of its Node is evaluated |
+| `alert.opened`, `alert.closed` | The Alert's Device, Sensor, quantity, kind and side in `lot_status_alerts` (no Sensor and no quantity for a `silent` Alert), and its `closed_at`; the Lot of its Node is evaluated, and for a Hub's Alert every Lot whose Node it relays |
 
 `status_since` moves only when the status changes, to the time of the event that changed it: the
 journal's `recorded_at` for a Lot event (Lot events carry no time), the event's own time otherwise.
@@ -1061,7 +1181,8 @@ Applying an event again therefore changes nothing. A Sensor is declared before i
 (`sensor.declared` precedes `device.specifications-declared` in the journal); until the set names the
 Sensor, the Lot keeps its status. To rebuild, delete the rows of the five tables (`lots`, `lot_status_devices`, `lot_status_sensors`,
 `lot_status_alerts`, `calibrations`) and the `lots` checkpoint;
-the migration that added `lot_status_alerts` does exactly that, so every Lot gets its
+the migrations that added `lot_status_alerts` and `lot_status_devices.relay_hub_id`
+(`M20261011090000AllowDeviceAlerts`, Story 7.1) do exactly that, so every Lot gets its
 status and its time from the journal when the Server starts.
 
 **Needs water.** A Lot is `needsWater` while a Threshold Alert with side `low` is open on a soil-moisture
@@ -1070,18 +1191,22 @@ Alert of a Node that moved counts for the Lot the Node is on now. A high-side Al
 quantity change no status. `status_since` is the Alert's `openedAt`, and its `closedAt` when the Lot goes back
 to `ok`. A closed Alert keeps its row with `closed_at` set, so an Alert event applied again changes nothing.
 
-**Live and fixture-only inputs.** Four inputs are live: the Node on the Lot, the Pause
-sources (journaled only by tests until Epic 8 adds the commands), the uncalibrated soil Sensor, and the open
-low-side Alert (Story 6.1).
+**Unknown.** A Lot is `unknown` while its Node or the Node's relay Hub is silent (Story 7.1,
+`LotsProjector.InputsOf`):
+
+- `unknownCause: node` while a `silent` Alert is open on the Lot's Node, and also while the Node has declared no
+  Sensor: it has never reported, and without this a freshly assigned Node would read `ok`.
+- `unknownCause: hub` otherwise, while a `silent` Alert is open on the Hub that relayed the Node's last accepted
+  frame. When both are silent the Node, the more specific cause, is named.
+
+`status_since` is the Alert's `openedAt`. When the Alert closes the Lot returns to the status it would have
+without it, at the Alert's `closedAt`.
+
+**Live inputs.** All five inputs are live: the Node on the Lot, the Pause
+sources (journaled only by tests until Epic 8 adds the commands), silence, the uncalibrated soil Sensor, and the
+open low-side Alert (Story 6.1).
 A declared `calibration: true` soil-moisture Sensor counts as uncalibrated until its `sensor.calibrated` is
-projected (Story 5.1). One has no producer yet:
-
-- **Silence.** No Silent Alert exists before Epic 7. The only silence the projector knows is a Node
-  that has declared no Sensor: it has never reported, so its Lot is `unknown` with `unknownCause: node`
-  (`LotsProjector.InputsOf`). Without this a freshly assigned Node would read `ok`. `unknownCause: hub`
-  is never produced.
-
-Tests and client fixtures cover `unknown` by Hub with seeded rows.
+projected (Story 5.1).
 
 **`lastReadingAt` is read, not projected.** Both queries of `LotsReadModel` take the newest
 `measured_at` of the Readings of the Lot's Node with `measured_at >= claimed_at`, through

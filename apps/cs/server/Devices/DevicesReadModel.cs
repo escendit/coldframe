@@ -44,6 +44,26 @@ public sealed class DevicesReadModel(NpgsqlDataSource dataSource)
         """;
 
     /// <summary>
+    /// Returns the Device ID of every enrolled Device of every Site, in Device ID order. Only the host reads it,
+    /// at start, to activate the Device grains (Story 7.1).
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<IReadOnlyList<string>> ListDeviceIdsAsync(CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand("SELECT device_id FROM devices ORDER BY device_id");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var deviceIds = new List<string>();
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            deviceIds.Add(reader.GetString(0));
+        }
+
+        return deviceIds;
+    }
+
+    /// <summary>
     /// Returns every enrolled Device of the Site: Hubs by Device ID, then Nodes by Lot name (unassigned last) and Device ID.
     /// </summary>
     /// <param name="siteId">The Site ID, in its canonical form.</param>

@@ -335,6 +335,33 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         Assert.Equal(1, page.RootElement.GetProperty("openCount").GetInt32());
     }
 
+    // Story 7.1: the read model holds Health Alerts, and the contract's Alert cannot describe one yet (it requires
+    // quantity, lotId and lotName), so the list and its count stay what they were until Story 7.2.
+    [Fact]
+    public async Task ASilentAlertIsStoredAndNeitherListedNorCounted()
+    {
+        var (siteId, member) = await SeedSiteAsync();
+        var lot = await edge.SeedLotAsync(siteId, "Tomatoes", Ct);
+        var now = Now();
+        var listed = await OpenAsync(siteId, lot, ThresholdSide.Low, "soil_moisture", now.AddHours(-3));
+
+        // A silent Node on the Lot, open; a silent Hub without a Lot, open; and one that recovered an hour ago.
+        await OpenSilentAsync(siteId, lot, Node, now.AddHours(-2));
+        await OpenSilentAsync(siteId, lotId: null, "92064422c012f481", now.AddHours(-1));
+        var recovered = await OpenSilentAsync(siteId, lotId: null, "92064422c012f482", now.AddHours(-5));
+        await CloseAsync(recovered, AlertCloseReason.Recovered, now.AddHours(-1));
+        Assert.Equal(4, (await RowsAsync(siteId)).Count);
+
+        using var page = await GetAsync(member, siteId);
+        var alert = Assert.Single(Alerts(page));
+
+        Assert.Equal(["alerts", "openCount"], Names(page.RootElement));
+        Assert.Equal(listed, Id(alert));
+        Assert.Equal(["deviceId", "id", "kind", "lotId", "lotName", "openedAt", "quantity", "side"], Names(alert));
+        Assert.Equal("threshold", alert.GetProperty("kind").GetString());
+        Assert.Equal(1, page.RootElement.GetProperty("openCount").GetInt32());
+    }
+
     [Fact]
     public async Task RebuildingTheAlertsReadModelFromPositionZeroGivesTheSameRows()
     {
@@ -395,6 +422,19 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         var last = await edge.AppendAsync(
             $"alert/{alertId}",
             [new AlertOpened(AlertKind.Threshold, side, siteId, lotId, Guid.NewGuid(), Node, quantity, 1, openedAt)],
+            Ct);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        return alertId;
+    }
+
+    // An open Silent Device Alert, as the Alert grain journals it: no side, no Sensor, no quantity.
+    private async Task<string> OpenSilentAsync(string siteId, string? lotId, string deviceId, DateTimeOffset openedAt)
+    {
+        var alertId = Guid.NewGuid().ToString();
+        var last = await edge.AppendAsync(
+            $"alert/{alertId}",
+            [new AlertOpened(AlertKind.Silent, null, siteId, lotId, null, deviceId, null, 1, openedAt)],
             Ct);
         await edge.WaitForProjectionCheckpointAsync(Projector, last);
 

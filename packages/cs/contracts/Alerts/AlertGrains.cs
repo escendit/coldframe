@@ -2,10 +2,11 @@ namespace Coldframe.Contracts.Alerts;
 
 /// <summary>
 /// An Alert, keyed by its Alert ID in the lowercase hyphenated form (Story 6.1). The ID of a Threshold Alert is
-/// the UUIDv5 of <c>sensor:{sensorId}:threshold:{episode}</c> in a Server-only namespace, so the grain that
-/// evaluates journals the episode first and a retried <see cref="Open"/> can never create a second Alert. The
-/// Alert grain is the only writer of the Alert's state and reports every open and close to its Site grain,
-/// again until the Site acknowledged it.
+/// the UUIDv5 of <c>sensor:{sensorId}:threshold:{episode}</c> in a Server-only namespace, and the ID of a Device's
+/// Health Alert (Story 7.1) the UUIDv5 of <c>device:{deviceId}:{kind}:{episode}</c>, so the grain that
+/// evaluates journals the episode first and a retried <see cref="Open"/> or <see cref="OpenForDevice"/> can never
+/// create a second Alert. The Alert grain is the only writer of the Alert's state and reports every open and close
+/// to its Site grain, again until the Site acknowledged it.
 /// </summary>
 [Alias("coldframe.alert")]
 public interface IAlertGrain : IGrainWithStringKey
@@ -21,7 +22,18 @@ public interface IAlertGrain : IGrainWithStringKey
     Task<AlertResult> Open(OpenAlert request, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Closes the Alert. Accepted only from the Sensor grain that opened it; any other caller is refused and the
+    /// Opens a Device's Health Alert (Story 7.1): an Alert without a Sensor and, for a Hub or an unassigned Node,
+    /// without a Lot. Idempotent like <see cref="Open"/>. A request that does not derive this grain's Alert ID, or
+    /// whose kind no Device opens, is refused and journals nothing.
+    /// </summary>
+    /// <param name="request">The Device and episode the Alert is for, and what it records.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("open-for-device")]
+    Task<AlertResult> OpenForDevice(OpenDeviceAlert request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Closes the Alert. Accepted only from the grain that opened it (the Sensor grain of a Threshold Alert, the
+    /// Device grain of a Device's Health Alert); any other caller is refused and the
     /// Alert stays open. Idempotent: the first call journals <see cref="AlertClosed"/>, a later one journals
     /// nothing. Each call reports to the Site grain what it does not know yet.
     /// </summary>
@@ -49,6 +61,11 @@ public enum AlertKind
     /// A Sensor stayed beyond one of its Thresholds.
     /// </summary>
     Threshold = 0,
+
+    /// <summary>
+    /// A Health Alert: nothing was accepted from a Device for longer than its Silence Window (Story 7.1).
+    /// </summary>
+    Silent = 1,
 }
 
 /// <summary>
@@ -149,6 +166,25 @@ public sealed record OpenAlert(
     [property: Id(7)] DateTimeOffset OpenedAt);
 
 /// <summary>
+/// A Device's Health Alert to open, as the Device grain hands it to the Alert grain (Story 7.1).
+/// </summary>
+/// <param name="Kind">What the Alert is about; only <see cref="AlertKind.Silent"/> is opened by a Device.</param>
+/// <param name="DeviceId">The Device that evaluated; only it closes the Alert.</param>
+/// <param name="Episode">The Device's episode of this kind; with the Device ID and the kind it derives the Alert ID.</param>
+/// <param name="SiteId">The Site of the Device when the Alert opened.</param>
+/// <param name="LotId">The Lot of a Node when the Alert opened; <see langword="null"/> for a Hub or an unassigned Node.</param>
+/// <param name="OpenedAt">When the Device journaled the episode.</param>
+[GenerateSerializer]
+[Alias("coldframe.open-device-alert")]
+public sealed record OpenDeviceAlert(
+    [property: Id(0)] AlertKind Kind,
+    [property: Id(1)] string DeviceId,
+    [property: Id(2)] int Episode,
+    [property: Id(3)] string SiteId,
+    [property: Id(4)] string? LotId,
+    [property: Id(5)] DateTimeOffset OpenedAt);
+
+/// <summary>
 /// The close of an Alert, as the grain that opened it hands it to the Alert grain.
 /// </summary>
 /// <param name="Reason">Why the Alert closes.</param>
@@ -182,7 +218,7 @@ public enum AlertOutcome
     NotOpened = 2,
 
     /// <summary>
-    /// The request does not derive this Alert's ID, or the caller is not the Sensor grain that opened the Alert.
+    /// The request does not derive this Alert's ID, or the caller is not the grain that opened the Alert.
     /// Nothing was journaled.
     /// </summary>
     Refused = 3,
@@ -210,10 +246,10 @@ public sealed record AlertResult(
 /// <param name="Lifecycle">Open or closed.</param>
 /// <param name="Side">The Threshold that was crossed; <see langword="null"/> for an Alert that is not a Threshold Alert.</param>
 /// <param name="SiteId">The Site the Alert was opened on.</param>
-/// <param name="LotId">The Lot the Alert was opened for.</param>
-/// <param name="SensorId">The Sensor that opened the Alert.</param>
-/// <param name="DeviceId">The Device ID of that Sensor's Node.</param>
-/// <param name="Quantity">What the Sensor measures.</param>
+/// <param name="LotId">The Lot the Alert was opened for; <see langword="null"/> for a Device's Alert without a Lot.</param>
+/// <param name="SensorId">The Sensor that opened the Alert; <see langword="null"/> for a Device's Alert.</param>
+/// <param name="DeviceId">The Device ID of that Sensor's Node, or of the Device the Alert is about.</param>
+/// <param name="Quantity">What the Sensor measures; <see langword="null"/> for a Device's Alert.</param>
 /// <param name="OpenedAt">When the Alert opened.</param>
 /// <param name="Reason">Why the Alert closed, once it is.</param>
 /// <param name="ClosedAt">When the Alert closed, once it is.</param>
@@ -225,10 +261,10 @@ public sealed record AlertSnapshot(
     [property: Id(2)] AlertLifecycle Lifecycle,
     [property: Id(3)] ThresholdSide? Side,
     [property: Id(4)] string SiteId,
-    [property: Id(5)] string LotId,
-    [property: Id(6)] Guid SensorId,
+    [property: Id(5)] string? LotId,
+    [property: Id(6)] Guid? SensorId,
     [property: Id(7)] string DeviceId,
-    [property: Id(8)] string Quantity,
+    [property: Id(8)] string? Quantity,
     [property: Id(9)] DateTimeOffset OpenedAt,
     [property: Id(10)] AlertCloseReason? Reason = null,
     [property: Id(11)] DateTimeOffset? ClosedAt = null);

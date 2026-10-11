@@ -18,7 +18,8 @@ namespace Coldframe.Server.Lots;
 /// <remarks>
 /// <para>
 /// It reads four kinds of streams. Lot events create, rename, claim, release and remove the row. Device
-/// events (<c>device.paused</c>, <c>device.resumed</c>, <c>device.specifications-declared</c>), Sensor
+/// events (<c>device.paused</c>, <c>device.resumed</c>, <c>device.specifications-declared</c>,
+/// <c>device.relay-changed</c>), Sensor
 /// events (<c>sensor.declared</c>, <c>sensor.specification-changed</c>, <c>sensor.calibrated</c>) and Alert
 /// events (<c>alert.opened</c>, <c>alert.closed</c>) fill the support tables. After every
 /// event that can change a status, the Lots it touches are evaluated again through
@@ -32,10 +33,14 @@ namespace Coldframe.Server.Lots;
 /// <para>
 /// A Lot <c>needsWater</c> while a low-side Threshold Alert is open on a soil-moisture Sensor of its Node's
 /// accepted Specification set (Story 6.1). The Alert is found by its Node, so it follows a Node that moved to
-/// its new Lot until it closes. One input of the rule has no producer yet: no Silent Alert exists before Epic
-/// 7, so the only silence the projector knows is a Node that has declared no Sensor: it has never reported, and
-/// its Lot is <c>unknown</c> with cause <c>node</c>. A declared <c>calibration: true</c> soil-moisture Sensor is
+/// its new Lot until it closes. A declared <c>calibration: true</c> soil-moisture Sensor is
 /// uncalibrated until its <c>sensor.calibrated</c> event is projected (Story 5.1).
+/// </para>
+/// <para>
+/// A Lot is <c>unknown</c> (Story 7.1) with cause <c>node</c> while a <c>silent</c> Alert is open on its Node, or
+/// while its Node has declared no Sensor (it has never reported); otherwise with cause <c>hub</c> while one is
+/// open on the Hub that relayed the Node's last accepted frame (<c>device.relay-changed</c>). When a Hub's Alert
+/// opens or closes, every Lot whose Node it relays is evaluated again.
 /// </para>
 /// </remarks>
 public sealed class LotsProjector : IProjector
@@ -54,6 +59,8 @@ public sealed class LotsProjector : IProjector
     private const string AlertStreamPrefix = "alert/";
 
     private const string ThresholdKindName = "threshold";
+
+    private const string SilentKindName = "silent";
 
     private const string LowSide = "low";
 
@@ -99,6 +106,13 @@ public sealed class LotsProjector : IProjector
         INSERT INTO lot_status_devices (device_id, sensor_ids)
         VALUES (@device_id, @sensor_ids)
         ON CONFLICT (device_id) DO UPDATE SET sensor_ids = EXCLUDED.sensor_ids
+        """;
+
+    private const string RelayDeviceSql =
+        """
+        INSERT INTO lot_status_devices (device_id, relay_hub_id)
+        VALUES (@device_id, @relay_hub_id)
+        ON CONFLICT (device_id) DO UPDATE SET relay_hub_id = EXCLUDED.relay_hub_id
         """;
 
     private const string DeclareSensorSql =
@@ -164,7 +178,13 @@ public sealed class LotsProjector : IProjector
                    SELECT 1 FROM lot_status_alerts a
                    WHERE a.device_id = l.claimed_by AND a.closed_at IS NULL AND a.sensor_id = ANY (d.sensor_ids)
                      AND a.kind = @threshold AND a.side = @low AND a.quantity = @soil_moisture),
-               l.site_id
+               l.site_id,
+               EXISTS (
+                   SELECT 1 FROM lot_status_alerts a
+                   WHERE a.device_id = l.claimed_by AND a.closed_at IS NULL AND a.kind = @silent),
+               EXISTS (
+                   SELECT 1 FROM lot_status_alerts a
+                   WHERE a.device_id = d.relay_hub_id AND a.closed_at IS NULL AND a.kind = @silent)
         FROM lots l
         LEFT JOIN lot_status_devices d ON d.device_id = l.claimed_by
         WHERE
@@ -209,21 +229,46 @@ public sealed class LotsProjector : IProjector
         IdOf(streamId, AlertStreamPrefix) is { } id && Guid.TryParse(id, out var alertId) ? alertId : null;
 
     /// <summary>
-    /// Returns the inputs of the status rule as the projector knows them today: a Node that has declared no
-    /// Sensor is the only silence it knows (see the remarks of the class).
+    /// Returns the inputs of the status rule as the projector knows them. The Node is silent while it has
+    /// declared no Sensor (it has never reported) or has an open <c>silent</c> Alert; otherwise its relay Hub is
+    /// when that Hub has one (Story 7.1). The Node is the more specific cause and wins.
     /// </summary>
     /// <param name="hasNode">Whether a Node occupies the Lot.</param>
     /// <param name="hasDeclared">Whether the Server accepted a Specification set of that Node.</param>
     /// <param name="pausedBy">The Pause sources of that Node.</param>
     /// <param name="uncalibratedSoilSensor">Whether the Node has a calibrating soil-moisture Sensor without Calibration.</param>
     /// <param name="openLowAlert">Whether a low-side Threshold Alert is open on a soil-moisture Sensor of the Node.</param>
-    public static LotStatusInputs InputsOf(bool hasNode, bool hasDeclared, LotPauseSources pausedBy, bool uncalibratedSoilSensor, bool openLowAlert) =>
+    /// <param name="nodeSilent">Whether a <c>silent</c> Alert is open on the Node.</param>
+    /// <param name="hubSilent">Whether a <c>silent</c> Alert is open on the Hub that relayed the Node's last accepted frame.</param>
+    public static LotStatusInputs InputsOf(
+        bool hasNode,
+        bool hasDeclared,
+        LotPauseSources pausedBy,
+        bool uncalibratedSoilSensor,
+        bool openLowAlert,
+        bool nodeSilent = false,
+        bool hubSilent = false) =>
         new(
             hasNode,
             pausedBy,
-            hasNode && !hasDeclared ? LotSilence.Node : LotSilence.None,
+            SilenceOf(hasNode, hasDeclared, nodeSilent, hubSilent),
             uncalibratedSoilSensor,
             openLowAlert);
+
+    private static LotSilence SilenceOf(bool hasNode, bool hasDeclared, bool nodeSilent, bool hubSilent)
+    {
+        if (!hasNode)
+        {
+            return LotSilence.None;
+        }
+
+        if (!hasDeclared || nodeSilent)
+        {
+            return LotSilence.Node;
+        }
+
+        return hubSilent ? LotSilence.Hub : LotSilence.None;
+    }
 
     /// <inheritdoc />
     public Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
@@ -327,6 +372,15 @@ public sealed class LotsProjector : IProjector
                 }
 
                 break;
+            case DeviceRelayChanged relayed:
+                at = relayed.ChangedAt;
+                await ExecuteAsync(
+                    transaction,
+                    RelayDeviceSql,
+                    cancellationToken,
+                    ("device_id", deviceId),
+                    ("relay_hub_id", relayed.HubId)).ConfigureAwait(false);
+                break;
             default:
                 return;
         }
@@ -406,8 +460,8 @@ public sealed class LotsProjector : IProjector
                 {
                     command.Parameters.AddWithValue("alert_id", alertId);
                     command.Parameters.AddWithValue("device_id", opened.DeviceId);
-                    command.Parameters.AddWithValue("sensor_id", opened.SensorId);
-                    command.Parameters.AddWithValue("quantity", opened.Quantity);
+                    command.Parameters.AddWithValue("sensor_id", NpgsqlDbType.Uuid, (object?)opened.SensorId ?? DBNull.Value);
+                    command.Parameters.AddWithValue("quantity", NpgsqlDbType.Text, (object?)opened.Quantity ?? DBNull.Value);
                     command.Parameters.AddWithValue("kind", KindName(opened.Kind));
                     command.Parameters.AddWithValue("side", NpgsqlDbType.Text, (object?)SideName(opened.Side) ?? DBNull.Value);
                     command.Parameters.AddWithValue("opened_at", opened.OpenedAt.ToUniversalTime());
@@ -434,14 +488,21 @@ public sealed class LotsProjector : IProjector
                 return;
         }
 
+        // The Lot of the Alert's Device, and every Lot behind it when the Device is a Hub (Story 7.1): a Hub's
+        // silence makes the Lots whose Node it relays unknown.
         if (deviceId is not null)
         {
-            await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), changes, cancellationToken).ConfigureAwait(false);
+            await EvaluateAsync(transaction, "(l.claimed_by = @key OR d.relay_hub_id = @key)", deviceId, at.ToUniversalTime(), changes, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    // Only a Threshold Alert reaches the rule; a kind this projector does not know yet is kept under its name.
-    private static string KindName(AlertKind kind) => kind == AlertKind.Threshold ? ThresholdKindName : kind.ToString();
+    // Threshold and silent Alerts reach the rule; a kind this projector does not know yet is kept under its name.
+    private static string KindName(AlertKind kind) => kind switch
+    {
+        AlertKind.Threshold => ThresholdKindName,
+        AlertKind.Silent => SilentKindName,
+        _ => kind.ToString(),
+    };
 
     private static string? SideName(ThresholdSide? side) => side switch
     {
@@ -485,6 +546,7 @@ public sealed class LotsProjector : IProjector
             select.Parameters.AddWithValue("soil_moisture", CryptoSpec.SensorQuantitySoilMoisture);
             select.Parameters.AddWithValue("threshold", ThresholdKindName);
             select.Parameters.AddWithValue("low", LowSide);
+            select.Parameters.AddWithValue("silent", SilentKindName);
 
             await using var reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -505,7 +567,14 @@ public sealed class LotsProjector : IProjector
                     ends.Add(await ReadTimeAsync(reader, 6, cancellationToken).ConfigureAwait(false));
                 }
 
-                var result = LotStatusRule.Evaluate(InputsOf(reader.GetBoolean(1), reader.GetBoolean(2), sources, reader.GetBoolean(7), reader.GetBoolean(8)));
+                var result = LotStatusRule.Evaluate(InputsOf(
+                    reader.GetBoolean(1),
+                    reader.GetBoolean(2),
+                    sources,
+                    reader.GetBoolean(7),
+                    reader.GetBoolean(8),
+                    nodeSilent: reader.GetBoolean(10),
+                    hubSilent: reader.GetBoolean(11)));
                 var pausedUntil = result.Status == LotStatusRule.Paused ? LotStatusRule.PausedUntil(ends) : null;
 
                 decisions.Add((reader.GetString(0), result, pausedUntil));

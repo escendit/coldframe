@@ -921,7 +921,7 @@ export type components = {
             /** @description Every enrolled Device of the Site, ordered by Device ID. */
             devices: components["schemas"]["DeviceListItem"][];
         };
-        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server produces only threshold today; silent, battery and uncalibrated arrive with Epic 7. */
+        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. This list holds only threshold today: the Server also opens silent Alerts (Story 7.1), which are listed once the Alert schema can describe them (Story 7.2); battery and uncalibrated arrive later in Epic 7. */
         AlertKind: string;
         /**
          * @description The Threshold a Threshold Alert crossed: below the low or above the high.
