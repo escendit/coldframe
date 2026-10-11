@@ -15,7 +15,8 @@
   "dependencies": {
     "@coldframe/api-client": "workspace:*",
     "@escendit/sveltekit-auth-keycloak": "0.1.0-rc.12",
-    "@escendit/sveltekit-session": "0.1.0-rc.12"
+    "@escendit/sveltekit-session": "0.1.0-rc.12",
+    "@microsoft/signalr": "10.0.11"
   },
   "devDependencies": {
     "@coldframe/design-tokens": "workspace:*",

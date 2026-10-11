@@ -20,7 +20,8 @@ public sealed partial class ProjectionRunner(
     ProjectionWakeup wakeup,
     TimeProvider timeProvider,
     IOptions<JournalOptions> options,
-    ILogger<ProjectionRunner> logger) : BackgroundService
+    ILogger<ProjectionRunner> logger,
+    IReadModelHints? hints = null) : BackgroundService
 {
     private const string EnsureCheckpointSql =
         """
@@ -119,6 +120,7 @@ public sealed partial class ProjectionRunner(
         }
 
         var applied = checkpoint;
+        var changes = new ReadModelChanges();
 
         foreach (var @event in batch.OrderBy(item => item.Position))
         {
@@ -127,7 +129,8 @@ public sealed partial class ProjectionRunner(
                 continue;
             }
 
-            await projector.ApplyAsync(@event, transaction, cancellationToken).ConfigureAwait(false);
+            changes.Position = @event.Position;
+            await projector.ApplyAsync(@event, transaction, changes, cancellationToken).ConfigureAwait(false);
             applied = @event.Position;
         }
 
@@ -148,7 +151,29 @@ public sealed partial class ProjectionRunner(
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        PublishHints(changes);
         return true;
+    }
+
+    // Only after the commit (Story 6.6), and never part of it: a hint that cannot be handed on is dropped, the
+    // batch stays applied and is not applied again.
+    private void PublishHints(ReadModelChanges changes)
+    {
+        if (hints is null || changes.Items.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            hints.Publish(changes.Items);
+        }
+#pragma warning disable CA1031 // Whatever a publisher does, the committed batch is not failed or repeated.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogHintsFailed(logger, projector.Name, exception);
+        }
     }
 
     /// <inheritdoc />
@@ -192,4 +217,7 @@ public sealed partial class ProjectionRunner(
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Projector {Projector} failed to catch up; it retries on the next hint or poll.")]
     private static partial void LogCatchUpFailed(ILogger logger, string projector, Exception exception);
+
+    [LoggerMessage(EventId = 2, EventName = "ReadModelHintsFailed", Level = LogLevel.Warning, Message = "The hints of projector {Projector} could not be published; the batch stays applied.")]
+    private static partial void LogHintsFailed(ILogger logger, string projector, Exception exception);
 }

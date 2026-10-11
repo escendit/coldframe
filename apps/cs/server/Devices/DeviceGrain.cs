@@ -562,6 +562,13 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 return new DeviceIngestResult(DeviceIngestStatus.Retry);
             }
 
+            // 6a. The readings hint (Story 6.6), only after the commit and only when a row was new: the open
+            // web app of the Site's members reads the Lot again. It never fails or repeats the commit.
+            if (!paused && committed.NewKeys > 0)
+            {
+                HintReadings(frame.Rows, committed);
+            }
+
             // 7. The Hub that relayed the frame, journaled only when it changes and only once the frame is
             // committed (AD-18, DW-45). When that fails the answer is retry: the Node resends, and the resend
             // is a duplicate that records the relay.
@@ -731,6 +738,34 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         }
     }
 
+    // Tells the hub that the Lot of this Node has new Readings. The version is the newest measured_at of the
+    // frame as its keys keep it, in Unix milliseconds; nothing of a Reading is handed on. An unassigned Node has
+    // no Lot and hints nothing. Never throws.
+    private void HintReadings(FrameRows? rows, FrameCommitted committed)
+    {
+        if (rows is null || State.SiteId is not { } siteId || State.LotId is not { } lotId)
+        {
+            return;
+        }
+
+        try
+        {
+            var newest = rows.Readings
+                .Select(reading => committed.MeasuredAtOf(reading.SensorId, reading.ReadingSeq, rows.MeasuredAt))
+                .Append(rows.MeasuredAt)
+                .Max();
+
+            ServiceProvider.GetService<IReadModelHints>()?.Publish(
+                [new ReadModelChange(siteId, ReadModelResources.Readings, lotId, Math.Max(1, newest.ToUnixTimeMilliseconds()))]);
+        }
+#pragma warning disable CA1031 // A hint is best effort: the frame is committed and is acknowledged all the same.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogHintFailed(Logger, DeviceId, exception);
+        }
+    }
+
     // Commits a frame and, on success, adopts its replay window. A failed transaction stored nothing: the
     // in-memory window is dropped and read again for the next frame, so it always equals the stored one.
     private async Task<FrameCommitted?> CommitAsync(DeviceIngestionStore store, FrameCommit commit, ReplayWindow window)
@@ -803,6 +838,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     [LoggerMessage(EventId = 6, Level = LogLevel.Warning, Message = "A Reading of Device {DeviceId} could not be evaluated; the frame is answered with retry.")]
     private static partial void LogEvaluationFailed(ILogger logger, string deviceId, Exception exception);
+
+    [LoggerMessage(EventId = 7, EventName = "ReadingsHintFailed", Level = LogLevel.Warning, Message = "The readings hint for Device {DeviceId} could not be published; the frame is stored and acknowledged all the same.")]
+    private static partial void LogHintFailed(ILogger logger, string deviceId, Exception exception);
 
     // Unwraps K_dev, derives the hub-auth/v1 key, verifies, and zeroes both keys on every path.
     private bool Verify(WrappedDeviceKey wrapped, string method, string path, byte[] body, long timestampMs, byte[] nonce, byte[] signature)

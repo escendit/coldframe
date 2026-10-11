@@ -1,9 +1,11 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onMount, type Snippet } from 'svelte';
+  import { afterNavigate, goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/state';
   import AppShell from '$lib/components/AppShell.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
   import { t } from '$lib/i18n';
+  import { mountLive, type Live } from '$lib/live';
   import { webApp } from '$lib/overview-reach.svelte';
   import { sitesNoticeOf } from '$lib/sites';
   import type { LayoutProps } from './$types';
@@ -13,6 +15,29 @@
   // Stale mode of the Site overview: its Lots, or already the Sites, are the last good ones, or
   // this browser cannot reach the web app (UX-DR79).
   const stale = $derived(data.sitesStale !== null || (page.data.staleSince ?? null) !== null || webApp.unreachableSince !== null);
+
+  /**
+   * Live updates (Story 6.6): one hub connection per tab. A hint for what the open page shows reads
+   * the page again, as its own refetch on focus does; a delivered notification is shown when the User
+   * turned browser notifications on here. A lost connection shows nothing.
+   */
+  let live: Live | undefined;
+
+  onMount(() => {
+    live = mountLive({
+      path: () => page.url.pathname,
+      refetch: () => invalidateAll(),
+      open: (route) => void goto(route, { invalidateAll: true }),
+    });
+    return () => {
+      live?.stop();
+    };
+  });
+
+  // Signed out, the hub answers 401 and nothing is tried again until the User navigates.
+  afterNavigate(() => {
+    live?.resume();
+  });
 
   const sitesNotice = $derived.by(() => {
     const notice = sitesNoticeOf(data.sitesNotice);

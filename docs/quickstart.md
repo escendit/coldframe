@@ -139,6 +139,11 @@ user through *Register* on the Keycloak sign-in page. The variables can also go 
 `apps/ts/web/.env`, which git ignores. [`apps/ts/web/README.md`](../apps/ts/web/README.md) lists
 every variable.
 
+While a page is open, the web app keeps one connection to the Server's SignalR hub through its own route
+`/live` (the browser never calls the Server) and reads the page again when the Server hints that
+something on it changed. Settings → My notifications has the switch "Browser notifications while Coldframe
+is open": with it on, an Alert that is due shows as a browser notification, only while a tab is open.
+
 ## Run the Android app
 
 The Android app in [`apps/kt/android`](../apps/kt/android) is a Jetpack Compose shell over the
@@ -234,7 +239,9 @@ dotnet format --verify-no-changes
 dotnet test
 ```
 
-`dotnet test` runs three test projects. `tests/cs/crypto.tests` needs nothing else: it reproduces every
+`dotnet test` runs four test projects; the fourth, `tests/cs/web.e2e`, needs the web app built and a
+browser, see below. To leave it out, name the others (`dotnet test --project tests/cs/server.tests`), as
+CI's `.NET` job does. `tests/cs/crypto.tests` needs nothing else: it reproduces every
 vector of `packages/crypto-spec/vectors.json` (including the RFC anchors) with `Coldframe.Crypto`, runs
 the negative cases (wrong setup code, tampering, replay) and checks the Device simulator
 (`tests/cs/device-simulator`) against the same vectors. `tests/cs/server.tests` needs no containers: event registry and
@@ -248,6 +255,24 @@ Create Site and reconciliation tests run the User and Site grains on such a data
 Two; the Edge API tests and the authorization matrix call the running Server with tokens of Keycloak
 Users they create through a test client of their own, and the Keycloak reconciliation tests change
 Organizations through the Phase Two API and wait for the Server to follow.
+
+`tests/cs/web.e2e` runs the morning-nudge journey (UJ-2) in Chromium: it starts its own AppHost, starts
+the built web app with `node build` on port 5173, signs a Keycloak User in, and follows a simulated Node's
+Readings to the browser notification at 07:00 and to the recovery. Build the web app first, and install
+Playwright's Chromium once (the same revision as the TypeScript end-to-end tests use):
+
+```sh
+pnpm --filter @coldframe/web build
+pnpm --filter @coldframe/web-e2e exec playwright install chromium
+ASPIRE_CONTAINER_RUNTIME=podman dotnet test --project tests/cs/web.e2e
+```
+
+Nothing else may listen on `127.0.0.1:5173` meanwhile: it is the only redirect the realm's `coldframe-web`
+client allows. The test does not wait through the night. It gives the AppHost `Testing:ManualClock=true`,
+which the AppHost hands on to the Server, and moves the Server's clock through `POST /testing/clock`. The
+Server honours the setting only in a Development host; `aspire run` does not set it, so the local stack
+runs on the system clock and has no `/testing` endpoint. See
+[`apps/cs/README.md`](../apps/cs/README.md#the-test-only-clock).
 
 Server code reads the time only from an injected `TimeProvider`. `DateTime.UtcNow` and its relatives
 fail the build with RS0030.

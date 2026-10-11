@@ -229,7 +229,7 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
             {
                 foreach (var journalEvent in await edge.ReadStreamAsync($"alert/{alertId}", Ct))
                 {
-                    await projector.ApplyAsync(journalEvent, transaction, Ct);
+                    await projector.ApplyAsync(journalEvent, transaction, new Coldframe.Server.Journal.ReadModelChanges(), Ct);
                 }
             }
 

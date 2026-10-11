@@ -183,6 +183,16 @@ are fixed in the templates so that `SECRETS.md` stays the whole contract.
 - **Temporal**: a `pre-install,pre-upgrade` hook Job sets up and updates both schemas (idempotent);
   a `post-install,post-upgrade` hook Job creates the namespace when it is absent.
 - **Keycloak**: one replica, `Recreate`; an existing realm is not overwritten by the import.
+- **Live updates** (Story 6.6): the web app keeps one long-lived request per open tab,
+  `GET https://<web host>/live`, a Server-Sent Events stream it forwards from the Server's SignalR hub
+  (`server:8080/live` inside the cluster; the browser never calls the hub on the API host). Whatever
+  stands in front of the web app must pass that response through as it arrives: no response buffering, no
+  compression of `text/event-stream`, and an idle timeout above 15 s, the hub's keep-alive. The `ingress`
+  chart adds no buffering or compression middleware to Traefik, which streams by default. A buffering
+  proxy does not break the app: browser notifications and live refreshes then arrive late or not at all,
+  and the overview and Alerts still refresh on focus. The Server keeps the hub's connections in memory, so it stays at one
+  replica, like the web app with its sessions. The `server` chart sets neither `Testing:ManualClock` nor
+  a Development environment, so the Server's test-only clock is off.
 - **Database**: CloudNativePG applies a new `imageName` (PostgreSQL minor version) with a restart
   of the instance. Changing `clusterName` or the bootstrap values of a running release does not
   move the data: `bootstrap` only runs for a new cluster. **Uninstalling the release deletes the

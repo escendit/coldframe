@@ -65,6 +65,29 @@ function markerWrites(event: RequestEvent & { cookies: { writes: { name: string;
 }
 
 describe('auth handle', () => {
+  test('AD-14 a hub request without a session is a 401, whatever the package answers a signed-out caller', async () => {
+    // The package answers a non-GET without a session with 405, and a GET with whatever the route says.
+    const refuses: Behaviour = () => Promise.resolve(new Response('Method Not Allowed', { status: 405 }));
+    const toSignIn: Behaviour = () => redirect(303, '/.oidc/signin');
+    for (const [behaviour, path] of [
+      [refuses, '/live/negotiate'],
+      [refuses, '/live'],
+      [passThrough, '/live'],
+      [toSignIn, '/live'],
+    ] as const) {
+      const { handle } = setup(behaviour, { identity: null });
+      const response = await handle({ event: fakeEvent(path), resolve: pageResolve() });
+      expect(response.status, path).toBe(401);
+      expect(await response.text()).toBe('');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    }
+    // Signed in, the route's own answer stands; and no other path is touched.
+    const signedInHub = await setup(passThrough, { identity: signedIn }).handle({ event: fakeEvent('/live/negotiate'), resolve: pageResolve() });
+    expect(signedInHub.status).toBe(200);
+    const elsewhere = await setup(refuses, { identity: null }).handle({ event: fakeEvent('/lively'), resolve: pageResolve() });
+    expect(elsewhere.status).toBe(405);
+  });
+
   test('UX-DR93 sets the httpOnly, Lax session marker while signed in', async () => {
     const { handle } = setup(passThrough, { identity: signedIn });
     const event = fakeEvent('/garden');

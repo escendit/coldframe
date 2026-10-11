@@ -41,7 +41,8 @@ class PushFixturesTest {
 
     @Test
     fun thereIsOneFixturePerKindAndNoOther() {
-        assertEquals(kinds.map { "push.$it.json" }.sorted(), folder.list()!!.sorted())
+        // The folder also holds the web's SignalR examples (`live.*.json`, Story 6.6), which no phone reads.
+        assertEquals(kinds.map { "push.$it.json" }.sorted(), folder.list()!!.filter { it.startsWith("push.") }.sorted())
     }
 
     @Test

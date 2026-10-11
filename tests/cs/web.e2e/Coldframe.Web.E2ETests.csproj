@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The end-to-end test of the morning-nudge journey (UJ-2, Story 6.6): the built web app, a real browser,
+    Keycloak and the Server under the Aspire AppHost with the test-only clock. It needs the web app built
+    (pnpm, filter @coldframe/web, script build) and Playwright's Chromium, so CI runs it in its own job and
+    the .NET job leaves it out.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Coldframe.Web.E2ETests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Playwright" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\aspire\Coldframe.AppHost\Coldframe.AppHost.csproj" />
+    <!-- Enrolment and sealed Readings come from the Device simulator only (AD-24). -->
+    <ProjectReference Include="..\device-simulator\Coldframe.DeviceSimulator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

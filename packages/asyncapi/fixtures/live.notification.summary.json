@@ -1,0 +1,19 @@
+{
+  "description": "The morning summary of push.summary.json for an open web app: no Lot and no Alert.",
+  "notification": {
+    "kind": "summary",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "dueAt": "2026-10-09T05:00:00Z",
+    "sentAt": "2026-10-09T05:00:20Z"
+  },
+  "target": "notification.delivered",
+  "message": {
+    "kind": "summary",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "siteName": "Home garden",
+    "collapseId": "b2efb891dc1c9672a2fcb77cd589bf6a",
+    "title": "Home garden: 2 need water, 3 to check",
+    "body": "Tomatoes needs water\nPeppers needs water\nHerbs too wet\nBeans temperature below 5 °C\nLettuce humidity above 90 %\nHeld overnight, 22:00–07:00"
+  },
+  "route": "/garden?site=0199c1f0-5a00-7000-8000-000000000001"
+}

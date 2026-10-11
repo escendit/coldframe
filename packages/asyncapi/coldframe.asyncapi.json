@@ -2,8 +2,8 @@
   "asyncapi": "3.0.0",
   "info": {
     "title": "Coldframe notifications",
-    "version": "0.1.0",
-    "description": "What the Server sends to a phone when a notification is due (Story 6.5). The User grain alone decides when; the APNs and FCM channels behind the Notifier seam write the text and send it. A client only displays what it receives and routes a tap. SignalR messages for the web arrive with Story 6.6."
+    "version": "0.2.0",
+    "description": "What the Server sends when a notification is due (Story 6.5), and what it tells an open web app (Story 6.6). The User grain alone decides when to notify; the channels behind the Notifier seam (APNs, FCM, and the SignalR hub for the open web app) write the text and send it. A client only displays what it receives and routes a tap or click. The hub also carries readmodel.changed, a hint without domain data after which the web app reads again over REST."
   },
   "servers": {
     "apns": {
@@ -15,6 +15,11 @@
       "host": "fcm.googleapis.com",
       "protocol": "https",
       "description": "Firebase Cloud Messaging HTTP v1 with a service-account access token."
+    },
+    "live": {
+      "host": "coldframe.example",
+      "protocol": "https",
+      "description": "The Server's SignalR hub: the JSON hub protocol over Server-Sent Events or long polling, never WebSockets. The browser reaches it only through the web app's own origin: the SvelteKit backend-for-frontend forwards /live and /live/negotiate with the session's access token as Authorization: Bearer (AD-14). The hub has no method a client can call."
     }
   },
   "channels": {
@@ -39,6 +44,15 @@
       "messages": {
         "push": { "$ref": "#/components/messages/FcmPush" }
       }
+    },
+    "liveHub": {
+      "address": "/live",
+      "description": "One connection per open tab. A connection receives notification.delivered only for its own User, and readmodel.changed only for Sites the User holds a Membership on at that moment. Nothing is kept for a User without an open connection.",
+      "servers": [{ "$ref": "#/servers/live" }],
+      "messages": {
+        "notificationDelivered": { "$ref": "#/components/messages/NotificationDelivered" },
+        "readModelChanged": { "$ref": "#/components/messages/ReadModelChanged" }
+      }
     }
   },
   "operations": {
@@ -53,6 +67,18 @@
       "channel": { "$ref": "#/channels/fcmMessages" },
       "summary": "The Server pushes a notification to an Android phone.",
       "messages": [{ "$ref": "#/channels/fcmMessages/messages/push" }]
+    },
+    "sendNotificationDelivered": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/liveHub" },
+      "summary": "The Notifier's SignalR channel hands a due notification to every open connection of the User.",
+      "messages": [{ "$ref": "#/channels/liveHub/messages/notificationDelivered" }]
+    },
+    "sendReadModelChanged": {
+      "action": "send",
+      "channel": { "$ref": "#/channels/liveHub" },
+      "summary": "The Server hints that a read model changed, after the change is committed.",
+      "messages": [{ "$ref": "#/channels/liveHub/messages/readModelChanged" }]
     }
   },
   "components": {
@@ -71,6 +97,20 @@
         "summary": "A data message: FCM display notifications cannot set a notification group, so the app builds the notification from data (group = Site, a channel without badge). The text still comes only from the Server.",
         "contentType": "application/json",
         "payload": { "$ref": "#/components/schemas/FcmRequest" }
+      },
+      "NotificationDelivered": {
+        "name": "notification.delivered",
+        "title": "Notification for the open web app",
+        "summary": "The hub invocation notification.delivered with one argument. Only the Notifier's channel sends it, so it is already inside the User's Notification Window and not muted. The text is the push text. The web app shows it as a browser notification when the User turned that on in this browser, with collapseId as the notification tag.",
+        "contentType": "application/json",
+        "payload": { "$ref": "#/components/schemas/NotificationDelivered" }
+      },
+      "ReadModelChanged": {
+        "name": "readmodel.changed",
+        "title": "Read-model hint",
+        "summary": "The hub invocation readmodel.changed with one argument. It carries no domain data: the web app reads the resource again over REST when the open page shows it.",
+        "contentType": "application/json",
+        "payload": { "$ref": "#/components/schemas/ReadModelChanged" }
       }
     },
     "schemas": {
@@ -167,6 +207,38 @@
               }
             }
           }
+        }
+      },
+      "NotificationDelivered": {
+        "type": "object",
+        "description": "What one notification says and where a click on it leads. alert and reminder open Lot detail of lotId after switching to siteId; summary, and a kind the client does not know, open the overview of siteId.",
+        "required": ["kind", "siteId", "siteName", "collapseId", "title", "body"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "$ref": "#/components/schemas/NotificationKind" },
+          "siteId": { "type": "string", "format": "uuid", "description": "The Site the notification is about." },
+          "siteName": { "type": "string", "description": "The Site's name; empty when the Server could not read it." },
+          "lotId": { "type": "string", "format": "uuid", "description": "The Lot the Alert was opened for; absent in a summary." },
+          "alertId": { "type": "string", "format": "uuid", "description": "The Alert; absent in a summary." },
+          "collapseId": { "$ref": "#/components/schemas/CollapseId" },
+          "title": { "type": "string", "description": "The condition, such as \"Tomatoes needs water\"." },
+          "body": { "type": "string", "description": "Value and context; empty when the Server found neither." }
+        }
+      },
+      "ReadModelResource": {
+        "type": "string",
+        "description": "Which read model changed. sites: the caller's Sites, a Site's name or a Membership (id is the Site). lots: a Lot or its status (id is the Lot). readings: new Readings of the Node on a Lot (id is the Lot). devices: a Device of the Site (id is the Device). alerts: an Alert opened or closed (id is the Alert).",
+        "enum": ["sites", "lots", "readings", "devices", "alerts"]
+      },
+      "ReadModelChanged": {
+        "type": "object",
+        "description": "A hint, sent after the change is committed. Only these three fields; nothing derived from domain data.",
+        "required": ["resource", "id", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "resource": { "$ref": "#/components/schemas/ReadModelResource" },
+          "id": { "type": "string", "minLength": 1, "description": "The ID of what changed, see ReadModelResource." },
+          "version": { "type": "integer", "format": "int64", "minimum": 1, "description": "Never decreases for the same resource and id: the journal position of the event for a projected read model, the newest measured_at in Unix milliseconds for readings." }
         }
       }
     }

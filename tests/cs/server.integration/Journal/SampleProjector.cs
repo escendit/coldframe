@@ -45,7 +45,7 @@ public sealed class SampleProjector : IProjector
     /// </summary>
     public void FailOnceOn(string streamId) => Volatile.Write(ref _failOnStreamId, streamId);
 
-    public async Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    public async Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(journalEvent);
         ArgumentNullException.ThrowIfNull(transaction);

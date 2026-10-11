@@ -14,11 +14,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWK } from 'jose';
 
-export type Mode = 'normal' | 'error' | 'access_denied' | 'token-error' | 'short-lived' | 'discovery-error';
+export type Mode = 'normal' | 'error' | 'access_denied' | 'token-error' | 'short-lived' | 'short-refresh' | 'discovery-error';
 
-export const modes: readonly Mode[] = ['normal', 'error', 'access_denied', 'token-error', 'short-lived', 'discovery-error'];
+export const modes: readonly Mode[] = ['normal', 'error', 'access_denied', 'token-error', 'short-lived', 'short-refresh', 'discovery-error'];
 
-/** The access and ID token lifetime of the short-lived mode. */
+/**
+ * The access and ID token lifetime of the short-lived modes: `short-lived` also rejects the refresh (the
+ * session ends), `short-refresh` accepts it (the session goes on with a new access token).
+ */
 export const shortLivedSeconds = 5;
 
 export const realmPath = '/realms/coldframe';
@@ -262,6 +265,53 @@ export interface FakeDeviceAction {
 }
 
 /** Seeded by default, so every spec that signs in still reaches Garden. */
+/** One request the fake hub received (Story 6.6): what the web app's server forwarded, never a secret itself. */
+export interface FakeLiveRequest {
+  readonly method: string;
+  readonly path: string;
+  /** The names of the query parameters. */
+  readonly query: readonly string[];
+  /** Whether it carried an access token this provider issued, as `Authorization: Bearer`. */
+  readonly bearer: boolean;
+  /**
+   * Which token that was, by its `jti`, and whether it had expired when the request arrived; `null`
+   * without a readable token. Enough to tell two tokens apart, and no token itself.
+   */
+  readonly token: { readonly id: string; readonly expired: boolean } | null;
+  /** The names of every header but the ones Node's fetch adds itself. */
+  readonly headers: readonly string[];
+}
+
+/** What `GET /control/live` answers. */
+export interface FakeLiveState {
+  /** Connections whose event stream is open and whose handshake is done. */
+  readonly connections: number;
+  readonly requests: readonly FakeLiveRequest[];
+}
+
+/** What `POST /control/live` takes: a hub message for every open connection, and switches of the hub. */
+export interface FakeLiveControl {
+  readonly send?: { readonly target: string; readonly argument: unknown };
+  /** Ends every event stream, as when the Server closes a connection whose token expired. */
+  readonly drop?: boolean;
+  /** Makes the hub answer 401, as for a session that is gone. */
+  readonly refuse?: boolean;
+  /** Forgets the recorded requests and stops refusing. */
+  readonly reset?: boolean;
+}
+
+/** SignalR's JSON hub protocol ends every message with this record separator. */
+const recordSeparator = '\u001e';
+
+/** Headers Node's fetch adds to every request; the rest is what the web app chose to forward. */
+const fetchHeaders = new Set(['host', 'connection', 'accept-language', 'sec-fetch-mode', 'user-agent', 'accept-encoding', 'content-length', 'transfer-encoding']);
+
+interface LiveConnection {
+  stream: ServerResponse | null;
+  ready: boolean;
+  ping: ReturnType<typeof setInterval> | null;
+}
+
 export const defaultSites: readonly FakeSite[] = [{ id: '0192a000-0000-7000-8000-000000000001', name: 'Home garden', role: 'Owner' }];
 
 export interface FakeIdp {
@@ -360,6 +410,31 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let failing: FailingReads = 'none';
   /** How many times the Lots of any Site were asked for since the last reset. */
   let lotReads = 0;
+  /** Story 6.6: the fake SignalR hub's connections by connection token, and what it was asked. */
+  const liveConnections = new Map<string, LiveConnection>();
+  let liveRequests: FakeLiveRequest[] = [];
+  let liveRefuse = false;
+
+  function liveWrite(connection: LiveConnection, message: object): boolean {
+    if (connection.stream === null || connection.stream.writableEnded) {
+      return false;
+    }
+    connection.stream.write(`data: ${JSON.stringify(message)}${recordSeparator}\r\n\r\n`);
+    return true;
+  }
+
+  function liveEnd(token: string): void {
+    const connection = liveConnections.get(token);
+    if (connection === undefined) {
+      return;
+    }
+    if (connection.ping !== null) {
+      clearInterval(connection.ping);
+    }
+    connection.stream?.end();
+    liveConnections.delete(token);
+  }
+
   /** The `statusSince` of a Lot seeded without one. */
   const startedAt = new Date().toISOString();
 
@@ -371,6 +446,20 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
 
   function problem(response: ServerResponse, status: number, slug: string): void {
     send(response, status, { type: `urn:coldframe:problem:${slug}`, title: slug, status }, { 'content-type': 'application/problem+json' });
+  }
+
+  /** The `jti` and expiry of the bearer token of a request, read from its payload. */
+  function bearerToken(request: IncomingMessage): { id: string; expired: boolean } | null {
+    const payload = request.headers.authorization?.split(' ')[1]?.split('.')[1];
+    if (payload === undefined) {
+      return null;
+    }
+    try {
+      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { jti?: unknown; exp?: unknown };
+      return typeof claims.jti === 'string' && typeof claims.exp === 'number' ? { id: claims.jti, expired: claims.exp * 1000 <= Date.now() } : null;
+    } catch {
+      return null;
+    }
   }
 
   async function sign(claims: Record<string, unknown>, lifetimeSeconds: number, key: CryptoKey = privateKey): Promise<string> {
@@ -388,7 +477,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   async function tokens(sid: string, nonce: string | null): Promise<Record<string, unknown>> {
     // short-lived: long enough to land on Garden after sign-in on a slow runner (the web app
     // refreshes on the first request after expiry, with no margin), short enough to wait out.
-    const lifetime = mode === 'short-lived' ? shortLivedSeconds : 300;
+    const lifetime = mode === 'short-lived' || mode === 'short-refresh' ? shortLivedSeconds : 300;
     const subject = 'b5f1c0de-0000-4000-8000-000000000001';
     const profile = { name: 'Simon Novak', given_name: 'Simon', family_name: 'Novak', preferred_username: 'simon' };
     const accessToken = await sign({ sub: subject, aud: 'account', azp: clientId, sid, typ: 'Bearer', scope: 'openid profile' }, lifetime);
@@ -1154,6 +1243,118 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       const renamed: FakeLot = { ...lot, name };
       lots = lots.map((candidate) => (candidate.id === lot.id ? renamed : candidate));
       send(response, 200, lotView(renamed));
+      return;
+    }
+
+    // Story 6.6: drives the fake hub. See `FakeLiveControl`.
+    if (path === '/control/live' && request.method === 'POST') {
+      const body = (await readJson(request)) as FakeLiveControl;
+      let delivered = 0;
+      if (body.reset === true) {
+        liveRequests = [];
+        liveRefuse = false;
+      }
+      if (body.refuse !== undefined) {
+        liveRefuse = body.refuse;
+      }
+      if (body.send !== undefined) {
+        for (const connection of liveConnections.values()) {
+          if (connection.ready && liveWrite(connection, { type: 1, target: body.send.target, arguments: [body.send.argument] })) {
+            delivered += 1;
+          }
+        }
+      }
+      if (body.drop === true) {
+        for (const token of [...liveConnections.keys()]) {
+          liveEnd(token);
+        }
+      }
+      send(response, 200, { delivered });
+      return;
+    }
+    if (path === '/control/live') {
+      const state: FakeLiveState = { connections: [...liveConnections.values()].filter((connection) => connection.ready && connection.stream !== null).length, requests: liveRequests };
+      send(response, 200, state);
+      return;
+    }
+
+    // The Server's SignalR hub (Story 6.6), as far as the web app uses it: negotiate, a Server-Sent Events
+    // stream, and the client's handshake and pings by POST. It offers no other transport.
+    if (path === '/live/negotiate' || path === '/live') {
+      liveRequests.push({
+        method: request.method ?? '',
+        path,
+        query: [...url.searchParams.keys()],
+        bearer: bearerOk(request),
+        token: bearerToken(request),
+        headers: Object.keys(request.headers).filter((name) => !fetchHeaders.has(name)).sort(),
+      });
+      // Like the Server, the hub refuses a token that has expired.
+      if (liveRefuse || !bearerOk(request) || bearerToken(request)?.expired !== false) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      if (path === '/live/negotiate') {
+        if (request.method !== 'POST') {
+          send(response, 405, { error: 'method not allowed' });
+          return;
+        }
+        const token = randomUUID();
+        liveConnections.set(token, { stream: null, ready: false, ping: null });
+        send(response, 200, {
+          negotiateVersion: 1,
+          connectionId: randomUUID(),
+          connectionToken: token,
+          availableTransports: [{ transport: 'ServerSentEvents', transferFormats: ['Text'] }],
+        });
+        return;
+      }
+      const token = url.searchParams.get('id') ?? '';
+      const connection = liveConnections.get(token);
+      if (connection === undefined) {
+        send(response, 404, { error: 'no such connection' });
+        return;
+      }
+      if (request.method === 'GET') {
+        response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-store', 'x-accel-buffering': 'no' });
+        response.write(':\r\n\r\n');
+        connection.stream = response;
+        // Keep-alive pings, well inside the client's 30 s server timeout.
+        connection.ping = setInterval(() => {
+          liveWrite(connection, { type: 6 });
+        }, 10_000);
+        request.on('close', () => {
+          liveEnd(token);
+        });
+        return;
+      }
+      if (request.method === 'POST') {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) {
+          chunks.push(chunk as Buffer);
+        }
+        for (const text of Buffer.concat(chunks).toString('utf8').split(recordSeparator)) {
+          if (text === '') {
+            continue;
+          }
+          const message = JSON.parse(text) as { protocol?: string; type?: number };
+          if (message.protocol !== undefined) {
+            // The handshake: an empty object accepts it.
+            liveWrite(connection, {});
+            connection.ready = true;
+          } else if (message.type === 7) {
+            liveEnd(token);
+          }
+        }
+        send(response, 200, '', { 'content-type': 'text/plain' });
+        return;
+      }
+      if (request.method === 'DELETE') {
+        liveEnd(token);
+        send(response, 202, '', { 'content-type': 'text/plain' });
+        return;
+      }
+      send(response, 405, { error: 'method not allowed' });
       return;
     }
 

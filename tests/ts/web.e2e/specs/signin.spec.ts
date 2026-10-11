@@ -48,7 +48,9 @@ test.describe('Sign in on the web', () => {
     });
     const texts: Promise<string>[] = [];
     page.on('response', (response) => {
-      if (response.url().startsWith(appUrl) && response.status() < 300) {
+      // The hub's event stream (Story 6.6) never ends, so it has no body to wait for; `live.spec.ts` checks what travels there.
+      const stream = response.headers()['content-type']?.startsWith('text/event-stream') === true;
+      if (response.url().startsWith(appUrl) && response.status() < 300 && !stream) {
         texts.push(response.text().catch(() => ''));
       }
     });

@@ -71,8 +71,10 @@ test.describe('My notifications', () => {
       await expect(cadence).toContainText('Site setting: Daily');
       // The 24 h bar is decorative.
       await expect(page.locator('.cf-window__bar')).toHaveAttribute('aria-hidden', 'true');
-      // Stories 6.5 and 6.6 own these.
-      await expect(page.getByText(/Browser notifications|Notifications are off/u)).toHaveCount(0);
+      // The browser toggle (Story 6.6) is off until it is turned on; `live.spec.ts` covers it.
+      await expect(page.getByRole('switch', { name: 'Browser notifications while Coldframe is open' })).not.toBeChecked();
+      // Story 6.5 owns the notifications-off notice.
+      await expect(page.getByText(/Notifications are off/u)).toHaveCount(0);
 
       await axeClean(page, `my notifications, new User (${theme})`);
       await nothingClipped(page, `my notifications, new User (${theme})`);

@@ -8,6 +8,8 @@ import type {
   FakeCalibrationReading,
   FakeDevice,
   FakeDeviceAction,
+  FakeLiveControl,
+  FakeLiveState,
   FakeLot,
   FakeNotificationsSeed,
   FakeNotificationsState,
@@ -112,6 +114,33 @@ export async function setNotifications(seed: FakeNotificationsSeed = {}): Promis
 export async function serverNotifications(): Promise<FakeNotificationsState> {
   const response = await fetch(`${idpOrigin}/control/notifications`);
   return (await response.json()) as FakeNotificationsState;
+}
+
+/** What the fake hub (Story 6.6) was asked, and how many connections are open. */
+export async function liveState(): Promise<FakeLiveState> {
+  const response = await fetch(`${idpOrigin}/control/live`);
+  return (await response.json()) as FakeLiveState;
+}
+
+/** Drives the fake hub; answers how many connections a sent message reached. */
+export async function controlLive(control: FakeLiveControl): Promise<number> {
+  const response = await fetch(`${idpOrigin}/control/live`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(control),
+  });
+  expect(response.ok).toBe(true);
+  return ((await response.json()) as { delivered: number }).delivered;
+}
+
+/** Waits until exactly `count` tabs hold an open hub connection. */
+export async function liveConnections(count: number): Promise<void> {
+  await expect.poll(async () => (await liveState()).connections, { timeout: 15_000 }).toBe(count);
+}
+
+/** The fake hub sends one message to every open connection. */
+export async function sendLive(target: 'notification.delivered' | 'readmodel.changed', argument: unknown): Promise<number> {
+  return controlLive({ send: { target, argument } });
 }
 
 /** A new stored Reading of a Sensor arrives at the fake Server. */

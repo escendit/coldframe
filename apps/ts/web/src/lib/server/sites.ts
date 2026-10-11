@@ -36,7 +36,8 @@ export interface SitesDependencies {
 /** Upper bound for each Server call, so a page never hangs on an unreachable Server. */
 export const serverTimeoutMs = 10_000;
 
-function accessTokenOf(locals: Locals): string | null {
+/** The session's access token, or null when signed out. It never leaves the server modules. */
+export function accessTokenOf(locals: Locals): string | null {
   const token = locals.session?.identity?.accessTokenRaw;
   return typeof token === 'string' && token !== '' ? token : null;
 }

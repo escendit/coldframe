@@ -489,8 +489,10 @@ describe('My notifications surface', () => {
     for (const action of ['saveWindow', 'chooseTimeZone', 'setMute', 'setCadence']) {
       expect(body, action).toContain(`action="?/${action}"`);
     }
-    // Stories 6.5 and 6.6 own these.
-    expect(text(body)).not.toMatch(/Browser notifications|Notifications are off|Never/u);
+    // The browser toggle (Story 6.6) is this browser's own and no form of the page.
+    expect(text(body)).toContain('Browser notifications while Coldframe is open');
+    // Story 6.5 owns the notifications-off notice; there is no "Never".
+    expect(text(body)).not.toMatch(/Notifications are off|Never/u);
   });
 
   test('UX-DR72 without a Site only the window and the time zone show', () => {
@@ -609,7 +611,9 @@ describe('My notifications surface', () => {
     const siteOnly = page(home, fresh, null, null, { siteNotice: 'unavailable' });
     expect(siteOnly).toContain('id="cf-window-from"');
     expect(text(siteOnly)).toContain("Your Server couldn't read your settings for Home garden. Nothing was changed.");
-    expect(siteOnly).not.toContain('role="switch"');
+    // The browser toggle (Story 6.6) needs nothing from the Server; the mute switch does.
+    expect(siteOnly).not.toContain('id="cf-mute"');
+    expect(siteOnly.match(/role="switch"/gu)).toHaveLength(1);
   });
 
   test('UX-DR72 the Settings index lists My notifications above Site settings', () => {

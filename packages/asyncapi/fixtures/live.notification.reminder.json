@@ -1,0 +1,21 @@
+{
+  "description": "The Reminder of push.reminder.json for an open web app.",
+  "notification": {
+    "kind": "reminder",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "dueAt": "2026-10-10T05:45:00Z",
+    "sentAt": "2026-10-10T05:45:20Z"
+  },
+  "target": "notification.delivered",
+  "message": {
+    "kind": "reminder",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "siteName": "Home garden",
+    "lotId": "0199c1f0-5a00-7000-8000-0000000000a1",
+    "alertId": "5b0c0d6e-3f1a-5c2b-9d4e-7a8b9c0d1e2f",
+    "collapseId": "0f1e2dd5870874461fa8092d26f8830f",
+    "title": "Tomatoes needs water",
+    "body": "Still ~20 % in the soil, your low is 30 %."
+  },
+  "route": "/garden/0199c1f0-5a00-7000-8000-0000000000a1?site=0199c1f0-5a00-7000-8000-000000000001"
+}

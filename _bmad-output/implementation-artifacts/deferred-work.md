@@ -720,3 +720,11 @@ location: apps/swift/ios/Sources/ColdframeIOS/UI/{AlertsViews,Screens}.swift, ap
 source_spec: `spec-6-2-see-alerts-in-the-apps.md`
 reason: No Swift toolchain with SwiftUI exists on this host. The Linux container compiles and tests AlertsPresentation, L10n and the catalogue only. The render tests assert that an image comes out, not what it shows (DW-20). The VoiceOver label of the tab ("Alerts, N open") is set on the Label inside .tabItem, which SwiftUI may ignore; a device or UI test settles it.
 status: open
+
+### DW-94: No test shows that a live-update hint arriving while a form is being edited leaves the typed input alone.
+origin: spec-deferred f531775cbb40
+location: apps/ts/web/src/lib/live/rule.ts, apps/ts/web/src/routes/(app)/+layout.svelte
+source_spec: `spec-6-6-browser-notifications-and-live-updates-on-the-web.md`
+severity: medium (unverified)
+reason: A sites hint refetches every app page and a lots hint the Thresholds and Calibrate sub-pages, through invalidateAll(). Thresholds keeps its edits in $state(untrack(...)) and Site settings keys its rename input on the Site name, which suggests input survives, but nothing verifies it. A Playwright case that types into Thresholds and Site settings, sends a hint through the fake hub's /control endpoint and reads the inputs again would settle it.
+status: open

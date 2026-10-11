@@ -19,5 +19,6 @@
     <Project Path="tests/cs/device-simulator/Coldframe.DeviceSimulator.csproj" />
     <Project Path="tests/cs/server.integration/Coldframe.Server.IntegrationTests.csproj" />
     <Project Path="tests/cs/server.tests/Coldframe.Server.Tests.csproj" />
+    <Project Path="tests/cs/web.e2e/Coldframe.Web.E2ETests.csproj" />
   </Folder>
 </Solution>

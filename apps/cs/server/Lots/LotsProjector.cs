@@ -66,7 +66,7 @@ public sealed class LotsProjector : IProjector
         ON CONFLICT (lot_id) DO NOTHING
         """;
 
-    private const string RenameSql = "UPDATE lots SET name = @name WHERE lot_id = @lot_id";
+    private const string RenameSql = "UPDATE lots SET name = @name WHERE lot_id = @lot_id RETURNING site_id";
 
     // A claim the Lot already holds keeps its time.
     private const string ClaimSql =
@@ -78,7 +78,7 @@ public sealed class LotsProjector : IProjector
     private const string ReleaseSql =
         "UPDATE lots SET claimed_by = NULL, claimed_at = NULL WHERE lot_id = @lot_id AND claimed_by = @node_id";
 
-    private const string RemoveSql = "UPDATE lots SET removed_at = @at WHERE lot_id = @lot_id AND removed_at IS NULL";
+    private const string RemoveSql = "UPDATE lots SET removed_at = @at WHERE lot_id = @lot_id AND removed_at IS NULL RETURNING site_id";
 
     private const string PauseDeviceSql =
         """
@@ -163,7 +163,8 @@ public sealed class LotsProjector : IProjector
                EXISTS (
                    SELECT 1 FROM lot_status_alerts a
                    WHERE a.device_id = l.claimed_by AND a.closed_at IS NULL AND a.sensor_id = ANY (d.sensor_ids)
-                     AND a.kind = @threshold AND a.side = @low AND a.quantity = @soil_moisture)
+                     AND a.kind = @threshold AND a.side = @low AND a.quantity = @soil_moisture),
+               l.site_id
         FROM lots l
         LEFT JOIN lot_status_devices d ON d.device_id = l.claimed_by
         WHERE
@@ -225,29 +226,30 @@ public sealed class LotsProjector : IProjector
             openLowAlert);
 
     /// <inheritdoc />
-    public Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    public Task ApplyAsync(JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(journalEvent);
         ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(changes);
 
         if (LotIdOf(journalEvent.StreamId) is { } lotId)
         {
-            return ApplyLotAsync(lotId, journalEvent, transaction, cancellationToken);
+            return ApplyLotAsync(lotId, journalEvent, transaction, changes, cancellationToken);
         }
 
         if (DeviceIdOf(journalEvent.StreamId) is { } deviceId)
         {
-            return ApplyDeviceAsync(deviceId, journalEvent.Data, transaction, cancellationToken);
+            return ApplyDeviceAsync(deviceId, journalEvent.Data, transaction, changes, cancellationToken);
         }
 
         if (SensorIdOf(journalEvent.StreamId) is { } sensorId)
         {
-            return ApplySensorAsync(sensorId, journalEvent.Data, transaction, cancellationToken);
+            return ApplySensorAsync(sensorId, journalEvent.Data, transaction, changes, cancellationToken);
         }
 
         if (AlertIdOf(journalEvent.StreamId) is { } alertId)
         {
-            return ApplyAlertAsync(alertId, journalEvent.Data, transaction, cancellationToken);
+            return ApplyAlertAsync(alertId, journalEvent.Data, transaction, changes, cancellationToken);
         }
 
         return Task.CompletedTask;
@@ -260,7 +262,7 @@ public sealed class LotsProjector : IProjector
         return streamId.StartsWith(prefix, StringComparison.Ordinal) ? streamId[prefix.Length..] : null;
     }
 
-    private static async Task ApplyLotAsync(string lotId, JournalEvent journalEvent, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    private static async Task ApplyLotAsync(string lotId, JournalEvent journalEvent, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         // Lot events carry no time of their own: the journal's is the time of the change.
         var at = journalEvent.RecordedAt.ToUniversalTime();
@@ -277,27 +279,28 @@ public sealed class LotsProjector : IProjector
                     ("name", created.Name),
                     ("status", LotStatusRule.NoNode),
                     ("at", at)).ConfigureAwait(false);
+                changes.Touch(created.SiteId, ReadModelResources.Lots, lotId);
                 break;
             case LotRenamed renamed:
-                await ExecuteAsync(transaction, RenameSql, cancellationToken, ("lot_id", lotId), ("name", renamed.Name)).ConfigureAwait(false);
+                await TouchAsync(transaction, RenameSql, lotId, changes, cancellationToken, ("lot_id", lotId), ("name", renamed.Name)).ConfigureAwait(false);
                 break;
             case LotClaimed claimed:
                 await ExecuteAsync(transaction, ClaimSql, cancellationToken, ("lot_id", lotId), ("node_id", claimed.NodeId), ("at", at)).ConfigureAwait(false);
-                await EvaluateAsync(transaction, "l.lot_id = @key", lotId, at, cancellationToken).ConfigureAwait(false);
+                await EvaluateAsync(transaction, "l.lot_id = @key", lotId, at, changes, cancellationToken).ConfigureAwait(false);
                 break;
             case LotReleased released:
                 await ExecuteAsync(transaction, ReleaseSql, cancellationToken, ("lot_id", lotId), ("node_id", released.NodeId)).ConfigureAwait(false);
-                await EvaluateAsync(transaction, "l.lot_id = @key", lotId, at, cancellationToken).ConfigureAwait(false);
+                await EvaluateAsync(transaction, "l.lot_id = @key", lotId, at, changes, cancellationToken).ConfigureAwait(false);
                 break;
             case LotRemoved:
-                await ExecuteAsync(transaction, RemoveSql, cancellationToken, ("lot_id", lotId), ("at", at)).ConfigureAwait(false);
+                await TouchAsync(transaction, RemoveSql, lotId, changes, cancellationToken, ("lot_id", lotId), ("at", at)).ConfigureAwait(false);
                 break;
             default:
                 break;
         }
     }
 
-    private static async Task ApplyDeviceAsync(string deviceId, object data, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    private static async Task ApplyDeviceAsync(string deviceId, object data, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         DateTimeOffset at;
 
@@ -328,10 +331,10 @@ public sealed class LotsProjector : IProjector
                 return;
         }
 
-        await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), changes, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task ApplySensorAsync(Guid sensorId, object data, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    private static async Task ApplySensorAsync(Guid sensorId, object data, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         string? deviceId;
         DateTimeOffset at;
@@ -385,11 +388,11 @@ public sealed class LotsProjector : IProjector
 
         if (deviceId is not null)
         {
-            await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+            await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), changes, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static async Task ApplyAlertAsync(Guid alertId, object data, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    private static async Task ApplyAlertAsync(Guid alertId, object data, NpgsqlTransaction transaction, ReadModelChanges changes, CancellationToken cancellationToken)
     {
         string? deviceId;
         DateTimeOffset at;
@@ -433,7 +436,7 @@ public sealed class LotsProjector : IProjector
 
         if (deviceId is not null)
         {
-            await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+            await EvaluateAsync(transaction, "l.claimed_by = @key", deviceId, at.ToUniversalTime(), changes, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -471,6 +474,7 @@ public sealed class LotsProjector : IProjector
         string filter,
         string key,
         DateTimeOffset at,
+        ReadModelChanges changes,
         CancellationToken cancellationToken)
     {
         var decisions = new List<(string LotId, LotStatusResult Result, DateTimeOffset? PausedUntil)>();
@@ -505,6 +509,10 @@ public sealed class LotsProjector : IProjector
                 var pausedUntil = result.Status == LotStatusRule.Paused ? LotStatusRule.PausedUntil(ends) : null;
 
                 decisions.Add((reader.GetString(0), result, pausedUntil));
+
+                // Every Lot that is evaluated again is reported (Story 6.6): what the Lot list shows of it may
+                // have changed with the event, whether or not its status did.
+                changes.Touch(reader.GetString(9), ReadModelResources.Lots, reader.GetString(0));
             }
         }
 
@@ -526,6 +534,28 @@ public sealed class LotsProjector : IProjector
 
     private static async Task<DateTimeOffset?> ReadTimeAsync(NpgsqlDataReader reader, int ordinal, CancellationToken cancellationToken) =>
         await reader.IsDBNullAsync(ordinal, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(ordinal);
+
+    // Runs an update that returns the Site of the Lot it changed, and reports the Lot when it changed one.
+    private static async Task TouchAsync(
+        NpgsqlTransaction transaction,
+        string sql,
+        string lotId,
+        ReadModelChanges changes,
+        CancellationToken cancellationToken,
+        params (string Name, object Value)[] parameters)
+    {
+        await using var command = new NpgsqlCommand(sql, transaction.Connection, transaction);
+
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string siteId)
+        {
+            changes.Touch(siteId, ReadModelResources.Lots, lotId);
+        }
+    }
 
     private static async Task ExecuteAsync(
         NpgsqlTransaction transaction,

@@ -1,0 +1,21 @@
+{
+  "description": "The Alert of push.alert.json for an open web app: the same title, body and collapse identity.",
+  "notification": {
+    "kind": "alert",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "dueAt": "2026-10-09T05:45:00Z",
+    "sentAt": "2026-10-09T05:45:20Z"
+  },
+  "target": "notification.delivered",
+  "message": {
+    "kind": "alert",
+    "siteId": "0199c1f0-5a00-7000-8000-000000000001",
+    "siteName": "Home garden",
+    "lotId": "0199c1f0-5a00-7000-8000-0000000000a1",
+    "alertId": "5b0c0d6e-3f1a-5c2b-9d4e-7a8b9c0d1e2f",
+    "collapseId": "01d6721c3dfeb91c7bb422ee379e08ec",
+    "title": "Tomatoes needs water",
+    "body": "~20 % in the soil, your low is 30 %."
+  },
+  "route": "/garden/0199c1f0-5a00-7000-8000-0000000000a1?site=0199c1f0-5a00-7000-8000-000000000001"
+}

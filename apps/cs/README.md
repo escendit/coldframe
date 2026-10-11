@@ -8,7 +8,7 @@
 | `migrations/` | The migration job: applies the one forward-only migration set and keeps the Readings partitions ahead, then exits; also the restore step `advance-replay` | Story 1.2, Story 4.5 |
 
 Tests live in [`tests/cs`](../../tests/cs): `server.tests` needs no containers, `server.integration`
-starts the AppHost.
+starts the AppHost, and `web.e2e` starts the AppHost, the built web app and a browser.
 
 ## Rules that hold for every project here
 
@@ -16,7 +16,8 @@ starts the AppHost.
   `DateTime.Today`, `DateTimeOffset.Now` and `DateTimeOffset.UtcNow` fail the build (RS0030, listed in
   [`BannedSymbols.txt`](../../BannedSymbols.txt)), and `WallClockBanTests` fails if one reaches the IL.
   In a grain, read `Clock`; elsewhere, take `TimeProvider` in the constructor. The Server registers
-  `TimeProvider.System` with `TryAdd`, so a test host registers `FakeTimeProvider` first.
+  `TimeProvider.System` with `TryAdd`, so a test host registers `FakeTimeProvider` first. A Server that runs
+  as its own process for a test has [the test-only clock](#the-test-only-clock).
 - **The Server never runs DDL** (AD-22). Only the migration job references FluentMigrator.
 
 ## The migration job
@@ -98,7 +99,13 @@ Only the newest version can be written; grains and projectors only ever see the 
 
 1. Implement `IProjector` with a stable `Name`. `ApplyAsync` receives each event in global-position
    order, inside the transaction that also moves the projector's checkpoint in `projection_checkpoints`.
-   Write only through that transaction and ignore events you do not project.
+   Write only through that transaction and ignore events you do not project. Report every row the
+   event changed with `changes.Touch(siteId, resource, id)`: the runner publishes them as hints once
+   the batch is committed ([Live updates](#live-updates)). A hint only makes a page read again, so
+   reporting too much is harmless and reporting too little is not. `AlertsProjector` and
+   `DevicesProjector` report only a row their statement changed (`RETURNING site_id`), `LotsProjector`
+   also every Lot it evaluates again, whether or not its status changed, and `IdentityProjector` every
+   event it projects.
 2. Create its read-model tables in a migration.
 3. Register it with `services.AddProjector<TProjector>()`. Its `ProjectionRunner` catches up at start,
    then on every hint and at least every `JournalOptions.PollInterval`.
@@ -499,7 +506,7 @@ A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when i
 read them from [the Alerts list](#the-alerts-list) (Story 6.2); when a User may be notified is set in
 [Notification settings](#notification-settings) (Story 6.3), each member's User grain decides when to notify
 ([Delivery timing](#delivery-timing), Story 6.4), and the channels are [Push notifications](#push-notifications)
-(Story 6.5) and Story 6.6. Three grains
+(Story 6.5) and the open web app ([Live updates](#live-updates), Story 6.6). Three grains
 open and close an Alert, through grain calls and the journal only (AD-5):
 
 1. **The Device grain hands out Readings.** After a frame is committed (step 9 of `DeviceGrain.Ingest` in
@@ -761,7 +768,8 @@ while nothing could wake the grain (the silo was down).
 
 **Add a channel**: implement `INotificationChannel.SendAsync(notification, sentAt, …)` and register it with
 `services.AddSingleton<INotificationChannel, TChannel>()`. The push channels (Story 6.5) are registered by
-`AddPushChannels()`; the open web app follows in Story 6.6. Without a channel the Notifier still logs and
+`AddPushChannels()`, the channel to the open web app (Story 6.6) by `AddLive()`
+([Live updates](#live-updates)). Without a channel the Notifier still logs and
 records every notification. A channel only delivers and writes the text, and bounds its own time. It runs
 inside the notified User grain's turn, which is not reentrant: **a channel never calls that User grain** (the
 call would wait for itself until it times out). It answers `ChannelDelivery.Nothing` when the User has nothing
@@ -888,6 +896,83 @@ Tests: `PushTextTests`, `ApnsChannelTests`, `FcmChannelTests` and `PushHostingTe
 stub handlers, no container) and `PushDeliveryGrainTests` and `PushRegistrationTests`
 (`tests/cs/server.integration`), where the cluster runs the real channels against `PushProviderStubs`. A real
 push on a phone is [`docs/bench/push-checklist.md`](../../docs/bench/push-checklist.md).
+
+### Live updates
+
+Story 6.6: one SignalR hub, `LiveHub` at `/live` (`server/Live/`), tells the open web app two things and
+nothing else. The message shapes are the contract in [`packages/asyncapi`](../../packages/asyncapi), with one
+example per message that the tests must equal.
+
+| Message | Sent by | To |
+| --- | --- | --- |
+| `notification.delivered` `{kind, siteId, siteName, lotId?, alertId?, collapseId, title, body}` | `LiveNotificationChannel`, an `INotificationChannel` behind the Notifier | every open connection of the notified User |
+| `readmodel.changed` `{resource, id, version}` | `LiveHints`, from what the projectors and the ingest report after their commit | the open connections of the Site's members |
+
+- **The hub.** `MapLiveHub()` maps it beside `MapEdgeApi()`, not inside it: it is no REST endpoint and is not
+  in the OpenAPI contract. It offers Server-Sent Events and long polling only, because the web app's
+  backend-for-frontend cannot upgrade a connection; there are no WebSockets. A caller needs a bearer token
+  in the `Authorization` header (the browser connects through the backend-for-frontend, AD-14); a token in
+  the URL is not read, and a request without one is 401 Problem Details. The class declares no method a
+  client can call. There is no backplane: connections live in the one Server replica.
+- **Whose connection.** `LiveConnections` keeps, in memory, each connection's User (`sub`) and the Sites it
+  is told about: the User's Memberships from the identity projection, read when the connection opens and
+  again whenever the identity projector commits a change for that User or one of those Sites. A Membership
+  that is granted or revoked therefore takes effect without a reconnect. When that read fails after a
+  change, the connection stops being told about the Site.
+- **Token expiry.** A connection is closed when the token it was opened with expires (`exp`); the web app
+  then connects again with the token its session refreshed.
+- **`notification.delivered`.** The channel holds no timing, window or mute logic: the User grain decided
+  already. Title and body come from `PushContentBuilder`, so the web and a phone show the same words, and
+  `collapseId` is the same identity, which the browser uses as the notification tag (two tabs or a repeated
+  send show one notification). With no open connection of the User nothing is sent, nothing is looked up and
+  nothing is kept for later. There is no Server-side "browser notifications" setting: each browser decides
+  whether it shows what it receives. For that reason the channel always answers `ChannelDelivery.Nothing`,
+  also after it sent: an open tab never counts as a delivery, so a push channel that failed still fails the
+  send and the User grain repeats it, and a User with no phone and no tab still gets
+  `user.notification-sent` journaled. A send to a connection that fails, or takes longer than 5 s, throws.
+- **`readmodel.changed`.** A hint, never data. `IProjector.ApplyAsync` reports the rows an event changed to
+  `ReadModelChanges`, and `ProjectionRunner` hands them to `IReadModelHints` only after the batch is
+  committed; a publisher that fails neither fails nor repeats the batch. `version` is the journal position
+  of the event. Readings pass no projector: `DeviceGrain.Ingest` publishes `readings` for the Node's Lot
+  after the frame is committed and at least one row was new, with the newest `measured_at` in Unix
+  milliseconds as the version. `LiveHints` queues (4 096 hints, the oldest dropped first), sends in commit
+  order, and never lets a version go down for the same resource and ID while the Server runs.
+
+  | `resource` | `id` | Reported by | For |
+  | --- | --- | --- | --- |
+  | `sites` | Site | `IdentityProjector` | a Site created, renamed or deleted; a Membership granted or revoked (also sent to that User) |
+  | `lots` | Lot | `LotsProjector` | a Lot created, renamed or removed, and every Lot whose status is evaluated again |
+  | `readings` | Lot | `DeviceGrain.Ingest` | new Readings or a new device report of the Lot's Node |
+  | `devices` | Device | `DevicesProjector` | a Device enrolled, assigned, moved or unassigned, or seen later than before |
+  | `alerts` | Alert | `AlertsProjector` | an Alert opened or closed |
+
+Tests: `tests/cs/server.tests/Live` (the hub on a loopback listener with the SignalR client, the channel, the
+hints, the fixtures), `tests/cs/server.integration/Live` (the projectors' reports on a migrated database, and
+the hub of the AppHost's Server with Keycloak tokens), and `tests/cs/web.e2e`, the morning-nudge journey in a
+browser.
+
+### The test-only clock
+
+`tests/cs/web.e2e` runs the Server as its own process, where no test can hand in a `FakeTimeProvider`. So the
+Server can run on `ManualClock` (`server/Testing/`): the real time plus an offset that only grows. Timers keep
+their real length; only what the Server reads as "now" moves.
+
+- **Two conditions, both.** The host environment is `Development` **and** `Testing:ManualClock` is `true`
+  (`TestingHostingExtensions.UsesManualClock`). In any other host, with or without the setting, the clock is
+  `TimeProvider.System` and no endpoint is mapped: `/testing/*` answers like any path the Server does not
+  have (404; 401 without a token, as for every unmapped path). The chart sets neither condition. The AppHost
+  hands the setting on only when it is given it itself (`--Testing:ManualClock=true`), which only that test
+  project does.
+- **Endpoints**, each with an access token: `GET /testing/clock` answers `{now, offsetSeconds}`,
+  `POST /testing/clock` with `{"now": "…"}` moves the clock forward (400 for a time behind it), and
+  `POST /testing/users/{userId}/wake` wakes that User's grain as its reminder would, so a test need not wait
+  for the next tick.
+- **Access tokens keep the real clock.** The bearer handler validates lifetimes against the system clock, and
+  the hub closes a connection at its token's expiry on the real clock (`AccessTokenClock`).
+- **What to stamp.** A Device's signature and a frame's `measured_at` are checked against the Server's clock,
+  so a test reads `GET /testing/clock` for them.
+
+It is test-only code in the production binary, guarded by those two conditions.
 
 ### Moving and unassigning a Node
 

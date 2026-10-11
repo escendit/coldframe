@@ -81,8 +81,12 @@
   </ItemGroup>
   <!-- Tests -->
   <ItemGroup>
+    <!-- The hub's client, as the web app's backend-for-frontend calls it (Story 6.6); follows the ASP.NET Core runtime. -->
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.3.1" />
+    <!-- The browser of tests/cs/web.e2e; the same Chromium revision as @playwright/test in tests/ts/web.e2e. -->
+    <PackageVersion Include="Microsoft.Playwright" Version="1.63.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>
 </Project>
