@@ -123,6 +123,21 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal((AlertLifecycle.Closed, AlertKind.Silent, "5a4b3c2d1e0f7c21", false), (silent.Lifecycle, silent.Kind, silent.DeviceId, silent.ReportPending));
         Assert.Equal(((ThresholdSide?)null, (string?)null, (Guid?)null, (string?)null), (silent.Side, silent.LotId, silent.SensorId, silent.Quantity));
 
+        // Story 7.2: a second Hub went silent after that story. Its episode says when it was last heard (its
+        // last heartbeat, not the expiry), and the Alert, the Site and the User carry that and the Device kind.
+        // The rows above, journaled before, carry neither and still read.
+        var hubAlert = Guid.Parse("2cf5a632-8d4e-54a8-a58c-cb4e24408eb6");
+        var lastHeartbeat = new DateTimeOffset(2026, 10, 15, 6, 55, 0, TimeSpan.Zero);
+        var silentHub = Assert.IsType<DeviceState>(states["device/3f2a9c0d1e4b5a67"]);
+        Assert.Equal(hubAlert, AlertIds.Silent("3f2a9c0d1e4b5a67", 1));
+        Assert.Equal((lastHeartbeat, hubAlert), (silentHub.LastHeardAt, silentHub.OpenSilentAlert?.AlertId));
+        var undeliveredOpen = Assert.Single(silentHub.PendingAlertDeliveries);
+        Assert.Equal((AlertLifecycle.Open, (DateTimeOffset?)lastHeartbeat), (undeliveredOpen.Change, undeliveredOpen.SilentSince));
+        var hubSilent = Assert.IsType<AlertState>(states[$"alert/{hubAlert}"]);
+        Assert.Equal(((DeviceKind?)DeviceKind.Hub, (DateTimeOffset?)lastHeartbeat), (hubSilent.DeviceKind, hubSilent.SilentSince));
+        Assert.Equal(((DeviceKind?)null, (DateTimeOffset?)null), (silent.DeviceKind, silent.SilentSince));
+        Assert.Equal((DateTimeOffset?)null, Assert.Single(moved.PendingAlertDeliveries).SilentSince);
+
         // Relayed by the Hub; paused by its Site and by itself, then the Site resumed: still paused.
         Assert.Equal("92064422c012f481", node.LastRelayHubId);
         Assert.True(node.IsPaused);
@@ -182,8 +197,12 @@ public sealed class FixtureJournalReplayTests
             (openAlert.Lifecycle, openAlert.Side, openAlert.DeviceId, openAlert.Quantity, openAlert.ReportPending));
         Assert.Equal(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394"), openAlert.SensorId);
 
-        // The Site's set of open Alerts holds the second only.
-        Assert.Equal([secondAlert], site.OpenAlerts.Keys);
+        // The Site's set of open Alerts holds the second, and the silent Hub's with its kind and time (Story 7.2).
+        Assert.Equal(new[] { secondAlert, hubAlert }.Order(), site.OpenAlerts.Keys.Order());
+        Assert.Equal(
+            ((DeviceKind?)DeviceKind.Hub, (DateTimeOffset?)new DateTimeOffset(2026, 10, 15, 6, 55, 0, TimeSpan.Zero)),
+            (site.OpenAlerts[hubAlert].DeviceKind, site.OpenAlerts[hubAlert].SilentSince));
+        Assert.Equal(((DeviceKind?)null, (DateTimeOffset?)null), (site.OpenAlerts[secondAlert].DeviceKind, site.OpenAlerts[secondAlert].SilentSince));
         Assert.Equal("0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e02", site.OpenAlerts[secondAlert].LotId);
 
         // Assigned, then paused twice and resumed once: the fourth evaluation epoch.
@@ -236,7 +255,12 @@ public sealed class FixtureJournalReplayTests
         // force (the Site's, every 2 days), counted from its own due-at.
         Assert.Empty(user.PendingPulls);
         Assert.Null(user.WindowOpensAt);
-        var tracked = Assert.Single(user.TrackedAlerts.Values);
+        Assert.Equal(2, user.TrackedAlerts.Count);
+        var tracked = Assert.Single(user.TrackedAlerts.Values, alert => alert.Alert.AlertId == secondAlert);
+        var trackedHub = Assert.Single(user.TrackedAlerts.Values, alert => alert.Alert.AlertId == hubAlert);
+        Assert.Equal(
+            (AlertKind.Silent, (DeviceKind?)DeviceKind.Hub, (DateTimeOffset?)new DateTimeOffset(2026, 10, 15, 6, 55, 0, TimeSpan.Zero)),
+            (trackedHub.Alert.Kind, trackedHub.Alert.DeviceKind, trackedHub.Alert.SilentSince));
         Assert.Equal(
             (secondAlert, new DateTimeOffset(2026, 10, 11, 21, 30, 0, TimeSpan.Zero), false, (DateTimeOffset?)null),
             (tracked.Alert.AlertId, tracked.PreviousDueAt, tracked.OpeningPending, tracked.HeldFrom));

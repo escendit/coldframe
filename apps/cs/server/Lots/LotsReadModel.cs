@@ -23,6 +23,12 @@ namespace Coldframe.Server.Lots;
 /// that Reading was stored with; <see langword="null"/> when there is none or it was stored without a Calibration.
 /// </param>
 /// <param name="SoilSensorId">The Sensor ID of that Reading, which names the Sensor whose low Threshold the Lot shows.</param>
+/// <param name="SilentHubId">The silent relay Hub of an <c>unknown</c> Lot whose cause is <c>hub</c> (Story 7.2); otherwise <see langword="null"/>.</param>
+/// <param name="SilentSince">
+/// When the silent Device of an <c>unknown</c> Lot (its Node, or that Hub) was last heard, as its open
+/// <c>silent</c> Alert states it (Story 7.2); <see langword="null"/> otherwise, for an Alert opened before that
+/// story, and for a Node that is unknown because it declared nothing.
+/// </param>
 public sealed record LotView(
     string LotId,
     string Name,
@@ -34,7 +40,16 @@ public sealed record LotView(
     IReadOnlyList<string>? PausedBy = null,
     DateTimeOffset? PausedUntil = null,
     int? MoisturePercent = null,
-    Guid? SoilSensorId = null);
+    Guid? SoilSensorId = null,
+    string? SilentHubId = null,
+    DateTimeOffset? SilentSince = null);
+
+/// <summary>
+/// A Hub of a Site with an open <c>silent</c> Alert (Story 7.2).
+/// </summary>
+/// <param name="DeviceId">The Hub's Device ID.</param>
+/// <param name="SilentSince">When the Server accepted its last heartbeat, or when it was enrolled if it never sent one.</param>
+public sealed record SilentHubView(string DeviceId, DateTimeOffset SilentSince);
 
 /// <summary>
 /// Reads the lots projection. Edge API handlers read Lots only from here; grains never read it.
@@ -54,7 +69,8 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
         """
         SELECT l.lot_id, l.name, l.removed_at IS NOT NULL, l.status, l.status_since, l.unknown_cause, l.paused_by, l.paused_until,
                (SELECT max(r.measured_at) FROM readings r WHERE r.device_id = l.claimed_by AND r.measured_at >= l.claimed_at),
-               s.sensor_id, s.raw_value, s.dry_raw, s.wet_raw
+               s.sensor_id, s.raw_value, s.dry_raw, s.wet_raw,
+               CASE WHEN l.unknown_cause = 'hub' THEN q.device_id END, q.silent_since
         FROM lots l
         LEFT JOIN LATERAL (
             SELECT r.sensor_id, r.raw_value, c.dry_raw, c.wet_raw
@@ -63,15 +79,32 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
             WHERE r.device_id = l.claimed_by AND r.quantity = 'soil_moisture' AND r.measured_at >= l.claimed_at
             ORDER BY r.measured_at DESC
             LIMIT 1) s ON true
+        LEFT JOIN lot_status_devices sd ON sd.device_id = l.claimed_by
+        LEFT JOIN LATERAL (
+            SELECT a.device_id, a.silent_since
+            FROM lot_status_alerts a
+            WHERE a.closed_at IS NULL AND a.kind = 'silent'
+              AND a.device_id = CASE l.unknown_cause WHEN 'node' THEN l.claimed_by WHEN 'hub' THEN sd.relay_hub_id END
+            ORDER BY a.opened_at DESC, a.alert_id
+            LIMIT 1) q ON l.status = 'unknown'
         WHERE l.site_id = @site_id AND l.removed_at IS NULL
         ORDER BY array_position(@status_order, l.status), l.created_at, l.lot_id
+        """;
+
+    private const string SilentHubsSql =
+        """
+        SELECT device_id, silent_since
+        FROM devices
+        WHERE site_id = @site_id AND kind = 'hub' AND silent_since IS NOT NULL
+        ORDER BY device_id
         """;
 
     private const string FindSql =
         """
         SELECT l.lot_id, l.name, l.removed_at IS NOT NULL, l.status, l.status_since, l.unknown_cause, l.paused_by, l.paused_until,
                (SELECT max(r.measured_at) FROM readings r WHERE r.device_id = l.claimed_by AND r.measured_at >= l.claimed_at),
-               s.sensor_id, s.raw_value, s.dry_raw, s.wet_raw
+               s.sensor_id, s.raw_value, s.dry_raw, s.wet_raw,
+               CASE WHEN l.unknown_cause = 'hub' THEN q.device_id END, q.silent_since
         FROM lots l
         LEFT JOIN LATERAL (
             SELECT r.sensor_id, r.raw_value, c.dry_raw, c.wet_raw
@@ -80,6 +113,14 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
             WHERE r.device_id = l.claimed_by AND r.quantity = 'soil_moisture' AND r.measured_at >= l.claimed_at
             ORDER BY r.measured_at DESC
             LIMIT 1) s ON true
+        LEFT JOIN lot_status_devices sd ON sd.device_id = l.claimed_by
+        LEFT JOIN LATERAL (
+            SELECT a.device_id, a.silent_since
+            FROM lot_status_alerts a
+            WHERE a.closed_at IS NULL AND a.kind = 'silent'
+              AND a.device_id = CASE l.unknown_cause WHEN 'node' THEN l.claimed_by WHEN 'hub' THEN sd.relay_hub_id END
+            ORDER BY a.opened_at DESC, a.alert_id
+            LIMIT 1) q ON l.status = 'unknown'
         WHERE l.site_id = @site_id AND l.lot_id = @lot_id
         """;
 
@@ -107,6 +148,33 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
         }
 
         return lots;
+    }
+
+    /// <summary>
+    /// Returns the Site's Hubs that have an open <c>silent</c> Alert, by Device ID (Story 7.2). They are read from
+    /// <c>devices</c>, which the devices projector marks from the Hub's own <c>device.silence-started</c> and
+    /// <c>device.silence-ended</c>: a silent Hub is listed also when no Lot is behind it, and the hint that
+    /// projector reports is what makes a client read the list again.
+    /// </summary>
+    /// <param name="siteId">The Site ID, in its canonical form.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<IReadOnlyList<SilentHubView>> ListSilentHubsAsync(string siteId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(siteId);
+
+        await using var command = dataSource.CreateCommand(SilentHubsSql);
+        command.Parameters.AddWithValue("site_id", siteId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var hubs = new List<SilentHubView>();
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            hubs.Add(new SilentHubView(reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1)));
+        }
+
+        return hubs;
     }
 
     /// <summary>
@@ -147,6 +215,8 @@ public sealed class LotsReadModel(NpgsqlDataSource dataSource)
             await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<string[]>(6),
             await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(7),
             calibrated ? CalibrationMath.Percent(reader.GetInt64(10), reader.GetInt64(11), reader.GetInt64(12)) : null,
-            await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(9));
+            await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetGuid(9),
+            await reader.IsDBNullAsync(13, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(13),
+            await reader.IsDBNullAsync(14, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(14));
     }
 }

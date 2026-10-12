@@ -65,8 +65,15 @@ fun AlertsScreen(
     val copy = rememberAlertsCopy(clock, zone)
     val open: (AlertSummary) -> Unit = { alert ->
         when (alert.target) {
-            AlertTarget.Lot -> onOpenLot(alert.lotId, alert.lotName)
-            AlertTarget.Devices -> onOpenDevices()
+            AlertTarget.Lot -> {
+                // The core sends a row without a Lot to Devices; this is only the compiler's proof.
+                val lotId = alert.lotId
+                if (lotId == null) onOpenDevices() else onOpenLot(lotId, alert.lotName.orEmpty())
+            }
+
+            AlertTarget.Devices -> {
+                onOpenDevices()
+            }
         }
     }
     val size = if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth()

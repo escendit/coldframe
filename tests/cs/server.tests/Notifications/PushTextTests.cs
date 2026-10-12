@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Notifications.Push;
@@ -189,9 +190,9 @@ public sealed class PushTextTests
 
         Assert.Equal(
             "{unit} {threshold} temperature below 5 °C",
-            text.Title(new PushEntryFacts(temperature, "{unit} {threshold}", Threshold: new PushValue(5, "°C"))));
+            text.Title(new PushEntryFacts(temperature, "{unit} {threshold}", Threshold: new PushValue(5, "°C")), SentAt));
         Assert.Equal("{counts}: 1 needs water", text.SummaryTitle("{counts}", 1, 0));
-        Assert.Equal("{lot} needs water", text.Title(new PushEntryFacts(Entry("lot-1"), "{lot}")));
+        Assert.Equal("{lot} needs water", text.Title(new PushEntryFacts(Entry("lot-1"), "{lot}"), SentAt));
     }
 
     [Fact]
@@ -204,10 +205,11 @@ public sealed class PushTextTests
         Assert.Null(await Builder(lookups).BuildAsync(summary, SentAt));
     }
 
-    // Story 7.1: a Health Alert has no Sensor, so no Reading and no Threshold is looked up for it, and its text
-    // is neutral until Story 7.2 writes the final copy.
+    // Story 7.1: a Health Alert has no Sensor, so no Reading and no Threshold is looked up for it. An Alert
+    // tracked before Story 7.2 says neither what kind of Device it is nor since when it is silent: its text stays
+    // the neutral one.
     [Fact]
-    public async Task ASilentAlertOfANodeIsTitledNeutrallyWithItsLotAndLooksUpNoReadingOrThreshold()
+    public async Task ASilentAlertTrackedBeforeTheFinalCopyIsTitledNeutrallyWithItsLotAndLooksUpNoReadingOrThreshold()
     {
         var lookups = TomatoesLookups();
         var silent = Silent(TomatoesLot);
@@ -287,7 +289,7 @@ public sealed class PushTextTests
     {
         var facts = new[] { new PushEntryFacts(Entry("lot-1"), "Tomatoes") };
 
-        var body = PushText.English.SummaryBody(facts, new NotificationWindow(6 * 60 + 30, 21 * 60));
+        var body = PushText.English.SummaryBody(facts, new NotificationWindow(6 * 60 + 30, 21 * 60), SentAt);
 
         Assert.EndsWith("\nHeld overnight, 21:00–06:30", body, StringComparison.Ordinal);
     }
@@ -297,7 +299,7 @@ public sealed class PushTextTests
     {
         var facts = Enumerable.Range(1, 15).Select(index => new PushEntryFacts(Entry($"lot-{index}"), $"Lot {index}")).ToList();
 
-        var lines = PushText.English.SummaryBody(facts, NotificationWindow.Default).Split('\n');
+        var lines = PushText.English.SummaryBody(facts, NotificationWindow.Default, SentAt).Split('\n');
 
         Assert.Equal(PushText.MaxSummaryLines + 2, lines.Length);
         Assert.Equal("and 3 more", lines[^2]);
@@ -310,10 +312,10 @@ public sealed class PushTextTests
         var temperature = Entry("lot-1", "air_temperature");
         var gas = Entry("lot-1", "gas_resistance", ThresholdSide.High);
 
-        Assert.Equal("Tomatoes temperature below 5.5 °C", text.Title(new PushEntryFacts(temperature, "Tomatoes", Threshold: new PushValue(5.5, "°C"))));
-        Assert.Equal("Tomatoes temperature below 0 °C", text.Title(new PushEntryFacts(temperature, "Tomatoes", Threshold: new PushValue(-0.04, "°C"))));
-        Assert.Equal("Tomatoes gas resistance above 12.3 kΩ", text.Title(new PushEntryFacts(gas, "Tomatoes", Threshold: new PushValue(12.34, "kΩ"))));
-        Assert.Equal("Tomatoes temperature too low", text.Title(new PushEntryFacts(temperature, "Tomatoes")));
+        Assert.Equal("Tomatoes temperature below 5.5 °C", text.Title(new PushEntryFacts(temperature, "Tomatoes", Threshold: new PushValue(5.5, "°C")), SentAt));
+        Assert.Equal("Tomatoes temperature below 0 °C", text.Title(new PushEntryFacts(temperature, "Tomatoes", Threshold: new PushValue(-0.04, "°C")), SentAt));
+        Assert.Equal("Tomatoes gas resistance above 12.3 kΩ", text.Title(new PushEntryFacts(gas, "Tomatoes", Threshold: new PushValue(12.34, "kΩ")), SentAt));
+        Assert.Equal("Tomatoes temperature too low", text.Title(new PushEntryFacts(temperature, "Tomatoes"), SentAt));
     }
 
     [Fact]
@@ -349,8 +351,165 @@ public sealed class PushTextTests
         Assert.Equal(calls, lookups.Calls);
     }
 
-    // A Silent Device Alert as the User grain holds it: no side, no Sensor, no quantity, and a Lot only for a
-    // Node that is on one.
+    // Story 7.2, the copy matrix. Zurich is UTC+2 on these days: 01:05 there is 23:05 UTC the day before.
+    [Fact]
+    public async Task ASilentNodeOnALotSaysForHowLongAndSinceWhenInTheUsersZone()
+    {
+        var lookups = BeansLookups();
+        var silent = SilentNode(BeansLot);
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [silent] }, DeliveredAt);
+
+        Assert.Equal(
+            ("Node on Lot 'Beans' silent for 6 h", "No Reading since 01:05. Check power or range.", BeansLot, (Guid?)silent.AlertId),
+            (alert!.Title, alert.Body, alert.LotId, alert.AlertId));
+
+        // The Site's name, the Lot's name and whether the Node ever reported: nothing of a Sensor.
+        Assert.Equal(3, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task ASilentNodeThatNeverReportedNamesNoTime()
+    {
+        var lookups = BeansLookups();
+        lookups.Reported.Clear();
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [SilentNode(BeansLot)] }, DeliveredAt);
+        var reminder = await Builder(lookups).BuildAsync(Reminder(IPhone) with { Entries = [SilentNode(BeansLot)] }, DeliveredAt.AddDays(1));
+
+        Assert.Equal(("Node on Lot 'Beans' silent for 6 h", "No Reading yet. Check power or range."), (alert!.Title, alert.Body));
+        Assert.Equal(("Node on Lot 'Beans' silent for 1 d", "Still no Reading yet. Check power or range."), (reminder!.Title, reminder.Body));
+    }
+
+    [Fact]
+    public async Task ASilentHubIsNamedByTheFirstFourDigitsOfItsIdAndSaysWhatCannotBeRead()
+    {
+        var lookups = new FakeLookups();
+        var silent = SilentHub(LastHeard);
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [silent] }, LastHeard.AddMinutes(5).AddSeconds(59));
+
+        Assert.Equal(("Hub 3F2A silent for 5 min", "Lots behind it can't be read.", null), (alert!.Title, alert.Body, alert.LotId));
+
+        // Only the Site's name: a Hub has no Lot, and its body names no time.
+        Assert.Equal(1, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task ASilentNodeOnNoLotIsNamedByItsId()
+    {
+        var alert = await Builder(BeansLookups()).BuildAsync(Alert(IPhone) with { Entries = [SilentNode(lotId: null)] }, DeliveredAt);
+
+        Assert.Equal(("Node 9C0D silent for 6 h", "No Reading since 01:05. Check power or range."), (alert!.Title, alert.Body));
+    }
+
+    [Fact]
+    public async Task AReminderOfASilentDeviceCountsTheDurationAtSendTimeAndSaysStill()
+    {
+        var lookups = BeansLookups();
+        var dayLater = DeliveredAt.AddDays(1);
+
+        var node = await Builder(lookups).BuildAsync(Reminder(IPhone) with { Entries = [SilentNode(BeansLot)] }, dayLater);
+        var hub = await Builder(lookups).BuildAsync(Reminder(IPhone) with { Entries = [SilentHub(LastHeard)] }, dayLater);
+
+        Assert.Equal(("Node on Lot 'Beans' silent for 1 d", "Still no Reading since 01:05. Check power or range."), (node!.Title, node.Body));
+        Assert.Equal(("Hub 3F2A silent for 1 d", "Lots behind it still can't be read."), (hub!.Title, hub.Body));
+    }
+
+    [Fact]
+    public async Task ASummaryListsSilentDevicesUnderToCheckWithTheLotFirst()
+    {
+        var lookups = BeansLookups();
+        var summary = Summary(new FakeLookups(), IPhone) with
+        {
+            Entries = [SilentNode(BeansLot), SilentHub(DeliveredAt.AddMinutes(-5)), SilentNode(lotId: null)],
+        };
+
+        var content = await Builder(lookups).BuildAsync(summary, DeliveredAt);
+
+        Assert.Equal("Home garden: 3 to check", content!.Title);
+        Assert.Equal(
+            ["Beans: Node silent for 6 h", "Hub 3F2A silent for 5 min", "Node 9C0D silent for 6 h", "Held overnight, 22:00–07:00"],
+            content.Body!.Split('\n'));
+
+        // A summary has no body per Alert: the Node's Readings are not looked up. The Site and the one Lot are.
+        Assert.Equal(2, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task ASilentNodeWhoseLotIsGoneKeepsItsLineUnderItsOwnName()
+    {
+        var lookups = new FakeLookups();
+        var summary = Summary(lookups, IPhone) with { Entries = [SilentNode(BeansLot)] };
+        lookups.Lots.Clear();
+
+        var content = await Builder(lookups).BuildAsync(summary, DeliveredAt);
+
+        Assert.Equal(["Node 9C0D silent for 6 h", "Held overnight, 22:00–07:00"], content!.Body!.Split('\n'));
+    }
+
+    [Fact]
+    public async Task ASilentDeviceNeverFailsThePushWhenEveryLookupFails()
+    {
+        var failing = new FakeLookups { Fail = true };
+
+        var node = await Builder(failing).BuildAsync(Alert(IPhone) with { Entries = [SilentNode(BeansLot)] }, DeliveredAt);
+        var hub = await Builder(failing).BuildAsync(Alert(IPhone) with { Entries = [SilentHub(DeliveredAt.AddMinutes(-5))] }, DeliveredAt);
+
+        Assert.Equal(("Node 9C0D silent for 6 h", "No Reading since 01:05. Check power or range."), (node!.Title, node.Body));
+        Assert.Equal(("Hub 3F2A silent for 5 min", "Lots behind it can't be read."), (hub!.Title, hub.Body));
+    }
+
+    [Theory]
+    [InlineData(0, "0 min")]
+    [InlineData(59, "0 min")]
+    [InlineData(12 * 60 + 59, "12 min")]
+    [InlineData(59 * 60 + 59, "59 min")]
+    [InlineData(60 * 60, "1 h")]
+    [InlineData(6 * 60 * 60 + 5 * 60, "6 h")]
+    [InlineData(24 * 60 * 60 - 1, "23 h")]
+    [InlineData(24 * 60 * 60, "1 d")]
+    [InlineData(3 * 24 * 60 * 60 + 23 * 60 * 60, "3 d")]
+    [InlineData(-30, "0 min")]
+    public void ASilenceDurationIsRoundedDownInMinutesThenHoursThenDays(int seconds, string expected) =>
+        Assert.Equal(expected, PushText.English.Duration(LastHeard, LastHeard.AddSeconds(seconds)));
+
+    [Fact]
+    public void ADeviceIsNamedShortByItsFirstFourHexDigitsInUpperCase()
+    {
+        Assert.Equal("3F2A", PushText.ShortName("3f2a9c0d1e4b5a67"));
+        Assert.Equal("9C0D", PushText.ShortName(NodeId));
+    }
+
+    private const string BeansLot = "0199c1f0-5a00-7000-8000-0000000000b4";
+
+    private const string NodeId = "9c0d1e4b5a673f2a";
+
+    private const string HubId = "3f2a9c0d1e4b5a67";
+
+    // 01:05 in Zurich, when the Node was last heard, and 07:05, when its Alert is delivered.
+    private static readonly DateTimeOffset LastHeard = new(2026, 10, 8, 23, 5, 0, TimeSpan.Zero);
+
+    private static readonly DateTimeOffset DeliveredAt = LastHeard.AddHours(6);
+
+    // The Lot "Beans", and its Node, which the Server stored Readings of.
+    private static FakeLookups BeansLookups()
+    {
+        var lookups = new FakeLookups();
+        lookups.Lots[BeansLot] = "Beans";
+        lookups.Reported.Add(NodeId);
+
+        return lookups;
+    }
+
+    // A Silent Device Alert as the User grain held it before Story 7.2: no side, no Sensor, no quantity, a Lot
+    // only for a Node that is on one, and neither the Device kind nor when it was last heard.
     private static NotificationEntry Silent(string? lotId) =>
         new(Guid.NewGuid(), AlertKind.Silent, null, lotId, null, "92064422c012f481", null, AlertDueAt.AddMinutes(-30));
+
+    private static NotificationEntry SilentNode(string? lotId) =>
+        new(Guid.NewGuid(), AlertKind.Silent, null, lotId, null, NodeId, null, DeliveredAt, DeviceKind.Node, LastHeard);
+
+    private static NotificationEntry SilentHub(DateTimeOffset silentSince) =>
+        new(Guid.NewGuid(), AlertKind.Silent, null, null, null, HubId, null, silentSince.AddMinutes(5), DeviceKind.Hub, silentSince);
 }

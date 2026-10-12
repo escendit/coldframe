@@ -174,6 +174,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/devices/{deviceId}/silence-window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a Device's Silence Window
+         * @description Administrator or Owner only (Story 7.2); a Member gets 403 and nothing changes. The Silence Window is how long a Node or Hub may stay unheard before the Server opens its silent Alert: 6 h for a Node and 5 min for a Hub unless the Device has its own. windowSeconds sets the Device's own window, 60 to 2592000 (1 min to 30 days) in whole seconds; a body without it returns the Device to the default of its kind. The answer is the window in force. A value that is already in force answers 200 and saves nothing. A changed window moves the expiry of the running window; an open silent Alert stays open until the Device reports again. A refusal changes nothing.
+         */
+        put: operations["setDeviceSilenceWindow"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites/{siteId}/sensors/{sensorId}/calibration": {
         parameters: {
             query?: never;
@@ -300,7 +320,7 @@ export type paths = {
         };
         /**
          * List the Site's Alerts
-         * @description One ordered list: every open Alert, newest openedAt first, then the Alerts closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. Clients show them in this order and never re-sort within a group. openCount is the number of open Alerts of the Site and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.
+         * @description alerts is one ordered list of the Site's Threshold Alerts: every open one, newest openedAt first, then those closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. healthAlerts lists the Health Alerts (silent Devices, Story 7.2) in the same order, at most 200 and not paged: it is sent with the first page and absent when cursor is given. Clients show both in this order and never re-sort within a group. openCount is the number of open Alerts of the Site, Threshold and Health, and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.
          */
         get: operations["listAlerts"];
         put?: never;
@@ -475,8 +495,19 @@ export type components = {
          *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04",
          *       "name": "Beans",
          *       "status": "unknown",
-         *       "statusSince": "2026-10-06T01:05:00.000Z",
-         *       "unknownCause": "node"
+         *       "statusSince": "2026-10-06T07:05:00.000Z",
+         *       "lastReadingAt": "2026-10-06T01:05:00.000Z",
+         *       "unknownCause": "node",
+         *       "silentSince": "2026-10-06T01:05:00.000Z"
+         *     }
+         * @example {
+         *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06",
+         *       "name": "Lettuce",
+         *       "status": "unknown",
+         *       "statusSince": "2026-10-06T07:00:00.000Z",
+         *       "unknownCause": "hub",
+         *       "silentHubId": "3f2a9c0d1e4b5a67",
+         *       "silentSince": "2026-10-06T06:55:00.000Z"
          *     }
          * @example {
          *       "id": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05",
@@ -511,6 +542,13 @@ export type components = {
             lastReadingAt?: string;
             /** @description Present only when status is unknown. */
             unknownCause?: components["schemas"]["LotUnknownCause"];
+            /** @description The silent Hub that relays the Lot's Node (Story 7.2). Present only when unknownCause is hub. Clients name the Hub by the first four hex digits in upper case (Hub 3F2A). */
+            silentHubId?: components["schemas"]["DeviceId"];
+            /**
+             * Format: date-time
+             * @description When the silent Device (the Node, or the Hub of silentHubId) was last heard, or when it was enrolled if it never reported, ISO-8601 UTC with Z (Story 7.2). A displayed silence duration is now minus this time, rounded down. Present only when status is unknown; absent for a silence that began before the Server recorded it, and for a Node that never declared a Sensor: a client then counts from lastReadingAt, then statusSince.
+             */
+            silentSince?: string;
             /** @description The Pause sources of the Lot's Node, device before site. Present and non-empty only when status is paused. */
             pausedBy?: components["schemas"]["LotPauseSource"][];
             /**
@@ -616,9 +654,40 @@ export type components = {
             /** @description Opaque; present only when more days follow. */
             nextCursor?: string;
         };
+        /**
+         * @example {
+         *       "lots": []
+         *     }
+         * @example {
+         *       "lots": [],
+         *       "silentHubs": [
+         *         {
+         *           "deviceId": "3f2a9c0d1e4b5a67",
+         *           "silentSince": "2026-10-06T06:55:00.000Z"
+         *         }
+         *       ]
+         *     }
+         */
         LotList: {
             /** @description In the Server's order: status, then creation time, then Lot ID. */
             lots: components["schemas"]["Lot"][];
+            /** @description Every Hub of the Site with an open silent Alert, by Device ID (Story 7.2); absent or empty when none is silent. A silent Hub is listed whether or not a Lot is behind it. */
+            silentHubs?: components["schemas"]["SilentHub"][];
+        };
+        /**
+         * @description A Hub that stopped sending heartbeats for longer than its Silence Window.
+         * @example {
+         *       "deviceId": "3f2a9c0d1e4b5a67",
+         *       "silentSince": "2026-10-06T06:55:00.000Z"
+         *     }
+         */
+        SilentHub: {
+            deviceId: components["schemas"]["DeviceId"];
+            /**
+             * Format: date-time
+             * @description When the Server accepted the Hub's last heartbeat, or when the Hub was enrolled if it never sent one, ISO-8601 UTC with Z.
+             */
+            silentSince: string;
         };
         CreateLotRequest: {
             /** @description The Lot name. Trimmed; 1 to 100 characters after trimming. */
@@ -887,12 +956,25 @@ export type components = {
          *       "id": "3f2a9c0d1e4b5a67",
          *       "kind": "hub",
          *       "lastSeenAt": "2026-10-06T07:02:00.000Z",
-         *       "online": true
+         *       "online": true,
+         *       "silenceWindowSeconds": 300,
+         *       "silenceWindowOverridden": false
          *     }
          * @example {
          *       "id": "3f2a9c0d1e4b5a67",
          *       "kind": "hub",
          *       "online": false
+         *     }
+         * @example {
+         *       "id": "9c0d1e4b5a673f2a",
+         *       "kind": "node",
+         *       "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04",
+         *       "lotName": "Beans",
+         *       "lastSeenAt": "2026-10-06T01:05:00.000Z",
+         *       "online": false,
+         *       "silentSince": "2026-10-06T01:05:00.000Z",
+         *       "silenceWindowSeconds": 28800,
+         *       "silenceWindowOverridden": true
          *     }
          */
         DeviceListItem: {
@@ -916,12 +998,21 @@ export type components = {
             batteryPercent?: number;
             /** @description A Node's charger state from its newest device report; absent when unknown. */
             charging?: components["schemas"]["ChargeState"];
+            /**
+             * Format: date-time
+             * @description Present exactly while the Device has an open silent Alert (Story 7.2): when it was last heard (a Node: the newest accepted measured_at; a Hub: its last accepted heartbeat), or when it was enrolled if it never reported. ISO-8601 UTC with Z. A displayed silence duration is now minus this time, rounded down.
+             */
+            silentSince?: string;
+            /** @description The Device's Silence Window in force, in seconds (Story 7.2): its own value, else the default of its kind (a Node 21600, a Hub 300). */
+            silenceWindowSeconds?: number;
+            /** @description True when the Device has its own Silence Window; false when it follows the default of its kind. */
+            silenceWindowOverridden?: boolean;
         };
         DeviceList: {
             /** @description Every enrolled Device of the Site, ordered by Device ID. */
             devices: components["schemas"]["DeviceListItem"][];
         };
-        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. This list holds only threshold today: the Server also opens silent Alerts (Story 7.1), which are listed once the Alert schema can describe them (Story 7.2); battery and uncalibrated arrive later in Epic 7. */
+        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server opens threshold and silent Alerts; battery and uncalibrated arrive later in Epic 7. A Threshold Alert is listed in AlertList.alerts, a Health Alert in AlertList.healthAlerts (Story 7.2). */
         AlertKind: string;
         /**
          * @description The Threshold a Threshold Alert crossed: below the low or above the high.
@@ -991,14 +1082,123 @@ export type components = {
          *       "alerts": [],
          *       "openCount": 0
          *     }
+         * @example {
+         *       "alerts": [],
+         *       "healthAlerts": [
+         *         {
+         *           "id": "7c1d2e3f-4a5b-5c6d-8e7f-9a0b1c2d3e4f",
+         *           "kind": "silent",
+         *           "deviceId": "9c0d1e4b5a673f2a",
+         *           "deviceKind": "node",
+         *           "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04",
+         *           "lotName": "Beans",
+         *           "silentSince": "2026-10-06T01:05:00.000Z",
+         *           "openedAt": "2026-10-06T07:05:00.000Z"
+         *         },
+         *         {
+         *           "id": "2e3f7c1d-5b4a-5d6c-9f8e-0b9a2d1c4f3e",
+         *           "kind": "silent",
+         *           "deviceId": "3f2a9c0d1e4b5a67",
+         *           "deviceKind": "hub",
+         *           "silentSince": "2026-10-06T06:55:00.000Z",
+         *           "openedAt": "2026-10-06T07:00:00.000Z"
+         *         }
+         *       ],
+         *       "openCount": 2
+         *     }
          */
         AlertList: {
-            /** @description Open Alerts newest first, then Alerts closed in the last 7 days newest first. */
+            /** @description Threshold Alerts only: open ones newest first, then those closed in the last 7 days newest first. */
             alerts: components["schemas"]["Alert"][];
-            /** @description Every open Alert of the Site, whatever the page. */
+            /** @description The Site's Health Alerts (Story 7.2): open ones newest first, then those closed in the last 7 days newest first, at most 200. Not paged: sent with the first page only, absent on a page read with cursor. */
+            healthAlerts?: components["schemas"]["HealthAlert"][];
+            /** @description Every open Alert of the Site, Threshold and Health alike, whatever the page. */
             openCount: number;
-            /** @description Opaque; present only when more Alerts follow. */
+            /** @description Opaque; present only when more Threshold Alerts follow. */
             nextCursor?: string;
+        };
+        /**
+         * @description A Health Alert of the Site (Story 7.2): an Alert about a Device, not about a Reading. It has no side and no quantity, and no Lot when it is a Hub's or the Alert of a Node on no Lot.
+         * @example {
+         *       "id": "7c1d2e3f-4a5b-5c6d-8e7f-9a0b1c2d3e4f",
+         *       "kind": "silent",
+         *       "deviceId": "9c0d1e4b5a673f2a",
+         *       "deviceKind": "node",
+         *       "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04",
+         *       "lotName": "Beans",
+         *       "silentSince": "2026-10-06T01:05:00.000Z",
+         *       "openedAt": "2026-10-06T07:05:00.000Z"
+         *     }
+         * @example {
+         *       "id": "2e3f7c1d-5b4a-5d6c-9f8e-0b9a2d1c4f3e",
+         *       "kind": "silent",
+         *       "deviceId": "3f2a9c0d1e4b5a67",
+         *       "deviceKind": "hub",
+         *       "silentSince": "2026-10-06T06:55:00.000Z",
+         *       "openedAt": "2026-10-06T07:00:00.000Z",
+         *       "closedAt": "2026-10-06T07:20:00.000Z",
+         *       "reason": "recovered"
+         *     }
+         */
+        HealthAlert: {
+            /** Format: uuid */
+            id: string;
+            /** @description Never threshold. A client shows a kind it does not know as a neutral Health Alert. */
+            kind: components["schemas"]["AlertKind"];
+            deviceId: components["schemas"]["DeviceId"];
+            deviceKind: components["schemas"]["DeviceKind"];
+            /**
+             * Format: uuid
+             * @description The Lot the Alert was opened for: the Lot a Node was on. Absent for a Hub and for a Node on no Lot, and while the Lot cannot be read.
+             */
+            lotId?: string;
+            /** @description The current name of that Lot. Present exactly when lotId is. */
+            lotName?: string;
+            /**
+             * Format: date-time
+             * @description For a silent Alert: when the Device was last heard, or when it was enrolled if it never reported, ISO-8601 UTC with Z. Absent for another kind and for an Alert opened before the Server recorded it.
+             */
+            silentSince?: string;
+            /**
+             * Format: date-time
+             * @description When the Alert opened, ISO-8601 UTC with Z.
+             */
+            openedAt: string;
+            /**
+             * Format: date-time
+             * @description When the Alert closed, ISO-8601 UTC with Z; absent while it is open.
+             */
+            closedAt?: string;
+            /** @description Present exactly when closedAt is. */
+            reason?: components["schemas"]["AlertCloseReason"];
+        };
+        /**
+         * @description A Device's own Silence Window. Without windowSeconds the Device returns to the default of its kind.
+         * @example {
+         *       "windowSeconds": 28800
+         *     }
+         * @example {}
+         */
+        SetSilenceWindowRequest: {
+            /** @description The Silence Window in whole seconds, 1 min to 30 days. Omitted: use the default (a Node 6 h, a Hub 5 min). */
+            windowSeconds?: number;
+        };
+        /**
+         * @description The Silence Window in force for a Device.
+         * @example {
+         *       "windowSeconds": 28800,
+         *       "overridden": true
+         *     }
+         * @example {
+         *       "windowSeconds": 21600,
+         *       "overridden": false
+         *     }
+         */
+        SilenceWindow: {
+            /** @description The window in force, in seconds: the Device's own, else the default of its kind. */
+            windowSeconds: number;
+            /** @description True when the Device has its own Silence Window. */
+            overridden: boolean;
         };
         /**
          * @description How often a Reminder repeats while a Threshold Alert stays open: once per day or every 2 days. There is no never.
@@ -1195,6 +1395,15 @@ export type components = {
         };
         /** @description urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:lot-not-found: the Site has no such Lot (unknown, removed, or of another Site); nothing was enrolled. */
         DeviceEnrolmentNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:device-not-found: the Site has no such Device (unknown, or of another Site). Nothing changed. */
+        DeviceNotFound: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1605,6 +1814,39 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["DeviceMoveNotFound"];
+        };
+    };
+    setDeviceSilenceWindow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Device ID, 16 lowercase hex digits. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSilenceWindowRequest"];
+            };
+        };
+        responses: {
+            /** @description The Silence Window in force after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SilenceWindow"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeviceNotFound"];
         };
     };
     getSensorCalibration: {

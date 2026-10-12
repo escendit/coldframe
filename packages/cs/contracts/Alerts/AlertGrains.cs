@@ -1,3 +1,5 @@
+using Coldframe.Contracts.Devices;
+
 namespace Coldframe.Contracts.Alerts;
 
 /// <summary>
@@ -174,6 +176,11 @@ public sealed record OpenAlert(
 /// <param name="SiteId">The Site of the Device when the Alert opened.</param>
 /// <param name="LotId">The Lot of a Node when the Alert opened; <see langword="null"/> for a Hub or an unassigned Node.</param>
 /// <param name="OpenedAt">When the Device journaled the episode.</param>
+/// <param name="DeviceKind">Whether the Device is a Hub or a Node (Story 7.2); <see langword="null"/> when the caller does not state it.</param>
+/// <param name="SilentSince">
+/// For a <see cref="AlertKind.Silent"/> Alert, when the Device was last heard, or when it was enrolled if it never
+/// reported (Story 7.2); <see langword="null"/> when the caller does not state it.
+/// </param>
 [GenerateSerializer]
 [Alias("coldframe.open-device-alert")]
 public sealed record OpenDeviceAlert(
@@ -182,7 +189,9 @@ public sealed record OpenDeviceAlert(
     [property: Id(2)] int Episode,
     [property: Id(3)] string SiteId,
     [property: Id(4)] string? LotId,
-    [property: Id(5)] DateTimeOffset OpenedAt);
+    [property: Id(5)] DateTimeOffset OpenedAt,
+    [property: Id(6)] DeviceKind? DeviceKind = null,
+    [property: Id(7)] DateTimeOffset? SilentSince = null);
 
 /// <summary>
 /// The close of an Alert, as the grain that opened it hands it to the Alert grain.
@@ -253,6 +262,8 @@ public sealed record AlertResult(
 /// <param name="OpenedAt">When the Alert opened.</param>
 /// <param name="Reason">Why the Alert closed, once it is.</param>
 /// <param name="ClosedAt">When the Alert closed, once it is.</param>
+/// <param name="DeviceKind">Whether a Device's Alert is about a Hub or a Node; <see langword="null"/> for a Threshold Alert and for an Alert opened before Story 7.2.</param>
+/// <param name="SilentSince">When a silent Device was last heard; <see langword="null"/> for another kind and for an Alert opened before Story 7.2.</param>
 [GenerateSerializer]
 [Alias("coldframe.alert-snapshot")]
 public sealed record AlertSnapshot(
@@ -267,4 +278,6 @@ public sealed record AlertSnapshot(
     [property: Id(8)] string? Quantity,
     [property: Id(9)] DateTimeOffset OpenedAt,
     [property: Id(10)] AlertCloseReason? Reason = null,
-    [property: Id(11)] DateTimeOffset? ClosedAt = null);
+    [property: Id(11)] DateTimeOffset? ClosedAt = null,
+    [property: Id(12)] DeviceKind? DeviceKind = null,
+    [property: Id(13)] DateTimeOffset? SilentSince = null);

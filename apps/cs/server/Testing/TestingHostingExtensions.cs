@@ -1,4 +1,6 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
+using Coldframe.Server.Devices;
 using Coldframe.Server.Edge;
 using Coldframe.Server.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -73,7 +75,8 @@ public static class TestingHostingExtensions
     /// <summary>
     /// Maps the test-only endpoints when <see cref="UsesManualClock"/> holds, otherwise nothing:
     /// <c>GET /testing/clock</c>, <c>POST /testing/clock</c> (<c>{"now": "…"}</c>, forward only) and
-    /// <c>POST /testing/users/{userId}/wake</c>, which wakes that User's grain as its reminder does. They need an
+    /// <c>POST /testing/users/{userId}/wake</c>, which wakes that User's grain as its reminder does, and
+    /// <c>POST /testing/devices/{deviceId}/wake</c>, which fires that Device's silence evaluation (Story 7.2). They need an
     /// access token like every other endpoint.
     /// </summary>
     public static WebApplication MapTestingClock(this WebApplication app)
@@ -110,6 +113,24 @@ public static class TestingHostingExtensions
                 .GetGrain<IUserGrain>(userId)
                 .AsReference<IRemindable>()
                 .ReceiveReminder(UserGrain.WakeReminderName, default)
+                .ConfigureAwait(false);
+
+            return Results.NoContent();
+        });
+
+        // Fires the Device's silence evaluation as its reminder does (Story 7.2): a journey that moved the clock
+        // past a Silence Window need not wait a real minute for the next tick.
+        app.MapPost("/testing/devices/{deviceId}/wake", async (string deviceId, IGrainFactory grains) =>
+        {
+            if (EdgeValidation.NormalizeDeviceId(deviceId) is not { } id)
+            {
+                return EdgeProblems.Result(StatusCodes.Status400BadRequest, EdgeProblems.Validation, "The Device was not woken.", "deviceId is 16 lowercase hex digits.");
+            }
+
+            await grains
+                .GetGrain<IDeviceGrain>(id.ToString())
+                .AsReference<IRemindable>()
+                .ReceiveReminder(DeviceGrain.SilenceReminderName, default)
                 .ConfigureAwait(false);
 
             return Results.NoContent();

@@ -181,6 +181,41 @@ class LotDetailTest {
     }
 
     @Test
+    fun uxDr78TheHubSilentNoteNamesTheHubByItsShortNameWhenTheServerNamesOne() {
+        val behindHub = lot(LotStatus.Unknown, unknownCause = LotUnknownCause.Hub)
+
+        val named =
+            detail(
+                behindHub.copy(silentHubId = "3f2a9c0d1e4b5a67", silentSinceEpochMs = now - 12 * 60_000),
+            ).hero
+        assertEquals(HeroNote.HubSilent, named.note)
+        assertEquals("3F2A", named.silentHubName)
+        assertEquals(LotDuration(12, LotDurationUnit.Minutes), named.duration)
+
+        // A Server that names no Hub: the note without an ID, as before.
+        val unnamed = detail(behindHub).hero
+        assertEquals(HeroNote.HubSilent, unnamed.note)
+        assertNull(unnamed.silentHubName)
+
+        // A silent Node keeps "Check power or range." and names no Hub, whatever else the Lot carries.
+        val node = detail(lot(LotStatus.Unknown, unknownCause = LotUnknownCause.Node).copy(silentHubId = "3f2a")).hero
+        assertEquals(HeroNote.CheckPowerOrRange, node.note)
+        assertNull(node.silentHubName)
+        assertNull(detail(behindHub.copy(silentHubId = "3f2a9c0d1e4b5a67"), stale = true).hero.silentHubName)
+
+        val snapshot =
+            snapshotOf(
+                ready(behindHub.copy(silentHubId = "3f2a9c0d1e4b5a67", silentSinceEpochMs = now - 12 * 60_000)),
+                now,
+            )
+        assertEquals("hubSilent", snapshot.heroNote)
+        assertEquals("3F2A", snapshot.heroSilentHubName)
+        assertEquals("12", snapshot.heroDurationValue)
+        assertEquals("minutes", snapshot.heroDurationUnit)
+        assertEquals("", snapshotOf(ready(behindHub), now).heroSilentHubName)
+    }
+
+    @Test
     fun uxDr78TheHeroNotesFollowTheStatus() {
         assertEquals(HeroNote.NoPercentUntilCalibrated, detail(lot(LotStatus.NeedsCalibration)).hero.note)
         assertEquals(
@@ -370,7 +405,7 @@ class LotDetailTest {
 
         val snapshot =
             com.escendit.coldframe.core.devices
-                .snapshotOf(state)
+                .snapshotOf(state, now)
 
         assertEquals(listOf("n1", "n2"), snapshot.nodeIds)
         assertEquals(listOf("Tomatoes", ""), snapshot.nodeLotNames)

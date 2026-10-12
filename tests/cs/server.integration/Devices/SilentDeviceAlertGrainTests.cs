@@ -12,6 +12,7 @@ using Coldframe.Server.Devices;
 using Coldframe.Server.IntegrationTests.Identity;
 using Coldframe.Server.Journal;
 using Coldframe.Server.Lots;
+using Coldframe.Server.Notifications.Push;
 using Microsoft.Extensions.DependencyInjection;
 using ProtocolKind = Coldframe.Protocol.Setup.V1.DeviceKind;
 
@@ -78,15 +79,16 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal([Started, Delivered], (await identity.AliasesAsync($"device/{nodeId}")).Skip(journaled.Count));
         Assert.True(await PositionAsync($"device/{nodeId}", Started) < await PositionAsync($"alert/{alertId}", "alert.opened"));
 
-        // The Alert is the Node's own: no side, no Sensor, no quantity, the Lot the Node is on.
+        // The Alert is the Node's own: no side, no Sensor, no quantity, the Lot the Node is on. It says that it
+        // is a Node's and when the Node was last heard: its last accepted measured_at, six hours ago (Story 7.2).
         Assert.Equal(
-            new AlertSnapshot(alertId, AlertKind.Silent, AlertLifecycle.Open, null, site.SiteId, lotId, null, nodeId, null, Now),
+            new AlertSnapshot(alertId, AlertKind.Silent, AlertLifecycle.Open, null, site.SiteId, lotId, null, nodeId, null, Now, DeviceKind: DeviceKind.Node, SilentSince: lastReport),
             await identity.Alert(alertId).Describe(Ct));
         Assert.Equal(["alert.opened", "alert.site-notified"], await identity.AliasesAsync($"alert/{alertId}"));
 
         // The Site lists it and its member was told.
         var listed = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
-        Assert.Equal(new SiteAlert(alertId, AlertKind.Silent, null, lotId, null, nodeId, null, Now), listed);
+        Assert.Equal(new SiteAlert(alertId, AlertKind.Silent, null, lotId, null, nodeId, null, Now, DeviceKind.Node, lastReport), listed);
         Assert.Equal(listed, Assert.Single((await identity.UserStateAsync(site.OwnerId)).TrackedAlerts.Values).Alert);
 
         // The Lot cannot be read: unknown, because of its Node.
@@ -112,11 +114,16 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         identity.Time.Advance(Second);
         await identity.WakeDeviceAsync(hubId);
 
+        // Story 7.2: the Hub states once, as its Alert opens, what it is and when it was last heard: its last
+        // accepted heartbeat, five minutes ago. The Alert, the Site and the member's notification carry both.
         var alertId = AlertIds.Silent(hubId, 1);
         var opened = Now;
+        var lastHeard = opened - HubWindow;
         Assert.Equal(
-            new AlertSnapshot(alertId, AlertKind.Silent, AlertLifecycle.Open, null, site.SiteId, null, null, hubId, null, opened),
+            new AlertSnapshot(alertId, AlertKind.Silent, AlertLifecycle.Open, null, site.SiteId, null, null, hubId, null, opened, DeviceKind: DeviceKind.Hub, SilentSince: lastHeard),
             await identity.Alert(alertId).Describe(Ct));
+        var listed = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Equal(((DeviceKind?)DeviceKind.Hub, (DateTimeOffset?)lastHeard), (listed.DeviceKind, listed.SilentSince));
         Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
 
         // Delivered through the same fan-out as a Threshold Alert, and nothing throws for an Alert without a Lot.
@@ -124,7 +131,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         var sent = Assert.Single(identity.Notifications.For(site.OwnerId));
         Assert.Equal(NotificationKind.Alert, sent.Notification.Kind);
         Assert.Equal(
-            new NotificationEntry(alertId, AlertKind.Silent, null, null, null, hubId, null, opened),
+            new NotificationEntry(alertId, AlertKind.Silent, null, null, null, hubId, null, opened, DeviceKind.Hub, lastHeard),
             Assert.Single(sent.Notification.Entries));
 
         // The Reminder comes 24 h after the notification and not a minute before. That a Health Alert never
@@ -591,45 +598,126 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.DoesNotContain(ClockRestarted, await identity.AliasesAsync(stream));
     }
 
+    // Story 7.2: what the Device grain states once as its Alert opens is what all three read models show.
     [Fact]
-    public async Task ASilentAlertIsStoredInTheAlertsReadModelAndNeitherListedNorCounted()
+    public async Task ASilentNodeAndASilentHubShowInTheAlertsTheLotsAndTheDevicesReadModelsWithWhenTheyWereLastHeard()
     {
         var site = await SiteAsync();
         var hub = await HubAsync(site);
-        var (node, lotId) = await NodeAsync(site, "Beans", UnknownHub);
-        var nodeId = node.DeviceId.ToString();
         var hubId = hub.DeviceId.ToString();
+        await HeartbeatAsync(hub);
+        var (beansNode, beans) = await NodeAsync(site, "Beans", UnknownHub);
+        var (lettuceNode, lettuce) = await NodeAsync(site, "Lettuce", hubId);
+        var beansId = beansNode.DeviceId.ToString();
+        var lettuceId = lettuceNode.DeviceId.ToString();
+        var lastHeard = Now;
+        var lettuceBefore = await LotAsync(lettuce);
 
-        identity.Time.Advance(NodeWindow);
-        await identity.WakeDeviceAsync(nodeId);
-        await identity.WakeDeviceAsync(hubId);
+        // The Hub goes quiet first; six hours after the last frames the Node of Beans does. The Node of Lettuce
+        // is behind the silent Hub and opens nothing.
+        var hubAlert = await SilentAsync(hubId, HubWindow);
+        var hubOpened = Now;
+        identity.Time.SetUtcNow(lastHeard + NodeWindow);
+        await identity.WakeDeviceAsync(beansId);
+        await identity.WakeDeviceAsync(lettuceId);
+        var beansAlert = AlertIds.Silent(beansId, 1);
+        var beansOpened = Now;
         Assert.Equal(2, (await identity.Site(site.SiteId).OpenAlerts(Ct)).Count);
+        Assert.Equal(
+            ((DeviceKind?)DeviceKind.Node, (DateTimeOffset?)lastHeard),
+            ((await identity.Alert(beansAlert).Describe(Ct))!.DeviceKind, (await identity.Alert(beansAlert).Describe(Ct))!.SilentSince));
 
-        await identity.SiloServices.GetProjectionRunner<AlertsProjector>().CatchUpAsync(Ct);
-        await CatchUpLotsAsync();
+        await CatchUpAsync();
 
-        // Both rows are there, the Hub's without a Lot, neither with a Sensor or a quantity.
-        var rows = new List<(string Kind, string? LotId, bool NoSensor, bool NoQuantity)>();
-        await using (var command = identity.Database.DataSource.CreateCommand(
-            "SELECT kind, lot_id, sensor_id IS NULL, quantity IS NULL FROM alerts WHERE site_id = @site_id ORDER BY lot_id NULLS LAST"))
-        {
-            command.Parameters.AddWithValue("site_id", site.SiteId);
-            await using var reader = await command.ExecuteReaderAsync(Ct);
-            while (await reader.ReadAsync(Ct))
-            {
-                rows.Add((reader.GetString(0), await reader.IsDBNullAsync(1, Ct) ? null : reader.GetString(1), reader.GetBoolean(2), reader.GetBoolean(3)));
-            }
-        }
+        // The Alerts list: no Threshold Alert, two Health Alerts newest first, both counted as open.
+        var alerts = identity.SiloServices.GetRequiredService<AlertsReadModel>();
+        var closedSince = Now - AlertsReadModel.ClosedRetention;
+        Assert.Empty((await alerts.ListAlertsAsync(site.SiteId, closedSince, null, 50, Ct)).Alerts);
+        Assert.Equal(2, await alerts.CountOpenAsync(site.SiteId, Ct));
+        Assert.Equal(
+            [
+                new HealthAlertView(beansAlert, "silent", beansId, "node", beans, "Beans", lastHeard, beansOpened, null, null),
+                new HealthAlertView(hubAlert, "silent", hubId, "hub", null, null, lastHeard, hubOpened, null, null),
+            ],
+            await alerts.ListHealthAlertsAsync(site.SiteId, closedSince, Ct));
 
-        Assert.Equal([("silent", lotId, true, true), ("silent", null, true, true)], rows);
+        // The Lots: Beans is unknown by its Node, Lettuce by the Hub that relays it, each since that Device was
+        // last heard; the Hub is listed for the Site.
+        var lots = identity.SiloServices.GetRequiredService<LotsReadModel>();
+        var listed = (await lots.ListLotsAsync(site.SiteId, Ct)).ToDictionary(lot => lot.LotId, StringComparer.Ordinal);
+        Assert.Equal(
+            ("unknown", "node", (string?)null, (DateTimeOffset?)lastHeard),
+            (listed[beans].Status, listed[beans].UnknownCause, listed[beans].SilentHubId, listed[beans].SilentSince));
+        Assert.Equal(
+            ("unknown", "hub", (string?)hubId, (DateTimeOffset?)lastHeard),
+            (listed[lettuce].Status, listed[lettuce].UnknownCause, listed[lettuce].SilentHubId, listed[lettuce].SilentSince));
+        var found = await lots.FindLotAsync(site.SiteId, lettuce, Ct);
+        Assert.Equal(((string?)hubId, (DateTimeOffset?)lastHeard), (found!.SilentHubId, found.SilentSince));
+        Assert.Equal([new SilentHubView(hubId, lastHeard)], await lots.ListSilentHubsAsync(site.SiteId, Ct));
 
-        // The list and its count keep to what the contract's Alert can describe (Story 7.2 extends it).
-        var readModel = identity.SiloServices.GetRequiredService<AlertsReadModel>();
-        var page = await readModel.ListAlertsAsync(site.SiteId, Now - AlertsReadModel.ClosedRetention, null, 50, Ct);
+        // The Devices: the Hub and the Node of Beans are silent, the suppressed Node is not; nobody has a window
+        // of its own yet.
+        var devices = identity.SiloServices.GetRequiredService<DevicesReadModel>();
+        var rows = (await devices.ListDevicesAsync(site.SiteId, Ct)).ToDictionary(device => device.DeviceId, StringComparer.Ordinal);
+        Assert.Equal(
+            ((DateTimeOffset?)lastHeard, (DateTimeOffset?)lastHeard, (DateTimeOffset?)null),
+            (rows[hubId].SilentSince, rows[beansId].SilentSince, rows[lettuceId].SilentSince));
+        Assert.All(rows.Values, row => Assert.Null(row.SilenceWindowOverrideSeconds));
 
-        Assert.Empty(page.Alerts);
-        Assert.Null(page.Next);
-        Assert.Equal(0, await readModel.CountOpenAsync(site.SiteId, Ct));
+        // The notification text, written from what the Alert carries and the real read models: the Node by its
+        // Lot with the time of its last Reading (UTC for a User without a zone), the Hub by its short ID.
+        var push = identity.SiloServices.GetRequiredService<PushContentBuilder>();
+        var open = (await identity.Site(site.SiteId).OpenAlerts(Ct)).ToDictionary(alert => alert.AlertId);
+        NotificationEntry Entry(Guid alertId) => new(
+            alertId, AlertKind.Silent, null, open[alertId].LotId, null, open[alertId].DeviceId, null, open[alertId].OpenedAt, open[alertId].DeviceKind, open[alertId].SilentSince);
+        var ofNode = await push.BuildAsync(new Notification(site.OwnerId, site.SiteId, NotificationKind.Alert, Now, null, [Entry(beansAlert)]), Now);
+        var ofHub = await push.BuildAsync(new Notification(site.OwnerId, site.SiteId, NotificationKind.Alert, Now, null, [Entry(hubAlert)]), Now);
+        Assert.Equal(
+            ("Node on Lot 'Beans' silent for 6 h", $"No Reading since {lastHeard.UtcDateTime:HH:mm}. Check power or range."),
+            (ofNode!.Title, ofNode.Body));
+        Assert.Equal(($"Hub {hubId[..4].ToUpperInvariant()} silent for 6 h", "Lots behind it can't be read."), (ofHub!.Title, ofHub.Body));
+
+        // A window of its own shows, and clearing it shows the default again.
+        Assert.Equal(DeviceSilenceWindowOutcome.Set, (await identity.Device(beansId).SetSilenceWindow(site.SiteId, TimeSpan.FromHours(8), Ct)).Outcome);
+        await CatchUpAsync();
+        Assert.Equal(28_800, (await devices.ListDevicesAsync(site.SiteId, Ct)).Single(device => device.DeviceId == beansId).SilenceWindowOverrideSeconds);
+        Assert.Equal(DeviceSilenceWindowOutcome.Set, (await identity.Device(beansId).SetSilenceWindow(site.SiteId, null, Ct)).Outcome);
+        await CatchUpAsync();
+        Assert.Null((await devices.ListDevicesAsync(site.SiteId, Ct)).Single(device => device.DeviceId == beansId).SilenceWindowOverrideSeconds);
+
+        // The Hub recovers: it is no longer listed as silent anywhere, Lettuce is readable again, and its Alert
+        // stays in the list as closed. Beans keeps its own.
+        await HeartbeatAsync(hub);
+        await CatchUpAsync();
+
+        Assert.Empty(await lots.ListSilentHubsAsync(site.SiteId, Ct));
+        var afterwards = (await lots.ListLotsAsync(site.SiteId, Ct)).ToDictionary(lot => lot.LotId, StringComparer.Ordinal);
+        Assert.Equal(
+            (lettuceBefore.Status, lettuceBefore.Cause, (string?)null, (DateTimeOffset?)null),
+            (afterwards[lettuce].Status, afterwards[lettuce].UnknownCause, afterwards[lettuce].SilentHubId, afterwards[lettuce].SilentSince));
+        Assert.Equal(("unknown", (DateTimeOffset?)lastHeard), (afterwards[beans].Status, afterwards[beans].SilentSince));
+        Assert.Null((await devices.ListDevicesAsync(site.SiteId, Ct)).Single(device => device.DeviceId == hubId).SilentSince);
+        Assert.Equal(1, await alerts.CountOpenAsync(site.SiteId, Ct));
+        Assert.Equal(
+            [
+                new HealthAlertView(beansAlert, "silent", beansId, "node", beans, "Beans", lastHeard, beansOpened, null, null),
+                new HealthAlertView(hubAlert, "silent", hubId, "hub", null, null, lastHeard, hubOpened, Now, "recovered"),
+            ],
+            await alerts.ListHealthAlertsAsync(site.SiteId, Now - AlertsReadModel.ClosedRetention, Ct));
+    }
+
+    // A Node that never reported is silent since its enrolment (Story 7.2).
+    [Fact]
+    public async Task ADeviceThatNeverReportedIsSilentSinceItsEnrolment()
+    {
+        var site = await SiteAsync();
+        var hub = await HubAsync(site);
+        var hubId = hub.DeviceId.ToString();
+        var enrolledAt = Now;
+
+        var alertId = await SilentAsync(hubId, HubWindow);
+
+        Assert.Equal((DateTimeOffset?)enrolledAt, (await identity.Alert(alertId).Describe(Ct))!.SilentSince);
     }
 
     // An Active Site created by its Owner, whose User grain therefore holds the Site and is told of its Alerts.
@@ -745,6 +833,14 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
             ("alias", alias));
 
     private Task CatchUpLotsAsync() => identity.SiloServices.GetProjectionRunner<LotsProjector>().CatchUpAsync(Ct);
+
+    // The three read models that show silence (Story 7.2), each up to the end of the journal.
+    private async Task CatchUpAsync()
+    {
+        await identity.SiloServices.GetProjectionRunner<AlertsProjector>().CatchUpAsync(Ct);
+        await identity.SiloServices.GetProjectionRunner<DevicesProjector>().CatchUpAsync(Ct);
+        await CatchUpLotsAsync();
+    }
 
     // The Lot's status and its cause when unknown, once the lots projection has caught up.
     private async Task<(string Status, string? Cause)> LotAsync(string lotId)

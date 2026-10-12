@@ -646,6 +646,52 @@ public struct StaleHeaderPresentation: Equatable, Sendable {
   }
 }
 
+/// The notice above the tiles for one silent Hub (UX-DR81): "Hub 3F2A silent for 12 min — Lots
+/// behind it can't be read." The core names the Hub and measures the silence; it has no action
+/// and cannot be dismissed. Its duration moves with the minute tick, so the notice itself
+/// announces nothing: `HubNoticeAnnouncements` says it once, when it appears.
+public struct HubNoticePresentation: Equatable, Sendable, Identifiable {
+  /// The Hub's Device ID.
+  public let id: String
+  /// The Hub's short name, "3F2A" of "Hub 3F2A".
+  public let name: String
+  /// When the Hub was last heard.
+  public let silentSince: Date?
+  /// The silence as the core measured it, rounded down.
+  public let duration: LotDurationPresentation
+
+  public init(
+    id: String, name: String, silentSince: Date? = nil, duration: LotDurationPresentation
+  ) {
+    self.id = id
+    self.name = name
+    self.silentSince = silentSince
+    self.duration = duration
+  }
+
+  public let announcement: Announcement = .polite
+
+  public func text(_ context: CopyContext) -> String {
+    context.text(.gardenHubSilent, .text(name), .text(context.resolve(duration.short)))
+  }
+}
+
+/// Which silent Hubs were already announced (UX-DR81). A Hub is said once, when its notice
+/// appears; the minute tick and a refresh that still lists it say nothing. A Hub that recovered
+/// and went silent again is said again.
+public struct HubNoticeAnnouncements: Equatable, Sendable {
+  private var announced: Set<String> = []
+
+  public init() {}
+
+  /// The notices to announce now, in the Server's order: the ones that were not shown before.
+  public mutating func fresh(in notices: [HubNoticePresentation]) -> [HubNoticePresentation] {
+    let fresh = notices.filter { !announced.contains($0.id) }
+    announced = Set(notices.map(\.id))
+    return fresh
+  }
+}
+
 /// The Site overview as the core built it for one `now`: live or stale, the summary and the
 /// Site menu. Nil fields the core did not send are left out.
 public struct SiteOverviewPresentation: Equatable, Sendable {
@@ -661,12 +707,17 @@ public struct SiteOverviewPresentation: Equatable, Sendable {
   public let menuItems: [SiteMenuItem]
   /// False in stale mode: every item then shows "Needs your Server".
   public let menuEnabled: Bool
+  /// One notice per silent Hub of the Site, in the Server's order; none in stale mode, as the
+  /// core decided.
+  public let hubNotices: [HubNoticePresentation]
 
   public init(
     stale: Bool, refreshing: Bool = false, fetchedAt: Date? = nil,
     staleAge: StaleAgePresentation = StaleAgePresentation(days: 0, hours: 0, minutes: 0),
-    summary: SiteSummaryPresentation, menuItems: [SiteMenuItem], menuEnabled: Bool
+    summary: SiteSummaryPresentation, menuItems: [SiteMenuItem], menuEnabled: Bool,
+    hubNotices: [HubNoticePresentation] = []
   ) {
+    self.hubNotices = hubNotices
     self.stale = stale
     self.refreshing = refreshing
     self.fetchedAt = fetchedAt
@@ -962,7 +1013,9 @@ public struct LotsPresentation: Equatable, Sendable {
     lotDurationValues: [String] = [], lotDurationUnits: [String] = [],
     lotPausedBySite: [Bool] = [], lotPausedUntils: [String] = [],
     lotOpensAddNode: [Bool] = [], lotOpensCalibrate: [Bool] = [], menuItems: [String] = [],
-    menuEnabled: Bool = true
+    menuEnabled: Bool = true, hubNoticeIds: [String] = [], hubNoticeNames: [String] = [],
+    hubNoticeSilentSince: [String] = [], hubNoticeDurationValues: [String] = [],
+    hubNoticeDurationUnits: [String] = []
   ) {
     switch surface {
     case "loading":
@@ -1051,12 +1104,26 @@ public struct LotsPresentation: Equatable, Sendable {
         count: headlineCount, lotName: headlineLotName,
         pausedUntil: Self.date(text: headlinePausedUntil), pausedInk: headlinePausedInk,
         counts: counts)
+      // A notice the core did not finish (no name, or a silence this client cannot read) is not
+      // shown: the sentence cannot be said without them.
+      let noticeCount = min(
+        hubNoticeIds.count, hubNoticeNames.count, hubNoticeDurationValues.count,
+        hubNoticeDurationUnits.count)
+      let hubNotices = (0..<noticeCount).compactMap { index -> HubNoticePresentation? in
+        guard !hubNoticeNames[index].isEmpty, let value = Int(hubNoticeDurationValues[index]),
+          let unit = LotDurationPresentation.Unit(rawValue: hubNoticeDurationUnits[index])
+        else { return nil }
+        return HubNoticePresentation(
+          id: hubNoticeIds[index], name: hubNoticeNames[index],
+          silentSince: Self.entry(hubNoticeSilentSince, index).flatMap(Self.date(text:)),
+          duration: LotDurationPresentation(value: value, unit: unit))
+      }
       self.overview = SiteOverviewPresentation(
         stale: stale, refreshing: refreshing, fetchedAt: fetchedAt,
         staleAge: StaleAgePresentation(
           days: staleAgeDays, hours: staleAgeHours, minutes: staleAgeMinutes),
         summary: summary, menuItems: menuItems.compactMap(SiteMenuItem.init(rawValue:)),
-        menuEnabled: menuEnabled)
+        menuEnabled: menuEnabled, hubNotices: hubNotices)
       self.surface = .ready(settings, tiles: tiles)
     default:
       self.overview = nil

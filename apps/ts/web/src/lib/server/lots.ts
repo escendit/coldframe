@@ -4,7 +4,7 @@
  */
 import type { Cookies } from '@sveltejs/kit';
 import type { Lot } from '@coldframe/api-client';
-import type { LotsNotice } from '$lib/lots';
+import type { LotsNotice, SilentHub } from '$lib/lots';
 import type { Site } from '$lib/sites';
 import { isTimeZone } from './create-site';
 import { lotsKey, readThrough, recall, userKeyOf, type LastGoodDependencies } from './last-good';
@@ -17,6 +17,19 @@ type Locals = Pick<App.Locals, 'session'>;
 export async function listLots(locals: Locals, siteId: string, dependencies: SitesDependencies = {}): Promise<SitesResult<readonly Lot[]>> {
   const result = await call(locals, dependencies, (client) => client.GET('/sites/{siteId}/lots', { params: { path: { siteId } } }));
   return 'ok' in result ? { ok: result.ok.lots } : result;
+}
+
+/** What the Site overview reads: the Lots in the Server's order, and the Site's silent Hubs (Story 7.2). */
+export interface Overview {
+  readonly lots: readonly Lot[];
+  /** Every Hub with an open silent Alert, as the Server listed them; empty when it sent none. */
+  readonly silentHubs: readonly SilentHub[];
+}
+
+/** The Lots list as the overview needs it: one read gives the Lots and the silent Hubs. */
+export async function listOverview(locals: Locals, siteId: string, dependencies: SitesDependencies = {}): Promise<SitesResult<Overview>> {
+  const result = await call(locals, dependencies, (client) => client.GET('/sites/{siteId}/lots', { params: { path: { siteId } } }));
+  return 'ok' in result ? { ok: { lots: result.ok.lots, silentHubs: result.ok.silentHubs ?? [] } } : result;
 }
 
 /** Creates a Lot. One Idempotency-Key per attempt: the same key for a retry of the same attempt. */
@@ -45,6 +58,8 @@ export function removeLot(locals: Locals, siteId: string, lotId: string, depende
 export interface GardenData {
   /** In the Server's order; in stale mode the Lots it last listed. Empty when there is a notice. */
   readonly lots: readonly Lot[];
+  /** The Site's silent Hubs for the notice above the tiles; in stale mode the ones last listed, which the page does not show as live. */
+  readonly silentHubs: readonly SilentHub[];
   readonly lotsNotice: LotsNotice | null;
   /** Stale mode: when the data shown was last read from the Server (ISO-8601). Null while live. */
   readonly staleSince: string | null;
@@ -71,20 +86,22 @@ export async function loadGarden(
   const chosen = cookies.get(timeZoneCookieName);
   const base = { loadedAt: (dependencies.now?.() ?? new Date()).toISOString(), timeZone: isTimeZone(chosen) ? chosen : null };
   if (site === null) {
-    return { lots: [], lotsNotice: null, staleSince: null, ...base };
+    return { lots: [], silentHubs: [], lotsNotice: null, staleSince: null, ...base };
   }
   const user = userKeyOf(locals);
   const key = user === null ? null : lotsKey(user, site.id);
   if (shellStale !== null) {
-    const kept = recall<readonly Lot[]>(key, dependencies);
-    return kept === undefined ? { lots: [], lotsNotice: 'unreachable', staleSince: shellStale, ...base } : { lots: kept.value, lotsNotice: null, staleSince: kept.fetchedAt, ...base };
+    const kept = recall<Overview>(key, dependencies);
+    return kept === undefined
+      ? { lots: [], silentHubs: [], lotsNotice: 'unreachable', staleSince: shellStale, ...base }
+      : { lots: kept.value.lots, silentHubs: kept.value.silentHubs, lotsNotice: null, staleSince: kept.fetchedAt, ...base };
   }
-  const result = await readThrough(key, () => listLots(locals, site.id, dependencies), dependencies);
+  const result = await readThrough(key, () => listOverview(locals, site.id, dependencies), dependencies);
   if ('ok' in result) {
-    return { lots: result.ok, lotsNotice: null, staleSince: result.stale ? result.fetchedAt : null, ...base };
+    return { lots: result.ok.lots, silentHubs: result.ok.silentHubs, lotsNotice: null, staleSince: result.stale ? result.fetchedAt : null, ...base };
   }
   if (result.error === 'unauthorized') {
     signedOutRedirect();
   }
-  return { lots: [], lotsNotice: result.error === 'unreachable' || result.error === 'certificate' ? result.error : 'unavailable', staleSince: null, ...base };
+  return { lots: [], silentHubs: [], lotsNotice: result.error === 'unreachable' || result.error === 'certificate' ? result.error : 'unavailable', staleSince: null, ...base };
 }

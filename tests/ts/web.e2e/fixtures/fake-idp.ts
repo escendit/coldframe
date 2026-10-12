@@ -66,6 +66,9 @@ export interface FakeLot {
   readonly statusSince?: string;
   readonly lastReadingAt?: string;
   readonly unknownCause?: 'node' | 'hub';
+  /** Story 7.2: the silent Hub behind the Lot, and when the silent Device was last heard; returned as seeded. */
+  readonly silentHubId?: string;
+  readonly silentSince?: string;
   readonly pausedBy?: readonly ('device' | 'site')[];
   readonly pausedUntil?: string;
   readonly moisturePercent?: number;
@@ -239,6 +242,38 @@ export interface FakeDevice {
   readonly lotName?: string;
   readonly batteryPercent?: number;
   readonly charging?: 'charging' | 'notCharging';
+  /**
+   * Story 7.2: seeded while the Device has an open silent Alert. A Hub with it is also one of the Site's
+   * `silentHubs` on the Lots list. The fake opens and closes nothing by itself.
+   */
+  readonly silentSince?: string;
+  /** The Device's own Silence Window in seconds; without it the list gives the default of its kind. */
+  readonly silenceWindowSeconds?: number;
+}
+
+/** The Silence Window a Device has without its own (Story 7.2). */
+export const defaultSilenceWindowSeconds = { node: 21_600, hub: 300 } as const;
+
+/** One `PUT …/silence-window` the fake Server accepted. */
+export interface FakeSilenceWindowPut {
+  readonly deviceId: string;
+  readonly body: Record<string, unknown>;
+}
+
+/** A Health Alert of the fake Server, as `AlertList.healthAlerts` lists it (Story 7.2). */
+export interface FakeHealthAlert {
+  readonly id: string;
+  readonly siteId: string;
+  /** `silent`, or any other Health kind: the contract's enum is extensible. */
+  readonly kind: string;
+  readonly deviceId: string;
+  readonly deviceKind: 'hub' | 'node';
+  readonly lotId?: string;
+  readonly lotName?: string;
+  readonly silentSince?: string;
+  readonly openedAt: string;
+  readonly closedAt?: string;
+  readonly reason?: string;
 }
 
 /** An Alert of the fake Server, as `GET /sites/{id}/alerts` lists it (Story 6.2). */
@@ -396,6 +431,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   /** Set to answer the Devices list with this status instead (a Server that is down). */
   let devicesStatus: number | null = null;
   let alerts: FakeAlert[] = [];
+  let healthAlerts: FakeHealthAlert[] = [];
+  let silenceWindowPuts: FakeSilenceWindowPut[] = [];
   /** Set to answer the Alerts list with this status instead (a Server that is down). */
   let alertsStatus: number | null = null;
   /** How many times the Alerts of any Site were asked for since the last reset. */
@@ -529,6 +566,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       thresholdPuts = [];
       devicesStatus = typeof body.devicesStatus === 'number' ? body.devicesStatus : null;
       alerts = [];
+      healthAlerts = [];
+      silenceWindowPuts = [];
       alertsStatus = null;
       alertReads = 0;
       notificationSettings = defaultNotificationSettings;
@@ -546,13 +585,14 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       return;
     }
     if (path === '/control/sites') {
-      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts, thresholds, thresholdPuts });
+      send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts, thresholds, thresholdPuts, silenceWindowPuts });
       return;
     }
     // Story 6.2: seeds the Alerts, or makes their list answer a status; `POST /control/sites` clears both.
     if (path === '/control/alerts' && request.method === 'POST') {
       const body = await readJson(request);
       alerts = Array.isArray(body.alerts) ? (body.alerts as FakeAlert[]) : [];
+      healthAlerts = Array.isArray(body.healthAlerts) ? (body.healthAlerts as FakeHealthAlert[]) : [];
       alertsStatus = typeof body.alertsStatus === 'number' ? body.alertsStatus : null;
       alertReads = 0;
       send(response, 200, { alerts });
@@ -713,7 +753,49 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       return;
     }
 
-    // Story 6.2: the Alerts list (Member): open newest first, then closed newest first, in pages.
+    // Story 7.2: a Device's Silence Window (Administrator). 60 to 2592000 whole seconds, or no value for the default of its kind.
+    const windowMatch = /^\/sites\/([^/]+)\/devices\/([^/]+)\/silence-window$/u.exec(path);
+    if (windowMatch !== null && request.method === 'PUT') {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(windowMatch[1] ?? '');
+      const deviceId = decodeURIComponent(windowMatch[2] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      if (site.role === 'Member') {
+        problem(response, 403, 'forbidden');
+        return;
+      }
+      if (!/^[0-9a-f]{16}$/u.test(deviceId)) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      const device = devices.find((candidate) => candidate.id === deviceId && candidate.siteId === siteId);
+      if (device === undefined) {
+        problem(response, 404, 'device-not-found');
+        return;
+      }
+      const body = await readJson(request);
+      const requested = body.windowSeconds;
+      if (requested !== undefined && (typeof requested !== 'number' || !Number.isInteger(requested) || requested < 60 || requested > 2_592_000)) {
+        problem(response, 400, 'validation');
+        return;
+      }
+      silenceWindowPuts.push({ deviceId, body });
+      const rest = Object.fromEntries(Object.entries(device).filter(([key]) => key !== 'silenceWindowSeconds')) as unknown as FakeDevice;
+      const changed: FakeDevice = requested === undefined ? rest : { ...rest, silenceWindowSeconds: requested };
+      devices = devices.map((candidate) => (candidate === device ? changed : candidate));
+      send(response, 200, { windowSeconds: requested ?? defaultSilenceWindowSeconds[device.kind], overridden: requested !== undefined });
+      return;
+    }
+
+    // Story 6.2: the Alerts list (Member): open newest first, then closed newest first, in pages. Story 7.2: `alerts` are the
+    // Threshold Alerts as seeded; the Health Alerts come beside them, not paged, with the first page only.
     const alertsMatch = /^\/sites\/([^/]+)\/alerts$/u.exec(path);
     if (alertsMatch !== null && request.method === 'GET') {
       if (!bearerOk(request)) {
@@ -753,7 +835,17 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         ...(alert.closedAt === undefined ? {} : { closedAt: alert.closedAt }),
         ...(alert.reason === undefined ? {} : { reason: alert.reason }),
       }));
-      send(response, 200, { alerts: listed, openCount: open.length, ...(start + limit < ordered.length ? { nextCursor: String(start + limit) } : {}) });
+      const healthOfSite = healthAlerts.filter((alert) => alert.siteId === siteId);
+      const healthOpen = healthOfSite.filter((alert) => alert.closedAt === undefined).toSorted((a, b) => newest(a.openedAt, b.openedAt));
+      const healthClosed = healthOfSite.filter((alert) => alert.closedAt !== undefined).toSorted((a, b) => newest(a.closedAt ?? '', b.closedAt ?? ''));
+      const health = [...healthOpen, ...healthClosed].map((alert) => Object.fromEntries(Object.entries(alert).filter(([key]) => key !== 'siteId')));
+      send(response, 200, {
+        alerts: listed,
+        // Absent on a page read with `cursor`.
+        ...(url.searchParams.has('cursor') ? {} : { healthAlerts: health }),
+        openCount: open.length + healthOpen.length,
+        ...(start + limit < ordered.length ? { nextCursor: String(start + limit) } : {}),
+      });
       return;
     }
 
@@ -798,6 +890,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
           ...(device.lotName === undefined ? {} : { lotName: device.lotName }),
           ...(device.batteryPercent === undefined ? {} : { batteryPercent: device.batteryPercent }),
           ...(device.charging === undefined ? {} : { charging: device.charging }),
+          ...(device.silentSince === undefined ? {} : { silentSince: device.silentSince }),
+          silenceWindowSeconds: device.silenceWindowSeconds ?? defaultSilenceWindowSeconds[device.kind],
+          silenceWindowOverridden: device.silenceWindowSeconds !== undefined,
         }));
       send(response, 200, { devices: listed });
       return;
@@ -1111,6 +1206,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         statusSince: lot.statusSince ?? startedAt,
         ...(lot.lastReadingAt === undefined ? {} : { lastReadingAt: lot.lastReadingAt }),
         ...(lot.unknownCause !== undefined ? { unknownCause: lot.unknownCause } : statusOf(lot) === 'unknown' ? { unknownCause: 'node' } : {}),
+        ...(lot.silentHubId === undefined ? {} : { silentHubId: lot.silentHubId }),
+        ...(lot.silentSince === undefined ? {} : { silentSince: lot.silentSince }),
         ...(lot.pausedBy === undefined ? {} : { pausedBy: lot.pausedBy }),
         ...(lot.pausedUntil === undefined ? {} : { pausedUntil: lot.pausedUntil }),
         ...(lot.moisturePercent === undefined ? {} : { moisturePercent: lot.moisturePercent }),
@@ -1158,7 +1255,12 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
           }
           const live = lots.filter((lot) => lot.siteId === siteId && lot.removed !== true);
           const ordered = live.map((lot, index) => ({ lot, index })).toSorted((a, b) => rank(a.lot) - rank(b.lot) || a.index - b.index);
-          send(response, 200, { lots: ordered.map(({ lot }) => lotView(lot)) });
+          // Story 7.2: every Hub of the Site seeded as silent, by Device ID, whether or not a Lot is behind it.
+          const silentHubs = devices
+            .filter((device) => device.siteId === siteId && device.kind === 'hub' && device.silentSince !== undefined)
+            .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+            .map((device) => ({ deviceId: device.id, silentSince: device.silentSince }));
+          send(response, 200, { lots: ordered.map(({ lot }) => lotView(lot)), ...(silentHubs.length === 0 ? {} : { silentHubs }) });
           return;
         }
         if (request.method !== 'POST') {

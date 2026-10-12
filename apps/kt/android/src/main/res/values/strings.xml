@@ -622,4 +622,28 @@
   <string name="push_channel_alerts">Alerts</string>
   <string name="reminders_daily">Daily</string>
   <string name="reminders_every_2_days">Every 2 days</string>
+
+  <!-- Story 7.2: silence in the apps and the Silence Window. -->
+  <string name="garden_hub_silent">Hub %1$s silent for %2$s — Lots behind it can\'t be read.</string>
+  <string name="lot_detail_hub_silent_named">Hub %1$s is silent; Lots behind it can\'t be read.</string>
+  <string name="devices_silent">Silent %1$s</string>
+  <string name="devices_silence_window">Silence Window</string>
+  <string name="devices_silence_window_summary">Silence Window · %1$s</string>
+  <string name="devices_silence_window_hub">Silence Window for Hub %1$s</string>
+  <string name="devices_silence_window_node">Silence Window for Node %1$s</string>
+  <string name="devices_silence_window_unit">Unit</string>
+  <string name="devices_silence_window_unit_minutes">min</string>
+  <string name="devices_silence_window_unit_hours">h</string>
+  <string name="devices_silence_window_unit_days">d</string>
+  <string name="devices_silence_window_helper">From 1 min to 30 d. Without its own value a Node uses 6 h and a Hub 5 min.</string>
+  <string name="devices_silence_window_range">Enter a whole number from 1 min to 30 d.</string>
+  <string name="devices_silence_window_save">Save</string>
+  <string name="devices_silence_window_use_default">Use default</string>
+  <string name="devices_silence_window_not_found">That Device is gone.</string>
+  <string name="alert_title_silent_for">Node on Lot \'%1$s\' silent for %2$s</string>
+  <string name="alert_title_hub_silent">Hub %1$s silent</string>
+  <string name="alert_title_hub_silent_for">Hub %1$s silent for %2$s</string>
+  <string name="alert_title_node_silent">Node %1$s silent</string>
+  <string name="alert_title_node_silent_for">Node %1$s silent for %2$s</string>
+  <string name="alert_title_health">Health Alert</string>
 </resources>

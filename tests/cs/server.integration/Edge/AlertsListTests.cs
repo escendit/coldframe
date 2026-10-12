@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Alerts;
 using Coldframe.Server.IntegrationTests.Devices;
@@ -43,7 +44,7 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         using var page = await GetAsync(member, siteId);
         var alerts = Alerts(page);
 
-        Assert.Equal(["alerts", "openCount"], Names(page.RootElement));
+        Assert.Equal(["alerts", "healthAlerts", "openCount"], Names(page.RootElement));
         Assert.Equal([newer, older, recent], alerts.Select(Id));
         Assert.Equal(2, page.RootElement.GetProperty("openCount").GetInt32());
 
@@ -246,7 +247,7 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
 
         using var page = await GetAsync(member, siteId);
 
-        Assert.Equal(["alerts", "openCount"], Names(page.RootElement));
+        Assert.Equal(["alerts", "healthAlerts", "openCount"], Names(page.RootElement));
         Assert.Empty(Alerts(page));
         Assert.Equal(0, page.RootElement.GetProperty("openCount").GetInt32());
     }
@@ -335,31 +336,116 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         Assert.Equal(1, page.RootElement.GetProperty("openCount").GetInt32());
     }
 
-    // Story 7.1: the read model holds Health Alerts, and the contract's Alert cannot describe one yet (it requires
-    // quantity, lotId and lotName), so the list and its count stay what they were until Story 7.2.
+    // Story 7.2: Health Alerts travel in healthAlerts, beside the Threshold Alerts, whose list keeps its shape.
     [Fact]
-    public async Task ASilentAlertIsStoredAndNeitherListedNorCounted()
+    public async Task SilentAlertsAreListedAsHealthAlertsAndCountedAndTheThresholdListKeepsItsShape()
+    {
+        var (siteId, member) = await SeedSiteAsync();
+        var beans = await edge.SeedLotAsync(siteId, "Beans", Ct);
+        var now = Now();
+        var threshold = await OpenAsync(siteId, beans, ThresholdSide.Low, "soil_moisture", now.AddHours(-3));
+
+        // A silent Node on Beans, a silent Hub, a silent Node on no Lot, and a Hub that recovered an hour ago.
+        var node = await OpenSilentAsync(siteId, beans, Node, now.AddHours(-2), DeviceKind.Node, now.AddHours(-8));
+        var hub = await OpenSilentAsync(siteId, lotId: null, "92064422c012f481", now.AddMinutes(-30), DeviceKind.Hub, now.AddMinutes(-35));
+        var unassigned = await OpenSilentAsync(siteId, lotId: null, "9c0d1e4b5a673f2a", now.AddMinutes(-10), DeviceKind.Node, now.AddHours(-7));
+        var recovered = await OpenSilentAsync(siteId, lotId: null, "92064422c012f482", now.AddHours(-5), DeviceKind.Hub, now.AddHours(-6));
+        await CloseAsync(recovered, AlertCloseReason.Recovered, now.AddHours(-1));
+
+        using var page = await GetAsync(member, siteId);
+
+        Assert.Equal(["alerts", "healthAlerts", "openCount"], Names(page.RootElement));
+        var alert = Assert.Single(Alerts(page));
+        Assert.Equal(threshold, Id(alert));
+        Assert.Equal(["deviceId", "id", "kind", "lotId", "lotName", "openedAt", "quantity", "side"], Names(alert));
+        Assert.Equal(4, page.RootElement.GetProperty("openCount").GetInt32());
+
+        // Open ones newest first, then the closed one.
+        var health = Health(page);
+        Assert.Equal([unassigned, hub, node, recovered], health.Select(Id));
+        Assert.All(health, item => Assert.Equal("silent", item.GetProperty("kind").GetString()));
+
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt", "silentSince"], Names(health[2]));
+        Assert.Equal(
+            ("node", beans, "Beans", Format(now.AddHours(-8)), Format(now.AddHours(-2))),
+            (Text(health[2], "deviceKind"), Text(health[2], "lotId"), Text(health[2], "lotName"), Text(health[2], "silentSince"), Text(health[2], "openedAt")));
+
+        // A Hub's Alert, and that of a Node on no Lot, name no Lot.
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "openedAt", "silentSince"], Names(health[1]));
+        Assert.Equal(("hub", "92064422c012f481", Format(now.AddMinutes(-35))), (Text(health[1], "deviceKind"), Text(health[1], "deviceId"), Text(health[1], "silentSince")));
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "openedAt", "silentSince"], Names(health[0]));
+        Assert.Equal("node", Text(health[0], "deviceKind"));
+
+        Assert.Equal(["closedAt", "deviceId", "deviceKind", "id", "kind", "openedAt", "reason", "silentSince"], Names(health[3]));
+        Assert.Equal((Format(now.AddHours(-1)), "recovered"), (Text(health[3], "closedAt"), Text(health[3], "reason")));
+    }
+
+    [Fact]
+    public async Task HealthAlertsTravelWithTheFirstPageOnlyAndTheCountIsTheSameOnEveryPage()
     {
         var (siteId, member) = await SeedSiteAsync();
         var lot = await edge.SeedLotAsync(siteId, "Tomatoes", Ct);
         var now = Now();
-        var listed = await OpenAsync(siteId, lot, ThresholdSide.Low, "soil_moisture", now.AddHours(-3));
+        await OpenAsync(siteId, lot, ThresholdSide.Low, "soil_moisture", now.AddHours(-3));
+        await OpenAsync(siteId, lot, ThresholdSide.High, "air_temperature", now.AddHours(-2));
+        await OpenSilentAsync(siteId, lotId: null, "92064422c012f481", now.AddMinutes(-30), DeviceKind.Hub, now.AddMinutes(-35));
 
-        // A silent Node on the Lot, open; a silent Hub without a Lot, open; and one that recovered an hour ago.
-        await OpenSilentAsync(siteId, lot, Node, now.AddHours(-2));
-        await OpenSilentAsync(siteId, lotId: null, "92064422c012f481", now.AddHours(-1));
-        var recovered = await OpenSilentAsync(siteId, lotId: null, "92064422c012f482", now.AddHours(-5));
-        await CloseAsync(recovered, AlertCloseReason.Recovered, now.AddHours(-1));
-        Assert.Equal(4, (await RowsAsync(siteId)).Count);
+        using var first = await GetAsync(member, siteId, "?limit=1");
+        var cursor = first.RootElement.GetProperty("nextCursor").GetString();
+        using var second = await GetAsync(member, siteId, $"?limit=1&cursor={cursor}");
+
+        Assert.Single(Health(first));
+        Assert.Equal(["alerts", "openCount"], Names(second.RootElement));
+        Assert.Single(Alerts(second));
+        Assert.Equal((3, 3), (first.RootElement.GetProperty("openCount").GetInt32(), second.RootElement.GetProperty("openCount").GetInt32()));
+    }
+
+    // An Alert journaled before Story 7.2 says neither its Device kind nor when the Device was last heard: the
+    // kind is read from the enrolled Device, silentSince is absent, and the answer still fits the contract.
+    [Fact]
+    public async Task ASilentAlertOpenedBeforeTheStoryIsListedWithTheKindOfItsEnrolledDeviceAndNoSilentSince()
+    {
+        var (siteId, member) = await SeedSiteAsync();
+        var lot = await edge.SeedLotAsync(siteId, "Beans", Ct);
+        var now = Now();
+        var hubId = NewDeviceId();
+        var nodeId = NewDeviceId();
+        var wrapped = new WrappedDeviceKey("0000000000000000", new byte[12], new byte[48]);
+        await edge.AppendAsync($"device/{nodeId}", [new DeviceEnrolled(siteId, DeviceKind.Node, wrapped, now.AddDays(-2))], Ct);
+        var enrolled = await edge.AppendAsync($"device/{hubId}", [new DeviceEnrolled(siteId, DeviceKind.Hub, wrapped, now.AddDays(-2))], Ct);
+        await edge.WaitForProjectionCheckpointAsync("devices", enrolled);
+
+        var ofNode = await OpenSilentAsync(siteId, lot, nodeId, now.AddHours(-2));
+        var ofHub = await OpenSilentAsync(siteId, lotId: null, hubId, now.AddHours(-1));
+
+        // A Device the devices read model does not list has no kind to name: its Alert is counted, not listed.
+        await OpenSilentAsync(siteId, lotId: null, NewDeviceId(), now.AddMinutes(-5));
 
         using var page = await GetAsync(member, siteId);
-        var alert = Assert.Single(Alerts(page));
+        var health = Health(page);
 
-        Assert.Equal(["alerts", "openCount"], Names(page.RootElement));
-        Assert.Equal(listed, Id(alert));
-        Assert.Equal(["deviceId", "id", "kind", "lotId", "lotName", "openedAt", "quantity", "side"], Names(alert));
-        Assert.Equal("threshold", alert.GetProperty("kind").GetString());
-        Assert.Equal(1, page.RootElement.GetProperty("openCount").GetInt32());
+        Assert.Empty(Alerts(page));
+        Assert.Equal([ofHub, ofNode], health.Select(Id));
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "openedAt"], Names(health[0]));
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt"], Names(health[1]));
+        Assert.Equal(("hub", "node"), (Text(health[0], "deviceKind"), Text(health[1], "deviceKind")));
+        Assert.Equal(3, page.RootElement.GetProperty("openCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task AHealthAlertClosedMoreThanSevenDaysAgoIsNoLongerListed()
+    {
+        var (siteId, member) = await SeedSiteAsync();
+        var now = Now();
+        var old = await OpenSilentAsync(siteId, lotId: null, "92064422c012f481", now.AddDays(-9), DeviceKind.Hub, now.AddDays(-9));
+        await CloseAsync(old, AlertCloseReason.Recovered, now.AddDays(-8));
+        var recent = await OpenSilentAsync(siteId, lotId: null, "92064422c012f482", now.AddDays(-7), DeviceKind.Hub, now.AddDays(-7));
+        await CloseAsync(recent, AlertCloseReason.Recovered, now.AddDays(-6));
+
+        using var page = await GetAsync(member, siteId);
+
+        Assert.Equal([recent], Health(page).Select(Id));
+        Assert.Equal(0, page.RootElement.GetProperty("openCount").GetInt32());
     }
 
     [Fact]
@@ -404,7 +490,15 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
 
     private static List<JsonElement> Alerts(JsonDocument page) => [.. page.RootElement.GetProperty("alerts").EnumerateArray()];
 
+    // The Health Alerts of a page; none when the page carries no healthAlerts.
+    private static List<JsonElement> Health(JsonDocument page) =>
+        page.RootElement.TryGetProperty("healthAlerts", out var health) ? [.. health.EnumerateArray()] : [];
+
     private static string Id(JsonElement alert) => alert.GetProperty("id").GetString()!;
+
+    private static string? Text(JsonElement alert, string name) => alert.GetProperty(name).GetString();
+
+    private static string NewDeviceId() => Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
 
     private async Task<JsonDocument> GetAsync(TestUser user, string siteId, string query = "")
     {
@@ -428,13 +522,20 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         return alertId;
     }
 
-    // An open Silent Device Alert, as the Alert grain journals it: no side, no Sensor, no quantity.
-    private async Task<string> OpenSilentAsync(string siteId, string? lotId, string deviceId, DateTimeOffset openedAt)
+    // An open Silent Device Alert, as the Alert grain journals it: no side, no Sensor, no quantity; the Device
+    // kind and when it was last heard only from Story 7.2 on.
+    private async Task<string> OpenSilentAsync(
+        string siteId,
+        string? lotId,
+        string deviceId,
+        DateTimeOffset openedAt,
+        DeviceKind? deviceKind = null,
+        DateTimeOffset? silentSince = null)
     {
         var alertId = Guid.NewGuid().ToString();
         var last = await edge.AppendAsync(
             $"alert/{alertId}",
-            [new AlertOpened(AlertKind.Silent, null, siteId, lotId, null, deviceId, null, 1, openedAt)],
+            [new AlertOpened(AlertKind.Silent, null, siteId, lotId, null, deviceId, null, 1, openedAt, deviceKind, silentSince)],
             Ct);
         await edge.WaitForProjectionCheckpointAsync(Projector, last);
 

@@ -74,8 +74,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     /// </summary>
     public const string SilenceReminderName = "silence-window";
 
-    // Whether this activation registered the silence reminder already.
+    // How long a call waits for the silence reminder to be registered before it goes on without it.
+    private static readonly TimeSpan SilenceReminderPatience = TimeSpan.FromSeconds(5);
+
+    // Whether this activation registered the silence reminder already, and the registration under way.
     private bool _silenceReminderRegistered;
+    private Task<IGrainReminder>? _silenceReminderRegistration;
 
     // The length of an HMAC-SHA256 signature.
     private const int SignatureLength = 32;
@@ -846,7 +850,8 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                     siteId,
                     State.LotId,
                     State.SilenceDueAt ?? dueAt,
-                    now));
+                    now,
+                    State.LastHeardAt));
                 await ConfirmEvents();
             }
 
@@ -913,7 +918,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             // Not cancelled by the caller: the journaled episode is delivered until the Alert grain holds it.
             var result = delivery.Change == AlertLifecycle.Open
                 ? await alert.OpenForDevice(
-                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At),
+                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At, State.Kind, delivery.SilentSince),
                     CancellationToken.None)
                 : await alert.Close(new CloseAlert(delivery.Reason ?? AlertCloseReason.Recovered, delivery.At), CancellationToken.None);
 
@@ -943,13 +948,22 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         try
         {
-            await this.RegisterOrUpdateReminder(SilenceReminderName, SilenceRule.WakePeriod, SilenceRule.WakePeriod);
+            // A report or a wake never waits long for the reminder service, which can take a while to answer
+            // after a silo start: the registration goes on, and the next call looks at it again.
+            _silenceReminderRegistration ??=
+                this.RegisterOrUpdateReminder(SilenceReminderName, SilenceRule.WakePeriod, SilenceRule.WakePeriod);
+            await _silenceReminderRegistration.WaitAsync(SilenceReminderPatience);
             _silenceReminderRegistered = true;
         }
 #pragma warning disable CA1031 // Without a reminder the next activation and the next report still evaluate, and register it again.
         catch (Exception exception)
 #pragma warning restore CA1031
         {
+            if (_silenceReminderRegistration is { IsCompleted: true })
+            {
+                _silenceReminderRegistration = null;
+            }
+
             LogSilenceReminderFailed(Logger, DeviceId, exception);
         }
     }

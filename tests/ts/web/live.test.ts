@@ -235,7 +235,8 @@ describe('which page a hint is for', () => {
     ['lots', ['overview', 'lot', 'thresholds', 'calibrate']],
     ['readings', ['overview', 'lot']],
     ['alerts', ['alerts', 'overview']],
-    ['devices', ['devices']],
+    // Story 7.2: a Device that turns silent or recovers changes the overview's Hub notice and tiles.
+    ['devices', ['devices', 'overview']],
   ] as const)('%s is shown by %j', (resource, expected) => {
     const shown = Object.entries(pages)
       .filter(([, path]) => showsResource(path, hint(resource)))

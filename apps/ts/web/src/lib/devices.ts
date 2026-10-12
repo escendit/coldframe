@@ -1,6 +1,6 @@
 import type { DeviceListItem, Lot } from '@coldframe/api-client';
 import { t, type MessageKey } from '$lib/i18n';
-import { formatNumber, formatWhen } from '$lib/i18n/format';
+import { formatNumber, formatSilence, formatWhen } from '$lib/i18n/format';
 import { hasRole, type Role } from '$lib/roles';
 
 export type { DeviceListItem } from '@coldframe/api-client';
@@ -57,11 +57,98 @@ export interface DevicesAccess {
    * BLE (UX-DR31). Members never see them: they are hidden, not disabled.
    */
   readonly canManageNodes: boolean;
+  /**
+   * A Device's Silence Window is set by Owners and Administrators only (UX-DR84). A Member sees the
+   * silence and last seen, and no control: hidden, never disabled.
+   */
+  readonly canSetSilenceWindow: boolean;
 }
 
 export function devicesAccessOf(role: Role): DevicesAccess {
   const admin = hasRole(role, 'Administrator');
-  return { mobileAppNotice: admin, canManageNodes: admin };
+  return { mobileAppNotice: admin, canManageNodes: admin, canSetSilenceWindow: admin };
+}
+
+/** The id of a Device's row on the Devices page: what a Health Alert row links to (`/devices#device-…`). */
+export function deviceRowId(deviceId: string): string {
+  return `device-${deviceId}`;
+}
+
+/**
+ * "Silent 6 h" for a Device with an open silent Alert, or null: `silentSince` is present exactly while
+ * the Device is silent, and the duration is `now − silentSince`, rounded down. A silent-since the client
+ * cannot read still says "Silent".
+ */
+export function silentText(device: Pick<DeviceListItem, 'silentSince'>, now: Date): string | null {
+  if (device.silentSince === undefined) {
+    return null;
+  }
+  const duration = formatSilence(device.silentSince, now);
+  return duration === null ? t('devices.silentNoDuration') : t('devices.silent', { duration });
+}
+
+/** The units a Silence Window is entered in. */
+export const silenceWindowUnits = ['min', 'h', 'd'] as const;
+
+export type SilenceWindowUnit = (typeof silenceWindowUnits)[number];
+
+const unitSeconds: Readonly<Record<SilenceWindowUnit, number>> = { min: 60, h: 3600, d: 86_400 };
+
+const unitLabels: Readonly<Record<SilenceWindowUnit, MessageKey>> = {
+  min: 'devices.silenceWindow.unit.min',
+  h: 'devices.silenceWindow.unit.h',
+  d: 'devices.silenceWindow.unit.d',
+};
+
+const unitDurations: Readonly<Record<SilenceWindowUnit, 'duration.minutes' | 'duration.hours' | 'duration.days'>> = {
+  min: 'duration.minutes',
+  h: 'duration.hours',
+  d: 'duration.days',
+};
+
+export function silenceWindowUnitLabel(unit: SilenceWindowUnit): string {
+  return t(unitLabels[unit]);
+}
+
+/** The Server's bounds of a Silence Window: 1 min to 30 days, in seconds. */
+export const silenceWindowRange = { min: 60, max: 2_592_000 } as const;
+
+/**
+ * The seconds of what was entered, or null when the client refuses it before anything is sent: not a
+ * whole number, an unknown unit, or outside 1 min to 30 days. The Server stays the validator.
+ */
+export function silenceWindowSeconds(amount: string, unit: string): number | null {
+  const known = silenceWindowUnits.find((candidate) => candidate === unit);
+  const digits = amount.trim();
+  if (known === undefined || !/^\d{1,9}$/u.test(digits)) {
+    return null;
+  }
+  const seconds = Number(digits) * unitSeconds[known];
+  return seconds >= silenceWindowRange.min && seconds <= silenceWindowRange.max ? seconds : null;
+}
+
+/** A window as the number and unit the form shows: the largest unit that divides it, else minutes. */
+export interface SilenceWindowParts {
+  readonly amount: number;
+  readonly unit: SilenceWindowUnit;
+}
+
+export function silenceWindowParts(seconds: number | undefined): SilenceWindowParts | null {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
+  for (const unit of ['d', 'h'] as const) {
+    if (seconds % unitSeconds[unit] === 0) {
+      return { amount: seconds / unitSeconds[unit], unit };
+    }
+  }
+  return { amount: Math.max(1, Math.round(seconds / unitSeconds.min)), unit: 'min' };
+}
+
+/** The window in force as text ("6 h", "5 min", "2 d"), or null when the Server sent none. */
+export function silenceWindowText(device: Pick<DeviceListItem, 'silenceWindowSeconds'>): string | null {
+  const parts = silenceWindowParts(device.silenceWindowSeconds);
+  return parts === null ? null : t(unitDurations[parts.unit], { count: parts.amount });
 }
 
 /** A Lot in the move picker: a Lot that holds another Node cannot be chosen. */
@@ -86,19 +173,25 @@ export function lotChoicesOf(lots: readonly Lot[], node: Pick<DeviceListItem, 'l
   });
 }
 
-export type DeviceAction = 'moveNode' | 'unassignNode';
+export type DeviceAction = 'moveNode' | 'unassignNode' | 'setSilenceWindow';
 
-/** Why a move or unassign did not happen; each has its copy on the page. */
-export type DeviceActionNotice = 'forbidden' | 'lotClaimed' | 'notFound' | 'unexpected' | 'unreachable' | 'certificate';
+/**
+ * Why a move, an unassign or a Silence Window change did not happen; each has its copy on the page.
+ * `range` is a Silence Window outside 1 min to 30 days, refused before it is sent or by the Server.
+ */
+export type DeviceActionNotice = 'forbidden' | 'lotClaimed' | 'notFound' | 'range' | 'unexpected' | 'unreachable' | 'certificate';
 
-/** A move or unassign that did not happen. */
+/** A change that did not happen. */
 export interface DeviceActionFailure {
   readonly action: DeviceAction;
   readonly deviceId: string;
   readonly notice: DeviceActionNotice;
+  /** Set Silence Window only: what was entered, so the form shows it again. */
+  readonly amount?: string;
+  readonly unit?: string;
 }
 
-/** A move or unassign that did. */
+/** A change that did. */
 export interface DeviceActionSuccess {
   readonly action: DeviceAction;
   readonly deviceId: string;

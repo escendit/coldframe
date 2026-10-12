@@ -22,7 +22,8 @@ namespace Coldframe.Web.E2ETests;
 /// The clock jumps by hours, which the Server would read as a silent Hub and a silent Node (Story 7.1), so the
 /// Hub heartbeats right after every jump, as a real Hub does every minute, and the Node reports after the last.
 /// </summary>
-public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
+[Collection(JourneyTests.Collection)]
+public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack) : JourneyTests(stack)
 {
     private const string Zone = "Europe/Zurich";
     private const string SiteName = "Home garden";
@@ -34,40 +35,11 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
     private const long TwentyPercent = 1200;
     private const long FiftyPercent = 1500;
 
-    // window.Notification replaced by a recorder. The permission starts as "default", is granted when the page
-    // asks, and is kept across page loads like a browser keeps it; every request and every notification is listed.
-    private const string RecordNotifications =
-        """
-        (() => {
-          const read = (key) => JSON.parse(window.localStorage.getItem(key) ?? '[]');
-          const add = (key, value) => window.localStorage.setItem(key, JSON.stringify([...read(key), value]));
-          class RecordingNotification extends EventTarget {
-            static get permission() { return window.localStorage.getItem('__cf_permission') ?? 'default'; }
-            static requestPermission() {
-              add('__cf_permission_requests', window.location.pathname);
-              window.localStorage.setItem('__cf_permission', 'granted');
-              return Promise.resolve('granted');
-            }
-            constructor(title, options = {}) {
-              super();
-              this.onclick = null;
-              add('__cf_notifications', { title, body: options.body ?? '', tag: options.tag ?? '' });
-            }
-            close() {}
-          }
-          Object.defineProperty(window, 'Notification', { configurable: true, writable: true, value: RecordingNotification });
-        })();
-        """;
-
-    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
-
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
     [Fact]
     public async Task Uj2AReadingBelowTheLowAtNightBecomesOneBrowserNotificationWhenTheWindowOpensAndNoReminderAfterRecovery()
     {
         var zone = TimeZoneInfo.FindSystemTimeZoneById(Zone);
-        var user = await stack.CreateUserAsync("morning", Ct);
+        var user = await Stack.CreateUserAsync("morning", Ct);
 
         // The User's Site, zone and Lot, through the Edge API as the apps would.
         var siteId = await PostAsync(user, "/sites", new { name = SiteName }, idempotent: true);
@@ -108,7 +80,7 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
         await context.AddInitScriptAsync(RecordNotifications);
         var page = await context.NewPageAsync();
         var serverRequests = new List<string>();
-        var server = stack.App.GetEndpoint("server", "http");
+        var server = Stack.App.GetEndpoint("server", "http");
         page.Request += (_, request) =>
         {
             if (new Uri(request.Url).Port == server.Port)
@@ -195,174 +167,8 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack)
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new Xunit.Sdk.XunitException(
-                $"{exception.Message}{Environment.NewLine}Page: {page.Url}{Environment.NewLine}Web app output:{Environment.NewLine}{stack.WebOutput()}",
+                $"{exception.Message}{Environment.NewLine}Page: {page.Url}{Environment.NewLine}Web app output:{Environment.NewLine}{Stack.WebOutput()}",
                 exception);
         }
-    }
-
-    private static ILocatorAssertions Expect(ILocator locator) => Assertions.Expect(locator);
-
-    // The next time the wall clock of the zone shows the given time, strictly after the given instant.
-    private static DateTimeOffset NextLocal(TimeZoneInfo zone, DateTimeOffset after, TimeOnly time)
-    {
-        var day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(after, zone).DateTime);
-
-        while (true)
-        {
-            var local = day.ToDateTime(time, DateTimeKind.Unspecified);
-
-            if (!zone.IsInvalidTime(local))
-            {
-                var instant = new DateTimeOffset(local, zone.GetUtcOffset(local));
-
-                if (instant > after)
-                {
-                    return instant;
-                }
-            }
-
-            day = day.AddDays(1);
-        }
-    }
-
-    private static async Task<IReadOnlyList<JsonElement>> ListAsync(IPage page, string key)
-    {
-        var json = await page.EvaluateAsync<string>("key => window.localStorage.getItem(key) ?? '[]'", key);
-        using var document = JsonDocument.Parse(json);
-
-        return [.. document.RootElement.EnumerateArray().Select(element => element.Clone())];
-    }
-
-    // Waits for what the Server does on its own timers, and wakes the User's grain meanwhile as its reminder would.
-    private async Task UntilAsync<T>(JourneyUser user, Func<Task<T>> read, Func<T, bool> done, string what)
-    {
-        var deadline = TimeProvider.System.GetUtcNow() + Patience;
-
-        while (true)
-        {
-            await WakeUserAsync(user);
-
-            if (done(await read()))
-            {
-                return;
-            }
-
-            Assert.True(TimeProvider.System.GetUtcNow() < deadline, $"Waited {Patience.TotalSeconds} s and it did not happen: {what}.");
-            await Task.Delay(TimeSpan.FromMilliseconds(500), Ct);
-        }
-    }
-
-    private async Task<int> JournalCountAsync(JourneyUser user, string alias)
-    {
-        await using var command = stack.Database.CreateCommand(
-            "SELECT COUNT(*) FROM journal_events WHERE stream_id = @stream_id AND type_alias = @alias");
-        command.Parameters.AddWithValue("stream_id", $"user/{user.UserId}");
-        command.Parameters.AddWithValue("alias", alias);
-
-        return (int)(long)(await command.ExecuteScalarAsync(Ct))!;
-    }
-
-    private async Task<DateTimeOffset> ServerNowAsync(JourneyUser user)
-    {
-        using var server = await stack.CreateServerClientAsync(user, Ct);
-        using var response = await server.GetAsync(new Uri("/testing/clock", UriKind.Relative), Ct);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
-
-        // To the millisecond, as a frame carries it.
-        return DateTimeOffset.FromUnixTimeMilliseconds(body.RootElement.GetProperty("now").GetDateTimeOffset().ToUnixTimeMilliseconds());
-    }
-
-    private async Task SetClockAsync(JourneyUser user, DateTimeOffset now)
-    {
-        using var response = await SendAsync(user, HttpMethod.Post, "/testing/clock", new { now });
-    }
-
-    private async Task WakeUserAsync(JourneyUser user)
-    {
-        using var server = await stack.CreateServerClientAsync(user, Ct);
-        using var response = await server.PostAsync(new Uri($"/testing/users/{user.UserId}/wake", UriKind.Relative), content: null, Ct);
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-    }
-
-    private async Task<string> PostAsync(JourneyUser user, string path, object body, bool idempotent)
-    {
-        using var response = await SendAsync(user, HttpMethod.Post, path, body, idempotent);
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
-
-        return json.RootElement.GetProperty("id").GetString()!;
-    }
-
-    private async Task<HttpResponseMessage> SendAsync(JourneyUser user, HttpMethod method, string path, object body, bool idempotent = false)
-    {
-        using var server = await stack.CreateServerClientAsync(user, Ct);
-        using var request = new HttpRequestMessage(method, new Uri(path, UriKind.Relative)) { Content = JsonContent.Create(body) };
-
-        if (idempotent)
-        {
-            request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
-        }
-
-        var response = await server.SendAsync(request, Ct);
-        Assert.True(response.IsSuccessStatusCode, $"{method} {path} answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(Ct)}");
-
-        return response;
-    }
-
-    private async Task<SimulatedDevice> EnrolAsync(JourneyUser user, string siteId, ProtocolKind kind, string? lotId)
-    {
-        using var server = await stack.CreateServerClientAsync(user, Ct);
-        using var key = await server.GetAsync(new Uri("/enrolment-key", UriKind.Relative), Ct);
-        using var keyBody = JsonDocument.Parse(await key.Content.ReadAsStringAsync(Ct));
-        var publicKey = Base64Url.DecodeFromChars(keyBody.RootElement.GetProperty("publicKey").GetString());
-
-        var device = SimulatedDevice.Create(kind);
-        var enrolment = device.SealEnrolment(publicKey, siteId);
-        var body = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["deviceId"] = enrolment.DeviceId,
-            ["kind"] = enrolment.Kind,
-            ["enc"] = enrolment.Enc,
-            ["ciphertext"] = enrolment.Ciphertext,
-        };
-
-        if (lotId is not null)
-        {
-            body["lotId"] = lotId;
-        }
-
-        using var enrolled = await SendAsync(user, HttpMethod.Post, $"/sites/{siteId}/devices", body, idempotent: true);
-
-        return device;
-    }
-
-    // One heartbeat of the Hub, stamped from the Server's clock: the Hub is alive, whatever the clock jumped over.
-    private async Task HeartbeatAsync(JourneyUser user, SimulatedDevice hub)
-    {
-        using var server = stack.CreateDeviceClient();
-        using var request = hub.HeartbeatRequest(await ServerNowAsync(user));
-        using var response = await server.SendAsync(request, Ct);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
-    // One wake of the Node, relayed by the Hub and stamped from the Server's clock. The Node follows the
-    // downlink, so it attaches its Specification set when the Server asks. Returns the soil Reading's reading_seq.
-    private async Task<ulong> WakeAsync(JourneyUser user, SimulatedDevice hub, SimulatedDevice node, long soilRaw, DateTimeOffset measuredAt)
-    {
-        var readings = SimulatedDevice.DefaultReadings
-            .Select(reading => reading.Quantity == Quantity.SoilMoisture ? reading with { Value = soilRaw } : reading)
-            .ToList();
-        var frame = node.Wake(measuredAt, readings: readings);
-
-        using var server = stack.CreateDeviceClient();
-        using var request = hub.IngestRequest(await ServerNowAsync(user), SimulatedDevice.IngestBody(node.SealFrame(frame)));
-        using var response = await server.SendAsync(request, Ct);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var result = Assert.Single(SimulatedDevice.ReadIngestResponse(await response.Content.ReadAsByteArrayAsync(Ct)));
-        Assert.Equal("stored", result.Status);
-        node.OpenDownlink(result.Downlink!);
-
-        return frame.Readings.Single(reading => reading.Quantity == Quantity.SoilMoisture).ReadingSeq;
     }
 }

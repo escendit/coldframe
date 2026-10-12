@@ -262,7 +262,9 @@ func onlyEventsAreAnnounced() throws {
   let screens = try Repo.text("apps/swift/ios/Sources/ColdframeIOS/UI/Screens.swift")
   let model = try #require(screens.components(separatedBy: "final class ShellModel").last)
   #expect(model.contains("lots?.observeEvents"))
-  // One post, for the events; a polite announcement has no raised priority.
+  // A silent Hub is said from the same place, once, by what `HubNoticeAnnouncements` calls new.
+  #expect(model.contains("hubAnnouncements.fresh(in:"))
+  // One post, for both; a polite announcement has no raised priority.
   #expect(model.components(separatedBy: "AccessibilityNotification.Announcement").count == 2)
   #expect(!model.contains("accessibilitySpeechAnnouncementPriority"))
   let service = try Repo.text("apps/swift/ios/App/CoreLotsService.swift")
@@ -288,8 +290,21 @@ func refreshPrimitives() throws {
   let sleeps = Repo.swiftSources("apps/swift/ios").filter {
     ((try? String(contentsOf: $0, encoding: .utf8)) ?? "").contains("Task.sleep")
   }
-  // The overview and Lot detail (Story 4.8) each have their minute tick, and no other timer.
-  #expect(Set(sleeps.map(\.lastPathComponent)) == ["SitesViews.swift", "LotDetailViews.swift"])
+  // The overview and Lot detail (Story 4.8) each have their minute tick, and so have Devices
+  // and Alerts for the silence they show (Story 7.2); there is no other timer.
+  #expect(
+    Set(sleeps.map(\.lastPathComponent)) == [
+      "SitesViews.swift", "LotDetailViews.swift", "DevicesViews.swift", "AlertsViews.swift",
+    ])
+  for name in ["DevicesViews.swift", "AlertsViews.swift"] {
+    let view = try Repo.text("apps/swift/ios/Sources/ColdframeIOS/UI/\(name)")
+    #expect(view.contains("actions.tick()"), "\(name)")
+    #expect(view.components(separatedBy: "Task.sleep").count == 2, "\(name)")
+  }
+  for name in ["CoreDevicesService.swift", "CoreAlertsService.swift"] {
+    let adapter = try Repo.text("apps/swift/ios/App/\(name)")
+    #expect(adapter.contains("of: core.current())"), "\(name)")
+  }
   #expect(garden.contains("try? await Task.sleep(for: .seconds(60))"))
   #expect(garden.contains("lotsActions.tick()"))
   #expect(garden.components(separatedBy: "Task.sleep").count == 2)
@@ -298,4 +313,92 @@ func refreshPrimitives() throws {
     #expect(!text.contains("Timer."), "\(file.lastPathComponent)")
     #expect(!text.contains("SignalR"), "\(file.lastPathComponent)")
   }
+}
+
+// MARK: - Silent Hubs (Story 7.2)
+
+@Test("UX-DR81 a silent Hub is a notice above the tiles that names it and how long it is silent")
+func hubNotice() throws {
+  let lots = Overview.lots(hubNotices: [Overview.silentHub])
+  let notice = try #require(lots.overview?.hubNotices.first)
+
+  #expect(lots.overview?.hubNotices.count == 1)
+  #expect(notice.id == "3f2a9c0d1e4b5a67")
+  #expect(notice.name == "3F2A")
+  #expect(notice.duration == LotDurationPresentation(value: 12, unit: .minutes))
+  #expect(
+    notice.silentSince
+      == Date(timeIntervalSince1970: Double(Overview.nowMs - 12 * 60_000) / 1000))
+  #expect(notice.text(context) == "Hub 3F2A silent for 12 min — Lots behind it can't be read.")
+  #expect(notice.announcement == .polite)
+  // The tiles are the Server's, in its order: the notice changes none of them.
+  #expect(lots.tiles == Overview.lots().tiles)
+  #expect(
+    try Catalogue.entries()["garden_hub_silent"]
+      == "Hub %1$@ silent for %2$@ — Lots behind it can't be read.")
+}
+
+@Test("UX-DR81 the notice shows for a silent Hub with no Lot behind it, one per Hub in order")
+func hubNoticeWithoutLots() {
+  let lots = Overview.lots(
+    [Overview.ok], hubNotices: [Overview.otherSilentHub, Overview.silentHub])
+  let notices = lots.overview?.hubNotices ?? []
+
+  // Not sorted by ID or by duration: the order is the core's.
+  #expect(notices.map(\.name) == ["1B00", "3F2A"])
+  #expect(
+    notices.map { $0.text(context) } == [
+      "Hub 1B00 silent for 2 h — Lots behind it can't be read.",
+      "Hub 3F2A silent for 12 min — Lots behind it can't be read.",
+    ])
+  #expect(lots.tiles.map(\.status) == [.ok])
+  #expect(Overview.lots([], hubNotices: [Overview.silentHub]).overview?.hubNotices.count == 1)
+}
+
+@Test("UX-DR81 no Hub is silent, the Hub recovered, or stale mode: no notice")
+func hubNoticeAbsent() {
+  #expect(Overview.lots().overview?.hubNotices == [])
+  // The core sends none in stale mode: what is not live does not say "silent for".
+  #expect(Overview.staleLots().overview?.hubNotices == [])
+  #expect(Overview.loading.overview == nil)
+  // A notice the core did not finish is not shown: the sentence cannot be said without its parts.
+  var noUnit = Overview.silentHub
+  noUnit.durationUnit = "fortnights"
+  var noName = Overview.silentHub
+  noName.name = ""
+  var noValue = Overview.silentHub
+  noValue.durationValue = ""
+  #expect(Overview.lots(hubNotices: [noUnit, noName, noValue]).overview?.hubNotices == [])
+  // A missing silent-since leaves the notice: its words need only the name and the duration.
+  var noSince = Overview.silentHub
+  noSince.silentSince = ""
+  #expect(Overview.lots(hubNotices: [noSince]).overview?.hubNotices.first?.silentSince == nil)
+  #expect(Overview.lots(hubNotices: [noSince]).overview?.hubNotices.count == 1)
+}
+
+@Test("UX-DR81 a silent Hub is announced once when its notice appears, never on a tick")
+func hubNoticeAnnouncedOnce() throws {
+  var announcements = HubNoticeAnnouncements()
+  func notices(_ hubs: [Overview.HubNotice]) -> [HubNoticePresentation] {
+    Overview.lots(hubNotices: hubs).overview?.hubNotices ?? []
+  }
+
+  #expect(announcements.fresh(in: notices([])).isEmpty)
+  let first = announcements.fresh(in: notices([Overview.silentHub]))
+  #expect(
+    first.map { $0.text(context) } == [
+      "Hub 3F2A silent for 12 min — Lots behind it can't be read."
+    ])
+  // The minute tick moves the duration and a refresh lists the Hub again: nothing is said.
+  var later = Overview.silentHub
+  later.durationValue = "13"
+  #expect(announcements.fresh(in: notices([later])).isEmpty)
+  #expect(announcements.fresh(in: notices([later])).isEmpty)
+  // Another Hub goes silent: only that one is new.
+  let second = announcements.fresh(in: notices([later, Overview.otherSilentHub]))
+  #expect(second.map(\.name) == ["1B00"])
+  // A Hub that recovered and went silent again is said again.
+  #expect(announcements.fresh(in: notices([Overview.otherSilentHub])).isEmpty)
+  let again = announcements.fresh(in: notices([later, Overview.otherSilentHub]))
+  #expect(again.map(\.name) == ["3F2A"])
 }

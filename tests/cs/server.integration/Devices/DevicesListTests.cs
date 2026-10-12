@@ -149,9 +149,62 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
         using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
 
         var device = Assert.Single(body.RootElement.GetProperty("devices").EnumerateArray());
-        Assert.Equal(["id", "kind", "online"], device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["id", "kind", "online", "silenceWindowOverridden", "silenceWindowSeconds"],
+            device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
         Assert.Equal(deviceId, device.GetProperty("id").GetString());
         Assert.False(device.GetProperty("online").GetBoolean());
+    }
+
+    // Story 7.2: a silent Device says since when, and every Device the Silence Window in force.
+    [Fact]
+    public async Task ASilentDeviceCarriesWhenItWasLastHeardUntilItReportsAgainAndEveryDeviceItsSilenceWindow()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, _, member) = await SeedSiteAsync(cancellationToken);
+        var lastHeard = Now().AddHours(-7);
+        var opened = Now().AddHours(-1);
+        var hub = await SeedDeviceAsync(siteId, DeviceKind.Hub, cancellationToken);
+        var silentHub = await SeedDeviceAsync(
+            siteId,
+            DeviceKind.Hub,
+            cancellationToken,
+            new DeviceSilenceStarted(1, Guid.NewGuid(), siteId, null, opened, opened, lastHeard));
+        var node = await SeedDeviceAsync(
+            siteId,
+            DeviceKind.Node,
+            cancellationToken,
+            new DeviceSilenceWindowSet(28800, Now().AddHours(-9)),
+            new DeviceSilenceStarted(1, Guid.NewGuid(), siteId, null, opened, opened, lastHeard));
+
+        // A silence journaled before the story does not say since when: it counts from when it was found.
+        var older = await SeedDeviceAsync(
+            siteId,
+            DeviceKind.Node,
+            cancellationToken,
+            new DeviceSilenceStarted(1, Guid.NewGuid(), siteId, null, opened, opened));
+
+        var listed = (await ListNodeFieldsAsync(member, siteId, cancellationToken)).ToDictionary(device => device.GetProperty("id").GetString()!);
+
+        Assert.False(listed[hub].TryGetProperty("silentSince", out _));
+        Assert.Equal((300, false), (listed[hub].GetProperty("silenceWindowSeconds").GetInt32(), listed[hub].GetProperty("silenceWindowOverridden").GetBoolean()));
+        Assert.Equal(Truncate(lastHeard), listed[silentHub].GetProperty("silentSince").GetString());
+        Assert.Equal(Truncate(lastHeard), listed[node].GetProperty("silentSince").GetString());
+        Assert.Equal((28800, true), (listed[node].GetProperty("silenceWindowSeconds").GetInt32(), listed[node].GetProperty("silenceWindowOverridden").GetBoolean()));
+        Assert.Equal(Truncate(opened), listed[older].GetProperty("silentSince").GetString());
+        Assert.Equal((21600, false), (listed[older].GetProperty("silenceWindowSeconds").GetInt32(), listed[older].GetProperty("silenceWindowOverridden").GetBoolean()));
+
+        // The Node reports again and its window is cleared: neither silent nor overridden.
+        var last = await edge.AppendAsync(
+            $"device/{node}",
+            3,
+            [new DeviceSilenceEnded(1, Guid.NewGuid(), Coldframe.Contracts.Alerts.AlertCloseReason.Recovered, Now()), new DeviceSilenceWindowSet(null, Now())],
+            cancellationToken);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        var afterwards = (await ListNodeFieldsAsync(member, siteId, cancellationToken)).Single(device => device.GetProperty("id").GetString() == node);
+        Assert.False(afterwards.TryGetProperty("silentSince", out _));
+        Assert.Equal((21600, false), (afterwards.GetProperty("silenceWindowSeconds").GetInt32(), afterwards.GetProperty("silenceWindowOverridden").GetBoolean()));
     }
 
     [Fact]
@@ -227,8 +280,8 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
         // Lot names compare without regard to case: Beans, tomatoes, Zucchini.
         Assert.Equal([hub, onBeans, onTomatoes, onZucchini, spare], devices.Select(device => device.GetProperty("id").GetString()));
 
-        Assert.Equal(["id", "kind", "online"], Property(devices[0]));
-        Assert.Equal(["id", "kind", "lastSeenAt", "lotId", "lotName", "online"], Property(devices[1]));
+        Assert.Equal(["id", "kind", "online", "silenceWindowOverridden", "silenceWindowSeconds"], Property(devices[0]));
+        Assert.Equal(["id", "kind", "lastSeenAt", "lotId", "lotName", "online", "silenceWindowOverridden", "silenceWindowSeconds"], Property(devices[1]));
         Assert.Equal("Beans", devices[1].GetProperty("lotName").GetString());
         Assert.Equal(Truncate(newer), devices[1].GetProperty("lastSeenAt").GetString());
 
@@ -237,7 +290,7 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
         Assert.Equal("notCharging", devices[2].GetProperty("charging").GetString());
         Assert.Equal(Truncate(newer), devices[2].GetProperty("lastSeenAt").GetString());
 
-        Assert.Equal(["id", "kind", "online"], Property(devices[4]));
+        Assert.Equal(["id", "kind", "online", "silenceWindowOverridden", "silenceWindowSeconds"], Property(devices[4]));
     }
 
     [Fact]

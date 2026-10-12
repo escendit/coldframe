@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { formatDuration, formatNumber, formatPercent, formatTime, formatWhen } from '$lib/i18n/format';
+import { formatDuration, formatNumber, formatPercent, formatSilence, formatTime, formatWhen, shortDeviceId } from '$lib/i18n/format';
 
 const minute = 60_000;
 const hour = 60 * minute;
@@ -15,6 +15,25 @@ describe('locale formatting', () => {
     expect(formatDuration(23 * hour + 59 * minute)).toBe('23 h');
     expect(formatDuration(day)).toBe('1 d');
     expect(formatDuration(3 * day + 5 * hour)).toBe('3 d');
+  });
+
+  test('UX-DR117 UX-DR127 a silence is now minus silent-since, rounded down; none without a silent-since that can be read', () => {
+    const now = new Date('2026-10-06T07:10:00.000Z');
+    expect(formatSilence('2026-10-06T06:58:00.000Z', now)).toBe('12 min');
+    expect(formatSilence('2026-10-06T06:10:01.000Z', now)).toBe('59 min');
+    expect(formatSilence('2026-10-06T01:05:00.000Z', now)).toBe('6 h');
+    expect(formatSilence('2026-10-05T07:10:01.000Z', now)).toBe('23 h');
+    expect(formatSilence('2026-10-05T07:10:00.000Z', now)).toBe('1 d');
+    expect(formatSilence('2026-10-06T08:00:00.000Z', now)).toBe('0 min');
+    expect(formatSilence(undefined, now)).toBeNull();
+    expect(formatSilence('soon', now)).toBeNull();
+  });
+
+  test('UX-DR117 a Hub is named by the first four hex digits of its Device ID in upper case', () => {
+    expect(shortDeviceId('3f2a9c0d1e4b5a67')).toBe('3F2A');
+    expect(shortDeviceId('9C0D1e4b5a673f2a')).toBe('9C0D');
+    expect(shortDeviceId('ab')).toBe('AB');
+    expect(shortDeviceId('')).toBe('');
   });
 
   test('UX-DR127 the stale header uses "h min"', () => {

@@ -80,3 +80,20 @@ export function formatPercent(value: number, locale: string): string {
 export function formatDay(date: Date, locale: string, timeZone: string, month: 'short' | 'long' = 'short'): string {
   return new Intl.DateTimeFormat(locale, { timeZone, day: 'numeric', month }).format(date);
 }
+
+/**
+ * How long a Device has been silent: `now − silentSince`, rounded down by `formatDuration` ("12 min",
+ * "6 h", "2 d"). Null without a silent-since the client can read: the caller then says it without a duration.
+ */
+export function formatSilence(silentSince: string | undefined, now: Date): string | null {
+  if (silentSince === undefined) {
+    return null;
+  }
+  const since = Date.parse(silentSince);
+  return Number.isNaN(since) ? null : formatDuration(now.getTime() - since);
+}
+
+/** The short name of a Device, as its firmware advertises it: the first four hex digits in upper case ("3F2A"). */
+export function shortDeviceId(deviceId: string): string {
+  return deviceId.slice(0, 4).toUpperCase();
+}

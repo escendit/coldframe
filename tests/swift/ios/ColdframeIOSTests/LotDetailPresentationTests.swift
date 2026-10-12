@@ -102,6 +102,26 @@ func heroNoteUnknown() throws {
   #expect(hub.noteText(context) == "The Hub is silent; Lots behind it can't be read.")
 }
 
+@Test("UX-DR78 UX-DR81 a Lot behind a silent Hub names the Hub when the Server does")
+func heroNoteNamesTheSilentHub() throws {
+  let named = try heroOf(.hubSilentNamed)
+  #expect(named.silentHubName == "3F2A")
+  #expect(named.noteText(context) == "Hub 3F2A is silent; Lots behind it can't be read.")
+  #expect(named.valueText(context) == "12 min")
+  #expect(named.spokenText(context).hasSuffix("Hub 3F2A is silent; Lots behind it can't be read."))
+  // Without an ID from the Server the note is the one from before.
+  let unnamed = try heroOf(.hubSilent)
+  #expect(unnamed.silentHubName == nil)
+  #expect(unnamed.noteText(context) == "The Hub is silent; Lots behind it can't be read.")
+  // The name belongs to the Hub note only: a silent Node keeps its own line.
+  var node = LotDetailFixture.nodeSilent
+  node.heroSilentHubName = "3F2A"
+  #expect(try heroOf(node).noteText(context) == "Check power or range.")
+  #expect(
+    try Catalogue.entries()["lot_detail_hub_silent_named"]
+      == "Hub %@ is silent; Lots behind it can't be read.")
+}
+
 @Test("UX-DR78 paused: until a date, or with no end, or with the Site")
 func heroNotePaused() throws {
   let until = try heroOf(.pausedUntil)

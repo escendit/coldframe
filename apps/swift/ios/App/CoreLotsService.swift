@@ -85,7 +85,11 @@ final class CoreLotsService: LotsService {
       lotPausedUntils: snapshot.lotPausedUntils,
       lotOpensAddNode: snapshot.lotOpensAddNode.map { $0.boolValue },
       lotOpensCalibrate: snapshot.lotOpensCalibrate.map { $0.boolValue },
-      menuItems: snapshot.menuItems, menuEnabled: snapshot.menuEnabled)
+      menuItems: snapshot.menuItems, menuEnabled: snapshot.menuEnabled,
+      hubNoticeIds: snapshot.hubNoticeIds, hubNoticeNames: snapshot.hubNoticeNames,
+      hubNoticeSilentSince: snapshot.hubNoticeSilentSince,
+      hubNoticeDurationValues: snapshot.hubNoticeDurationValues,
+      hubNoticeDurationUnits: snapshot.hubNoticeDurationUnits)
   }
 
   func load() { core.load() }

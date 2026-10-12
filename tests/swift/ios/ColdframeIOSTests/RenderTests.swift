@@ -1373,4 +1373,172 @@
           dark: dark))
     }
   }
+
+  // MARK: - Silence and the Silence Window (Story 7.2)
+
+  @Test(
+    "UX-DR81 the overview with a silent Hub renders its notice above the tiles",
+    arguments: [false, true])
+  @MainActor
+  func overviewHubNoticeRenders(dark: Bool) {
+    let lots = Overview.lots(hubNotices: [Overview.silentHub, Overview.otherSilentHub])
+    #expect(lots.overview?.hubNotices.count == 2)
+    #expect(rendersAtDefaultSize(overview(lots), dark: dark))
+    #expect(renders(overview(lots), dark: dark))
+    // A silent Hub with no Lot behind it still shows.
+    #expect(renders(overview(Overview.lots([], hubNotices: [Overview.silentHub])), dark: dark))
+    #expect(
+      L10n.gardenHubSilent.string("3F2A", L10n.durationMinutes.string(12))
+        == "Hub 3F2A silent for 12 min — Lots behind it can't be read.")
+  }
+
+  @Test("UX-DR81 UX-DR104 a notice that its screen announces renders and posts nothing itself")
+  @MainActor
+  func silentNoticeRenders() {
+    #expect(
+      renders(
+        InlineNotice(
+          text: L10n.gardenHubSilent.string("3F2A", L10n.durationMinutes.string(12)),
+          announces: false)))
+  }
+
+  @Test(
+    "UX-DR78 UX-DR81 Lot detail behind a silent Hub renders the hero that names the Hub",
+    arguments: [false, true])
+  @MainActor
+  func lotDetailSilentHubRenders(dark: Bool) {
+    let detail = LotDetailFixture.hubSilentNamed.build()
+    #expect(renders(lotDetailView(detail), dark: dark))
+    #expect(rendersAtDefaultSize(lotDetailView(detail), dark: dark))
+    #expect(
+      L10n.lotDetailHubSilentNamed.string("3F2A")
+        == "Hub 3F2A is silent; Lots behind it can't be read.")
+  }
+
+  @Test(
+    "UX-DR30 UX-DR31 Devices with a silent Hub and a silent Node renders with the Silence Window action",
+    arguments: [false, true])
+  @MainActor
+  func devicesSilentRenders(dark: Bool) {
+    let devices = SilenceFixture.devices()
+    #expect(devices.hubs.first?.silence.isSilent == true)
+    #expect(devices.nodes.first?.silence.isSilent == true)
+    #expect(devices.canSetSilenceWindow)
+    #expect(renders(devicesView(devices), dark: dark))
+    #expect(rendersAtDefaultSize(devicesView(devices), dark: dark))
+    #expect(L10n.devicesSilent.string(L10n.durationHours.string(6)) == "Silent 6 h")
+  }
+
+  @Test(
+    "UX-DR84 Devices with silent Devices renders for a Member, who has no Silence Window control",
+    arguments: [false, true])
+  @MainActor
+  func devicesSilentMemberRenders(dark: Bool) {
+    let devices = SilenceFixture.devices(canSetSilenceWindow: false)
+    #expect(!devices.canSetSilenceWindow)
+    #expect(devices.silenceWindow(for: SilenceFixture.silentHubId) == nil)
+    #expect(renders(devicesView(devices), dark: dark))
+    #expect(rendersAtDefaultSize(devicesView(devices), dark: dark))
+  }
+
+  @Test(
+    "UX-DR31 UX-DR84 Devices renders a Silence Window that is being saved and one that was refused",
+    arguments: [false, true])
+  @MainActor
+  func devicesSilenceWindowStatesRender(dark: Bool) {
+    let working = SilenceFixture.devices(workingId: SilenceFixture.silentNodeId)
+    #expect(renders(devicesView(working), dark: dark))
+    for kind in SilenceWindowNoticeKind.allCases {
+      let refused = SilenceFixture.devices(
+        failedId: SilenceFixture.silentHubId, notice: kind.rawValue)
+      #expect(renders(devicesView(refused), dark: dark), "\(kind)")
+    }
+    #expect(
+      L10n.siteSettingsForbidden.string("Home garden")
+        == "You can't change this on Home garden. Ask an Owner or Administrator.")
+  }
+
+  @Test(
+    "UX-DR31 the Silence Window sheet renders for a Hub on the default and a Node with its own window",
+    arguments: [false, true])
+  @MainActor
+  func silenceWindowSheetRenders(dark: Bool) throws {
+    let devices = SilenceFixture.devices()
+    let hub = try #require(devices.silenceWindow(for: SilenceFixture.silentHubId))
+    let node = try #require(devices.silenceWindow(for: SilenceFixture.heardNodeId))
+    #expect(!hub.showsUseDefault)
+    #expect(node.showsUseDefault)
+    for window in [hub, node] {
+      let sheet = SilenceWindowSheet(
+        window: window,
+        context: .catalogue(now: Overview.context.now, timeZone: Overview.context.timeZone),
+        onSave: { _, _ in false })
+      #expect(renders(sheet, dark: dark), "\(window.id)")
+      #expect(rendersAtDefaultSize(sheet, dark: dark), "\(window.id)")
+    }
+    #expect(L10n.devicesSilenceWindowHub.string(hub.id) == "Silence Window for Hub \(hub.id)")
+    #expect(L10n.devicesSilenceWindowRange.string == "Enter a whole number from 1 min to 30 d.")
+    #expect(L10n.devicesSilenceWindowUseDefault.string == "Use default")
+  }
+
+  @MainActor
+  private final class DevicesSpy: DevicesService {
+    var calls: [String] = []
+    var accepts = true
+    func observe(_ onChange: @escaping @MainActor (DevicesPresentation) -> Void) {}
+    func load() { calls.append("load") }
+    func moveNode(_ nodeId: String, to lotId: String) { calls.append("move \(nodeId) \(lotId)") }
+    func unassignNode(_ nodeId: String) { calls.append("unassign \(nodeId)") }
+    func tick() { calls.append("tick") }
+    func setSilenceWindow(_ deviceId: String, text: String, unit: SilenceWindowUnitKind) -> Bool {
+      calls.append("window \(deviceId) \(text) \(unit.rawValue)")
+      return accepts
+    }
+    func useDefaultSilenceWindow(_ deviceId: String) { calls.append("default \(deviceId)") }
+  }
+
+  @Test("UX-DR31 the Silence Window actions and the minute tick reach the Devices service")
+  @MainActor
+  func devicesActionsForward() {
+    let spy = DevicesSpy()
+    let actions = DevicesActions(service: spy)
+    actions.load()
+    actions.tick()
+    #expect(actions.setSilenceWindow("7c19", "8", .hours))
+    spy.accepts = false
+    // What the core refused is told back, so the sheet stays open.
+    #expect(!actions.setSilenceWindow("7c19", "90.5", .minutes))
+    actions.useDefaultSilenceWindow("3f2a")
+    actions.moveNode("7c19", "lot-b")
+    actions.unassignNode("7c19")
+    #expect(
+      spy.calls == [
+        "load", "tick", "window 7c19 8 hours", "window 7c19 90.5 minutes", "default 3f2a",
+        "move 7c19 lot-b", "unassign 7c19",
+      ])
+  }
+
+  @Test(
+    "UX-DR117 UX-DR26 Alerts renders the Health rows of a silent Node and a silent Hub",
+    arguments: [false, true])
+  @MainActor
+  func alertsSilentDevicesRender(dark: Bool) throws {
+    let alerts = AlertsFixture.alerts([AlertsFixture.needsWater] + AlertsFixture.silentDevices)
+    #expect(alerts.groups.map(\.kind) == [.threshold, .health, .closed])
+    #expect(rendersAtDefaultSize(alertsView(alerts), dark: dark))
+    #expect(renders(alertsView(alerts), dark: dark))
+    for alert in AlertsFixture.silentDevices {
+      let row = try AlertsFixture.row(alert)
+      #expect(renders(AlertRowView(row: row, context: .catalogue()), dark: dark), "\(alert.id)")
+    }
+    let titles = try AlertsFixture.silentDevices.map {
+      try AlertsFixture.row($0).titleText(.catalogue())
+    }
+    #expect(
+      titles == [
+        "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A silent for 5 min",
+        "Node 9C0D silent for 6 h", "Hub 3F2A silent",
+      ])
+    #expect(L10n.alertTitleHealth.string == "Health Alert")
+  }
 #endif

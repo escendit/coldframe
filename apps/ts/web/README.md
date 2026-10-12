@@ -191,6 +191,15 @@ tells durations from the Server's timestamps and the browser's clock.
   unknown or needing calibration → "2 Lots can't be read"; every Lot with a Node paused by the Site →
   "Paused until ‹date›" (when they share one end) or "Paused", in the paused ink; otherwise "Nothing
   needs water". The subline counts the other statuses in the Server's order.
+- **Hub silent.** `GET /sites/{siteId}/lots` also lists the Site's silent Hubs (`silentHubs`). Each is one
+  Inline notice above the tiles, "Hub 3F2A silent for 12 min — Lots behind it can't be read.", also when no
+  Lot is behind that Hub (`hubNotices` in [`src/lib/garden.ts`](src/lib/garden.ts)). It has no action and
+  cannot be dismissed, and it is announced politely once each time it appears, not while it stays over a
+  refetch. It goes when the Server stops listing the Hub. Stale mode shows none.
+- **Silence.** Every silence duration (tile, hero, notice, Devices row, Alert title) is the browser's or the
+  load's clock minus the Server's `silentSince`, rounded down by `formatDuration`: minutes under 1 h, hours
+  under 24 h, then days. A Hub, and a Node on no Lot in an Alert title, is named by the first four hex
+  digits of its Device ID in upper case (`shortDeviceId`); Device rows show the full ID.
 - **Refetch on focus.** Garden loads again when its tab gets focus or becomes visible, and when the
   Server hints that something it shows changed ([Live updates](#live-updates-story-66)). There is no
   polling.
@@ -216,12 +225,13 @@ key picks a day, the text summary is the label of the image, and nothing animate
 soil-moisture History the Server sent in `%` (calibrated Readings), the chart also draws the band
 (`chart-band`), a 2 px low line, a dashed 1 px high line (`chart-high-line`) and a solid
 `chart-bar-below-low` bar for each day whose low is under the low, with the legend "solid bar = below N %"
-and the below-low days in the text summary; a raw History has none of it. There is no admin strip before Epic 8. A "Hub is silent" Lot names
-the first Hub of the Devices list, since the Lot does not carry the Hub (no Server producer yet).
+and the below-low days in the text summary; a raw History has none of it. There is no admin strip before Epic 8. A Lot behind a silent Hub
+names it from the Lot's `silentHubId` ("Hub 3F2A is silent; Lots behind it can't be read."); without one the copy has no ID. The Devices list is not
+read for it.
 
 Devices lists "Hubs", then "Nodes" in the Server's order (Lot name, unassigned last, then Device ID) with
-Lot name, last seen, battery (`battery--low` below 20 %) and charging from the Server; no row actions
-until Story 4.9. The Playwright fake Server (`fixtures/fake-idp.ts`) seeds `node`, `sensors`, `history` and
+Lot name, last seen, battery (`battery--low` below 20 %) and charging from the Server. Owners and Administrators
+move and unassign Nodes (Story 4.9) and set the Silence Window of any Device ([below](#silence-on-devices-story-72)). The Playwright fake Server (`fixtures/fake-idp.ts`) seeds `node`, `sensors`, `history` and
 the Node fields; its Lot reads and the history fail with the rest of the Lots reads.
 
 ### Thresholds (Story 5.4)
@@ -238,14 +248,39 @@ no control. Lot detail also reads the calibratable soil Sensor's Thresholds for 
 line; a failed read leaves them out. The fake Server has `thresholds` seeds, `PUT` recording and
 `/control/lot-fields` (`patchLot`).
 
+### Silence on Devices (Story 7.2)
+
+A Device with an open silent Alert carries `silentSince`: its row shows the `help` icon and "Silent 6 h"
+(upper case by style) beside last seen. Every row has the id `device-{deviceId}`, which the Health Alert rows
+link to; the row a link opened has a stronger edge.
+
+**Silence Window** is a row action of every Hub and Node for Owners and Administrators; a Member has no such
+control (hidden, never disabled) and still sees the silence and last seen. The closed row says the window in
+force ("Silence Window · 6 h", from `silenceWindowSeconds`). Opened, it is a number with a unit of min, h or
+d, Save, and "Use default" while the Device has its own window (`silenceWindowOverridden`). The form action
+`setSilenceWindow` (`silenceWindowAction` in [`src/lib/server/devices.ts`](src/lib/server/devices.ts)) sends
+`PUT /sites/{siteId}/devices/{deviceId}/silence-window` with `{windowSeconds}`, or `{}` for the default.
+
+| Case | What the row shows |
+| --- | --- |
+| Not a whole number, or outside 1 min to 30 days | "Enter a whole number from 1 min to 30 d." under the field, what was typed stays, and nothing is sent (`silenceWindowSeconds` in [`src/lib/devices.ts`](src/lib/devices.ts), in the browser and again in the form action) |
+| 400 from the Server | the same message |
+| 403: the caller lost the Role after the page loaded | "You can't change this on ‹Site›. Ask an Owner or Administrator." |
+| 404 | "That Device is gone. Reload the page." |
+| No answer, an untrusted certificate, any other status | the notices of move and unassign |
+
+The page holds what is typed and which forms are open, so a refetch or a refusal never replaces it.
+
 ### Alerts (Story 6.2)
 
 `/alerts` (`src/lib/server/alerts.ts`, `src/lib/alerts.ts`, `AlertRows.svelte`) reads
-`GET /sites/{siteId}/alerts` on every load and on focus: 200 Alerts per page, following `nextCursor` to
-the end or to 10 pages (`alertsPageCap`), and a page that fails fails the whole read. The Server's order is
-kept; the page only groups it: "Threshold Alerts" (kind `threshold`), "Health Alerts" (every other kind,
-also one this client does not know), then "Closed" (the Alerts the Server still lists, closed in the last
-7 days). With no open Alert it says "No open Alerts.", followed by Closed when it has rows.
+`GET /sites/{siteId}/alerts` on every load and on focus: 200 Threshold Alerts per page (`alerts`), following
+`nextCursor` to the end or to 10 pages (`alertsPageCap`), and a page that fails fails the whole read. The
+Health Alerts come beside them in `healthAlerts` (Story 7.2): not paged, taken from the first page only. The
+Server's order is kept in both lists and nothing is re-sorted; the page only groups: "Threshold Alerts",
+"Health Alerts", then "Closed" (what the Server still lists, closed in the last 7 days: the closed Threshold
+Alerts, then the closed Health Alerts). With no open Alert it says "No open Alerts.", followed by Closed when
+it has rows. A Server that sends no `healthAlerts` gives the page it gave before.
 
 `alertRow` picks one of four variants (DESIGN.md `alert-row-*`): needs water only for an open, low-side,
 soil-moisture Threshold Alert (the only orange row, `rain-drop`); any other open Threshold Alert on
@@ -253,13 +288,26 @@ soil-moisture Threshold Alert (the only orange row, `rain-drop`); any other open
 text on a plate (`help`, `battery--low`, `tools`); a closed Alert as an outline, whatever it was. A row
 shows the Lot, the condition and when it started, never a value or a Threshold (the Alert carries none).
 Each row is one link with one spoken label ("Tomatoes needs water, since 5:45 AM"): a Threshold or
-uncalibrated Alert opens Lot detail, a silent Node or a low battery opens Devices, and a kind this client
-does not know opens Devices. Rows have no other action. Health Alerts have no Server producer before
-Epic 7; tests and the fake Server seed them.
+uncalibrated Alert opens Lot detail; a silent Device, a low battery and a kind this client does not know
+open Devices at the row of the Device (`/devices#device-{deviceId}`). Rows have no other action.
+
+Health rows (`healthAlertRow`) are titled from the Alert's Device, Lot and `silentSince`:
+
+| Alert | Title |
+| --- | --- |
+| `silent`, a Node on a Lot | "Node on Lot 'Beans' silent for 6 h" |
+| `silent`, a Hub | "Hub 3F2A silent for 5 min" |
+| `silent`, a Node on no Lot | "Node 9C0D silent for 6 h" |
+| closed, or open without `silentSince` | the same without "for …" ("Hub 3F2A silent") |
+| a kind this client does not know | the neutral row: "Health Alert on Lot 'Basil'", or "Health Alert" without a Lot |
+
+The Server opens `silent` Alerts (Story 7.1); `battery` and `uncalibrated` keep their titles and icons for
+Stories 7.3 and 7.4. A non-Threshold entry in `alerts`, which the Server no longer sends, still renders as
+the Health row it was (it opens Devices without a row).
 
 There is no Open Alerts rail, no count in the side nav and no stale mode: a failed read shows the notice
-with Try again and no rows. The fake Server has `POST /control/alerts` (`setAlerts`: the Alerts, or a
-status for their list) and serves them in pages.
+with Try again and no rows. The fake Server has `POST /control/alerts` (`setAlerts`: the Alerts, the Health
+Alerts, or a status for their list) and serves the Alerts in pages.
 
 ## Live updates (Story 6.6)
 
@@ -307,7 +355,7 @@ in [`packages/asyncapi`](../../../packages/asyncapi); their types and names come
   | `lots` | Lot | the overview; Lot detail and its sub-pages of that Lot |
   | `readings` | Lot | the overview; Lot detail of that Lot |
   | `alerts` | Alert | Alerts; the overview |
-  | `devices` | Device | Devices |
+  | `devices` | Device | Devices; the overview (a Device that turns silent or recovers changes the Hub notice and the tiles) |
 
   A hint for anything else is dropped. Hints that arrive while a refetch runs cause one more refetch, not
   one each. A refetch that fails is quiet: the page keeps its data and its own stale handling.
@@ -402,7 +450,12 @@ and dark, with axe. `specs/notifications.spec.ts` sets the window, the zone, the
 the failed-save and time-zone hand-over cases, and compares screenshots of My notifications (zone unconfirmed, then
 everything set) in light and dark, with axe; the fake Server has the three notification-settings resources and
 `POST /control/notifications` (`setNotifications`: seeds them, and the status the next write answers). On the web
-My notifications is never shown without a Site (no Membership opens Create Site), so that state has unit tests only. `specs/live.spec.ts` runs the live updates
+My notifications is never shown without a Site (no Membership opens Create Site), so that state has unit tests only. `specs/silence.spec.ts` (Story 7.2) seeds
+silent Devices (`silentSince` on a fake Device; a silent Hub is also in the Lots list's `silentHubs`), Lots with `silentHubId` and `silentSince`, and Health Alerts, and
+compares screenshots in light and dark of the overview with the Hub notice, of Devices with a silent Hub and Node and the open Silence Window form, and of Alerts with the
+Health rows; it saves a Silence Window, returns it to the default, checks the refused range, the 403 notice and that a Member has no control. The fake Server has
+`PUT /sites/{id}/devices/{id}/silence-window` (403 for a Member, 400 outside the range or for a malformed Device ID, 404 for an unknown Device) and lists what it accepted as
+`silenceWindowPuts`. Devices and Alerts tell a silence against the web app's clock, so those tests seed times relative to the run and fix the last-seen text before comparing. `specs/live.spec.ts` runs the live updates
 against a fake SignalR hub in the fake Server (negotiate, a Server-Sent Events stream, the handshake by POST; `POST /control/live` sends a hub message to every open
 connection, drops them, or makes the hub answer 401, and `GET /control/live` lists what the hub was asked): the hub is reached on the web origin only and with the
 session's token, a hint refetches the page that shows it without a reload, a lost connection comes back and refetches once, a 401 ends the retries until a navigation,

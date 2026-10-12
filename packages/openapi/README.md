@@ -19,6 +19,7 @@ The REST contract, written before the code that serves it (AD-10):
 | `POST /sites/{siteId}/devices` | `Administrator` | Story 3.3 (contract: Story 3.1); a Node's `lotId` since Story 4.2 |
 | `POST /sites/{siteId}/devices/{deviceId}/move` | `Administrator` | Story 4.9 |
 | `POST /sites/{siteId}/devices/{deviceId}/unassign` | `Administrator` | Story 4.9 |
+| `PUT /sites/{siteId}/devices/{deviceId}/silence-window` | `Administrator` | Story 7.2 |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.1 |
 | `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.2 |
 | `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | Story 5.3 |
@@ -60,7 +61,8 @@ is planned today.
   assigned to the Lot), `idempotency-key-reused` (422), `identity-provider-unavailable` (503),
   `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409),
   `device-assigned` (409, the Node is in another Lot already), `device-not-found` (404, no such Node on this
-  Site: moving or unassigning an unknown Device, a Hub or a Device of another Site), `ingest-unavailable` (503, no frame of an
+  Site: moving or unassigning an unknown Device, a Hub or a Device of another Site; for the Silence Window, no
+  such Device, Hub or Node, on this Site), `ingest-unavailable` (503, no frame of an
   ingest envelope could be committed), `sensor-not-found` (404, no such Sensor on a Node of this Site),
   `calibration-not-delivered` (503, the Calibration is saved but the Node's Device grain has not acknowledged it
   yet; the Server keeps delivering it), `reminder-cadence-not-delivered` (503, the Site holds the Reminder
@@ -120,6 +122,21 @@ is planned today.
   the same 200, also when nothing changed (then nothing is saved); 400 `validation` for a high without a low, a low
   not below the high, a malformed side or a value out of range, 403 for a Member, 404 `sensor-not-found`. A saved
   change starts a new evaluation epoch for Threshold Alerts.
+- **Silence** (Story 7.2). A Lot that is `unknown` carries `silentSince`, when the silent Device was last heard
+  (or enrolled, if it never reported), and `silentHubId` when the cause is its relay Hub; `LotList.silentHubs`
+  lists every silent Hub of the Site as `{deviceId, silentSince}`, also one with no Lot behind it. A Devices list
+  item carries `silentSince` exactly while its `silent` Alert is open, and `silenceWindowSeconds` with
+  `silenceWindowOverridden`. Every displayed silence duration is now minus `silentSince`, rounded down; a Hub is
+  named by the first four hex digits of its Device ID in upper case. `PUT
+  /sites/{siteId}/devices/{deviceId}/silence-window` (Administrator) takes `{windowSeconds?}`, 60 to 2592000 in
+  whole seconds, none meaning the default (a Node 6 h, a Hub 5 min), and answers 200 `{windowSeconds,
+  overridden}` with the window in force, also when nothing changed; 400 `validation` for a value out of range,
+  a fraction, a string or a malformed Device ID, 403 for a Member, 404 `device-not-found`.
+- **Alerts.** `GET /sites/{siteId}/alerts` answers `{alerts, healthAlerts?, openCount, nextCursor?}`. `alerts`
+  holds Threshold Alerts only and keeps its shape. `healthAlerts` (Story 7.2) holds the Health Alerts as `{id,
+  kind, deviceId, deviceKind, lotId?, lotName?, silentSince?, openedAt, closedAt?, reason?}`: a Hub's Alert and
+  the Alert of a Node on no Lot have no Lot. It is not paged (at most 200, bounded by the number of Devices) and
+  is sent with the first page only. `openCount` counts every open Alert, Threshold and Health.
 - **Notification settings** (Story 6.3). `GET`/`PATCH /me/notification-settings` is the caller's own
   `{window: {from, to}, timeZone?, timeZoneConfirmed}`; it is the first path that names no Site. Times are
   `"HH:mm"` (24 h) wall-clock in the User's zone; the default window is 07:00 to 22:00, `to` omitted in a

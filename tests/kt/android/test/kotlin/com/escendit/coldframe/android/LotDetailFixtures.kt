@@ -90,6 +90,16 @@ object LotDetailFixtures {
             lastReadingAtEpochMs = at("2026-10-06T01:04:00Z"),
             statusSinceEpochMs = at("2026-10-06T02:00:00Z"),
         )
+
+    /** Behind Hub 3F2A, which was last heard 12 min ago; the Server names no Hub in [behindUnnamedHub]. */
+    val behindSilentHub =
+        lot(LotStatus.Unknown, unknownCause = LotUnknownCause.Hub).copy(
+            lastReadingAtEpochMs = at("2026-10-06T06:50:00Z"),
+            statusSinceEpochMs = at("2026-10-06T06:57:00Z"),
+            silentHubId = "3f2a9c0d1e4b5a67",
+            silentSinceEpochMs = at("2026-10-06T06:52:00Z"),
+        )
+    val behindUnnamedHub = behindSilentHub.copy(silentHubId = null, silentSinceEpochMs = null)
     val paused =
         lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device), pausedUntil = at("2026-11-01T00:00:00Z"))
     val pausedBySite = lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device, LotPauseSource.Site))

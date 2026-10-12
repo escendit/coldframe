@@ -9,12 +9,19 @@
   import {
     batteryText,
     chargingText,
+    deviceRowId,
     devicesAccessOf,
     devicesNoticeOf,
     hubsOf,
     lastSeenText,
     lotChoicesOf,
     nodesOf,
+    silenceWindowParts,
+    silenceWindowSeconds,
+    silenceWindowText,
+    silenceWindowUnitLabel,
+    silenceWindowUnits,
+    silentText,
     statusOf,
     type DeviceActionFailure,
     type DeviceActionNotice,
@@ -36,8 +43,22 @@
 
   const failed: DeviceActionFailure | null = $derived(form === null || form.done === true ? null : form);
 
-  /** Which Node's form is working: `moveNode:<id>` or `unassignNode:<id>`. */
+  /** Which Device's form is working: `moveNode:<id>`, `unassignNode:<id>`, `setSilenceWindow:<id>` or `useDefault:<id>`. */
   let working: string | null = $state(null);
+  /**
+   * Which Silence Window forms the caller opened or closed, by Device ID. The page holds it, so a save
+   * or a refusal that draws the row again leaves the form as the caller had it. A form nobody touched is
+   * closed, unless a refusal opens it.
+   */
+  let windowOpen: Record<string, boolean> = $state({});
+  /**
+   * What the caller typed or picked in a Silence Window form, by Device ID, until it is saved. The fields
+   * are drawn from it, so drawing the row again (a refetch, a refusal) never replaces what was typed.
+   */
+  let typedAmount: Record<string, string> = $state({});
+  let pickedUnit: Record<string, string> = $state({});
+  /** The Device whose Silence Window was refused here, before anything was sent: the range is said under its field. */
+  let refused: string | null = $state(null);
   let unassigning: DeviceListItem | null = $state(null);
   let confirmOpen = $state(false);
   let unassignForm: HTMLFormElement | undefined = $state();
@@ -46,13 +67,69 @@
     forbidden: 'devices.action.forbidden',
     lotClaimed: 'devices.action.lotClaimed',
     notFound: 'devices.action.notFound',
+    range: 'devices.silenceWindow.range',
     unexpected: 'devices.action.unexpected',
     unreachable: 'notice.unreachable',
     certificate: 'notice.certificate',
   };
 
   function noticeOf(deviceId: string): string | null {
-    return failed !== null && failed.deviceId === deviceId ? t(noticeKeys[failed.notice]) : null;
+    if (failed?.deviceId !== deviceId) {
+      return null;
+    }
+    if (failed.action === 'setSilenceWindow') {
+      switch (failed.notice) {
+        case 'range':
+          // Said under the field, with what was entered.
+          return null;
+        case 'forbidden':
+          // The caller lost the Role after the page loaded: the notice of every refused change (UX-DR84).
+          return t('siteSettings.forbidden', { siteName: data.currentSite?.name ?? '' });
+        case 'notFound':
+          return t('devices.silenceWindow.notFound');
+        default:
+          break;
+      }
+    }
+    return t(noticeKeys[failed.notice]);
+  }
+
+  /** The Silence Window failure of a Device's row, with what was entered. */
+  function windowFailureOf(deviceId: string): DeviceActionFailure | null {
+    return failed?.action === 'setSilenceWindow' && failed.deviceId === deviceId ? failed : null;
+  }
+
+  function field(formData: FormData, name: string): string {
+    const value = formData.get(name);
+    return typeof value === 'string' ? value : '';
+  }
+
+  /**
+   * Saves a Silence Window, or returns it to the default. A value outside 1 min to 30 days is refused
+   * here and nothing is sent; the Server stays the validator of what is.
+   */
+  function savingWindow(deviceId: string): SubmitFunction {
+    return ({ formData, cancel }) => {
+      refused = null;
+      const useDefault = formData.has('useDefault');
+      if (!useDefault && silenceWindowSeconds(field(formData, 'amount'), field(formData, 'unit')) === null) {
+        refused = deviceId;
+        announce(t('devices.silenceWindow.range'), 'assertive');
+        cancel();
+        return;
+      }
+      working = `${useDefault ? 'useDefault' : 'setSilenceWindow'}:${deviceId}`;
+      return async ({ result, update }) => {
+        await update({ reset: false });
+        working = null;
+        if (result.type === 'success') {
+          // Saved: the fields show the window in force again.
+          typedAmount = Object.fromEntries(Object.entries(typedAmount).filter(([id]) => id !== deviceId));
+          pickedUnit = Object.fromEntries(Object.entries(pickedUnit).filter(([id]) => id !== deviceId));
+          announce(t('devices.silenceWindow.saved'), 'polite');
+        }
+      };
+    };
   }
 
   /** A change reloads the data, so the list shows the Server's answer, not a guess. */
@@ -94,6 +171,77 @@
 
 <h1 class="cf-page-title">{t('devices.title')}</h1>
 
+<!--
+  The Silence Window of one Device (UX-DR84): the value in force, a number with a unit, Save, and Use default
+  while the Device has its own. Rendered for Owners and Administrators only; a Member has no such control.
+-->
+{#snippet silenceWindow(device: DeviceListItem, siteId: string)}
+  {@const current = silenceWindowText(device)}
+  {@const parts = silenceWindowParts(device.silenceWindowSeconds)}
+  {@const failure = windowFailureOf(device.id)}
+  {@const outOfRange = refused === device.id || failure?.notice === 'range'}
+  {@const chosenUnit = pickedUnit[device.id] ?? failure?.unit ?? parts?.unit ?? 'h'}
+  {@const open = windowOpen[device.id] ?? failure !== null}
+  <details class="cf-devices__window" {open}>
+    <!-- The page opens and closes the form itself: `open` is a property Svelte writes on every draw, so it must always hold what the caller chose. -->
+    <summary
+      class="cf-devices__summary"
+      onclick={(event) => {
+        event.preventDefault();
+        windowOpen[device.id] = !open;
+      }}
+    >
+      {current === null ? t('devices.silenceWindow.label') : t('devices.silenceWindow.summary', { value: current })}
+    </summary>
+    <form method="POST" action="?/setSilenceWindow" class="cf-devices__window-form" novalidate use:enhance={savingWindow(device.id)}>
+      <input type="hidden" name="siteId" value={siteId} />
+      <input type="hidden" name="deviceId" value={device.id} />
+      <label class="cf-devices__legend" for="cf-window-{device.id}">{t('devices.silenceWindow.label')}</label>
+      <div class="cf-devices__window-fields">
+        <input
+          id="cf-window-{device.id}"
+          class="cf-devices__window-amount"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          step="1"
+          name="amount"
+          value={typedAmount[device.id] ?? failure?.amount ?? parts?.amount ?? ''}
+          oninput={(event) => {
+            typedAmount[device.id] = event.currentTarget.value;
+          }}
+          aria-invalid={outOfRange ? 'true' : undefined}
+          aria-describedby="cf-window-{device.id}-helper"
+        />
+        <select
+          class="cf-devices__window-unit"
+          name="unit"
+          aria-label={t('devices.silenceWindow.unit')}
+          onchange={(event) => {
+            pickedUnit[device.id] = event.currentTarget.value;
+          }}
+        >
+          {#each silenceWindowUnits as unit (unit)}
+            <option value={unit} selected={unit === chosenUnit}>{silenceWindowUnitLabel(unit)}</option>
+          {/each}
+        </select>
+      </div>
+      <p id="cf-window-{device.id}-helper" class="cf-devices__hint" class:cf-devices__hint--invalid={outOfRange}>
+        {outOfRange ? t('devices.silenceWindow.range') : t('devices.silenceWindow.helper')}
+      </p>
+      <Button type="submit" variant="secondary" label={t('devices.silenceWindow.save')} working={working === `setSilenceWindow:${device.id}`} workingLabel={t('devices.silenceWindow.saving')} />
+    </form>
+    {#if device.silenceWindowOverridden === true}
+      <form method="POST" action="?/setSilenceWindow" class="cf-devices__window-default" use:enhance={savingWindow(device.id)}>
+        <input type="hidden" name="siteId" value={siteId} />
+        <input type="hidden" name="deviceId" value={device.id} />
+        <input type="hidden" name="useDefault" value="1" />
+        <Button type="submit" variant="ghost" label={t('devices.silenceWindow.useDefault')} working={working === `useDefault:${device.id}`} />
+      </form>
+    {/if}
+  </details>
+{/snippet}
+
 {#if data.currentSite !== null && access !== null}
   <div class="cf-devices">
     {#if notice !== null}
@@ -113,12 +261,25 @@
           <ul class="cf-devices__list" aria-labelledby="cf-devices-hubs">
             {#each hubs as hub (hub.id)}
               {@const status = statusOf(hub)}
-              <li class="cf-devices__row" data-device={hub.id} data-online={hub.online}>
+              {@const silent = silentText(hub, loadedAt)}
+              <li id={deviceRowId(hub.id)} class="cf-devices__row" data-device={hub.id} data-online={hub.online} data-silent={silent === null ? undefined : 'true'}>
                 <span class="cf-devices__id">{hub.id}</span>
                 <span class="cf-devices__meta">
                   <span class="cf-devices__status"><Icon name={status.icon} />{t(status.label)}</span>
+                  {#if silent !== null}<span class="cf-devices__silent"><Icon name="help" />{silent}</span>{/if}
                   <span class="cf-devices__seen">{lastSeenText(hub, loadedAt, locale, timeZone)}</span>
                 </span>
+                {#if access.canSetSilenceWindow}
+                  <!-- Admin+ only, hidden for Members (UX-DR84). -->
+                  <div class="cf-devices__actions" role="group" aria-label={t('devices.hubActions', { id: hub.id })}>
+                    <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                    {@render silenceWindow(hub, data.currentSite.id)}
+                  </div>
+                {/if}
+                {#if noticeOf(hub.id) !== null}
+                  <!-- Shown whatever the Role is now: a refused change is the one case where the caller may have lost it. -->
+                  <InlineNotice id="cf-hub-{hub.id}-notice" message={noticeOf(hub.id) ?? ''} />
+                {/if}
               </li>
             {/each}
           </ul>
@@ -132,12 +293,14 @@
           <ul class="cf-devices__list" aria-labelledby="cf-devices-nodes">
             {#each nodes as node (node.id)}
               {@const charging = chargingText(node)}
-              <li class="cf-devices__row" data-device={node.id}>
+              {@const silent = silentText(node, loadedAt)}
+              <li id={deviceRowId(node.id)} class="cf-devices__row" data-device={node.id} data-silent={silent === null ? undefined : 'true'}>
                 <span class="cf-devices__who">
                   <span class="cf-devices__id">{node.id}</span>
                   <span class="cf-devices__lot">{node.lotName ?? t('devices.noLot')}</span>
                 </span>
                 <span class="cf-devices__meta">
+                  {#if silent !== null}<span class="cf-devices__silent"><Icon name="help" />{silent}</span>{/if}
                   <span class="cf-devices__seen">{lastSeenText(node, loadedAt, locale, timeZone)}</span>
                   <span class="cf-devices__battery">
                     {#if node.batteryPercent !== undefined && node.batteryPercent < lowBatteryPercent}<Icon name="battery--low" />{/if}
@@ -145,46 +308,52 @@
                   </span>
                   {#if charging !== null}<span class="cf-devices__charging">{charging}</span>{/if}
                 </span>
-                {#if access.canManageNodes}
-                  <!-- Admin+ only, hidden for Members (UX-DR31); no Bluetooth is needed to move or unassign. -->
+                {#if access.canManageNodes || access.canSetSilenceWindow}
+                  <!-- Admin+ only, hidden for Members (UX-DR31, UX-DR84); no Bluetooth is needed to move, unassign or set the Silence Window. -->
                   <div class="cf-devices__actions" role="group" aria-label={t('devices.nodeActions', { id: node.id })}>
-                    <details class="cf-devices__move">
-                      <summary class="cf-devices__summary" aria-label={t('devices.moveNodeFor', { id: node.id })}>{t('devices.moveNode')}</summary>
-                      {#if data.lots.length === 0}
-                        <p class="cf-devices__hint">{t('devices.noLotsToMoveTo')}</p>
-                      {:else}
-                        <form method="POST" action="?/moveNode" class="cf-devices__move-form" use:enhance={submitting(() => `moveNode:${node.id}`, 'devices.moved')}>
-                          <input type="hidden" name="siteId" value={data.currentSite.id} />
-                          <input type="hidden" name="deviceId" value={node.id} />
-                          <fieldset class="cf-devices__lots">
-                            <legend class="cf-devices__legend">{t('devices.moveLotLabel', { id: node.id })}</legend>
-                            {#each lotChoicesOf(data.lots, node) as choice (choice.id)}
-                              <label class="cf-devices__lot-choice" data-lot={choice.id} data-has-node={choice.hasNode}>
-                                <input type="radio" name="lotId" value={choice.id} required disabled={choice.hasNode || choice.current} />
-                                <span class="cf-devices__lot-name">{choice.name}</span>
-                                {#if choice.hasNode}<span class="cf-devices__badge">{t('devices.hasANode')}</span>{/if}
-                                {#if choice.current}<span class="cf-devices__badge">{t('devices.currentLot')}</span>{/if}
-                              </label>
-                            {/each}
-                          </fieldset>
-                          <Button type="submit" variant="secondary" label={t('devices.moveConfirm', { id: node.id })} working={working === `moveNode:${node.id}`} />
-                        </form>
+                    {#if access.canSetSilenceWindow}
+                      <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                      {@render silenceWindow(node, data.currentSite.id)}
+                    {/if}
+                    {#if access.canManageNodes}
+                      <details class="cf-devices__move">
+                        <summary class="cf-devices__summary" aria-label={t('devices.moveNodeFor', { id: node.id })}>{t('devices.moveNode')}</summary>
+                        {#if data.lots.length === 0}
+                          <p class="cf-devices__hint">{t('devices.noLotsToMoveTo')}</p>
+                        {:else}
+                          <form method="POST" action="?/moveNode" class="cf-devices__move-form" use:enhance={submitting(() => `moveNode:${node.id}`, 'devices.moved')}>
+                            <input type="hidden" name="siteId" value={data.currentSite.id} />
+                            <input type="hidden" name="deviceId" value={node.id} />
+                            <fieldset class="cf-devices__lots">
+                              <legend class="cf-devices__legend">{t('devices.moveLotLabel', { id: node.id })}</legend>
+                              {#each lotChoicesOf(data.lots, node) as choice (choice.id)}
+                                <label class="cf-devices__lot-choice" data-lot={choice.id} data-has-node={choice.hasNode}>
+                                  <input type="radio" name="lotId" value={choice.id} required disabled={choice.hasNode || choice.current} />
+                                  <span class="cf-devices__lot-name">{choice.name}</span>
+                                  {#if choice.hasNode}<span class="cf-devices__badge">{t('devices.hasANode')}</span>{/if}
+                                  {#if choice.current}<span class="cf-devices__badge">{t('devices.currentLot')}</span>{/if}
+                                </label>
+                              {/each}
+                            </fieldset>
+                            <Button type="submit" variant="secondary" label={t('devices.moveConfirm', { id: node.id })} working={working === `moveNode:${node.id}`} />
+                          </form>
+                        {/if}
+                      </details>
+                      {#if node.lotId !== undefined}
+                        <Button
+                          variant="ghost"
+                          label={t('devices.unassignNode')}
+                          working={working === `unassignNode:${node.id}`}
+                          onclick={() => {
+                            askUnassign(node);
+                          }}
+                        />
                       {/if}
-                    </details>
-                    {#if node.lotId !== undefined}
-                      <Button
-                        variant="ghost"
-                        label={t('devices.unassignNode')}
-                        working={working === `unassignNode:${node.id}`}
-                        onclick={() => {
-                          askUnassign(node);
-                        }}
-                      />
                     {/if}
                   </div>
-                  {#if noticeOf(node.id) !== null}
-                    <InlineNotice id="cf-node-{node.id}-notice" message={noticeOf(node.id) ?? ''} />
-                  {/if}
+                {/if}
+                {#if noticeOf(node.id) !== null}
+                  <InlineNotice id="cf-node-{node.id}-notice" message={noticeOf(node.id) ?? ''} />
                 {/if}
               </li>
             {/each}
@@ -242,6 +411,77 @@
     padding: 0;
     list-style: none;
     border-top: 1px solid var(--cf-color-border-subtle);
+  }
+
+  /* A row a Health Alert linked to (`/devices#device-…`): marked by a stronger edge, not by colour alone. */
+  .cf-devices__row:target {
+    border-inline-start: 3px solid var(--cf-color-border-strong);
+    padding-inline-start: var(--cf-spacing-4);
+  }
+
+  /* "Silent 6 h" beside last seen: the help icon and the words, in capitals by style only (UX-DR124). */
+  .cf-devices__silent {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cf-spacing-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--cf-color-text-primary);
+  }
+
+  /* The open form takes the row, so the other actions stand under it and not beside its fields. */
+  .cf-devices__window[open] {
+    flex-basis: 100%;
+  }
+
+  .cf-devices__window-form {
+    display: grid;
+    justify-items: start;
+    gap: var(--cf-spacing-3);
+    margin: 0;
+    padding: 0;
+  }
+
+  .cf-devices__window-form .cf-devices__legend,
+  .cf-devices__window-form .cf-devices__hint {
+    margin: 0;
+  }
+
+  .cf-devices__window-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cf-spacing-3);
+  }
+
+  .cf-devices__window-amount,
+  .cf-devices__window-unit {
+    min-height: 44px;
+    padding: 0 var(--cf-spacing-5);
+    border: 0;
+    border-bottom: 1px solid var(--cf-color-border-strong);
+    border-radius: var(--cf-radius-none);
+    background: var(--cf-color-field-01);
+    color: var(--cf-color-text-primary);
+    font-family: var(--cf-type-body-lg-font-family);
+    font-size: var(--cf-type-body-lg-font-size);
+  }
+
+  .cf-devices__window-amount {
+    width: 8rem;
+    max-width: 100%;
+  }
+
+  .cf-devices__window-amount[aria-invalid='true'] {
+    outline: 2px solid var(--cf-color-support-error);
+    outline-offset: -2px;
+  }
+
+  .cf-devices__hint--invalid {
+    color: var(--cf-color-support-error-text);
+  }
+
+  .cf-devices__window-default {
+    margin: 0;
   }
 
   .cf-devices__row {

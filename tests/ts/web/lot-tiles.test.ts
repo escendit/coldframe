@@ -125,6 +125,24 @@ describe('Lot tile view models', () => {
     });
   });
 
+  test('UX-DR18 UX-DR77 the silence is told from the Server\'s silent-since: 6 h for a Node last heard at 01:05 at 07:10', () => {
+    const at = { ...live, now: new Date('2026-10-06T07:10:00.000Z') };
+    const silent = lot('Beans', 'unknown', { unknownCause: 'node', statusSince: '2026-10-06T07:05:00.000Z', lastReadingAt: '2026-10-06T01:05:00.000Z', silentSince: '2026-10-06T01:05:00.000Z', moisturePercent: 41 });
+    expect(lotTile(silent, at)).toMatchObject({ variant: 'unknown', label: 'Silent · unknown', value: '6 h', foot: 'was ~40% at 01:05', spoken: 'Beans, unknown, Node silent for 6 hours, last about 40 percent at 01:05', hatched: true });
+    // Silent-since wins over the last Reading and the status time, for a Node and for a Hub.
+    expect(lotTile({ ...silent, lastReadingAt: '2026-10-06T05:00:00.000Z' }, at)).toMatchObject({ value: '6 h', foot: 'was ~40% at 05:00' });
+    const behindHub = lot('Peas', 'unknown', { unknownCause: 'hub', silentHubId: '3f2a9c0d1e4b5a67', statusSince: '2026-10-06T07:03:00.000Z', lastReadingAt: '2026-10-06T06:50:00.000Z', silentSince: '2026-10-06T06:58:00.000Z', moisturePercent: 38 });
+    expect(lotTile(behindHub, at)).toMatchObject({ label: 'Hub silent · unknown', value: '12 min', spoken: 'Peas, unknown, Hub silent for 12 minutes, last about 40 percent at 06:50' });
+  });
+
+  test('UX-DR18 without silent-since the tile counts as before: a Node from its last Reading, then the status time; a Hub from the status time', () => {
+    expect(lotTile(beans, live).value).toBe('6 h');
+    expect(lotTile({ ...beans, lastReadingAt: undefined }, live).value).toBe('12 min');
+    expect(lotTile(peas, live).value).toBe('12 min');
+    // A silent-since the client cannot read is no silent-since.
+    expect(lotTile({ ...beans, silentSince: 'unknown' }, live).value).toBe('6 h');
+  });
+
   test('UX-DR18 UX-DR77 unknown without a percentage or without a Reading says so', () => {
     expect(lotTile({ ...beans, moisturePercent: undefined }, live)).toMatchObject({ value: '6 h', foot: 'last Reading 01:05', spoken: 'Beans, unknown, Node silent for 6 hours, last Reading 01:05' });
     const fresh = lot('Chard', 'unknown', { unknownCause: 'node', statusSince: '2026-10-06T07:16:00.000Z' });
@@ -307,6 +325,14 @@ describe('Lot tiles', () => {
     expect(text(cell(body, herbs))).toBe('Herbs Was OK as of 7:02 AM');
     // The web has no skeleton: its first paint is server-rendered.
     expect(read(`${webSrc}/lib/components/LotTiles.svelte`)).not.toMatch(/skeleton/iu);
+  });
+
+  test('UX-DR18 UX-DR20 an unknown Lot stays where the Server listed it, above the OK Lots: the client sorts nothing', () => {
+    const silent = lot('Beans', 'unknown', { unknownCause: 'node', silentSince: '2026-10-06T01:05:00.000Z' });
+    const order = (lots: readonly Lot[]): (string | undefined)[] => [...tiles(lots).matchAll(/data-lot="([^"]+)"/gu)].map((match) => match[1]);
+    expect(order([silent, herbs])).toEqual(['id-Beans', 'id-Herbs']);
+    // Even an order the Server would never send is kept as sent.
+    expect(order([herbs, silent])).toEqual(['id-Herbs', 'id-Beans']);
   });
 
   test('UX-DR20 tiles keep the Server order, carry the Server status and are links', () => {

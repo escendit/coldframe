@@ -1,6 +1,6 @@
 /**
  * View models of the Lot tiles (UX-DR18, UX-DR19, UX-DR77). The status, its order, `statusSince`,
- * `unknownCause` and `pausedBy` are the Server's (AD-14); nothing here computes or re-sorts a
+ * `unknownCause`, `silentSince` and `pausedBy` are the Server's (AD-14); nothing here computes or re-sorts a
  * status. The only client logic is formatting, and durations from Server timestamps and the clock.
  */
 import type { Lot } from '@coldframe/api-client';
@@ -164,8 +164,9 @@ function unknown(lot: Lot, context: TileContext): Content {
   const { now, locale, timeZone } = context;
   const reading = instant(lot.lastReadingAt);
   const byHub = lot.unknownCause === 'hub';
-  // A silent Node is silent since its last Reading; a silent Hub, or a Node that never reported, since the status changed.
-  const since = (byHub ? null : reading) ?? instant(lot.statusSince) ?? now;
+  // The Server's silent-since first (Story 7.2). Without it, as before: a silent Node since its last Reading; a silent
+  // Hub, or a Node that never reported, since the status changed.
+  const since = instant(lot.silentSince) ?? (byHub ? null : reading) ?? instant(lot.statusSince) ?? now;
   const silence = now.getTime() - since.getTime();
   const time = reading === null ? null : formatWhen(reading, now, locale, timeZone);
   const percent = lot.moisturePercent;

@@ -783,6 +783,8 @@ public sealed record DeviceRegistrationResult(
 /// <param name="DeviceId">The Device ID of that Sensor's Node, or of the Device the Alert is about.</param>
 /// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>; <see langword="null"/> for a Device's Alert.</param>
 /// <param name="OpenedAt">When the Alert opened.</param>
+/// <param name="DeviceKind">Whether a Device's Alert is about a Hub or a Node (Story 7.2); <see langword="null"/> for a Threshold Alert and for an Alert listed before that story.</param>
+/// <param name="SilentSince">When a silent Device was last heard (Story 7.2); <see langword="null"/> for another kind and for an Alert listed before that story.</param>
 [GenerateSerializer]
 [Alias("coldframe.site-alert")]
 public sealed record SiteAlert(
@@ -793,7 +795,9 @@ public sealed record SiteAlert(
     [property: Id(4)] Guid? SensorId,
     [property: Id(5)] string DeviceId,
     [property: Id(6)] string? Quantity,
-    [property: Id(7)] DateTimeOffset OpenedAt);
+    [property: Id(7)] DateTimeOffset OpenedAt,
+    [property: Id(8)] DeviceKind? DeviceKind = null,
+    [property: Id(9)] DateTimeOffset? SilentSince = null);
 
 /// <summary>
 /// The Site grain's answer to an Alert report (Story 6.4): the Site knows the open or the close, and these are

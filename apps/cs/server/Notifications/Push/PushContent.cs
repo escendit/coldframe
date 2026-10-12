@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sites;
 using Microsoft.Extensions.Options;
@@ -114,7 +115,7 @@ public sealed partial class PushContentBuilder(
                 AlertId: null,
                 collapseId,
                 text.SummaryTitle(await siteName.ConfigureAwait(false), needWater, listed.Count - needWater),
-                text.SummaryBody(listed, notification.Window ?? NotificationWindow.Default));
+                text.SummaryBody(listed, notification.Window ?? NotificationWindow.Default, sentAt));
         }
 
         if (facts.Length == 0)
@@ -131,7 +132,7 @@ public sealed partial class PushContentBuilder(
             alert.Entry.LotId,
             alert.Entry.AlertId,
             collapseId,
-            text.Title(alert),
+            text.Title(alert, sentAt),
             text.Body(alert, notification.Kind == NotificationKind.Reminder, NotificationWindowRule.ZoneOf(notification.TimeZone)));
     }
 
@@ -155,6 +156,11 @@ public sealed partial class PushContentBuilder(
         var reading = summary || sensor is not { } read
             ? Task.FromResult<PushReading?>(null)
             : FoundAsync(lookups.NewestReadingAsync(read.Id, read.Quantity, sentAt - ReadingAge, cancellationToken), notification, "Reading", cancellationToken);
+        // A silent Node's body names the time of its last Reading (Story 7.2), unless the Server never stored
+        // one: then the Node is silent since its enrolment, and there is no Reading to name a time of.
+        var node = !summary && entry is { Kind: AlertKind.Silent, DeviceKind: DeviceKind.Node, SilentSince: not null }
+            ? FoundAsync(lookups.DeviceAsync(entry.DeviceId, cancellationToken), notification, "Device", cancellationToken)
+            : Task.FromResult<PushDevice?>(null);
         var (lotName, lotGone) = await LotAsync(notification, entry, cancellationToken).ConfigureAwait(false);
 
         return new PushEntryFacts(
@@ -162,7 +168,10 @@ public sealed partial class PushContentBuilder(
             lotName,
             await reading.ConfigureAwait(false),
             await threshold.ConfigureAwait(false),
-            lotGone);
+
+            // A Device's Alert that names its Device outlives its Lot: it keeps its line, named by the Device.
+            lotGone && entry.DeviceKind is null,
+            NeverReported: await node.ConfigureAwait(false) is { HasReadings: false });
     }
 
     // The Lot's name, and whether the Lot is gone: only a lookup that answered can say so. An Alert without a

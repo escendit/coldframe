@@ -785,5 +785,52 @@
     "alias": "device.silence-window-set",
     "schemaVersion": 1,
     "payload": { "windowSeconds": null, "setAt": "2026-10-14T15:00:00Z" }
+  },
+  {
+    "streamId": "device/3f2a9c0d1e4b5a67",
+    "version": 1,
+    "alias": "device.enrolled",
+    "schemaVersion": 1,
+    "payload": {
+      "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+      "kind": "Hub",
+      "wrappedKey": { "kekId": "0123456789abcdef", "nonce": "AAECAwQFBgcICQoL", "sealed": "ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKT" },
+      "enrolledAt": "2026-10-15T06:00:00Z"
+    }
+  },
+  {
+    "streamId": "device/3f2a9c0d1e4b5a67",
+    "version": 2,
+    "alias": "device.seen",
+    "schemaVersion": 1,
+    "payload": { "seenAt": "2026-10-15T06:55:00Z", "deviceTimestampMs": 1792047300000 }
+  },
+  {
+    "streamId": "device/3f2a9c0d1e4b5a67",
+    "version": 3,
+    "alias": "device.silence-started",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "2cf5a632-8d4e-54a8-a58c-cb4e24408eb6", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "dueAt": "2026-10-15T07:00:00Z", "startedAt": "2026-10-15T07:00:40Z", "silentSince": "2026-10-15T06:55:00Z" }
+  },
+  {
+    "streamId": "alert/2cf5a632-8d4e-54a8-a58c-cb4e24408eb6",
+    "version": 1,
+    "alias": "alert.opened",
+    "schemaVersion": 1,
+    "payload": { "kind": "Silent", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "deviceId": "3f2a9c0d1e4b5a67", "episode": 1, "openedAt": "2026-10-15T07:00:40Z", "deviceKind": "Hub", "silentSince": "2026-10-15T06:55:00Z" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 13,
+    "alias": "site.alert-opened",
+    "schemaVersion": 1,
+    "payload": { "alert": { "alertId": "2cf5a632-8d4e-54a8-a58c-cb4e24408eb6", "kind": "Silent", "deviceId": "3f2a9c0d1e4b5a67", "openedAt": "2026-10-15T07:00:40Z", "deviceKind": "Hub", "silentSince": "2026-10-15T06:55:00Z" } }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 23,
+    "alias": "user.alert-tracked",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "2cf5a632-8d4e-54a8-a58c-cb4e24408eb6", "kind": "Silent", "deviceId": "3f2a9c0d1e4b5a67", "openedAt": "2026-10-15T07:00:40Z", "deviceKind": "Hub", "silentSince": "2026-10-15T06:55:00Z" }, "told": true, "remindFrom": "2026-10-15T07:00:40+00:00", "trackedAt": "2026-10-15T07:00:41+00:00" }
   }
 ]

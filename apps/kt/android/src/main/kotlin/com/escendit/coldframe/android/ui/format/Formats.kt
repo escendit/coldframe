@@ -3,6 +3,10 @@ package com.escendit.coldframe.android.ui.format
 import android.content.res.Resources
 import android.text.format.DateFormat
 import com.escendit.coldframe.R
+import com.escendit.coldframe.core.devices.SilenceWindowLength
+import com.escendit.coldframe.core.devices.SilenceWindowUnit
+import com.escendit.coldframe.core.lots.LotDuration
+import com.escendit.coldframe.core.lots.LotDurationUnit
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -46,6 +50,34 @@ object Formats {
             }
         }
     }
+
+    /** A silence as the core measured it, rounded down: "12 min", "6 h", "2 d". The unit is the core's choice. */
+    fun duration(
+        resources: Resources,
+        duration: LotDuration,
+    ): String =
+        resources.getString(
+            when (duration.unit) {
+                LotDurationUnit.Minutes -> R.string.duration_minutes
+                LotDurationUnit.Hours -> R.string.duration_hours
+                LotDurationUnit.Days -> R.string.duration_days
+            },
+            duration.value,
+        )
+
+    /** A Silence Window as a number with its unit: "5 min", "8 h", "30 d". */
+    fun silenceWindow(
+        resources: Resources,
+        window: SilenceWindowLength,
+    ): String =
+        resources.getString(
+            when (window.unit) {
+                SilenceWindowUnit.Minutes -> R.string.duration_minutes
+                SilenceWindowUnit.Hours -> R.string.duration_hours
+                SilenceWindowUnit.Days -> R.string.duration_days
+            },
+            window.value,
+        )
 
     /** Clock time in the locale's 12 or 24 hour format. */
     fun time(

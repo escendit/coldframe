@@ -182,6 +182,24 @@ enum Overview {
     id: "z", name: "Zucchini", status: "noNode", variant: "noNode", label: "noNode",
     value: "plus", foot: "addNode", spoken: "noNode", opensAddNode: true)
 
+  /// One silent Hub as the core flattens it into the `hubNotice…` lists of `LotsSnapshot`.
+  struct HubNotice {
+    var id: String
+    var name: String
+    var silentSince: String
+    var durationValue: String
+    var durationUnit: String
+  }
+
+  /// Hub 3f2a…, last heard at 09:48, 12 min before the clock.
+  static let silentHub = HubNotice(
+    id: "3f2a9c0d1e4b5a67", name: "3F2A", silentSince: String(nowMs - 12 * 60_000),
+    durationValue: "12", durationUnit: "minutes")
+  /// Hub 1b00…, last heard at 07:02, 2 h before the clock.
+  static let otherSilentHub = HubNotice(
+    id: "1b00aa11bb22cc33", name: "1B00", silentSince: String(readingMs), durationValue: "2",
+    durationUnit: "hours")
+
   /// One Lot per variant and label, in the Server's order.
   static let everyLot = [
     needsWater, needsCalibration, nodeSilent, hubSilent, neverReported, ok, okBare, pausedUntil,
@@ -199,7 +217,8 @@ enum Overview {
     counts: [(status: String, count: Int)] = [
       ("needsCalibration", 1), ("unknown", 3), ("ok", 2), ("paused", 3), ("noNode", 1),
     ],
-    menuItems: [String] = ["siteSettings"], menuEnabled: Bool = true
+    menuItems: [String] = ["siteSettings"], menuEnabled: Bool = true,
+    hubNotices: [HubNotice] = []
   ) -> LotsPresentation {
     LotsPresentation(
       surface: surface, notice: notice, siteId: "a", siteName: siteName, role: "owner",
@@ -223,7 +242,11 @@ enum Overview {
       lotDurationUnits: lots.map(\.durationUnit), lotPausedBySite: lots.map(\.pausedBySite),
       lotPausedUntils: lots.map(\.pausedUntil), lotOpensAddNode: lots.map(\.opensAddNode),
       lotOpensCalibrate: lots.map(\.opensCalibrate),
-      menuItems: menuItems, menuEnabled: menuEnabled)
+      menuItems: menuItems, menuEnabled: menuEnabled,
+      hubNoticeIds: hubNotices.map(\.id), hubNoticeNames: hubNotices.map(\.name),
+      hubNoticeSilentSince: hubNotices.map(\.silentSince),
+      hubNoticeDurationValues: hubNotices.map(\.durationValue),
+      hubNoticeDurationUnits: hubNotices.map(\.durationUnit))
   }
 
   /// Every Lot in stale mode: the Server was last read at 07:02, 2 h 58 min ago.
@@ -267,6 +290,8 @@ struct LotDetailFixture {
   var heroPausedUntil = ""
   var heroResumeSiteHint = false
   var heroDuration: (value: String, unit: String) = ("", "")
+  /// The short name of the silent Hub; empty when the Server named none.
+  var heroSilentHubName = ""
   var noNode = false
   var canAddNode = true
   var canCalibrate = false
@@ -344,7 +369,8 @@ struct LotDetailFixture {
       chartBandHighPercent: band?.high ?? "", chartBandLowFraction: band?.lowFraction ?? 0,
       chartBandHighFraction: band?.highFraction ?? 0,
       barBelowLow: order.map { belowLowDays.contains($0) },
-      chartBelowLowDays: order.filter { belowLowDays.contains($0) }.map(Self.dayText(back:)))
+      chartBelowLowDays: order.filter { belowLowDays.contains($0) }.map(Self.dayText(back:)),
+      heroSilentHubName: heroSilentHubName)
   }
 
   /// Calibrated soil with a 30 % low and a 70 % high, a day 3 back under the low line.
@@ -415,6 +441,13 @@ struct LotDetailFixture {
     return detail
   }
 
+  /// The same Lot when the Server names the silent Hub.
+  static var hubSilentNamed: LotDetailFixture {
+    var detail = hubSilent
+    detail.heroSilentHubName = "3F2A"
+    return detail
+  }
+
   static var pausedUntil: LotDetailFixture {
     var detail = LotDetailFixture()
     detail.lotName = "Squash"
@@ -468,6 +501,7 @@ struct LotDetailFixture {
     detail.heroReadingAt = ""
     detail.heroNote = "none"
     detail.heroDuration = ("", "")
+    detail.heroSilentHubName = ""
     detail.heroResumeSiteHint = false
     detail.hasSensors = false
     detail.hasDevice = false

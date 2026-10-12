@@ -89,6 +89,7 @@ final class CoreLotDetailService: LotDetailService {
       chartBandLowFraction: snapshot.chartBandLowFraction,
       chartBandHighFraction: snapshot.chartBandHighFraction,
       barBelowLow: snapshot.barBelowLow.map { $0.boolValue },
-      chartBelowLowDays: snapshot.chartBelowLowDays)
+      chartBelowLowDays: snapshot.chartBelowLowDays,
+      heroSilentHubName: snapshot.heroSilentHubName)
   }
 }

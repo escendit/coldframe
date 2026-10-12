@@ -133,7 +133,9 @@ public sealed class MigrationTests(AppHostFixture fixture)
 
         Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM lots"));
         Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector = 'lots'"));
-        Assert.Equal(42L, await database.ScalarAsync<long>("SELECT position FROM projection_checkpoints WHERE projector = 'devices'"));
+
+        // Not by this migration: the one of Story 7.2, which runs after it, replays the devices read model.
+        Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector = 'devices'"));
 
         var tables = await ReadTablesAsync(database.ConnectionString, cancellationToken);
         Assert.Contains("lot_status_devices", tables);
@@ -153,6 +155,60 @@ public sealed class MigrationTests(AppHostFixture fixture)
         Assert.Subset(
             columns.ToHashSet(StringComparer.Ordinal),
             new HashSet<string>(["status_since NO", "claimed_at YES", "unknown_cause YES", "paused_by YES", "paused_until YES"], StringComparer.Ordinal));
+    }
+
+    // Story 7.2: the devices projector reads three silence events it ignored before, so its checkpoint is
+    // dropped; its rows stay, because the silo reads them as it starts and a replay gives the same rows.
+    [Fact]
+    public async Task TheSilenceMigrationAddsItsColumnsAndDropsOnlyTheDevicesCheckpointAndKeepsTheRows()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var database = new JournalDatabase(fixture);
+
+        await database.InitializeAsync(upTo: 20261011090000);
+        await database.ExecuteAsync(
+            """
+            INSERT INTO devices (device_id, site_id, kind, lot_id, enrolled_at, last_seen_at)
+            VALUES ('3f2a9c0d1e4b5a67', 'site-1', 'hub', NULL, now(), now());
+            INSERT INTO alerts (alert_id, site_id, lot_id, device_id, sensor_id, kind, side, quantity, opened_at)
+            VALUES ('2cf5a632-8d4e-54a8-a58c-cb4e24408eb6', 'site-1', NULL, '3f2a9c0d1e4b5a67', NULL, 'silent', NULL, NULL, now());
+            INSERT INTO projection_checkpoints (projector, position, updated_at)
+            VALUES ('lots', 42, now()), ('devices', 42, now()), ('alerts', 42, now());
+            """);
+
+        Assert.True(JournalDatabase.Migrate(database.ConnectionString), "The silence migration was not pending.");
+
+        Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector = 'devices'"));
+        Assert.Equal(2L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector IN ('lots', 'alerts') AND position = 42"));
+        Assert.Equal(1L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM devices WHERE silent_since IS NULL AND silence_window_seconds IS NULL"));
+        Assert.Equal(1L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM alerts WHERE device_kind IS NULL AND silent_since IS NULL"));
+
+        var columns = new List<string>();
+        await using (var command = database.DataSource.CreateCommand(
+            """
+            SELECT table_name || '.' || column_name || ' ' || data_type || ' ' || is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND column_name IN ('device_kind', 'silent_since', 'silence_window_seconds')
+            ORDER BY 1
+            """))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                columns.Add(reader.GetString(0));
+            }
+        }
+
+        Assert.Equal(
+            [
+                "alerts.device_kind text YES",
+                "alerts.silent_since timestamp with time zone YES",
+                "devices.silence_window_seconds bigint YES",
+                "devices.silent_since timestamp with time zone YES",
+                "lot_status_alerts.silent_since timestamp with time zone YES",
+            ],
+            columns);
     }
 
     [Fact]

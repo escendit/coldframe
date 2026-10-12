@@ -68,9 +68,9 @@ failed load shows the notice with Try again and no rows.
 - **Row** (`AlertRow.kt`, DESIGN.md `alert-row-*`): needs water is the only solid orange row;
   another Threshold Alert is `layer-01` with a 2 dp `border-strong` outline and an arrow for its
   side; a Health Alert is hatched and dashed with its text on a plate; a closed Alert is an outline
-  in `text-secondary` whose eyebrow ends in "closed 06:40". Which variant, icon and eyebrow a row
-  has is the core's answer; `AlertsCopy.kt` only turns it into the catalogue's words. A row shows no
-  value and no Threshold.
+  in `text-secondary` whose eyebrow ends in "closed 06:40". Which variant, icon, eyebrow and title
+  sentence a row has is the core's answer; `AlertsCopy.kt` only turns it into the catalogue's words.
+  A row shows no value and no Threshold.
 - **One tap target.** A row is one button of at least 48 dp with one spoken label ("Tomatoes needs
   water, since 05:45"; a closed one adds "closed 06:40") and no other action. Threshold and
   uncalibrated rows switch to the Garden tab and open Lot detail there, so Back returns to the
@@ -80,8 +80,44 @@ failed load shows the notice with Try again and no rows.
   Site becomes current, `MainActivity` reads them again on every foreground, and the shell on
   every entry of the tab; pull-to-refresh shows the `primary` bar of the Site overview.
 
-Health Alerts have no producer before Epic 7: their rows are built and tested from fixtures
+Silent Devices are the Health Alerts the Server lists (Story 7.2, below). Battery and uncalibrated
+rows have no producer before Stories 7.3 and 7.4: they are built and tested from fixtures
 (`tests/kt/android/test/.../AlertFixtures.kt`).
+
+## Silence and the Silence Window (Story 7.2)
+
+Everything the app says about silence is the Server's: no screen derives a status or sorts Lots.
+The core hands over what is silent, since when, and the names; the shell adds the catalogue's words.
+Every duration is `now − silentSince`, rounded down by the core: minutes under 1 h, hours under
+24 h, then days.
+
+- **Hub notice** (`GardenScreen.kt`, UX-DR81). One Inline notice per silent Hub of the Site above
+  the tiles, in the notice slot under the push notices: "Hub 3F2A silent for 12 min — Lots behind it
+  can't be read." It has no action and cannot be dismissed, shows also when no Lot is behind the Hub,
+  and is absent in stale mode. Its duration moves with the minute tick, so the notice is not a live
+  region: the overview's one polite region announces a Hub once, when its notice appears.
+- **Unknown tiles and the hero.** The tile and the Lot detail hero count from the Lot's
+  `silentSince`; a Lot behind a silent Hub says "Hub 3F2A is silent; Lots behind it can't be read."
+  under the hero (`LotDetailCopy.kt`), or the sentence without an ID when the Server names no Hub.
+  A silent Node keeps "Check power or range."
+- **Devices rows** (`DevicesScreen.kt`). A silent Hub or Node shows the `help` icon and "Silent 6 h"
+  beside its last seen, in sentence case in the catalogue and upper case by style. Every row whose
+  Device has a Silence Window from the Server names it: "Silence Window · 8 h".
+- **Silence Window dialog.** A row action, SILENCE WINDOW, on every Hub and Node for Administrators
+  and Owners, also a custom accessibility action of the row. For a Member the control does not
+  exist. The dialog shows the window in force, a number field with a unit of min, h or d (a
+  Segmented choice), Save, Cancel, and "Use default" only when the Device has its own window. A
+  value that is no whole number from 1 min to 30 days is refused in the dialog with "Enter a whole
+  number from 1 min to 30 d." and nothing is sent. A change the Server refused shows under the row;
+  a 403 says "You can't change this on ‹Site›. Ask an Owner or Administrator."
+- **Health titles** (`AlertsCopy.kt`, UX-DR117). "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A
+  silent for 5 min", "Node 9C0D silent for 6 h" for a Node on no Lot. A closed row, and an open one
+  without a silent-since, drops " for …". A kind the app does not know is "Health Alert on Lot
+  '‹Lot›'", or "Health Alert" without a Lot. Every silent row opens the Devices tab.
+
+A tapped silent notification still opens the overview: the push route carries no Device ID.
+Under Robolectric a text field in a dialog never comes to rest on a window of 360 dp or wider, so
+the dialog's Roborazzi baselines are taken at 320 dp (`SnapshotTest.NARROW`).
 
 ## My notifications and Reminders (Story 6.3)
 

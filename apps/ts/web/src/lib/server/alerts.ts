@@ -3,7 +3,7 @@
  * `sites.ts`: the browser never calls the Server (AD-14).
  */
 import type { Cookies } from '@sveltejs/kit';
-import type { Alert, AlertsNotice } from '$lib/alerts';
+import type { Alert, AlertsNotice, HealthAlert } from '$lib/alerts';
 import type { Site } from '$lib/sites';
 import { isTimeZone } from './create-site';
 import { signedOutRedirect, timeZoneCookieName } from './shell';
@@ -25,7 +25,9 @@ export interface AlertsDependencies extends SitesDependencies {
 export interface AlertsRead {
   /** In the Server's order: open newest first, then closed in the last 7 days newest first. */
   readonly alerts: readonly Alert[];
-  /** Every open Alert of the Site, as the last page counted them. */
+  /** The Site's Health Alerts in the Server's order (Story 7.2): not paged, sent with the first page only. Empty when the Server sent none. */
+  readonly healthAlerts: readonly HealthAlert[];
+  /** Every open Alert of the Site, Threshold and Health, as the last page counted them. */
   readonly openCount: number;
 }
 
@@ -38,13 +40,15 @@ export interface AlertsData extends AlertsRead {
 }
 
 /**
- * The Site's Alerts: every page, following `nextCursor` to the end or to the page cap. A page that
+ * The Site's Alerts: every page of the Threshold Alerts, following `nextCursor` to the end or to the page cap, and
+ * the Health Alerts of the first page. A page that
  * fails fails the read. A read that stops at the cap with a cursor still left returns the Alerts of
  * the pages it read, without a sign that more follow: `openCount` still counts every open Alert.
  */
 export async function listAlerts(locals: Locals, siteId: string, dependencies: SitesDependencies = {}): Promise<SitesResult<AlertsRead>> {
   const alerts: Alert[] = [];
   const seen = new Set<string>();
+  let healthAlerts: readonly HealthAlert[] = [];
   let openCount = 0;
   let cursor: string | undefined;
   for (let page = 0; page < alertsPageCap; page += 1) {
@@ -59,13 +63,17 @@ export async function listAlerts(locals: Locals, siteId: string, dependencies: S
         alerts.push(alert);
       }
     }
+    if (page === 0) {
+      // Later pages carry no Health Alerts: the list is not paged.
+      healthAlerts = result.ok.healthAlerts ?? [];
+    }
     openCount = result.ok.openCount;
     cursor = result.ok.nextCursor;
     if (cursor === undefined) {
       break;
     }
   }
-  return { ok: { alerts, openCount } };
+  return { ok: { alerts, healthAlerts, openCount } };
 }
 
 /**
@@ -76,7 +84,7 @@ export async function loadAlerts(locals: Locals, site: Site | null, cookies: Pic
   const chosen = cookies.get(timeZoneCookieName);
   const base = { loadedAt: (dependencies.now?.() ?? new Date()).toISOString(), timeZone: isTimeZone(chosen) ? chosen : null };
   if (site === null) {
-    return { alerts: [], openCount: 0, alertsNotice: null, ...base };
+    return { alerts: [], healthAlerts: [], openCount: 0, alertsNotice: null, ...base };
   }
   const result = await listAlerts(locals, site.id, dependencies);
   if ('ok' in result) {
@@ -85,5 +93,5 @@ export async function loadAlerts(locals: Locals, site: Site | null, cookies: Pic
   if (result.error === 'unauthorized') {
     signedOutRedirect();
   }
-  return { alerts: [], openCount: 0, alertsNotice: result.error === 'certificate' ? 'certificate' : 'unreachable', ...base };
+  return { alerts: [], healthAlerts: [], openCount: 0, alertsNotice: result.error === 'certificate' ? 'certificate' : 'unreachable', ...base };
 }

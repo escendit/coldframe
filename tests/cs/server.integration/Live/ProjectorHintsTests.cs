@@ -29,6 +29,9 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
     // Of the five Device events below, the ones that change the row.
     private static readonly int[] ChangedRows = [0, 1, 2, 4];
 
+    // Of the eleven silence events of a Hub below, the ones that change the row.
+    private static readonly int[] SilenceRows = [0, 1, 6, 8, 10];
+
     private readonly JournalDatabase _database = new(fixture);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -112,6 +115,43 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
             [.. ChangedRows.Select(index => new ReadModelChange(site, "devices", Node, devicePositions[index]))],
             devices.Published.Where(change => change.Resource == "devices"));
         Assert.All(lots.Published.Concat(alerts.Published).Concat(devices.Published), change => Assert.True(change.Version > 0));
+    }
+
+    // Story 7.2: the overview and the Devices page read again when a Device goes silent, recovers, or gets
+    // another Silence Window; an event that changes no row is not reported.
+    [Fact]
+    public async Task TheDevicesProjectorReportsADeviceThatGoesSilentRecoversOrGetsAnotherSilenceWindow()
+    {
+        var site = Guid.CreateVersion7().ToString();
+        var hub = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));
+        var alert = Guid.NewGuid();
+        var at = new DateTimeOffset(2026, 10, 12, 7, 0, 0, TimeSpan.Zero);
+        var wrapped = new WrappedDeviceKey("0000000000000000", new byte[12], new byte[48]);
+        var started = new DeviceSilenceStarted(1, alert, site, null, at, at.AddSeconds(40), at.AddMinutes(-5));
+
+        var devices = new RecordingHints(_database.DataSource, DevicesProjector.ProjectorName);
+        var positions = await ApplyAsync(
+            new DevicesProjector(),
+            devices,
+            $"device/{hub}",
+            new DeviceEnrolled(site, DeviceKind.Hub, wrapped, at.AddDays(-1)),
+            started,
+            started,
+            new DeviceReported(at, at),
+            new DeviceSilenceClockRestarted(at, SilenceClockRestartCause.ServerStarted, null, at),
+            new DeviceAlertDelivered(alert, AlertLifecycle.Open, at.AddSeconds(41)),
+            new DeviceSilenceWindowSet(600, at.AddMinutes(1)),
+            new DeviceSilenceWindowSet(600, at.AddMinutes(2)),
+            new DeviceSilenceEnded(1, alert, AlertCloseReason.Recovered, at.AddMinutes(20)),
+            new DeviceSilenceEnded(1, alert, AlertCloseReason.Recovered, at.AddMinutes(20)),
+            new DeviceSilenceWindowSet(null, at.AddMinutes(30)));
+
+        // The enrolment, the start of the silence, the window, the recovery and the cleared window; the same
+        // silence, the same window and the same recovery applied again change nothing, and the other silence
+        // events are not projected.
+        Assert.Equal(
+            [.. SilenceRows.Select(index => new ReadModelChange(site, "devices", hub, positions[index]))],
+            devices.Published.Where(change => change.Id == hub));
     }
 
     [Fact]

@@ -6223,6 +6223,248 @@
           }
         }
       }
+    },
+    "garden_hub_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub %1$@ silent for %2$@ — Lots behind it can't be read."
+          }
+        }
+      }
+    },
+    "lot_detail_hub_silent_named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub %@ is silent; Lots behind it can't be read."
+          }
+        }
+      }
+    },
+    "devices_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silent %@"
+          }
+        }
+      }
+    },
+    "devices_silence_window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silence Window"
+          }
+        }
+      }
+    },
+    "devices_silence_window_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silence Window · %@"
+          }
+        }
+      }
+    },
+    "devices_silence_window_hub": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silence Window for Hub %@"
+          }
+        }
+      }
+    },
+    "devices_silence_window_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silence Window for Node %@"
+          }
+        }
+      }
+    },
+    "devices_silence_window_unit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unit"
+          }
+        }
+      }
+    },
+    "devices_silence_window_unit_minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "min"
+          }
+        }
+      }
+    },
+    "devices_silence_window_unit_hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "h"
+          }
+        }
+      }
+    },
+    "devices_silence_window_unit_days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "d"
+          }
+        }
+      }
+    },
+    "devices_silence_window_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From 1 min to 30 d. Without its own value a Node uses 6 h and a Hub 5 min."
+          }
+        }
+      }
+    },
+    "devices_silence_window_range": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a whole number from 1 min to 30 d."
+          }
+        }
+      }
+    },
+    "devices_silence_window_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "devices_silence_window_use_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use default"
+          }
+        }
+      }
+    },
+    "devices_silence_window_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Device is gone."
+          }
+        }
+      }
+    },
+    "alert_title_silent_for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node on Lot '%1$@' silent for %2$@"
+          }
+        }
+      }
+    },
+    "alert_title_hub_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub %@ silent"
+          }
+        }
+      }
+    },
+    "alert_title_hub_silent_for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hub %1$@ silent for %2$@"
+          }
+        }
+      }
+    },
+    "alert_title_node_silent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@ silent"
+          }
+        }
+      }
+    },
+    "alert_title_node_silent_for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@ silent for %2$@"
+          }
+        }
+      }
+    },
+    "alert_title_health": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health Alert"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -168,8 +168,25 @@ class OpenApiContractTest {
             item["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(),
         )
         assertEquals(
-            setOf("id", "kind", "lotId", "lastSeenAt", "online", "lotName", "batteryPercent", "charging"),
+            setOf(
+                "id",
+                "kind",
+                "lotId",
+                "lastSeenAt",
+                "online",
+                "lotName",
+                "batteryPercent",
+                "charging",
+                "silentSince",
+                "silenceWindowSeconds",
+                "silenceWindowOverridden",
+            ),
             item["properties"]!!.jsonObject.keys,
+        )
+        val descriptor = DeviceListItemDto.serializer().descriptor
+        assertEquals(
+            item["properties"]!!.jsonObject.keys,
+            (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
         )
         val kinds = schema("DeviceKind")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertTrue(com.escendit.coldframe.core.devices.DevicesEngine.KIND_HUB in kinds)
@@ -191,9 +208,11 @@ class OpenApiContractTest {
     fun uxDr25TheAlertDtosMirrorTheContractAndCarryEveryProperty() {
         assertMirrors("Alert", AlertDto.serializer().descriptor)
         assertMirrors("AlertList", AlertListDto.serializer().descriptor)
+        assertMirrors("HealthAlert", HealthAlertDto.serializer().descriptor)
         for ((name, descriptor) in listOf(
             "Alert" to AlertDto.serializer().descriptor,
             "AlertList" to AlertListDto.serializer().descriptor,
+            "HealthAlert" to HealthAlertDto.serializer().descriptor,
         )) {
             assertEquals(
                 schema(name)["properties"]!!.jsonObject.keys,
@@ -273,6 +292,7 @@ class OpenApiContractTest {
         assertMirrors("CreateLotRequest", CreateLotRequestDto.serializer().descriptor)
         assertMirrors("Lot", LotDto.serializer().descriptor)
         assertMirrors("LotList", LotListDto.serializer().descriptor)
+        assertMirrors("SilentHub", SilentHubDto.serializer().descriptor)
         assertMirrors("Site", SiteDto.serializer().descriptor)
         assertMirrors("SiteList", SiteListDto.serializer().descriptor)
         assertMirrors("CreateSiteRequest", CreateSiteRequestDto.serializer().descriptor)
@@ -555,4 +575,77 @@ class OpenApiContractTest {
         assertTrue(pattern.matches(made), made)
         assertTrue(made.length <= maxLength, made)
     }
+
+    @Test
+    fun story72TheSilenceWindowOperationIsAPutForAdministratorsWithItsProblems() {
+        val operation = operation("/sites/{siteId}/devices/{deviceId}/silence-window", "put")
+        assertEquals("setDeviceSilenceWindow", operation["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Administrator", operation["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId", "deviceId"), parameterNames(operation))
+        val responses = operation["responses"]!!.jsonObject
+        for (status in listOf("200", "400", "401", "403", "404")) {
+            assertNotNull(responses[status], "setDeviceSilenceWindow $status")
+        }
+        val body =
+            operation["requestBody"]!!
+                .jsonObject["content"]!!
+                .jsonObject["application/json"]!!
+                .jsonObject["schema"]!!
+                .jsonObject["\$ref"]!!
+                .jsonPrimitive.content
+        assertEquals("#/components/schemas/SetSilenceWindowRequest", body)
+    }
+
+    @Test
+    fun story72TheSilenceDtosMirrorTheContractAndCarryEveryProperty() {
+        val mirrors =
+            listOf(
+                "SetSilenceWindowRequest" to SetSilenceWindowRequestDto.serializer().descriptor,
+                "SilenceWindow" to SilenceWindowDto.serializer().descriptor,
+                "SilentHub" to SilentHubDto.serializer().descriptor,
+                "LotList" to LotListDto.serializer().descriptor,
+            )
+        for ((name, descriptor) in mirrors) {
+            assertMirrors(name, descriptor)
+            assertEquals(
+                schema(name)["properties"]!!.jsonObject.keys,
+                (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
+                name,
+            )
+        }
+        // "Use the default" is a body without windowSeconds.
+        assertTrue(SetSilenceWindowRequestDto.serializer().descriptor.isElementOptional(0))
+    }
+
+    @Test
+    fun story72TheSilenceWindowRangeIsTheContracts() {
+        val window = schema("SetSilenceWindowRequest")["properties"]!!.jsonObject["windowSeconds"]!!.jsonObject
+        assertEquals("integer", window["type"]!!.jsonPrimitive.content)
+        assertEquals(
+            com.escendit.coldframe.core.devices.SilenceWindow.MIN_SECONDS,
+            window["minimum"]!!.jsonPrimitive.content.toInt(),
+        )
+        assertEquals(
+            com.escendit.coldframe.core.devices.SilenceWindow.MAX_SECONDS,
+            window["maximum"]!!.jsonPrimitive.content.toInt(),
+        )
+    }
+
+    @Test
+    fun story72TheDeviceKindsOfAHealthAlertAreTheContractValues() {
+        assertEquals(
+            com.escendit.coldframe.core.alerts.AlertDeviceKind.entries
+                .map { it.key }
+                .sorted(),
+            schema("DeviceKind")["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.sorted(),
+        )
+        assertTrue("urn:coldframe:problem:device-not-found" in problemTypes())
+    }
+
+    private fun problemTypes(): List<String> =
+        schema("ProblemDetails")["properties"]!!
+            .jsonObject["type"]!!
+            .jsonObject["x-extensible-enum"]!!
+            .jsonArray
+            .map { it.jsonPrimitive.content }
 }

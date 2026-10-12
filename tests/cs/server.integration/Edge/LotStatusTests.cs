@@ -489,6 +489,106 @@ public sealed class LotStatusTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         Assert.Equal(Format(measuredAt), lot.GetProperty("lastReadingAt").GetString());
     }
 
+    // Story 7.2: an unknown Lot says since when its silent Device was not heard, names the Hub when the Hub is
+    // the cause, and the list names every silent Hub of the Site, also one with no Lot behind it.
+    [Fact]
+    public async Task AnUnknownLotCarriesWhenItsSilentNodeOrHubWasLastHeardAndTheListNamesTheSilentHubs()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, member) = await SeedSiteAsync(cancellationToken);
+        var now = Now();
+        var nodeHeard = now.AddHours(-6).AddMinutes(-5);
+        var hubHeard = now.AddMinutes(-12);
+        var wrapped = new WrappedDeviceKey("0000000000000000", new byte[12], new byte[48]);
+
+        // Two Hubs went silent 12 minutes ago: one relays the Node of Lettuce, the other relays nothing.
+        var hub = NewDeviceId();
+        var lonelyHub = NewDeviceId();
+        var hubAlert = Guid.NewGuid();
+
+        foreach (var (id, alert) in new[] { (hub, hubAlert), (lonelyHub, Guid.NewGuid()) })
+        {
+            var enrolled = await edge.AppendAsync(
+                $"device/{id}",
+                [new DeviceEnrolled(siteId, DeviceKind.Hub, wrapped, now.AddDays(-1)), new DeviceSilenceStarted(1, alert, siteId, null, now.AddMinutes(-7), now.AddMinutes(-7), hubHeard)],
+                cancellationToken);
+            await edge.WaitForProjectionCheckpointAsync("devices", enrolled);
+        }
+
+        var beansNode = await SeedNodeAsync(siteId, cancellationToken);
+        var beans = await edge.SeedLotAsync(siteId, "Beans", cancellationToken, new LotClaimed(beansNode));
+        await DeclareAsync(beansNode, now.AddDays(-1), cancellationToken, Temperature);
+        var lettuceNode = await SeedNodeAsync(siteId, cancellationToken);
+        var lettuce = await edge.SeedLotAsync(siteId, "Lettuce", cancellationToken, new LotClaimed(lettuceNode));
+        await DeclareAsync(lettuceNode, now.AddDays(-1), cancellationToken, Temperature);
+        await edge.AppendAsync($"device/{lettuceNode}", 2, [new DeviceRelayChanged(hub, now.AddDays(-1))], cancellationToken);
+
+        // An older Lot behind a Hub whose Alert was opened before the story: no silent-since on the Alert.
+        var oldHub = NewDeviceId();
+        var peasNode = await SeedNodeAsync(siteId, cancellationToken);
+        var peas = await edge.SeedLotAsync(siteId, "Peas", cancellationToken, new LotClaimed(peasNode));
+        await DeclareAsync(peasNode, now.AddDays(-1), cancellationToken, Temperature);
+        await edge.AppendAsync($"device/{peasNode}", 2, [new DeviceRelayChanged(oldHub, now.AddDays(-1))], cancellationToken);
+
+        await edge.AppendAsync(
+            $"alert/{Guid.NewGuid()}",
+            [new AlertOpened(AlertKind.Silent, null, siteId, beans, null, beansNode, null, 1, now.AddMinutes(-5), DeviceKind.Node, nodeHeard)],
+            cancellationToken);
+        await edge.AppendAsync(
+            $"alert/{Guid.NewGuid()}",
+            [new AlertOpened(AlertKind.Silent, null, siteId, null, null, oldHub, null, 1, now.AddMinutes(-9))],
+            cancellationToken);
+        var last = await edge.AppendAsync(
+            $"alert/{hubAlert}",
+            [new AlertOpened(AlertKind.Silent, null, siteId, null, null, hub, null, 1, now.AddMinutes(-7), DeviceKind.Hub, hubHeard)],
+            cancellationToken);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        using var server = edge.CreateServerClient(member.AccessToken);
+        using var response = await server.GetAsync(new Uri($"/sites/{siteId}/lots", UriKind.Relative), cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+        var lots = body.RootElement.GetProperty("lots").EnumerateArray().ToDictionary(lot => lot.GetProperty("id").GetString()!);
+
+        Assert.Equal(["id", "name", "silentSince", "status", "statusSince", "unknownCause"], Names(lots[beans]));
+        Assert.Equal(("unknown", "node", Format(nodeHeard)), (Text(lots[beans], "status"), Text(lots[beans], "unknownCause"), Text(lots[beans], "silentSince")));
+        Assert.Equal(["id", "name", "silentHubId", "silentSince", "status", "statusSince", "unknownCause"], Names(lots[lettuce]));
+        Assert.Equal(
+            ("unknown", "hub", hub, Format(hubHeard)),
+            (Text(lots[lettuce], "status"), Text(lots[lettuce], "unknownCause"), Text(lots[lettuce], "silentHubId"), Text(lots[lettuce], "silentSince")));
+
+        // Opened before the story: the Hub is named, the time is not, and a client counts from statusSince.
+        Assert.Equal(["id", "name", "silentHubId", "status", "statusSince", "unknownCause"], Names(lots[peas]));
+        Assert.Equal((oldHub, Format(now.AddMinutes(-9))), (Text(lots[peas], "silentHubId"), Text(lots[peas], "statusSince")));
+
+        // The Site's silent Hubs by Device ID: the one behind Lettuce and the one with no Lot behind it. The old
+        // Hub has no Device stream here, so the devices read model does not list it.
+        Assert.Equal(
+            new[] { hub, lonelyHub }.Order(StringComparer.Ordinal).Select(id => (id, Format(hubHeard))),
+            body.RootElement.GetProperty("silentHubs").EnumerateArray().Select(item => (item.GetProperty("deviceId").GetString()!, item.GetProperty("silentSince").GetString()!)));
+
+        // Lot detail carries the same two members.
+        using var detail = await server.GetAsync(new Uri($"/sites/{siteId}/lots/{lettuce}", UriKind.Relative), cancellationToken);
+        using var detailBody = await EdgeApiFixture.ReadJsonAsync(detail, cancellationToken);
+        Assert.Equal((hub, Format(hubHeard)), (Text(detailBody.RootElement, "silentHubId"), Text(detailBody.RootElement, "silentSince")));
+    }
+
+    [Fact]
+    public async Task ASiteWithoutASilentHubSendsNoSilentHubs()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, member) = await SeedSiteAsync(cancellationToken);
+        await edge.SeedLotAsync(siteId, "Beans", cancellationToken);
+
+        using var server = edge.CreateServerClient(member.AccessToken);
+        using var response = await server.GetAsync(new Uri($"/sites/{siteId}/lots", UriKind.Relative), cancellationToken);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+
+        Assert.Equal(["lots"], Names(body.RootElement));
+    }
+
+    private static string? Text(JsonElement element, string name) => element.GetProperty(name).GetString();
+
     private static DateTimeOffset Now() => TimeProvider.System.GetUtcNow();
 
     // The contract's times have milliseconds; PostgreSQL keeps microseconds.

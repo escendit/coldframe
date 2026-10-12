@@ -18,7 +18,7 @@ const lotId = '0192a000-0000-7000-8000-000000000011';
 const home: Site = { id: siteId, name: 'Home garden', role: 'Owner' };
 
 const now = new Date('2026-10-06T07:17:00.000Z');
-const live: HeroContext = { now, locale: 'en', timeZone: 'UTC', staleSince: null, admin: true, hubId: null };
+const live: HeroContext = { now, locale: 'en', timeZone: 'UTC', staleSince: null, admin: true };
 const stale: HeroContext = { ...live, staleSince: new Date('2026-10-06T07:02:00.000Z') };
 
 function lot(status: string, fields: Partial<Lot> = {}): Lot {
@@ -59,9 +59,9 @@ interface PageData {
   staleSince: string | null;
 }
 
-function page(data: Partial<PageData> & { lot?: Lot | null; role?: Site['role'] }, context: { histories?: Record<string, LotHistory>; hubId?: string | null; thresholds?: unknown } = {}): string {
+function page(data: Partial<PageData> & { lot?: Lot | null; role?: Site['role'] }, context: { histories?: Record<string, LotHistory>; thresholds?: unknown } = {}): string {
   const site = { ...home, role: data.role ?? 'Owner' };
-  const detail = data.lot === null ? null : { lot: data.lot ?? ok, histories: context.histories ?? { soil_moisture: history }, hubId: context.hubId ?? null, thresholds: context.thresholds ?? null };
+  const detail = data.lot === null ? null : { lot: data.lot ?? ok, histories: context.histories ?? { soil_moisture: history }, thresholds: context.thresholds ?? null };
   const props = {
     data: {
       user: { displayName: 'Simon', initials: 'S' },
@@ -115,9 +115,18 @@ describe('Lot detail hero', () => {
     const node_ = lot('unknown', { unknownCause: 'node', statusSince: '2026-10-06T07:05:00.000Z', lastReadingAt: '2026-10-06T01:05:00.000Z' });
     expect(lotHero(node_, live)).toMatchObject({ label: 'Silent · unknown', notes: ['Check power or range.'], value: '6 h' });
     const hub = lot('unknown', { unknownCause: 'hub', statusSince: '2026-10-06T07:05:00.000Z' });
-    expect(lotHero(hub, { ...live, hubId: '3F2A' }).notes).toEqual(["Hub 3F2A is silent; Lots behind it can't be read."]);
+    // Story 7.2: the Server names the silent Hub; the hero shows its first four hex digits in upper case.
+    expect(lotHero({ ...hub, silentHubId: '3f2a9c0d1e4b5a67' }, live).notes).toEqual(["Hub 3F2A is silent; Lots behind it can't be read."]);
     expect(lotHero(hub, live).label).toBe('Hub silent · unknown');
     expect(lotHero(hub, live).notes).toEqual(["The Hub is silent; Lots behind it can't be read."]);
+  });
+
+  test('UX-DR18 UX-DR78 the hero tells the silence from the Server\'s silent-since, then as before', () => {
+    const node_ = lot('unknown', { unknownCause: 'node', statusSince: '2026-10-06T07:05:00.000Z', lastReadingAt: '2026-10-06T04:05:00.000Z', silentSince: '2026-10-06T01:05:00.000Z' });
+    expect(lotHero(node_, live)).toMatchObject({ value: '6 h', notes: ['Check power or range.'] });
+    const hub = lot('unknown', { unknownCause: 'hub', statusSince: '2026-10-06T07:10:00.000Z', silentHubId: '3f2a9c0d1e4b5a67', silentSince: '2026-10-06T07:05:00.000Z' });
+    expect(lotHero(hub, live)).toMatchObject({ value: '12 min', notes: ["Hub 3F2A is silent; Lots behind it can't be read."] });
+    expect(lotHero({ ...hub, silentSince: undefined }, live).value).toBe('7 min');
   });
 
   test('UX-DR78 paused says paused until the date, or just Paused', () => {
@@ -356,9 +365,6 @@ describe('Lot detail load', () => {
       if (url.pathname.endsWith('/history')) {
         return jsonResponse(200, { ...history, quantity: url.searchParams.get('quantity') });
       }
-      if (url.pathname.endsWith('/devices')) {
-        return jsonResponse(200, { devices: [{ id: '3f2a9c0d1e4b5a67', kind: 'hub', online: true }] });
-      }
       return jsonResponse(200, overrides.lot ?? ok);
     });
   }
@@ -366,7 +372,7 @@ describe('Lot detail load', () => {
   test('UX-DR63 the Lot and one history per Sensor quantity are read with the token, the default window and no client conversion', async () => {
     const fake = server();
     const data = await loadLotDetail(locals, home, lotId, new FakeCookies(), null, { serverUrl, fetch: fake.fetch, now: now_, lastGood: createLastGoodStore() });
-    expect(data).toMatchObject({ notice: null, staleSince: null, detail: { lot: ok, hubId: null } });
+    expect(data).toMatchObject({ notice: null, staleSince: null, detail: { lot: ok } });
     expect(fake.seen.map((request) => `${request.method} ${request.path}`).sort()).toEqual([
       `GET /sites/${siteId}/lots/${lotId}`,
       `GET /sites/${siteId}/lots/${lotId}/history`,
@@ -385,10 +391,13 @@ describe('Lot detail load', () => {
     expect(fake.seen).toHaveLength(1);
   });
 
-  test('UX-DR78 a Hub-silent Lot names the Hub the Server lists', async () => {
-    const fake = server({ lot: lot('unknown', { unknownCause: 'hub', node, sensors: [] }) });
+  test('UX-DR78 a Hub-silent Lot carries the Hub the Server names; the Devices list is not read to guess one', async () => {
+    const silent = lot('unknown', { unknownCause: 'hub', silentHubId: '3f2a9c0d1e4b5a67', silentSince: '2026-10-06T07:05:00.000Z', node, sensors: [] });
+    const fake = server({ lot: silent });
     const data = await loadLotDetail(locals, home, lotId, new FakeCookies(), null, { serverUrl, fetch: fake.fetch, lastGood: createLastGoodStore() });
-    expect(data.detail?.hubId).toBe('3f2a9c0d1e4b5a67');
+    expect(data.detail?.lot.silentHubId).toBe('3f2a9c0d1e4b5a67');
+    expect(data.detail).not.toHaveProperty('hubId');
+    expect(fake.seen.some((request) => request.path.endsWith('/devices'))).toBe(false);
   });
 
   test('UX-DR63 the history call sends the quantity as the query', async () => {

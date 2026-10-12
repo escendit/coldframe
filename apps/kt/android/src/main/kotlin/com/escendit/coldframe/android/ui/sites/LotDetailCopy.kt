@@ -71,10 +71,18 @@ class LotDetailCopy(
             HeroNote.None -> null
             HeroNote.NoPercentUntilCalibrated -> text(R.string.lot_tile_foot_uncalibrated)
             HeroNote.CheckPowerOrRange -> text(R.string.lot_detail_node_silent)
-            HeroNote.HubSilent -> text(R.string.lot_detail_hub_silent)
+            HeroNote.HubSilent -> hubSilent(hero.silentHubName)
             HeroNote.PausedUntil -> hero.pausedUntilEpochMs?.let { text(R.string.lot_detail_paused_until, day(it)) }
             HeroNote.Paused -> text(R.string.lot_detail_paused)
             HeroNote.PausedWithSite -> text(R.string.lot_detail_paused_with_site)
+        }
+
+    /** "Hub 3F2A is silent; …" when the Server names the Hub, else the copy without an ID. */
+    private fun hubSilent(hubName: String?): String =
+        if (hubName == null) {
+            text(R.string.lot_detail_hub_silent)
+        } else {
+            text(R.string.lot_detail_hub_silent_named, hubName)
         }
 
     /** "Resume the Site to resume this Node". */

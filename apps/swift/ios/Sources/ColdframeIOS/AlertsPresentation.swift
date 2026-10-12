@@ -77,7 +77,7 @@ public enum AlertRowVariantKind: String, CaseIterable, Sendable {
 }
 
 /// What a row says is wrong, as the core named it. `unknown` is a kind, side or quantity the
-/// core does not know: a Health row that names only the Lot.
+/// core does not know: a neutral Health row that names the Lot or nothing.
 public enum AlertConditionKind: String, CaseIterable, Sendable {
   case needsWater
   case tooWet
@@ -88,21 +88,54 @@ public enum AlertConditionKind: String, CaseIterable, Sendable {
   case uncalibrated
   case unknown
 
-  /// The title's catalogue entry; `tooLow` and `tooHigh` also take the quantity word.
-  public var title: L10n {
+  /// The title of a row whose title the core did not name: the sentence this condition had before
+  /// the core named titles (Story 7.2), which names the Lot.
+  var fallbackTitle: AlertTitleKind {
     switch self {
-    case .needsWater: .alertTitleNeedsWater
-    case .tooWet: .alertTitleTooWet
-    case .tooLow: .alertTitleTooLow
-    case .tooHigh: .alertTitleTooHigh
-    case .silent: .alertTitleSilent
-    case .battery: .alertTitleBattery
-    case .uncalibrated: .alertTitleUncalibrated
-    case .unknown: .alertTitleUnknown
+    case .needsWater: .needsWater
+    case .tooWet: .tooWet
+    case .tooLow: .tooLow
+    case .tooHigh: .tooHigh
+    case .silent: .nodeOnLotSilent
+    case .battery: .battery
+    case .uncalibrated: .uncalibrated
+    case .unknown: .healthOnLot
     }
   }
+}
 
-  var namesQuantity: Bool { self == .tooLow || self == .tooHigh }
+/// Which title sentence a row gets (UX-DR117), as the core named it, so Android and iOS say the
+/// same. The three silent kinds have two catalogue entries each: with " for ‹duration›" and
+/// without.
+public enum AlertTitleKind: String, CaseIterable, Sendable {
+  /// "‹Lot› needs water".
+  case needsWater
+  /// "‹Lot› too wet".
+  case tooWet
+  /// "‹Lot› ‹quantity› too low".
+  case tooLow
+  /// "‹Lot› ‹quantity› too high".
+  case tooHigh
+  /// "Node on Lot '‹Lot›' silent for ‹duration›".
+  case nodeOnLotSilent
+  /// A Node on no Lot: "Node ‹9C0D› silent for ‹duration›".
+  case nodeSilent
+  /// "Hub ‹3F2A› silent for ‹duration›".
+  case hubSilent
+  /// "Node battery low on Lot '‹Lot›'".
+  case battery
+  /// "Soil Sensor on Lot '‹Lot›' needs Calibration".
+  case uncalibrated
+  /// The neutral Health row with a Lot: "Health Alert on Lot '‹Lot›'".
+  case healthOnLot
+  /// The neutral Health row without a Lot: "Health Alert".
+  case health
+}
+
+/// The Device a Health Alert is about, as the contract's `DeviceKind` names it.
+public enum AlertDeviceKind: String, CaseIterable, Sendable {
+  case node
+  case hub
 }
 
 /// The eyebrow over the title, as the core named it. Sentence case in the catalogue; uppercase
@@ -127,7 +160,8 @@ public enum AlertEyebrowKind: String, CaseIterable, Sendable {
 public enum AlertRowTarget: Equatable, Sendable {
   /// Lot detail of the Alert's Lot: Threshold and uncalibrated rows.
   case lot(id: String, name: String)
-  /// The Devices tab: silent and battery rows, and a row the core could not read.
+  /// The Devices tab: silent and battery rows, a row the core could not read, and any row
+  /// without a Lot.
   case devices
 }
 
@@ -144,6 +178,7 @@ public struct AlertRowPresentation: Equatable, Sendable, Identifiable {
   /// The quantity as the contract names it (`soil_moisture`, …); empty when the core does not
   /// know it.
   public let quantity: String
+  /// Empty for a Hub's Alert and for a Node on no Lot.
   public let lotId: String
   public let lotName: String
   public let deviceId: String
@@ -151,13 +186,31 @@ public struct AlertRowPresentation: Equatable, Sendable, Identifiable {
   /// Nil while the Alert is open.
   public let closedAt: Date?
   public let target: AlertRowTarget
+  /// The title sentence the core named (Story 7.2); nil when it named none, and the row then
+  /// reads as its condition did before.
+  public let title: AlertTitleKind?
+  /// A Node or a Hub; nil for a Threshold Alert and for a kind the core does not know.
+  public let deviceKind: AlertDeviceKind?
+  /// The Device's short name, "3F2A" of "Hub 3F2A"; empty when the core sent none.
+  public let deviceName: String
+  /// When a silent Device was last heard; nil for another kind and for an older Alert.
+  public let silentSince: Date?
+  /// The silence in the title, as the core measured it; nil drops " for …": a closed row, or an
+  /// Alert without a silent-since.
+  public let duration: LotDurationPresentation?
 
   public init(
     id: String, group: AlertGroupKind, variant: AlertRowVariantKind,
     condition: AlertConditionKind, eyebrow: AlertEyebrowKind, icon: CarbonIcon, quantity: String,
     lotId: String, lotName: String, deviceId: String, openedAt: Date, closedAt: Date?,
-    target: AlertRowTarget
+    target: AlertRowTarget, title: AlertTitleKind? = nil, deviceKind: AlertDeviceKind? = nil,
+    deviceName: String = "", silentSince: Date? = nil, duration: LotDurationPresentation? = nil
   ) {
+    self.title = title
+    self.deviceKind = deviceKind
+    self.deviceName = deviceName
+    self.silentSince = silentSince
+    self.duration = duration
     self.id = id
     self.group = group
     self.variant = variant
@@ -186,12 +239,41 @@ public struct AlertRowPresentation: Equatable, Sendable, Identifiable {
     }
   }
 
-  /// "Tomatoes needs water", "Herbs too wet", "Beans temperature too low".
+  /// "Tomatoes needs water", "Beans temperature too low", "Node on Lot 'Beans' silent for 6 h",
+  /// "Hub 3F2A silent for 5 min". Which sentence, and the Lot, the Device's short name and the
+  /// silence in it, are the core's; a silent row without a duration drops " for …".
   public func titleText(_ context: CopyContext) -> String {
-    guard condition.namesQuantity else { return context.text(condition.title, .text(lotName)) }
-    // The core names a quantity with these conditions; without its word only the Lot is named.
+    switch title ?? condition.fallbackTitle {
+    case .needsWater: return context.text(.alertTitleNeedsWater, .text(lotName))
+    case .tooWet: return context.text(.alertTitleTooWet, .text(lotName))
+    case .tooLow: return quantityTitle(.alertTitleTooLow, context)
+    case .tooHigh: return quantityTitle(.alertTitleTooHigh, context)
+    case .nodeOnLotSilent:
+      return silentTitle(.alertTitleSilent, .alertTitleSilentFor, lotName, context)
+    case .nodeSilent:
+      return silentTitle(.alertTitleNodeSilent, .alertTitleNodeSilentFor, deviceName, context)
+    case .hubSilent:
+      return silentTitle(.alertTitleHubSilent, .alertTitleHubSilentFor, deviceName, context)
+    case .battery: return context.text(.alertTitleBattery, .text(lotName))
+    case .uncalibrated: return context.text(.alertTitleUncalibrated, .text(lotName))
+    case .healthOnLot: return context.text(.alertTitleUnknown, .text(lotName))
+    case .health: return context.text(.alertTitleHealth)
+    }
+  }
+
+  /// "Beans temperature too low". The core names a quantity with these titles; without its word
+  /// only the Lot is named.
+  private func quantityTitle(_ key: L10n, _ context: CopyContext) -> String {
     guard let quantityWord else { return context.text(.alertTitleUnknown, .text(lotName)) }
-    return context.text(condition.title, .text(lotName), .text(context.text(quantityWord)))
+    return context.text(key, .text(lotName), .text(context.text(quantityWord)))
+  }
+
+  /// "… silent for 6 h" with a silence, "… silent" without one.
+  private func silentTitle(
+    _ plain: L10n, _ timed: L10n, _ subject: String, _ context: CopyContext
+  ) -> String {
+    guard let duration else { return context.text(plain, .text(subject)) }
+    return context.text(timed, .text(subject), .text(context.resolve(duration.short)))
   }
 
   /// "Needs water · 05:45", "Threshold Alert · above high · 05:45", a bare "Health Alert", and
@@ -278,12 +360,20 @@ public struct AlertsPresentation: Equatable, Sendable {
   /// `closedAts` an empty string for an open Alert. `surface` is `idle`, `loading`, `failed` or
   /// `ready`; anything else waits. A name this client does not know is read the careful way: a
   /// Health row (Closed when it has a closed time) with the `help` icon that opens Devices.
+  ///
+  /// The titles (Story 7.2) are parallel to `ids` too: `titles` names the sentence, `deviceNames`
+  /// the Device's short name, `durationValues` with `durationUnits` the silence (both empty
+  /// without one). A row without an entry reads as its condition did before; a title this client
+  /// does not know is the neutral Health title. `lotIds` and `lotNames` are empty for a Hub's
+  /// Alert and for a Node on no Lot, and such a row never opens Lot detail.
   public init(
     surface: String, notice: String?, siteId: String?, siteName: String?, openCount: Int,
     refreshing: Bool, ids: [String], groups: [String], variants: [String], conditions: [String],
     eyebrows: [String], icons: [String], quantities: [String], lotIds: [String],
     lotNames: [String], deviceIds: [String], openedAts: [String], closedAts: [String],
-    targets: [String]
+    targets: [String], titles: [String] = [], deviceKinds: [String] = [],
+    deviceNames: [String] = [], silentSinces: [String] = [], durationValues: [String] = [],
+    durationUnits: [String] = []
   ) {
     switch surface {
     case "failed":
@@ -315,8 +405,19 @@ public struct AlertsPresentation: Equatable, Sendable {
           icon: CarbonIcon(rawValue: icons[index]) ?? .help, quantity: quantities[index],
           lotId: lotIds[index], lotName: lotNames[index], deviceId: deviceIds[index],
           openedAt: openedAt, closedAt: closedAt,
-          target: targets[index] == "lot"
-            ? .lot(id: lotIds[index], name: lotNames[index]) : .devices)
+          target: targets[index] == "lot" && !lotIds[index].isEmpty
+            ? .lot(id: lotIds[index], name: lotNames[index]) : .devices,
+          title: Self.entry(titles, index).map {
+            AlertTitleKind(rawValue: $0) ?? (lotNames[index].isEmpty ? .health : .healthOnLot)
+          },
+          deviceKind: Self.entry(deviceKinds, index).flatMap(AlertDeviceKind.init(rawValue:)),
+          deviceName: Self.entry(deviceNames, index) ?? "",
+          silentSince: Self.entry(silentSinces, index).flatMap(Self.date),
+          duration: Self.entry(durationValues, index).flatMap { Int($0) }.flatMap { value in
+            Self.entry(durationUnits, index)
+              .flatMap(LotDurationPresentation.Unit.init(rawValue:))
+              .map { LotDurationPresentation(value: value, unit: $0) }
+          })
       }
       self.init(
         surface: .ready, siteName: siteName, openCount: openCount, refreshing: refreshing,
@@ -328,6 +429,11 @@ public struct AlertsPresentation: Equatable, Sendable {
 
   private static func date(_ milliseconds: String) -> Date? {
     Int64(milliseconds).map { Date(timeIntervalSince1970: Double($0) / 1000) }
+  }
+
+  /// The entry of a list the core may not have sent; an empty string is "none".
+  private static func entry(_ list: [String], _ index: Int) -> String? {
+    index < list.count && !list[index].isEmpty ? list[index] : nil
   }
 
   /// Threshold, then Health, then Closed; a section without rows is left out. The Server's order
@@ -364,4 +470,7 @@ public protocol AlertsService: AnyObject {
   /// Pull-to-refresh, and every time the app comes to the front, so the tab count is current on
   /// any tab. Shown rows stay meanwhile.
   func refresh()
+  /// The one-minute tick: reads the core's snapshot again, so the silence in the titles moves.
+  /// Nothing is fetched.
+  func tick()
 }

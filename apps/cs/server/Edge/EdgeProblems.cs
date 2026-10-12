@@ -33,7 +33,8 @@ public static class EdgeProblems
     public const string LotNotFound = "urn:coldframe:problem:lot-not-found";
 
     /// <summary>
-    /// 404: the Site has no such Node (unknown, a Hub, or of another Site).
+    /// 404: the Site has no such Node (unknown, a Hub, or of another Site) to move or unassign, or no such Device
+    /// (unknown, or of another Site) whose Silence Window could be set (Story 7.2).
     /// </summary>
     public const string DeviceNotFound = "urn:coldframe:problem:device-not-found";
 

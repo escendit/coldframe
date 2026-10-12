@@ -233,9 +233,10 @@
   /// Administrators and Owners; the first-run "Add a Node" step tile starts nothing.
   /// Above the tiles stands what the core says about notifications (Story 6.5): on the first
   /// landing the one line of why, whose Continue leads to the OS prompt (UX-DR122), afterwards
-  /// the notifications-off notice while the permission is denied (UX-DR88). `path` is what the
-  /// stack shows over the overview; the root hoists it, so a tapped notification can open Lot
-  /// detail from outside this view (UX-DR120).
+  /// the notifications-off notice while the permission is denied (UX-DR88). Under it, one
+  /// notice per silent Hub of the Site, named by the core and announced once (UX-DR81). `path`
+  /// is what the stack shows over the overview; the root hoists it, so a tapped notification
+  /// can open Lot detail from outside this view (UX-DR120).
   public struct GardenView: View {
     let presentation: GardenPresentation
     let lots: LotsPresentation
@@ -298,6 +299,11 @@
           header(context)
           if let notice = push.overviewNotice {
             PushNotice(notice: notice, actions: pushActions)
+          }
+          // A silent Hub (UX-DR81): never dismissable, no action. Its duration moves with the
+          // minute tick, so the notice posts nothing itself; the shell says it once.
+          ForEach(lots.overview?.hubNotices ?? []) { hub in
+            InlineNotice(text: hub.text(context), announces: false)
           }
           tiles
           if let notice = presentation.memberNotice {

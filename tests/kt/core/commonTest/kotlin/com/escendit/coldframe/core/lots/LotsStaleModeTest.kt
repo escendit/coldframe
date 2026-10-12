@@ -2,6 +2,7 @@ package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.LotDto
+import com.escendit.coldframe.core.api.SilentHubDto
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
@@ -567,6 +568,101 @@ class LotsStaleModeTest {
             assertEquals(LotsState.Idle, lots.state.value)
             assertEquals(listOf("list a", "list a"), api.calls)
             assertTrue(events.isEmpty())
+        }
+
+    // Silence (Story 7.2)
+
+    @Test
+    fun uxDr18TheServersSilentSinceAndSilentHubAreMappedOnAnUnknownLot() =
+        runTest {
+            seed(
+                LotDto(
+                    id = "b",
+                    name = "Beans",
+                    status = "unknown",
+                    statusSince = "2026-10-06T07:05:00.000Z",
+                    lastReadingAt = "2026-10-06T01:05:00.000Z",
+                    unknownCause = "node",
+                    silentSince = "2026-10-06T01:05:00.000Z",
+                ),
+                LotDto(
+                    id = "l",
+                    name = "Lettuce",
+                    status = "unknown",
+                    statusSince = "2026-10-06T07:00:00.000Z",
+                    unknownCause = "hub",
+                    silentHubId = "3f2a9c0d1e4b5a67",
+                    silentSince = "2026-10-06T06:55:00.000Z",
+                ),
+                // A silent-since that is not an instant is left out; the Lot is still listed.
+                LotDto("p", "Peas", "unknown", unknownCause = "node", silentSince = "a while ago"),
+            )
+
+            val lots = start().second.ready().lots
+
+            assertEquals(listOf(1_791_248_700_000, 1_791_269_700_000, null), lots.map { it.silentSinceEpochMs })
+            assertEquals(listOf(null, "3f2a9c0d1e4b5a67", null), lots.map { it.silentHubId })
+            // The Server's order stays: the client sorts nothing.
+            assertEquals(listOf("Beans", "Lettuce", "Peas"), lots.map { it.name })
+        }
+
+    @Test
+    fun uxDr81TheSilentHubsOfTheListAreKeptInTheServersOrderAlsoWithNoLotBehindThem() =
+        runTest {
+            seed(tomatoes)
+            api.silentHubs["a"] =
+                listOf(
+                    SilentHubDto("1b00aa11bb22cc33", "2026-10-06T06:00:00.000Z"),
+                    SilentHubDto("3f2a9c0d1e4b5a67", "2026-10-06T06:55:00.000Z"),
+                    SilentHubDto("3f2a9c0d1e4b5a67", "2026-10-06T06:56:00.000Z"),
+                    SilentHubDto("ffff000000000000", "some time"),
+                )
+
+            val lots = start().second
+
+            assertEquals(
+                listOf(
+                    SilentHub("1b00aa11bb22cc33", 1_791_266_400_000),
+                    SilentHub("3f2a9c0d1e4b5a67", 1_791_269_700_000),
+                ),
+                lots.ready().silentHubs,
+            )
+            assertEquals(listOf(LotStatus.NeedsCalibration), lots.ready().lots.map { it.status })
+        }
+
+    @Test
+    fun uxDr81ARecoveredHubIsGoneWithTheNextReadAndAListWithoutSilentHubsHasNone() =
+        runTest {
+            seed(tomatoes)
+            api.silentHubs["a"] = listOf(SilentHubDto("3f2a9c0d1e4b5a67", "2026-10-06T06:55:00.000Z"))
+            val lots = start().second
+            assertEquals(1, lots.ready().silentHubs.size)
+
+            api.silentHubs.remove("a")
+            lots.refresh()
+            runCurrent()
+
+            assertEquals(emptyList(), lots.ready().silentHubs)
+        }
+
+    @Test
+    fun uxDr81LotsShownFromThisDeviceOnAColdStartComeWithoutSilentHubsUntilTheServerAnswers() =
+        runTest {
+            seed(tomatoes)
+            api.silentHubs["a"] = listOf(SilentHubDto("3f2a9c0d1e4b5a67", "2026-10-06T06:55:00.000Z"))
+            start()
+
+            val gate = CompletableDeferred<Unit>()
+            api.listGate = gate
+            val lots = start().second
+
+            assertEquals(StaleReason.Cached, lots.ready().staleReason)
+            assertEquals(emptyList(), lots.ready().silentHubs)
+
+            api.listGate = null
+            gate.complete(Unit)
+            runCurrent()
+            assertEquals(1, lots.ready().silentHubs.size)
         }
 
     // Cold start (UX-DR80)

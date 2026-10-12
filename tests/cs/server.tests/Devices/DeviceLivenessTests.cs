@@ -53,7 +53,9 @@ public sealed class DeviceLivenessTests
         using var body = await SerializeAsync(new DeviceListResponse([item]));
 
         var device = Assert.Single(body.RootElement.GetProperty("devices").EnumerateArray());
-        Assert.Equal(["id", "kind", "lastSeenAt", "online"], device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["id", "kind", "lastSeenAt", "online", "silenceWindowOverridden", "silenceWindowSeconds"],
+            device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
         Assert.Equal("92064422c012f481", device.GetProperty("id").GetString());
         Assert.Equal("hub", device.GetProperty("kind").GetString());
         Assert.Equal("2026-10-06T07:03:30.120Z", device.GetProperty("lastSeenAt").GetString());
@@ -67,8 +69,40 @@ public sealed class DeviceLivenessTests
         using var body = await SerializeAsync(new DeviceListResponse([item]));
 
         var device = Assert.Single(body.RootElement.GetProperty("devices").EnumerateArray());
-        Assert.Equal(["id", "kind", "online"], device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["id", "kind", "online", "silenceWindowOverridden", "silenceWindowSeconds"],
+            device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
         Assert.False(device.GetProperty("online").GetBoolean());
+    }
+
+    // Story 7.2: the Silence Window in force is the Device's own, else the default of its kind, and silentSince
+    // is sent exactly while the Device is silent.
+    [Theory]
+    [InlineData("hub", null, 300, false)]
+    [InlineData("node", null, 21600, false)]
+    [InlineData("node", 28800L, 28800, true)]
+    [InlineData("hub", 60L, 60, true)]
+    public async Task ADeviceCarriesTheSilenceWindowInForceAndWhetherItIsItsOwn(string kind, long? overridden, long seconds, bool isOverridden)
+    {
+        var item = EdgeApi.ToDeviceListItem(new DeviceView("92064422c012f481", kind, null, null, SilenceWindowOverrideSeconds: overridden), Now);
+        using var body = await SerializeAsync(new DeviceListResponse([item]));
+
+        var device = Assert.Single(body.RootElement.GetProperty("devices").EnumerateArray());
+        Assert.Equal(seconds, device.GetProperty("silenceWindowSeconds").GetInt64());
+        Assert.Equal(isOverridden, device.GetProperty("silenceWindowOverridden").GetBoolean());
+        Assert.False(device.TryGetProperty("silentSince", out _));
+    }
+
+    [Fact]
+    public async Task ASilentDeviceCarriesWhenItWasLastHeardInUtc()
+    {
+        var lastHeard = new DateTimeOffset(2026, 10, 6, 3, 5, 0, TimeSpan.FromHours(2));
+
+        var item = EdgeApi.ToDeviceListItem(new DeviceView("92064422c012f481", "node", null, null, SilentSince: lastHeard), Now);
+        using var body = await SerializeAsync(new DeviceListResponse([item]));
+
+        var device = Assert.Single(body.RootElement.GetProperty("devices").EnumerateArray());
+        Assert.Equal("2026-10-06T01:05:00.000Z", device.GetProperty("silentSince").GetString());
     }
 
     [Fact]

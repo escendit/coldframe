@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -33,6 +35,8 @@ import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.calibrate.CalibrateState
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
+import com.escendit.coldframe.core.devices.NodeSummary
+import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.lots.CreateLotForm
 import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotStatus
@@ -351,6 +355,110 @@ class SnapshotTest {
     fun `UX-DR84 Devices for a Member, dark, font scale 2`() =
         devices("devices-member-dark", ThemePreference.Dark, SiteRole.Member, listOf(onlineHub))
 
+    // Story 7.2: silent Devices and the Silence Window.
+
+    private val silentHubRow =
+        HubSummary(
+            "3f2a9c0d1e4b5a67",
+            online = false,
+            lastSeenAtEpochMs = Instant.parse("2026-10-06T06:52:00Z").toEpochMilli(),
+            silentSinceEpochMs = Instant.parse("2026-10-06T06:52:00Z").toEpochMilli(),
+            silenceWindowSeconds = 300,
+        )
+
+    private val silentNodeRow =
+        NodeSummary(
+            "9c0d1e4b5a673f2a",
+            "lot-b",
+            "Beans",
+            62,
+            false,
+            ChargeState.NotCharging,
+            Instant.parse("2026-10-06T01:00:00Z").toEpochMilli(),
+            silentSinceEpochMs = Instant.parse("2026-10-06T01:00:00Z").toEpochMilli(),
+            silenceWindowSeconds = 28_800,
+            silenceWindowOverridden = true,
+        )
+
+    /**
+     * Devices with a silent Hub and a silent Node at font scale 2; with [dialog] the Node's Silence Window
+     * dialog is open, at the default font scale: a dialog is a window of its own, which the font scale of
+     * these tests does not reach.
+     */
+    private fun silentDevices(
+        name: String,
+        theme: ThemePreference,
+        role: SiteRole,
+        dialog: Boolean = false,
+    ) {
+        val site = homeSite(role)
+        compose.setContent {
+            AtFontScale(if (dialog) 1f else 2f) {
+                ColdframeRoot(
+                    state = SignInState.SignedIn("Simon"),
+                    sites = readySites(site),
+                    theme = theme,
+                    onSignIn = {},
+                    onSignOut = {},
+                    onSelectTheme = {},
+                    lots = lotsOf(role),
+                    devices = DevicesState.Ready(site, listOf(silentHubRow), listOf(silentNodeRow)),
+                    now = { devicesNow },
+                )
+            }
+        }
+        compose.onNodeWithText("Devices").performClick()
+        compose.onNode(isHeading().and(hasText("Devices"))).assertExists()
+        if (dialog) {
+            compose
+                .onNodeWithContentDescription("Silence Window for Node 9c0d1e4b5a673f2a")
+                .performScrollTo()
+                .performClick()
+            compose
+                .onNode(hasText("Silence Window for Node 9c0d1e4b5a673f2a").and(hasAnyAncestor(isDialog())))
+                .assertExists()
+            // The dialog is a root of its own: it is checked and drawn alone.
+            compose.assertNothingOverflows(
+                name,
+                compose.onNode(isDialog(), useUnmergedTree = true).fetchSemanticsNode(),
+            )
+            compose.onNode(isDialog()).captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+            return
+        }
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR30 UX-DR31 Devices with a silent Hub and Node for an Administrator, light, font scale 2`() =
+        silentDevices("devices-silent-light", ThemePreference.Light, SiteRole.Administrator)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR30 UX-DR31 Devices with a silent Hub and Node for an Administrator, dark, font scale 2`() =
+        silentDevices("devices-silent-dark", ThemePreference.Dark, SiteRole.Administrator)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR84 Devices with a silent Hub and Node for a Member, light, font scale 2`() =
+        silentDevices("devices-silent-member-light", ThemePreference.Light, SiteRole.Member)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR84 Devices with a silent Hub and Node for a Member, dark, font scale 2`() =
+        silentDevices("devices-silent-member-dark", ThemePreference.Dark, SiteRole.Member)
+
+    @Test
+    @Config(qualifiers = NARROW)
+    fun `UX-DR31 the open Silence Window dialog of a Node with its own window, light`() =
+        silentDevices("devices-silence-window-light", ThemePreference.Light, SiteRole.Owner, dialog = true)
+
+    @Test
+    @Config(qualifiers = NARROW)
+    fun `UX-DR31 the open Silence Window dialog of a Node with its own window, dark`() =
+        silentDevices("devices-silence-window-dark", ThemePreference.Dark, SiteRole.Owner, dialog = true)
+
     private fun hub(
         name: String,
         state: HubSetupState,
@@ -525,6 +633,26 @@ class SnapshotTest {
     fun `UX-DR21 UX-DR129 the overview with every status, dark, font scale 2`() =
         overview("garden-overview-large-dark", LotFixtures.ready(), ThemePreference.Dark, fontScale = 2f)
 
+    // Story 7.2: the Hub notice above the tiles, with the Lots behind the Hub unknown.
+
+    @Test
+    fun `UX-DR81 UX-DR18 the overview with a silent Hub, light`() =
+        overview("garden-hub-silent-light", LotFixtures.hubSilent(), ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    fun `UX-DR81 UX-DR18 the overview with a silent Hub, dark`() =
+        overview("garden-hub-silent-dark", LotFixtures.hubSilent(), ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR81 UX-DR96 the overview with a silent Hub, light, font scale 2`() =
+        overview("garden-hub-silent-large-light", LotFixtures.hubSilent(), ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR81 UX-DR96 the overview with a silent Hub, dark, font scale 2`() =
+        overview("garden-hub-silent-large-dark", LotFixtures.hubSilent(), ThemePreference.Dark, fontScale = 2f)
+
     @Test
     fun `UX-DR24 UX-DR79 the stale header over stale tiles, light`() =
         overview("garden-stale-light", staleLots, ThemePreference.Light, fontScale = 1f)
@@ -636,6 +764,28 @@ class SnapshotTest {
     @Config(qualifiers = TALLER)
     fun `UX-DR25 UX-DR96 the Health Alert rows, dark, font scale 2`() =
         alerts("alerts-health-large-dark", alertsOf(AlertFixtures.health), ThemePreference.Dark, 2f)
+
+    // Story 7.2: Health rows of a silent Node and a silent Hub.
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR117 UX-DR25 Alerts with Node and Hub Health rows, light`() =
+        alerts("alerts-silent-light", alertsOf(AlertFixtures.silentDevices), ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR117 UX-DR25 Alerts with Node and Hub Health rows, dark`() =
+        alerts("alerts-silent-dark", alertsOf(AlertFixtures.silentDevices), ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR117 UX-DR96 Alerts with Node and Hub Health rows, light, font scale 2`() =
+        alerts("alerts-silent-large-light", alertsOf(AlertFixtures.silentDevices), ThemePreference.Light, 2f)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR117 UX-DR96 Alerts with Node and Hub Health rows, dark, font scale 2`() =
+        alerts("alerts-silent-large-dark", alertsOf(AlertFixtures.silentDevices), ThemePreference.Dark, 2f)
 
     @Test
     fun `UX-DR82 UX-DR64 no open Alerts, light, font scale 2`() =
@@ -1061,6 +1211,13 @@ class SnapshotTest {
         push("push-off-my-notifications-dark", PushStates.denied, ThemePreference.Dark, myNotifications = true)
 
     private companion object {
+        /**
+         * For a dialog that holds a text field. Under Robolectric a text field in a dialog never lets Compose come
+         * to rest on a window of 360 dp or wider (a bare `BasicTextField` in an `AlertDialog` shows it), so such a
+         * dialog is drawn at 320 dp, the narrowest phone, where it does.
+         */
+        const val NARROW = "w320dp-h914dp-mdpi"
+
         /** A window that holds four one-column tiles, or ten in two columns. */
         const val TALL = "w411dp-h1700dp-mdpi"
 

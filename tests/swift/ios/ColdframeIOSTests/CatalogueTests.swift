@@ -109,6 +109,7 @@ private let coveredUxDrs: [String: [Int]] = [
   "6.2 See Alerts in the apps": [14, 25, 26, 64, 82, 98],
   "6.3 My notification settings and the Site Reminder cadence": [47, 48, 49, 50, 72],
   "6.5 Push notifications on my phone": [88, 115, 120, 121, 122],
+  "7.2 Silence in the apps and Silence Window settings": [30, 31, 78, 81, 84, 117],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -258,4 +259,40 @@ func notificationsNoticeCopy() throws {
   #expect(
     entries["notifications_notice_site_gone"]
       == "%1$@ is no longer one of your Sites. Nothing was changed.")
+}
+
+@Test(
+  "UX-DR124 UX-DR81 UX-DR117 the silence strings are the Android ones, key for key and word for word"
+)
+func silenceCatalogueMatchesAndroid() throws {
+  let copy = try sharedCopy([
+    "garden_hub_silent", "lot_detail_hub_silent", "devices_silen", "alert_title_",
+  ])
+
+  #expect(copy.android.count >= 30)
+  #expect(copy.android == copy.ios)
+  #expect(
+    copy.ios["garden_hub_silent"] == "Hub %1$@ silent for %2$@ — Lots behind it can't be read.")
+  #expect(
+    copy.ios["lot_detail_hub_silent_named"] == "Hub %1$@ is silent; Lots behind it can't be read.")
+  #expect(copy.ios["devices_silent"] == "Silent %1$@")
+  #expect(copy.ios["alert_title_silent_for"] == "Node on Lot '%1$@' silent for %2$@")
+  #expect(copy.ios["alert_title_hub_silent_for"] == "Hub %1$@ silent for %2$@")
+  #expect(copy.ios["alert_title_node_silent_for"] == "Node %1$@ silent for %2$@")
+}
+
+@Test("UX-DR124 UX-DR31 every Silence Window notice and unit has its catalogue entry")
+func silenceWindowCopy() throws {
+  let entries = try Catalogue.entries()
+  for kind in SilenceWindowNoticeKind.allCases {
+    #expect(entries[kind.message.rawValue] != nil, "\(kind)")
+  }
+  for unit in SilenceWindowUnitKind.allCases {
+    #expect(entries[unit.label.rawValue] != nil, "\(unit)")
+  }
+  #expect(
+    SilenceWindowUnitKind.allCases.map { entries[$0.label.rawValue] } == ["min", "h", "d"])
+  #expect(
+    entries["site_settings_forbidden"]
+      == "You can't change this on %@. Ask an Owner or Administrator.")
 }

@@ -1,5 +1,6 @@
 package com.escendit.coldframe.android
 
+import com.escendit.coldframe.core.alerts.AlertDeviceKind
 import com.escendit.coldframe.core.alerts.AlertSide
 import com.escendit.coldframe.core.alerts.AlertSummary
 import com.escendit.coldframe.core.alerts.AlertsState
@@ -66,6 +67,76 @@ object AlertFixtures {
 
     val closedWet =
         alert("was-wet", "Herbs", "2026-10-07T10:00:00Z", side = AlertSide.High, closedAt = "2026-10-07T12:30:00Z")
+
+    // Story 7.2: Health Alerts as `healthAlerts` lists them, about a Device and with its silent-since.
+
+    private fun silentDevice(
+        id: String,
+        deviceId: String,
+        deviceKind: AlertDeviceKind,
+        silentSince: String?,
+        openedAt: String,
+        lotName: String? = null,
+        closedAt: String? = null,
+    ) = AlertSummary(
+        id = id,
+        kind = AlertSummary.KIND_SILENT,
+        side = null,
+        quantity = null,
+        lotId = lotName?.let { "lot-$id" },
+        lotName = lotName,
+        deviceId = deviceId,
+        openedAtEpochMs = at(openedAt),
+        closedAtEpochMs = closedAt?.let(::at),
+        deviceKind = deviceKind,
+        silentSinceEpochMs = silentSince?.let(::at),
+    )
+
+    /** A Node on Beans, last heard 6 h 4 min before [now]. */
+    val silentNode =
+        silentDevice(
+            "node",
+            "9c0d1e4b5a673f2a",
+            AlertDeviceKind.Node,
+            "2026-10-09T01:00:00Z",
+            "2026-10-09T07:00:00Z",
+            lotName = "Beans",
+        )
+
+    /** Hub 3F2A, last heard 5 min before [now]. */
+    val silentHub =
+        silentDevice("hub", "3f2a9c0d1e4b5a67", AlertDeviceKind.Hub, "2026-10-09T06:59:00Z", "2026-10-09T07:04:00Z")
+
+    /** A Node on no Lot, named by its short name. */
+    val silentSpareNode =
+        silentDevice(
+            "spare",
+            "9c0d000000000000",
+            AlertDeviceKind.Node,
+            "2026-10-09T00:30:00Z",
+            "2026-10-09T06:30:00Z",
+        )
+
+    /** A Hub's Alert that closed: the row drops " for …". */
+    val closedSilentHub =
+        silentDevice(
+            "was-hub",
+            "1b00aa11bb22cc33",
+            AlertDeviceKind.Hub,
+            "2026-10-08T20:00:00Z",
+            "2026-10-08T20:05:00Z",
+            closedAt = "2026-10-08T21:00:00Z",
+        )
+
+    /** A silent Alert opened before the Server recorded a silent-since. */
+    val silentHubNoSince =
+        silentDevice("old-hub", "3f2a9c0d1e4b5a67", AlertDeviceKind.Hub, null, "2026-10-09T07:00:00Z")
+
+    /** A kind this app does not know on a Hub: the neutral row without a Lot. */
+    val unknownKindOnHub = silentHub.copy(id = "flood-hub", kind = "flooded")
+
+    /** The Alerts surface with Node and Hub Health rows: a Threshold Alert, the open silent Devices, a closed one. */
+    val silentDevices: List<AlertSummary> = listOf(needsWater, silentHub, silentNode, silentSpareNode, closedSilentHub)
 
     val threshold = listOf(needsWater, tooWet, tooCold, tooHumid)
     val health = listOf(silent, battery, uncalibrated, unknownKind)

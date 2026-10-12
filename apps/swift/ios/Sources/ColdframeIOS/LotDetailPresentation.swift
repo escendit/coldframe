@@ -88,14 +88,18 @@ public struct LotDetailHeroPresentation: Equatable, Sendable {
   public let resumeSiteHint: Bool
   public let needsWaterFill: Bool
   public let duration: LotDurationPresentation?
+  /// The short name of the silent Hub ("3F2A") for the `hubSilent` note; nil when the Server
+  /// named none, and the note then has no ID.
+  public let silentHubName: String?
 
   public init(
     name: String, variant: LotTileVariantKind, label: LotTileLabelKind, statusSince: Date? = nil,
     value: HeroValueKindPresentation = .none, rawNumber: String = "", soilPercent: Int? = nil,
     lowPercent: Int? = nil, readingAt: Date? = nil, note: HeroNoteKind = .none,
     pausedUntil: Date? = nil, resumeSiteHint: Bool = false, needsWaterFill: Bool = false,
-    duration: LotDurationPresentation? = nil
+    duration: LotDurationPresentation? = nil, silentHubName: String? = nil
   ) {
+    self.silentHubName = silentHubName
     self.name = name
     self.variant = variant
     self.label = label
@@ -156,7 +160,10 @@ public struct LotDetailHeroPresentation: Equatable, Sendable {
     case .none: return nil
     case .noPercentUntilCalibrated: return context.text(.lotTileFootUncalibrated)
     case .checkPowerOrRange: return context.text(.lotDetailNodeSilent)
-    case .hubSilent: return context.text(.lotDetailHubSilent)
+    case .hubSilent:
+      // "Hub 3F2A is silent; …" when the Server names the Hub, else the copy without an ID.
+      return silentHubName.map { context.text(.lotDetailHubSilentNamed, .text($0)) }
+        ?? context.text(.lotDetailHubSilent)
     case .pausedUntil:
       return pausedUntil.map { context.text(.lotDetailPausedUntil, .text(context.day($0))) }
         ?? context.text(.lotDetailPaused)
@@ -561,7 +568,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
     thresholdLowPercent: String = "", thresholdHighPercent: String = "", sensorIds: [String] = [],
     chartHasBand: Bool = false, chartBandLowPercent: String = "",
     chartBandHighPercent: String = "", chartBandLowFraction: Double = 0,
-    chartBandHighFraction: Double = 0, barBelowLow: [Bool] = [], chartBelowLowDays: [String] = []
+    chartBandHighFraction: Double = 0, barBelowLow: [Bool] = [], chartBelowLowDays: [String] = [],
+    heroSilentHubName: String = ""
   ) {
     let name = lotName ?? ""
     switch surface {
@@ -595,7 +603,7 @@ public struct LotDetailPresentation: Equatable, Sendable {
         LotDurationPresentation.Unit(rawValue: heroDurationUnit).map {
           LotDurationPresentation(value: value, unit: $0)
         }
-      })
+      }, silentHubName: heroSilentHubName.isEmpty ? nil : heroSilentHubName)
     let cellCount = min(
       sensorQuantities.count, sensorNumbers.count, sensorUnits.count, sensorMeasuredAts.count)
     let sensors: [SensorCellPresentation]? =

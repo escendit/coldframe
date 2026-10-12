@@ -3,6 +3,8 @@
 
   /** What this browser last showed, kept across navigations so a change is announced once. */
   let shown: OverviewMode | null = null;
+  /** The silent Hubs whose notice this browser last showed: a notice is announced when it appears, not while it stays. */
+  let shownHubs: ReadonlySet<string> = new Set();
 </script>
 
 <script lang="ts">
@@ -16,7 +18,7 @@
   import StaleHeader from '$lib/components/StaleHeader.svelte';
   import { calibrateAccessOf } from '$lib/calibrate';
   import { firstRunSteps } from '$lib/first-run';
-  import { lastGoodLoad, onFocusDecision, siteHeadline, staleTransition, webAppProbePath } from '$lib/garden';
+  import { appearedHubNotices, hubNotices, lastGoodLoad, onFocusDecision, siteHeadline, staleTransition, webAppProbePath } from '$lib/garden';
   import { locale, t } from '$lib/i18n';
   import { formatWhen } from '$lib/i18n/format';
   import { lotsNoticeOf } from '$lib/lots';
@@ -54,6 +56,12 @@
     }
   });
 
+  /**
+   * The Hub-silent notices (UX-DR81), from the Server's list of silent Hubs. Stale mode shows none:
+   * nothing there is live, and "silent for 12 min" would be.
+   */
+  const silentHubNotices = $derived(staleSince === null && lotsNotice === null ? hubNotices(data.silentHubs, now) : []);
+
   // Entering and leaving stale mode are announced politely, once (UX-DR106).
   $effect(() => {
     const change = staleTransition(shown, staleSince === null ? 'live' : 'stale');
@@ -63,6 +71,15 @@
       announce(t('stale.entered', { time: formatWhen(staleSince, new Date(), locale, zone) }));
     } else if (change === 'left') {
       announce(t('stale.left'));
+    }
+  });
+
+  // A Hub-silent notice is announced politely once each time it appears (UX-DR81): not while it stays over a refetch.
+  $effect(() => {
+    const appeared = appearedHubNotices(shownHubs, silentHubNotices);
+    shownHubs = new Set(silentHubNotices.map((notice) => notice.deviceId));
+    if (appeared.length > 0) {
+      announce(appeared.map((notice) => notice.message).join(' '));
     }
   });
 
@@ -122,6 +139,14 @@
   <InlineNotice id="cf-garden-notice" message={steps.memberNotice ? t('garden.memberNotice') : t('garden.webNotice')} />
   <!-- The Lot grid sits below the first-run content (Design Notes): both conditions hold. -->
   <div class="cf-garden__lots">
+    {#if silentHubNotices.length > 0}
+      <!-- A silent Hub (UX-DR81): said above the tiles, also when no Lot is behind it. It has no action and cannot be dismissed. -->
+      <div class="cf-garden__hubs">
+        {#each silentHubNotices as hubNotice (hubNotice.deviceId)}
+          <InlineNotice id="cf-hub-silent-{hubNotice.deviceId}" message={hubNotice.message} />
+        {/each}
+      </div>
+    {/if}
     {#if lotsNotice !== null}
       <InlineNotice
         id="cf-lots-notice"
@@ -137,5 +162,11 @@
 <style>
   .cf-garden__lots {
     margin-block-start: var(--cf-spacing-6);
+  }
+
+  .cf-garden__hubs {
+    display: grid;
+    gap: var(--cf-spacing-3);
+    margin-block-end: var(--cf-spacing-5);
   }
 </style>

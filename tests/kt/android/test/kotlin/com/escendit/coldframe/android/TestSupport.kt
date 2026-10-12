@@ -88,10 +88,24 @@ fun readySites(
     sites: List<SiteSummary> = listOf(current),
 ): SitesState.Ready = SitesState.Ready(sites, current, creating = null)
 
-/** Fails when any text on screen is cut off, truncated or wider than its node (UX-DR96). */
-fun ComposeContentTestRule.assertNothingOverflows(screen: String) {
+/** [this] and every semantics node below it. */
+fun SemanticsNode.withDescendants(): List<SemanticsNode> =
+    generateSequence(listOf(this)) { level -> level.flatMap { it.children }.takeIf { it.isNotEmpty() } }
+        .flatten()
+        .toList()
+
+/**
+ * Fails when any text on screen is cut off, truncated or wider than its node (UX-DR96). With [within],
+ * an unmerged node such as an open dialog, only the texts below it are checked: a dialog is a second
+ * root, and the screen under it was checked without it.
+ */
+fun ComposeContentTestRule.assertNothingOverflows(
+    screen: String,
+    within: SemanticsNode? = null,
+) {
     waitForIdle()
-    val texts = allNodes().flatMap { node -> node.textLayouts().map { node to it } }
+    val nodes = within?.withDescendants() ?: allNodes()
+    val texts = nodes.flatMap { node -> node.textLayouts().map { node to it } }
     assertTrue(texts.isNotEmpty(), "$screen has text")
     for ((node, layout) in texts) {
         val text = layout.layoutInput.text.text

@@ -3,6 +3,7 @@ package com.escendit.coldframe.core.lots
 import com.escendit.coldframe.core.api.LotHistoryDayDto
 import com.escendit.coldframe.core.api.NodeStatusDto
 import com.escendit.coldframe.core.api.SensorReadingDto
+import com.escendit.coldframe.core.devices.DeviceName
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.sites.SiteRole
@@ -171,7 +172,10 @@ public enum class HeroNote {
     /** "Check power or range." */
     CheckPowerOrRange,
 
-    /** "Hub ‹id› is silent; Lots behind it can't be read." (the Server names no Hub, so the copy omits the ID). */
+    /**
+     * "Hub ‹3F2A› is silent; Lots behind it can't be read." with [LotDetailHero.silentHubName]; without
+     * it (the Server named no Hub) "The Hub is silent; Lots behind it can't be read."
+     */
     HubSilent,
 
     /** "paused until ‹date›": [LotDetailHero.pausedUntilEpochMs]. */
@@ -189,6 +193,8 @@ public enum class HeroNote {
  * stale mode they are the stale ones and no value shows. [needsWaterFill] is true only for
  * needs water. [resumeSiteHint] is "Resume the Site to resume this Node", for Admin+ on a Lot
  * paused by the Site. [duration] is the silence of an unknown Lot ([LotTile.duration]).
+ * [silentHubName] is the short name of the silent Hub ("3F2A") for [HeroNote.HubSilent], `null`
+ * when the Server named none.
  */
 public data class LotDetailHero(
     val name: String,
@@ -206,6 +212,7 @@ public data class LotDetailHero(
     val pausedUntilEpochMs: Long?,
     val resumeSiteHint: Boolean,
     val duration: LotDuration?,
+    val silentHubName: String? = null,
 ) {
     val needsWaterFill: Boolean get() = status == LotStatus.NeedsWater && variant != LotTileVariant.Stale
 }
@@ -429,6 +436,11 @@ public data class LotDetail(
                     pausedUntilEpochMs = lot.pausedUntilEpochMs.takeIf { !stale && lot.status == LotStatus.Paused },
                     resumeSiteHint = !stale && bySite && role >= SiteRole.Administrator,
                     duration = tile.duration,
+                    silentHubName =
+                        lot.silentHubId
+                            ?.takeIf {
+                                !stale && lot.status == LotStatus.Unknown && lot.unknownCause == LotUnknownCause.Hub
+                            }?.let(DeviceName::short),
                 )
             val node = lot.node
             val liveNode = if (stale) null else node

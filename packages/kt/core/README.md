@@ -9,15 +9,15 @@ live in [`tests/kt/core`](../../../tests/kt/core).
 The Server computes a Lot's status once (AD-14). The core mirrors the `Lot` schema of
 `packages/openapi/coldframe.openapi.json` in `api/LotDto` (`OpenApiContractTest` holds the two
 together) and maps it one to one to `lots/LotSummary`: `status`, `statusSince`, `lastReadingAt`,
-`unknownCause` (`node`, `hub`), `pausedBy` (`device`, `site`), `pausedUntil`, `moisturePercent`
-and `lowThresholdPercent`. Times become epoch milliseconds; a value this client does not know is
+`unknownCause` (`node`, `hub`), `silentSince`, `silentHubId`, `pausedBy` (`device`, `site`),
+`pausedUntil`, `moisturePercent` and `lowThresholdPercent`. Times become epoch milliseconds; a value this client does not know is
 left out, and a status it does not know reads as `unknown`, never as fine.
 
 | The Server decides | The core decides |
 | --- | --- |
 | The status of every Lot and its precedence | Whether the shown Lots are live or stale (transport only) |
 | The order of the Lots; the core never re-sorts | One retry of a failed read |
-| `statusSince`, `lastReadingAt`, `unknownCause`, `pausedBy`, `pausedUntil` | The last good Lots per Site, kept on the device |
+| `statusSince`, `lastReadingAt`, `unknownCause`, `silentSince`, `silentHubId`, `pausedBy`, `pausedUntil` | The last good Lots per Site, kept on the device |
 | The percentages (`moisturePercent`, `lowThresholdPercent`) | How they are written: `~` and the nearest 5 % for soil moisture |
 | | Which headline, counts and tile a set of statuses gets, and durations measured from the Server's timestamps |
 
@@ -38,9 +38,14 @@ It is structured data; the strings are in the shells' catalogues.
 - `LotTile` — one per Lot, in the Server's order: the variant (six statuses and `Stale`), the
   status label (`Silent` / `HubSilent` from `unknownCause`, `PausedBySite` when `pausedBy` has the
   Site), the value, the foot line, which spoken label applies, and their parts. The silence of an
-  unknown Lot is measured from the last Reading for a silent Node and from `statusSince` for a
-  silent Hub or a Lot without a Reading. A needs-calibration tile never carries a percentage. A
-  field the variant does not show is `null`.
+  unknown Lot is measured from the Server's `silentSince` (when the silent Node or Hub was last
+  heard). Without it (a Server that did not record it) it is measured as before Story 7.2: from the
+  last Reading for a silent Node and from `statusSince` for a silent Hub or a Lot without a Reading.
+  A needs-calibration tile never carries a percentage. A field the variant does not show is `null`.
+- `HubNotice` — one per silent Hub of the Site (`LotList.silentHubs`, kept in
+  `LotsState.Ready.silentHubs`), in the Server's order, whether or not a Lot is behind the Hub:
+  the Hub's short name and its silence. None in stale mode, and none for Lots shown from this
+  device on a cold start: what is not live does not say "silent for".
 - `SoilMoisture`, `LotDuration` ("min" under 1 h, "h" under 24 h, "d" from 24 h) and `StaleAge`
   (days, hours, minutes for the stale header) are the shared formatters.
 
@@ -122,6 +127,33 @@ Hubs, in the Server's order (Lot name, unassigned last, Device ID); the client d
 For Swift, `IosLotDetail` observes a flat `LotDetailSnapshot`, and `DevicesSnapshot` gains the
 parallel `node…` lists.
 
+**Silence and the Silence Window (Story 7.2).** The Server says what is silent and since when; the
+core measures and names, so Android and iOS agree.
+
+- **Names and durations.** `devices/DeviceName.short` is the first four hex digits of a Device ID
+  in upper case ("Hub 3F2A"); rows keep the full ID. Every silence is `LotDuration.between(silentSince,
+  now)`, rounded down: minutes under 1 h, hours under 24 h, then days.
+- **Devices.** `HubSummary` and `NodeSummary` carry `silentSinceEpochMs` (set exactly while the
+  Server lists an open silent Alert), `silenceWindowSeconds` (the window in force, `null` when the
+  Server sent none) and `silenceWindowOverridden`, with `silence(now)`, `silenceWindow`
+  (`SilenceWindowLength`: the largest of min, h, d that holds the window exactly) and `shortName`.
+- **Setting it.** `DevicesEngine.setSilenceWindow(deviceId, windowSeconds)` over
+  `PUT /sites/{siteId}/devices/{deviceId}/silence-window` (`DevicesApi.setSilenceWindow`); `null` is
+  "use the default" and sends a body without `windowSeconds`. `DevicesState.canSetSilenceWindow` is
+  true for an Administrator or Owner; a Member's call is ignored. `SilenceWindow` holds the range
+  (60 to 2 592 000 s) and `secondsOf(text, unit)`, which reads a whole number of minutes, hours or
+  days; a value outside the range is refused with `SilenceWindowNotice.OutOfRange` before anything
+  is sent. The list is read again after the Server accepted. A refusal is
+  `DevicesState.Ready.silenceWindowFailure` (403 `Forbidden`, 404 `NotFound`, 400 `OutOfRange`,
+  `Unreachable`, `Certificate`, `Unexpected`) and nothing else changes; a 401 ends the session.
+- **Lot detail.** `LotDetailHero.silentHubName` is the short name of `Lot.silentHubId` for the
+  `HubSilent` note, `null` when the Server names no Hub.
+
+For Swift, `DevicesSnapshot` gains the parallel `hub…` and `node…` silence lists,
+`canSetSilenceWindow` and the `silenceWindow…` fields, with `IosDevices.setSilenceWindow`,
+`setSilenceWindowText`, `useDefaultSilenceWindow` and `current()`; `LotsSnapshot` gains the
+`hubNotice…` lists and `LotDetailSnapshot` `heroSilentHubName`.
+
 **Thresholds (Story 5.4).** `thresholds/ThresholdsEngine` is Set Thresholds of one Lot: it reads the Lot and each
 Sensor's `getSensorThresholds` (Member allowed) into a `ThresholdColumn` per Sensor (draft `low`/`high`, the
 Server's `proposedLow`, the current Reading, the 5 % step of calibrated soil, a 0 to 100 track for a percentage),
@@ -145,10 +177,23 @@ the end, at most `AlertsEngine.MAX_PAGES` (20) pages, and lists each Alert once.
 Server's `openCount`, 0 unless `Ready`. `AlertSummary` keeps the Server's order and derives what a row is, so
 neither shell decides it: `group` (`Threshold`, `Health`, `Closed`), `variant` (`NeedsWater` only for an open
 low-side soil-moisture Threshold Alert, `Threshold`, `Health`, `Closed`), `condition`, `eyebrow`, `icon` and
-`target` (Threshold and uncalibrated rows open Lot detail of `lotId`; silent, battery and unknown rows open
-Devices). A kind this app does not know, and a Threshold Alert without a side or with a quantity it does not
-know, is a Health row with `help`. An Alert carries no value and no Threshold (DW-88). For Swift, `IosAlerts`
-(`IosSignIn.alerts`) observes a flat `AlertsSnapshot` of parallel `alert…` lists.
+`target` (Threshold and uncalibrated rows open Lot detail of `lotId`; silent, battery and unknown rows, and any
+row without a Lot, open Devices). A kind this app does not know, and a Threshold Alert without a side or with a
+quantity it does not know, is a Health row with `help`. An Alert carries no value and no Threshold (DW-88). For
+Swift, `IosAlerts` (`IosSignIn.alerts`) observes a flat `AlertsSnapshot` of parallel `alert…` lists.
+
+**Health Alerts (Story 7.2).** Threshold Alerts come from the contract's `alerts`, Health Alerts from
+`healthAlerts` (`HealthAlertDto`), which is not paged: the engine takes it from the first page. A Health Alert is
+about a Device, so `AlertSummary.lotId` and `lotName` are `null` for a Hub and for a Node on no Lot, and it
+carries `deviceKind` (`Node`, `Hub`, `null` when unknown) and `silentSinceEpochMs`. `AlertsState.Ready.alerts`
+is one list: the open Threshold Alerts, the open Health Alerts, then the closed ones; each list keeps the
+Server's order, and the two closed runs are only interleaved by their closing time. `AlertSummary.title(now)` is
+the row's title as data (`AlertTitle`): `NodeOnLotSilent` ("Node on Lot 'Beans' silent for 6 h"), `HubSilent`
+("Hub 3F2A silent for 5 min"), `NodeSilent` for a Node on no Lot ("Node 9C0D silent for 6 h"), the Threshold
+kinds, `Battery`, `Uncalibrated`, and the neutral `HealthOnLot` / `Health` for a kind this app does not know or a
+Lot-bound kind without a Lot. Its `duration` is `null` for a closed row and for an Alert without a silent-since,
+which drops " for …". `AlertsSnapshot` carries it as `alertTitles`, `alertDeviceNames`, `alertDurationValues` and
+`alertDurationUnits`, with `IosAlerts.current()` for a minute tick.
 
 **My notifications (Story 6.3).** `notifications/NotificationSettingsEngine` is My notifications over
 `GET`/`PATCH /me/notification-settings` and `GET`/`PUT /sites/{siteId}/notification-settings`
@@ -221,5 +266,7 @@ and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetRem
 
 For Swift, `IosPush` (`IosSignIn.push`) observes a flat `PushSnapshot`; Android reads `AndroidSignIn.push`.
 
-Absent until later epics: no Hub ID in the "Hub is silent" hero text (the Server names none; Epic 7), no Health
-Alert is produced by the Server (Epic 7), no routing to a Devices row (Epic 7), and no live update (Story 6.6).
+Absent until later stories: battery and uncalibrated Alerts have no producer on the Server (Stories 7.3 and 7.4),
+a silent row or a tapped silent notification opens the Devices surface, not the Device's row (the push route
+carries no Device ID), and there is no live update: the shells read again on entry, on pull-to-refresh and on
+every foreground.

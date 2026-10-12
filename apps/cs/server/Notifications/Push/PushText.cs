@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Notifications;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Edge;
@@ -35,12 +36,16 @@ public sealed record PushReading(PushValue Value, DateTimeOffset MeasuredAt);
 /// Whether the Lot was looked up and does not exist any more. A lookup that failed or ran out of time is no gone
 /// Lot: its Alert keeps its place under the name of an unknown Lot.
 /// </param>
+/// <param name="NeverReported">
+/// Whether a silent Node never reported (Story 7.2): it is silent since its enrolment, and its body names no time.
+/// </param>
 public sealed record PushEntryFacts(
     NotificationEntry Entry,
     string? LotName,
     PushReading? Reading = null,
     PushValue? Threshold = null,
-    bool LotGone = false);
+    bool LotGone = false,
+    bool NeverReported = false);
 
 /// <summary>
 /// The text of a push (Story 6.5, UX-DR116, UX-DR118, UX-DR119), written on the Server from the English
@@ -77,16 +82,26 @@ public sealed class PushText
     }
 
     /// <summary>
-    /// The title of an Alert: the condition, such as "Tomatoes needs water".
+    /// The title of an Alert: the condition, such as "Tomatoes needs water", or for a silent Device (Story 7.2)
+    /// what is silent and for how long at <paramref name="now"/>: "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A
+    /// silent for 5 min", "Node 9C0D silent for 6 h" for a Node on no Lot. A silent Alert that does not say its
+    /// Device kind and silent-since (tracked before Story 7.2) keeps the neutral text.
     /// </summary>
-    public string Title(PushEntryFacts facts)
+    /// <param name="facts">The Alert.</param>
+    /// <param name="now">When the notification is sent; a silence duration counts up to it.</param>
+    public string Title(PushEntryFacts facts, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(facts);
 
         var entry = facts.Entry;
 
-        // An Alert without a Lot (a Hub's Health Alert, Story 7.1) names none. Neutral text: the final copy of
-        // every Health Alert arrives with Story 7.2.
+        if (SilentTitle(facts, now, summary: false) is { } silent)
+        {
+            return silent;
+        }
+
+        // An Alert without a Lot that is no silent Device with its kind and time (one tracked before Story 7.2,
+        // or a Health kind this Server writes no copy for yet) names none: the neutral text.
         if (entry.LotId is null)
         {
             return _templates["title.noLot"];
@@ -118,7 +133,8 @@ public sealed class PushText
 
     /// <summary>
     /// The body of an Alert or of its Reminder: value and context, or <see langword="null"/> when the value or
-    /// the Threshold was not found (the title stands alone then; a Reminder still says "Still open.").
+    /// the Threshold was not found (the title stands alone then; a Reminder still says "Still open."). A silent
+    /// Node (Story 7.2) names the time of its last Reading in the User's zone, a silent Hub what cannot be read.
     /// </summary>
     /// <param name="facts">The Alert.</param>
     /// <param name="reminder">Whether the text is a Reminder's: the Alert text with "Still".</param>
@@ -131,6 +147,21 @@ public sealed class PushText
         var entry = facts.Entry;
         var prefix = reminder ? "reminder" : "body";
         string? body = null;
+
+        if (IsSilent(entry, out var deviceKind, out var silentSince))
+        {
+            if (deviceKind == DeviceKind.Hub)
+            {
+                return _templates[$"{prefix}.silent.hub"];
+            }
+
+            // A Node that never reported is silent since its enrolment: there is no Reading to name a time of.
+            return facts.NeverReported
+                ? _templates[$"{prefix}.silent.node.never"]
+                : Format(
+                    $"{prefix}.silent.node",
+                    ("time", TimeZoneInfo.ConvertTime(silentSince, zone).ToString("HH:mm", CultureInfo.InvariantCulture)));
+        }
 
         if (entry is { Kind: AlertKind.Threshold, Side: { } side } && facts.Reading is { } reading)
         {
@@ -177,13 +208,14 @@ public sealed class PushText
     /// </summary>
     /// <param name="alerts">The Alerts whose Lot is not gone.</param>
     /// <param name="window">The User's Notification Window.</param>
-    public string SummaryBody(IReadOnlyList<PushEntryFacts> alerts, NotificationWindow window)
+    /// <param name="now">When the summary is sent; a silence duration counts up to it.</param>
+    public string SummaryBody(IReadOnlyList<PushEntryFacts> alerts, NotificationWindow window, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(alerts);
         ArgumentNullException.ThrowIfNull(window);
 
         var ordered = alerts.Where(alert => NeedsWater(alert.Entry)).Concat(alerts.Where(alert => !NeedsWater(alert.Entry))).ToList();
-        var lines = ordered.Take(MaxSummaryLines).Select(Title).ToList();
+        var lines = ordered.Take(MaxSummaryLines).Select(alert => SilentTitle(alert, now, summary: true) ?? Title(alert, now)).ToList();
 
         if (ordered.Count > MaxSummaryLines)
         {
@@ -196,6 +228,76 @@ public sealed class PushText
             ("from", EdgeValidation.TimeOfDayName(window.FromMinutes))));
 
         return string.Join('\n', lines);
+    }
+
+    /// <summary>
+    /// How a Hub, and a Node without a Lot, is named (Story 7.2): the first four hex digits of its Device ID in
+    /// upper case, as the firmware advertises it ("3F2A").
+    /// </summary>
+    /// <param name="deviceId">The Device ID.</param>
+    public static string ShortName(string deviceId)
+    {
+        ArgumentNullException.ThrowIfNull(deviceId);
+
+        return (deviceId.Length > 4 ? deviceId[..4] : deviceId).ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// A silence duration as every surface shows it (Story 7.2): <paramref name="now"/> minus
+    /// <paramref name="since"/>, rounded down; under 1 h in minutes, under 24 h in hours, otherwise in days. A
+    /// time ahead of <paramref name="now"/> reads as 0 min.
+    /// </summary>
+    /// <param name="since">When the Device was last heard.</param>
+    /// <param name="now">When the text is written.</param>
+    public string Duration(DateTimeOffset since, DateTimeOffset now)
+    {
+        var elapsed = now - since;
+
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        var (key, count) = elapsed switch
+        {
+            _ when elapsed < TimeSpan.FromHours(1) => ("duration.minutes", (long)elapsed.TotalMinutes),
+            _ when elapsed < TimeSpan.FromDays(1) => ("duration.hours", (long)elapsed.TotalHours),
+            _ => ("duration.days", (long)elapsed.TotalDays),
+        };
+
+        return Format(key, ("count", count.ToString(CultureInfo.InvariantCulture)));
+    }
+
+    // A silent Device's Alert that says what kind of Device it is and since when (Story 7.2). An Alert tracked
+    // before that story says neither and keeps the neutral text.
+    private static bool IsSilent(NotificationEntry entry, out DeviceKind deviceKind, out DateTimeOffset silentSince)
+    {
+        deviceKind = entry.DeviceKind ?? default;
+        silentSince = entry.SilentSince ?? default;
+
+        return entry is { Kind: AlertKind.Silent, DeviceKind: not null, SilentSince: not null };
+    }
+
+    // The title of a silent Device, or null for any other Alert. A Hub is named by its short ID; a Node by its
+    // Lot, or by its short ID when it is on none or the Lot's name is not known. In a summary the Lot leads.
+    private string? SilentTitle(PushEntryFacts facts, DateTimeOffset now, bool summary)
+    {
+        if (!IsSilent(facts.Entry, out var deviceKind, out var silentSince))
+        {
+            return null;
+        }
+
+        var duration = Duration(silentSince, now);
+        var device = ShortName(facts.Entry.DeviceId);
+
+        if (deviceKind == DeviceKind.Hub)
+        {
+            return Format("title.silent.hub", ("device", device), ("duration", duration));
+        }
+
+        return facts.LotName is { } lot
+            ? Format(summary ? "summary.silent.nodeOnLot" : "title.silent.nodeOnLot", ("lot", lot), ("duration", duration))
+            : Format("title.silent.node", ("device", device), ("duration", duration));
     }
 
     // Whole numbers where they are whole; one decimal otherwise, three significant digits for kΩ.

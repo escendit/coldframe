@@ -4,7 +4,10 @@ import com.escendit.coldframe.core.api.AlertDto
 import com.escendit.coldframe.core.api.AlertListDto
 import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
+import com.escendit.coldframe.core.api.HealthAlertDto
 import com.escendit.coldframe.core.api.SiteDto
+import com.escendit.coldframe.core.lots.LotDuration
+import com.escendit.coldframe.core.lots.LotDurationUnit
 import com.escendit.coldframe.core.lots.SensorQuantity
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
@@ -23,6 +26,11 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/** 2026-10-09T07:10:00Z: the `now` every title and snapshot of these tests is told against. No test reads a wall clock. */
+private const val NOW_MS = 1_791_529_800_000L
+
+private fun snapshotOf(state: AlertsState): AlertsSnapshot = snapshotOf(state, NOW_MS)
+
 /** An in-memory Server for the Alerts list, per Site, paged [pageSize] at a time with the index as cursor. */
 class FakeAlertsApi : AlertsApi {
     val alerts = mutableMapOf<String, List<AlertDto>>()
@@ -37,6 +45,9 @@ class FakeAlertsApi : AlertsApi {
     /** When set, every page says more follow: a Server that never ends. */
     var endless = false
 
+    /** The Site's Health Alerts: sent with the first page only, as the contract says; no entry sends none at all. */
+    val health = mutableMapOf<String, List<HealthAlertDto>>()
+
     override suspend fun listAlerts(
         siteId: String,
         cursor: String?,
@@ -44,7 +55,9 @@ class FakeAlertsApi : AlertsApi {
         calls += "list $siteId ${cursor ?: "-"}"
         scripted?.let { pages ->
             val (page, next) = pages.getValue(cursor ?: "-")
-            return ApiResult.Ok(AlertListDto(page, page.count { it.closedAt == null }, next))
+            return ApiResult.Ok(
+                AlertListDto(page, page.count { it.closedAt == null }, next, health[siteId].takeIf { cursor == null }),
+            )
         }
         val all = alerts[siteId].orEmpty()
         val from = cursor?.toInt() ?: 0
@@ -52,7 +65,14 @@ class FakeAlertsApi : AlertsApi {
         val next = (from + pageSize).takeIf { endless || it < all.size }?.toString()
         val answer =
             failure?.let { ApiResult.Failed(it) }
-                ?: ApiResult.Ok(AlertListDto(page, all.count { it.closedAt == null }, next))
+                ?: ApiResult.Ok(
+                    AlertListDto(
+                        page,
+                        all.count { it.closedAt == null } + health[siteId].orEmpty().count { it.closedAt == null },
+                        next,
+                        health[siteId].takeIf { cursor == null },
+                    ),
+                )
         gate?.await()
         return answer
     }
@@ -100,7 +120,7 @@ class AlertsEngineTest {
                 newKey = { "site-key" },
                 zones = { emptyList() },
             )
-        val alerts = AlertsEngine(api, sitesEngine, backgroundScope)
+        val alerts = AlertsEngine(api, sitesEngine, backgroundScope, now = { NOW_MS })
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
         return sitesEngine to alerts
@@ -533,6 +553,12 @@ class AlertsEngineTest {
                     alertOpenedAt = List(3) { openedMs.toString() },
                     alertClosedAt = listOf("", "", closedMs.toString()),
                     alertTargets = listOf("lot", "devices", "lot"),
+                    alertTitles = listOf("needsWater", "nodeOnLotSilent", "tooHigh"),
+                    alertDeviceKinds = listOf("", "", ""),
+                    alertDeviceNames = List(3) { "7C19" },
+                    alertSilentSince = listOf("", "", ""),
+                    alertDurationValues = listOf("", "", ""),
+                    alertDurationUnits = listOf("", "", ""),
                 ),
                 snapshot,
             )
@@ -551,5 +577,302 @@ class AlertsEngineTest {
             assertEquals(0, snapshot.openCount)
             assertTrue(snapshot.alertIds.isEmpty())
             assertEquals("idle", snapshotOf(AlertsState.Idle).surface)
+        }
+
+    // Story 7.2: Health Alerts come from `healthAlerts`.
+
+    private val nodeId = "9c0d1e4b5a673f2a"
+    private val hubId = "3f2a9c0d1e4b5a67"
+
+    private fun health(
+        id: String,
+        deviceId: String = nodeId,
+        deviceKind: String? = "node",
+        kind: String = "silent",
+        lotName: String? = null,
+        silentSince: String? = null,
+        openedAt: String = opened,
+        closedAt: String? = null,
+    ) = HealthAlertDto(
+        id = id,
+        kind = kind,
+        deviceId = deviceId,
+        openedAt = openedAt,
+        deviceKind = deviceKind,
+        lotId = lotName?.let { "lot-$id" },
+        lotName = lotName,
+        silentSince = silentSince,
+        closedAt = closedAt,
+        reason = closedAt?.let { "recovered" },
+    )
+
+    /** A Node on Beans last heard at 01:05 and a Hub last heard at 07:05, both told at 07:10. */
+    private val silentNode = health("n", lotName = "Beans", silentSince = "2026-10-09T01:05:00.000Z")
+    private val silentHub = health("h", hubId, "hub", silentSince = "2026-10-09T07:05:00.000Z")
+
+    private fun AlertSummary.titleNow(): AlertTitle = title(NOW_MS)
+
+    @Test
+    fun uxDr25HealthAlertsComeFromHealthAlertsAndStandInTheHealthGroupAfterTheThresholdAlerts() =
+        runTest {
+            api.alerts["a"] = listOf(alert("t"), alert("c", closedAt = closed))
+            api.health["a"] = listOf(silentNode, silentHub)
+
+            val ready = alertsFor().ready()
+
+            assertEquals(listOf("t", "n", "h", "c"), ready.alerts.map { it.id })
+            assertEquals(listOf("t"), ready.threshold.map { it.id })
+            assertEquals(listOf("n", "h"), ready.health.map { it.id })
+            assertEquals(listOf("c"), ready.closed.map { it.id })
+            // The Server's count covers both kinds.
+            assertEquals(3, ready.openCount)
+            val (node, hub) = ready.health
+            assertEquals(AlertDeviceKind.Node, node.deviceKind)
+            assertEquals("lot-n", node.lotId)
+            assertEquals("Beans", node.lotName)
+            assertEquals(1_791_507_900_000, node.silentSinceEpochMs)
+            // A Hub's Alert has neither a Lot nor a quantity.
+            assertEquals(AlertDeviceKind.Hub, hub.deviceKind)
+            assertNull(hub.lotId)
+            assertNull(hub.lotName)
+            assertNull(hub.quantity)
+            for (alert in ready.health) {
+                assertEquals(AlertCondition.Silent, alert.condition)
+                assertEquals(AlertVariant.Health, alert.variant)
+                assertEquals(AlertEyebrow.Health, alert.eyebrow)
+                assertEquals(AlertIcon.Help, alert.icon)
+                assertEquals(AlertTarget.Devices, alert.target)
+            }
+        }
+
+    @Test
+    fun uxDr117TheSilentTitlesNameTheLotOrTheDeviceWithTheSilenceRoundedDown() =
+        runTest {
+            api.health["a"] =
+                listOf(
+                    silentNode,
+                    silentHub,
+                    health("u", "9c0d000000000000", silentSince = "2026-10-09T01:00:00.000Z"),
+                )
+
+            val (node, hub, unassigned) = alertsFor().ready().alerts
+
+            // "Node on Lot 'Beans' silent for 6 h": 6 h 5 min, rounded down.
+            assertEquals(
+                AlertTitle(
+                    AlertTitleKind.NodeOnLotSilent,
+                    lotName = "Beans",
+                    duration = LotDuration(6, LotDurationUnit.Hours),
+                ),
+                node.titleNow(),
+            )
+            // "Hub 3F2A silent for 5 min".
+            assertEquals(
+                AlertTitle(
+                    AlertTitleKind.HubSilent,
+                    deviceName = "3F2A",
+                    duration = LotDuration(5, LotDurationUnit.Minutes),
+                ),
+                hub.titleNow(),
+            )
+            // A Node on no Lot: "Node 9C0D silent for 6 h".
+            assertEquals(
+                AlertTitle(
+                    AlertTitleKind.NodeSilent,
+                    deviceName = "9C0D",
+                    duration = LotDuration(6, LotDurationUnit.Hours),
+                ),
+                unassigned.titleNow(),
+            )
+            // A day later the same Alerts say days.
+            assertEquals(LotDuration(1, LotDurationUnit.Days), node.title(NOW_MS + 24 * 3_600_000L).duration)
+        }
+
+    @Test
+    fun uxDr117AClosedRowAndAnOpenOneWithoutSilentSinceDropTheDuration() =
+        runTest {
+            api.health["a"] =
+                listOf(
+                    health("old", hubId, "hub"),
+                    health("bad", lotName = "Beans", silentSince = "a while ago"),
+                    health("was", hubId, "hub", silentSince = "2026-10-09T05:00:00.000Z", closedAt = closed),
+                    health("gone", lotName = "Beans", silentSince = "2026-10-09T01:05:00.000Z", closedAt = closed),
+                )
+
+            val titles = alertsFor().ready().alerts.associate { it.id to it.titleNow() }
+
+            // "Hub 3F2A silent" and "Node on Lot 'Beans' silent".
+            assertEquals(AlertTitle(AlertTitleKind.HubSilent, deviceName = "3F2A"), titles["old"])
+            assertEquals(AlertTitle(AlertTitleKind.NodeOnLotSilent, lotName = "Beans"), titles["bad"])
+            assertEquals(AlertTitle(AlertTitleKind.HubSilent, deviceName = "3F2A"), titles["was"])
+            assertEquals(AlertTitle(AlertTitleKind.NodeOnLotSilent, lotName = "Beans"), titles["gone"])
+        }
+
+    @Test
+    fun uxDr25AHealthKindOrDeviceKindThisAppDoesNotKnowKeepsTheNeutralHealthRow() =
+        runTest {
+            api.health["a"] =
+                listOf(
+                    health("flood", kind = "flooded", lotName = "Leeks"),
+                    health("flood-node", kind = "flooded"),
+                    health("flood-hub", hubId, "hub", kind = "flooded"),
+                    health("odd", deviceKind = "repeater"),
+                    health("none", deviceKind = null),
+                    // Never sent by the Server; if it were, it is not shown as a Threshold Alert.
+                    health("thr", kind = "threshold", lotName = "Beans"),
+                    health("bat", kind = "battery"),
+                )
+
+            val ready = alertsFor().ready()
+
+            assertEquals(7, ready.health.size)
+            assertTrue(ready.threshold.isEmpty())
+            val titles = ready.alerts.associate { it.id to it.titleNow() }
+            assertEquals(AlertTitle(AlertTitleKind.HealthOnLot, lotName = "Leeks"), titles["flood"])
+            // Without a Lot the neutral row is "Health Alert", for a Node and for a Hub.
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["flood-node"])
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["flood-hub"])
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["odd"])
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["none"])
+            assertEquals(AlertTitle(AlertTitleKind.HealthOnLot, lotName = "Beans"), titles["thr"])
+            // A kind that names a Lot, on a Device without one, falls back to the neutral title too.
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["bat"])
+            assertTrue(ready.alerts.all { it.target == AlertTarget.Devices })
+            assertEquals(AlertCondition.Unknown, ready.alerts.first().condition)
+        }
+
+    @Test
+    fun theThresholdTitlesStillNameTheLot() =
+        runTest {
+            api.alerts["a"] =
+                listOf(
+                    alert("w"),
+                    alert("h", side = "high", quantity = "air_temperature", lotName = "Peppers"),
+                    alert("s", kind = "silent", side = null, lotName = "Beans"),
+                )
+
+            val titles = alertsFor().ready().alerts.map { it.titleNow() }
+
+            assertEquals(
+                listOf(
+                    AlertTitle(AlertTitleKind.NeedsWater, lotName = "Tomatoes"),
+                    AlertTitle(AlertTitleKind.TooHigh, lotName = "Peppers"),
+                    // An Alert listed without a Device kind and with a Lot is a Node's, as before.
+                    AlertTitle(AlertTitleKind.NodeOnLotSilent, lotName = "Beans"),
+                ),
+                titles,
+            )
+        }
+
+    @Test
+    fun uxDr25HealthAlertsAreNotPagedAndALaterPageWithoutThemKeepsThoseOfTheFirst() =
+        runTest {
+            api.pageSize = 1
+            api.alerts["a"] = listOf(alert("1"), alert("2"), alert("3"))
+            api.health["a"] = listOf(silentNode, silentHub)
+
+            val ready = alertsFor().ready()
+
+            assertEquals(listOf("list a -", "list a 1", "list a 2"), api.calls)
+            assertEquals(listOf("1", "2", "3", "n", "h"), ready.alerts.map { it.id })
+            assertEquals(5, ready.openCount)
+        }
+
+    @Test
+    fun uxDr25AServerWithoutHealthAlertsListsTheThresholdAlertsAsBefore() =
+        runTest {
+            api.alerts["a"] = listOf(alert("1"), alert("2", closedAt = closed))
+
+            val ready = alertsFor().ready()
+
+            assertEquals(listOf("1", "2"), ready.alerts.map { it.id })
+            assertTrue(ready.health.isEmpty())
+        }
+
+    @Test
+    fun uxDr25ClosedAlertsOfBothListsKeepTheServersOrderAndAreInterleavedNewestFirst() =
+        runTest {
+            api.alerts["a"] =
+                listOf(
+                    alert("t-open"),
+                    alert("t-0640", closedAt = "2026-10-09T06:40:00.000Z"),
+                    alert("t-0500", closedAt = "2026-10-09T05:00:00.000Z"),
+                )
+            api.health["a"] =
+                listOf(
+                    health("h-open", hubId, "hub"),
+                    health("h-0700", hubId, "hub", closedAt = "2026-10-09T07:00:00.000Z"),
+                    health("h-0640", closedAt = "2026-10-09T06:40:00.000Z"),
+                    health("h-0400", closedAt = "2026-10-09T04:00:00.000Z"),
+                    // The same Alert listed twice is shown once.
+                    health("h-open", hubId, "hub"),
+                )
+
+            val ready = alertsFor().ready()
+
+            assertEquals(
+                listOf("t-open", "h-open", "h-0700", "t-0640", "h-0640", "t-0500", "h-0400"),
+                ready.alerts.map { it.id },
+            )
+            assertEquals(listOf("h-0700", "t-0640", "h-0640", "t-0500", "h-0400"), ready.closed.map { it.id })
+        }
+
+    @Test
+    fun aHealthAlertWhoseTimesCannotBeReadIsLeftOutInsteadOfFailingTheList() =
+        runTest {
+            api.alerts["a"] = listOf(alert("1"))
+            api.health["a"] =
+                listOf(
+                    health("bad-open", openedAt = "yesterday"),
+                    health("bad-closed", closedAt = "later"),
+                    silentHub,
+                )
+
+            assertEquals(
+                listOf("1", "h"),
+                alertsFor().ready().alerts.map { it.id },
+            )
+        }
+
+    @Test
+    fun uxDr117TheSnapshotCarriesTheTitleInputsOfHealthAlertsForSwift() =
+        runTest {
+            api.alerts["a"] = listOf(alert("t"))
+            api.health["a"] =
+                listOf(
+                    silentNode,
+                    silentHub,
+                    health("u", "9c0d000000000000", silentSince = "2026-10-09T01:00:00.000Z"),
+                    health("was", hubId, "hub", silentSince = "2026-10-09T05:00:00.000Z", closedAt = closed),
+                    health("flood", hubId, "hub", kind = "flooded", closedAt = "2026-10-09T06:00:00.000Z"),
+                )
+
+            val state = alertsFor().state.value
+            val snapshot = snapshotOf(state)
+
+            assertEquals(listOf("t", "n", "h", "u", "was", "flood"), snapshot.alertIds)
+            assertEquals(listOf("threshold", "health", "health", "health", "closed", "closed"), snapshot.alertGroups)
+            assertEquals(
+                listOf("needsWater", "nodeOnLotSilent", "hubSilent", "nodeSilent", "hubSilent", "health"),
+                snapshot.alertTitles,
+            )
+            assertEquals(listOf("lot-t", "lot-n", "", "", "", ""), snapshot.alertLotIds)
+            assertEquals(listOf("Tomatoes", "Beans", "", "", "", ""), snapshot.alertLotNames)
+            assertEquals(listOf("", "node", "hub", "node", "hub", "hub"), snapshot.alertDeviceKinds)
+            assertEquals(listOf("7C19", "9C0D", "3F2A", "9C0D", "3F2A", "3F2A"), snapshot.alertDeviceNames)
+            assertEquals(listOf("", "6", "5", "6", "", ""), snapshot.alertDurationValues)
+            assertEquals(listOf("", "hours", "minutes", "hours", "", ""), snapshot.alertDurationUnits)
+            assertEquals(
+                listOf("", "1791507900000", "1791529500000", "1791507600000", "1791522000000", ""),
+                snapshot.alertSilentSince,
+            )
+            assertEquals(listOf("soil_moisture", "", "", "", "", ""), snapshot.alertQuantities)
+            assertEquals(listOf("lot", "devices", "devices", "devices", "devices", "devices"), snapshot.alertTargets)
+            assertEquals(listOf("silent", "silent", "silent", "silent", "unknown"), snapshot.alertConditions.drop(1))
+            assertEquals(4, snapshot.openCount)
+            // The next minute tick moves the durations and nothing else.
+            val later = snapshotOf(state, NOW_MS + 55 * 60_000L)
+            assertEquals(listOf("", "7", "1", "7", "", ""), later.alertDurationValues)
+            assertEquals(listOf("", "hours", "hours", "hours", "", ""), later.alertDurationUnits)
         }
 }

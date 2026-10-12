@@ -40,6 +40,10 @@ import com.escendit.coldframe.core.devices.DevicesState
  *   [lotDurationValues] with [lotDurationUnits] (`minutes`, `hours`, `days`, or empty),
  *   [lotPausedBySite], [lotPausedUntils], [lotOpensAddNode] and [lotOpensCalibrate]. A stale tile's "as of" is
  *   [fetchedAtEpochMs].
+ * - Silent Hubs (Story 7.2), one notice per Hub above the tiles, in the Server's order and empty in
+ *   stale mode: [hubNoticeIds] (the Device IDs), [hubNoticeNames] (the short name, "3F2A"),
+ *   [hubNoticeSilentSince] and the silence [hubNoticeDurationValues] with [hubNoticeDurationUnits]
+ *   (`minutes`, `hours`, `days`): "Hub 3F2A silent for 12 min — Lots behind it can't be read."
  * - Site menu: [menuItems] (`siteSettings`, …) and [menuEnabled], false in stale mode ("Needs
  *   your Server"). Use these instead of the Sites snapshot's menu while `ready`.
  */
@@ -109,6 +113,11 @@ public data class LotsSnapshot(
     val lotOpensCalibrate: List<Boolean>,
     val menuItems: List<String>,
     val menuEnabled: Boolean,
+    val hubNoticeIds: List<String> = emptyList(),
+    val hubNoticeNames: List<String> = emptyList(),
+    val hubNoticeSilentSince: List<String> = emptyList(),
+    val hubNoticeDurationValues: List<String> = emptyList(),
+    val hubNoticeDurationUnits: List<String> = emptyList(),
 )
 
 /**
@@ -150,6 +159,7 @@ public fun snapshotOf(
     val failed = state as? LotsState.Failed
     val overview = ready?.let { LotsOverview.of(it, nowEpochMs) }
     val tiles = overview?.tiles.orEmpty()
+    val hubNotices = overview?.hubNotices.orEmpty()
     val menu = state.siteMenu()
     return LotsSnapshot(
         surface = surface,
@@ -226,5 +236,10 @@ public fun snapshotOf(
         lotOpensCalibrate = tiles.map { it.opensCalibrate },
         menuItems = menu.map { it.action.key() },
         menuEnabled = menu.all { it.enabled },
+        hubNoticeIds = hubNotices.map { it.deviceId },
+        hubNoticeNames = hubNotices.map { it.shortName },
+        hubNoticeSilentSince = hubNotices.map { it.silentSinceEpochMs.toString() },
+        hubNoticeDurationValues = hubNotices.map { it.duration.value.toString() },
+        hubNoticeDurationUnits = hubNotices.map { it.duration.unit.key() },
     )
 }

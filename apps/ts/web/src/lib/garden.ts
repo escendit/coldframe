@@ -4,8 +4,9 @@
  */
 import type { Lot } from '@coldframe/api-client';
 import { t } from '$lib/i18n';
-import { formatDay } from '$lib/i18n/format';
+import { formatDay, formatSilence, shortDeviceId } from '$lib/i18n/format';
 import { statusOf, type TileStatus } from '$lib/lot-tiles';
+import type { SilentHub } from '$lib/lots';
 
 export interface SiteHeadline {
   /** The one-sentence Site state, exposed as a heading. */
@@ -107,4 +108,40 @@ export async function onFocusDecision(probe: () => Promise<unknown>): Promise<'r
  */
 export function lastGoodLoad(data: { readonly staleSince: string | null; readonly loadedAt: string }): string {
   return data.staleSince ?? data.loadedAt;
+}
+
+/** One Hub-silent notice above the tiles (UX-DR81). */
+export interface HubNotice {
+  /** The Hub's Device ID: the notice's identity, so a notice that stays is not announced again. */
+  readonly deviceId: string;
+  /** "Hub 3F2A silent for 12 min — Lots behind it can't be read." */
+  readonly message: string;
+}
+
+/**
+ * The notices of the Site's silent Hubs, in the Server's order: one per Hub, whether or not a Lot is
+ * behind it. The duration is `now − silentSince`, rounded down; a Hub whose silent-since cannot be read
+ * is named without one. A list that is missing gives no notice.
+ */
+export function hubNotices(silentHubs: readonly SilentHub[] | undefined, now: Date): readonly HubNotice[] {
+  const seen = new Set<string>();
+  const notices: HubNotice[] = [];
+  for (const hub of silentHubs ?? []) {
+    if (seen.has(hub.deviceId)) {
+      continue;
+    }
+    seen.add(hub.deviceId);
+    const hubId = shortDeviceId(hub.deviceId);
+    const duration = formatSilence(hub.silentSince, now);
+    notices.push({ deviceId: hub.deviceId, message: duration === null ? t('garden.hubSilentNoDuration', { hubId }) : t('garden.hubSilent', { hubId, duration }) });
+  }
+  return notices;
+}
+
+/**
+ * The notices that appeared since the overview was last shown: each is announced once per appearance.
+ * A notice that stays over a refetch is not announced again; one that went and came back is.
+ */
+export function appearedHubNotices(shown: ReadonlySet<string>, notices: readonly HubNotice[]): readonly HubNotice[] {
+  return notices.filter((notice) => !shown.has(notice.deviceId));
 }

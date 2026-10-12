@@ -116,7 +116,7 @@ inside the grain and returns `DeviceHeartbeatResult(Outcome)` with `Outcome` one
 | `DeviceReported(MeasuredAt, ReportedAt)` | `device.reported` | The Server accepted a frame of the Node whose `measured_at` is newer than any before: the Node's liveness (Story 7.1) |
 | `DeviceSilenceWindowSet(WindowSeconds?, SetAt)` | `device.silence-window-set` | The Device's own Silence Window was set; `null` returns to the default of its kind |
 | `DeviceSilenceClockRestarted(From, Cause, HubId?, RestartedAt)` | `device.silence-clock-restarted` | A Server start (`ServerStarted`) or the recovery of the Node's relay Hub (`RelayHubRecovered`) moved the start of the Silence Window to `From` |
-| `DeviceSilenceStarted(Episode, AlertId, SiteId, LotId?, DueAt, StartedAt)` | `device.silence-started` | The Silence Window expired: the Device's next silence episode, journaled before its Alert is opened |
+| `DeviceSilenceStarted(Episode, AlertId, SiteId, LotId?, DueAt, StartedAt, SilentSince?)` | `device.silence-started` | The Silence Window expired: the Device's next silence episode, journaled before its Alert is opened. `SilentSince` (Story 7.2) is when the Device was last heard; absent in an older event |
 | `DeviceSilenceEnded(Episode, AlertId, Reason, EndedAt)` | `device.silence-ended` | The Device reported again inside its window: the episode's Alert closes |
 | `DeviceAlertDelivered(AlertId, Change, DeliveredAt)` | `device.alert-delivered` | The Alert grain acknowledged the open or the close of one of the Device's Alerts |
 
@@ -126,6 +126,8 @@ Silence (Story 7.1) adds `IDeviceGrain.SetSilenceWindow(siteId, window?)`, which
 `DeviceSilence(Kind, Window, WindowOverridden, ClockStart, DueAt, Paused, OpenAlert?, LastRecoveredAt?)`, or
 `null` for a Device that is not enrolled. A Node asks its last relay Hub through it. `Alerts/` gains
 `AlertKind.Silent` and `IAlertGrain.OpenForDevice(OpenDeviceAlert(Kind, DeviceId, Episode, SiteId, LotId?,
-OpenedAt))`; `IAlertGrain.Close` is accepted from the Device grain that opened such an Alert. The HTTP contract
-and the clients follow in Story 7.2. See
+OpenedAt, DeviceKind?, SilentSince?))`; `IAlertGrain.Close` is accepted from the Device grain that opened such
+an Alert. Story 7.2 adds the last two members, the Device's kind and when it was last heard, and carries them as
+nullable members through `AlertOpened`, `AlertSnapshot`, `SiteAlert` and `NotificationEntry`: they are journaled,
+so an event written before reads without them. See
 [`apps/cs/README.md`](../../apps/cs/README.md#silent-devices).

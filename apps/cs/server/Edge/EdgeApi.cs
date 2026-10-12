@@ -76,6 +76,8 @@ public sealed record RenameLotRequest(string? Name);
 /// <param name="Sensors">The newest Reading of each Sensor of the Node, converted; sent with <paramref name="Node"/>.</param>
 /// <param name="MoisturePercent">The soil moisture of the newest Reading in percent (a multiple of 5), sent only when that Reading was stored with a Calibration.</param>
 /// <param name="LowThresholdPercent">The effective low Threshold of that soil-moisture Sensor in percent, sent with <paramref name="MoisturePercent"/> when the Sensor has one.</param>
+/// <param name="SilentHubId">The silent Hub that relays the Lot's Node; sent only for an <c>unknown</c> Lot whose cause is <c>hub</c> (Story 7.2).</param>
+/// <param name="SilentSince">When the silent Node or Hub of an <c>unknown</c> Lot was last heard, ISO-8601 UTC; omitted when its Alert does not state it (Story 7.2).</param>
 public sealed record LotResponse(
     string Id,
     string Name,
@@ -89,7 +91,9 @@ public sealed record LotResponse(
     NodeStatusResponse? Node = null,
     IReadOnlyList<SensorReadingResponse>? Sensors = null,
     int? MoisturePercent = null,
-    int? LowThresholdPercent = null);
+    int? LowThresholdPercent = null,
+    string? SilentHubId = null,
+    string? SilentSince = null);
 
 /// <summary>
 /// A Lot's Node as Lot detail returns it.
@@ -161,7 +165,15 @@ public sealed record LotHistoryResponse(string Quantity, string Unit, IReadOnlyL
 /// The body of <c>GET /sites/{siteId}/lots</c>: the Site's live Lots in the Server's order.
 /// </summary>
 /// <param name="Lots">The Lots: status, then creation time, then Lot ID.</param>
-public sealed record LotListResponse(IReadOnlyList<LotResponse> Lots);
+/// <param name="SilentHubs">The Site's Hubs with an open <c>silent</c> Alert, by Device ID; omitted when none is silent (Story 7.2).</param>
+public sealed record LotListResponse(IReadOnlyList<LotResponse> Lots, IReadOnlyList<SilentHubResponse>? SilentHubs = null);
+
+/// <summary>
+/// A silent Hub in the body of <c>GET /sites/{siteId}/lots</c> (Story 7.2).
+/// </summary>
+/// <param name="DeviceId">The Hub's Device ID.</param>
+/// <param name="SilentSince">When its last heartbeat was accepted, or when it was enrolled if it never sent one, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>.</param>
+public sealed record SilentHubResponse(string DeviceId, string SilentSince);
 
 /// <summary>
 /// The body of <c>GET /enrolment-key</c>.
@@ -347,6 +359,9 @@ public sealed record DeviceResponse(string Id, string Kind, string SiteId, strin
 /// <param name="LotName">The name of the Lot a Node is on; omitted otherwise.</param>
 /// <param name="BatteryPercent">A Node's battery charge from its newest device report; omitted when unknown.</param>
 /// <param name="Charging">A Node's <c>charging</c> or <c>notCharging</c>; omitted when unknown.</param>
+/// <param name="SilentSince">When a silent Device was last heard, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>; sent exactly while its <c>silent</c> Alert is open (Story 7.2).</param>
+/// <param name="SilenceWindowSeconds">The Silence Window in force in seconds: the Device's own, else the default of its kind.</param>
+/// <param name="SilenceWindowOverridden">Whether the Device has its own Silence Window.</param>
 public sealed record DeviceListItemResponse(
     string Id,
     string Kind,
@@ -355,7 +370,24 @@ public sealed record DeviceListItemResponse(
     string? LastSeenAt = null,
     string? LotName = null,
     int? BatteryPercent = null,
-    string? Charging = null);
+    string? Charging = null,
+    string? SilentSince = null,
+    long? SilenceWindowSeconds = null,
+    bool? SilenceWindowOverridden = null);
+
+/// <summary>
+/// The body of <c>PUT /sites/{siteId}/devices/{deviceId}/silence-window</c> (Story 7.2). The member is read as
+/// raw JSON, so that a fraction or a string is told from a missing value.
+/// </summary>
+/// <param name="WindowSeconds">The Device's own Silence Window in whole seconds; omitted to return to the default of its kind.</param>
+public sealed record SetSilenceWindowRequest(JsonElement? WindowSeconds = null);
+
+/// <summary>
+/// The Silence Window in force for a Device (Story 7.2).
+/// </summary>
+/// <param name="WindowSeconds">The window in seconds: the Device's own, else the default of its kind.</param>
+/// <param name="Overridden">Whether the Device has its own Silence Window.</param>
+public sealed record SilenceWindowResponse(long WindowSeconds, bool Overridden);
 
 /// <summary>
 /// The body of <c>GET /sites/{siteId}/devices</c>: every enrolled Device of the Site.
@@ -367,7 +399,7 @@ public sealed record DeviceListResponse(IReadOnlyList<DeviceListItemResponse> De
 /// An Alert in the body of <c>GET /sites/{siteId}/alerts</c>. It carries no value and no Threshold.
 /// </summary>
 /// <param name="Id">The Alert ID.</param>
-/// <param name="Kind">The contract's <c>AlertKind</c>; only <c>threshold</c> is produced.</param>
+/// <param name="Kind">The contract's <c>AlertKind</c>; always <c>threshold</c> here, a Health Alert is a <see cref="HealthAlertResponse"/>.</param>
 /// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>.</param>
 /// <param name="LotId">The Lot the Alert was opened for.</param>
 /// <param name="LotName">The current name of that Lot.</param>
@@ -391,10 +423,40 @@ public sealed record AlertResponse(
 /// <summary>
 /// The body of <c>GET /sites/{siteId}/alerts</c>: a page of the Site's Alerts.
 /// </summary>
-/// <param name="Alerts">Open Alerts newest first, then the Alerts closed in the last 7 days newest first.</param>
-/// <param name="OpenCount">Every open Alert of the Site, whatever the page.</param>
-/// <param name="NextCursor">Opaque; present only when more Alerts follow.</param>
-public sealed record AlertListResponse(IReadOnlyList<AlertResponse> Alerts, int OpenCount, string? NextCursor = null);
+/// <param name="Alerts">Threshold Alerts: open ones newest first, then those closed in the last 7 days newest first.</param>
+/// <param name="OpenCount">Every open Alert of the Site, Threshold and Health, whatever the page.</param>
+/// <param name="NextCursor">Opaque; present only when more Threshold Alerts follow.</param>
+/// <param name="HealthAlerts">The Site's Health Alerts in the same order, not paged; sent with the first page only (Story 7.2).</param>
+public sealed record AlertListResponse(
+    IReadOnlyList<AlertResponse> Alerts,
+    int OpenCount,
+    string? NextCursor = null,
+    IReadOnlyList<HealthAlertResponse>? HealthAlerts = null);
+
+/// <summary>
+/// A Health Alert in the body of <c>GET /sites/{siteId}/alerts</c> (Story 7.2): an Alert about a Device.
+/// </summary>
+/// <param name="Id">The Alert ID.</param>
+/// <param name="Kind">The contract's <c>AlertKind</c>, such as <c>silent</c>; never <c>threshold</c>.</param>
+/// <param name="DeviceId">The Device the Alert is about.</param>
+/// <param name="DeviceKind"><c>hub</c> or <c>node</c>.</param>
+/// <param name="OpenedAt">When the Alert opened, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>.</param>
+/// <param name="LotId">The Lot the Alert was opened for; omitted for a Hub and for a Node on no Lot.</param>
+/// <param name="LotName">The current name of that Lot; sent exactly when <paramref name="LotId"/> is.</param>
+/// <param name="SilentSince">When a silent Device was last heard; omitted when the Alert does not state it.</param>
+/// <param name="ClosedAt">When the Alert closed; omitted while it is open.</param>
+/// <param name="Reason">Why the Alert closed; omitted while it is open.</param>
+public sealed record HealthAlertResponse(
+    string Id,
+    string Kind,
+    string DeviceId,
+    string DeviceKind,
+    string OpenedAt,
+    string? LotId = null,
+    string? LotName = null,
+    string? SilentSince = null,
+    string? ClosedAt = null,
+    string? Reason = null);
 
 /// <summary>
 /// The body of <c>POST /device/heartbeat</c>'s 200.
@@ -523,6 +585,10 @@ public static partial class EdgeApi
 
         endpoints.MapPost("/sites/{siteId}/devices/{deviceId}/unassign", UnassignDeviceAsync)
             .WithName("unassignDevice")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapPut("/sites/{siteId}/devices/{deviceId}/silence-window", SetDeviceSilenceWindowAsync)
+            .WithName("setDeviceSilenceWindow")
             .RequireSiteRole(SiteRole.Administrator);
 
         endpoints.MapPost("/sites/{siteId}/sensors/{sensorId}/calibration", CalibrateSensorAsync)
@@ -1010,10 +1076,41 @@ public static partial class EdgeApi
         var page = await alerts.ListAlertsAsync(canonical, closedSince, after, limit, httpContext.RequestAborted).ConfigureAwait(false);
         var openCount = await alerts.CountOpenAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
 
+        // Health Alerts are not paged (Story 7.2): they travel with the first page only.
+        var health = after is null
+            ? await alerts.ListHealthAlertsAsync(canonical, closedSince, httpContext.RequestAborted).ConfigureAwait(false)
+            : null;
+
         return TypedResults.Ok(new AlertListResponse(
             [.. page.Alerts.Select(ToAlert)],
             openCount,
-            page.Next is { } next ? AlertsReadModel.EncodeCursor(next) : null));
+            page.Next is { } next ? AlertsReadModel.EncodeCursor(next) : null,
+            health is null ? null : [.. health.Select(ToHealthAlert)]));
+    }
+
+    /// <summary>
+    /// Maps a Health Alert of the read model to the list item (Story 7.2): the Lot, <c>silentSince</c>,
+    /// <c>closedAt</c> and <c>reason</c> only when present.
+    /// </summary>
+    /// <param name="view">The Health Alert as the alerts projection holds it.</param>
+    internal static HealthAlertResponse ToHealthAlert(HealthAlertView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        // lotId and lotName travel together: a Lot whose name cannot be read is not named at all.
+        var hasLot = view.LotId is not null && view.LotName is not null;
+
+        return new HealthAlertResponse(
+            view.AlertId.ToString("D"),
+            view.Kind,
+            view.DeviceId,
+            view.DeviceKind,
+            ToServerTime(view.OpenedAt),
+            hasLot ? view.LotId : null,
+            hasLot ? view.LotName : null,
+            view.SilentSince is { } silentSince ? ToServerTime(silentSince) : null,
+            view.ClosedAt is { } closedAt ? ToServerTime(closedAt) : null,
+            view.Reason);
     }
 
     /// <summary>
@@ -1059,8 +1156,11 @@ public static partial class EdgeApi
     {
         var canonical = SiteAccessHandler.Canonicalize(siteId)!;
         var views = await lots.ListLotsAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
+        var silentHubs = await lots.ListSilentHubsAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
 
-        return TypedResults.Ok(new LotListResponse(await WithLowThresholdsAsync(views, grains, httpContext.RequestAborted).ConfigureAwait(false)));
+        return TypedResults.Ok(new LotListResponse(
+            await WithLowThresholdsAsync(views, grains, httpContext.RequestAborted).ConfigureAwait(false),
+            silentHubs.Count == 0 ? null : [.. silentHubs.Select(hub => new SilentHubResponse(hub.DeviceId, ToServerTime(hub.SilentSince)))]));
     }
 
     private static async Task<IResult> CreateLotAsync(
@@ -1232,6 +1332,9 @@ public static partial class EdgeApi
     private const int DefaultAlertsLimit = 50;
 
     private const int MaxAlertsLimit = 200;
+
+    // Far beyond the longest Silence Window, and well within what a TimeSpan holds.
+    private const long MaxSilenceWindowSeconds = 366L * 24 * 60 * 60;
 
     private const int DefaultHistoryLimit = 31;
 
@@ -1746,7 +1849,9 @@ public static partial class EdgeApi
 
     /// <summary>
     /// Maps a Device of the read model to the list item: <c>online</c> from the Server clock
-    /// (<see cref="DeviceLiveness.IsOnline"/>), <c>lotId</c> and <c>lastSeenAt</c> only when present.
+    /// (<see cref="DeviceLiveness.IsOnline"/>), <c>lotId</c> and <c>lastSeenAt</c> only when present. Silence
+    /// (Story 7.2): <c>silentSince</c> only while the Device is silent, and the Silence Window in force, which is
+    /// the Device's own or the default of its kind (<see cref="SilenceRule"/>).
     /// </summary>
     /// <param name="view">The Device as the devices projection holds it.</param>
     /// <param name="now">The Server clock.</param>
@@ -1762,8 +1867,19 @@ public static partial class EdgeApi
             (view.Kind == "node" ? view.ReportedAt ?? view.LastSeenAt : view.LastSeenAt) is { } seen ? ToServerTime(seen) : null,
             view.LotName,
             view.BatteryPercent,
-            ToChargeState(view.Charging));
+            ToChargeState(view.Charging),
+            view.SilentSince is { } silentSince ? ToServerTime(silentSince) : null,
+            view.SilenceWindowOverrideSeconds ?? DefaultSilenceWindowSeconds(view.Kind),
+            view.SilenceWindowOverrideSeconds is not null);
     }
+
+    // The default of the Device's kind, in seconds; null for a kind this Server does not know, which then sends none.
+    private static long? DefaultSilenceWindowSeconds(string kind) => kind switch
+    {
+        "hub" => (long)SilenceRule.HubWindow.TotalSeconds,
+        "node" => (long)SilenceRule.NodeWindow.TotalSeconds,
+        _ => null,
+    };
 
     private static async Task<IResult> EnrolDeviceAsync(
         string siteId,
@@ -1941,6 +2057,93 @@ public static partial class EdgeApi
 
         return ToHttpResult(result);
     }
+
+    private static async Task<IResult> SetDeviceSilenceWindowAsync(
+        string siteId,
+        string deviceId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<SetSilenceWindowRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (request is null || !TryReadSilenceWindow(request.WindowSeconds, out var window))
+        {
+            return InvalidSilenceWindow();
+        }
+
+        if (EdgeValidation.NormalizeDeviceId(deviceId) is not { } id)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Device ID is not valid.",
+                "deviceId is 16 lowercase hex digits. Nothing changed.");
+        }
+
+        // The command, never IDeviceGrain.Silence(): that one evaluates and may open an Alert.
+        var result = await grains
+            .GetGrain<IDeviceGrain>(id.ToString())
+            .SetSilenceWindow(SiteAccessHandler.Canonicalize(siteId)!, window, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result, overridden: window is not null);
+    }
+
+    /// <summary>
+    /// Maps the Device grain's answer to a Silence Window change to the HTTP response (Story 7.2): 200 with the
+    /// window in force, also when nothing changed; 404 <c>device-not-found</c>; 400 <c>validation</c> for a
+    /// window outside 1 min to 30 days.
+    /// </summary>
+    /// <param name="result">The grain's answer.</param>
+    /// <param name="overridden">Whether the request named a window of the Device's own.</param>
+    internal static IResult ToHttpResult(DeviceSilenceWindowResult result, bool overridden)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result switch
+        {
+            { Outcome: DeviceSilenceWindowOutcome.Set or DeviceSilenceWindowOutcome.Unchanged, Window: { } window } =>
+                TypedResults.Ok(new SilenceWindowResponse((long)window.TotalSeconds, overridden)),
+            { Outcome: DeviceSilenceWindowOutcome.NotFound } => DeviceNotFound("Device"),
+            { Outcome: DeviceSilenceWindowOutcome.OutOfRange } => InvalidSilenceWindow(),
+            _ => throw new InvalidOperationException($"Unexpected Silence Window result {result.Outcome}."),
+        };
+    }
+
+    /// <summary>
+    /// Reads <c>windowSeconds</c> of a Silence Window request: absent (or JSON null) is "use the default"; a
+    /// whole number of seconds is the Device's own window. A fraction, a string or any other JSON is refused.
+    /// The range is the Device grain's to check (<see cref="SilenceRule.IsValid"/>), so a number that fits no
+    /// window is passed on and refused there, without a second copy of the bounds.
+    /// </summary>
+    /// <param name="value">The raw member.</param>
+    /// <param name="window">The window, or <see langword="null"/> for the default.</param>
+    internal static bool TryReadSilenceWindow(JsonElement? value, out TimeSpan? window)
+    {
+        window = null;
+
+        if (value is not { } element || element.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt64(out var seconds))
+        {
+            return false;
+        }
+
+        // Beyond what a TimeSpan holds is beyond 30 days too: any out-of-range window reads as one the grain refuses.
+        window = seconds is >= 0 and <= MaxSilenceWindowSeconds ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero;
+        return true;
+    }
+
+    private static IResult InvalidSilenceWindow() =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The Silence Window is not valid.",
+            "Send a JSON body with windowSeconds, a whole number from 60 (1 min) to 2592000 (30 days), or without it to use the default. Nothing changed.");
 
     /// <summary>
     /// Maps the Device grain's answer to a move or unassign to the HTTP response: 200 with the Node, 404
@@ -2298,7 +2501,9 @@ public static partial class EdgeApi
             view.UnknownCause,
             view.PausedBy is { Count: > 0 } ? view.PausedBy : null,
             view.PausedUntil is { } pausedUntil ? ToServerTime(pausedUntil) : null,
-            view.Removed ? true : null);
+            view.Removed ? true : null,
+            SilentHubId: view.SilentHubId,
+            SilentSince: view.SilentSince is { } silentSince ? ToServerTime(silentSince) : null);
     }
 
     private static string ToServerTime(DateTimeOffset time) =>
@@ -2338,8 +2543,9 @@ public static partial class EdgeApi
     private static IResult SiteNotFound() =>
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.SiteNotFound, "The Site does not exist.");
 
-    private static IResult DeviceNotFound() =>
-        EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.DeviceNotFound, "The Site has no such Node.");
+    // Moving and unassigning are about a Node; the Silence Window is a Hub's too, and says "Device".
+    private static IResult DeviceNotFound(string what = "Node") =>
+        EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.DeviceNotFound, $"The Site has no such {what}.");
 
     private static IResult SensorNotFound() =>
         EdgeProblems.Result(StatusCodes.Status404NotFound, EdgeProblems.SensorNotFound, "The Site has no such Sensor.");

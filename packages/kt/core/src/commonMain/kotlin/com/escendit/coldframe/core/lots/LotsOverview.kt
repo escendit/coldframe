@@ -1,5 +1,6 @@
 package com.escendit.coldframe.core.lots
 
+import com.escendit.coldframe.core.devices.DeviceName
 import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.sites.SiteMenu
 import com.escendit.coldframe.core.sites.SiteMenuItem
@@ -297,9 +298,10 @@ public enum class LotTileSpoken {
  * variant does not show is `null`, so a shell cannot show a value on a stale tile by accident.
  *
  * [soilPercent] is already rounded to 5 ([SoilMoisture]); [lowPercent] is the low Threshold as a
- * whole number. [durationSinceEpochMs] is what the silence is measured from: the last Reading
- * for a silent Node, `statusSince` for a silent Hub or a Lot without a Reading. [duration] is
- * that silence at the `now` the overview was built with. [opensAddNode] is the one tap target a
+ * whole number. [durationSinceEpochMs] is what the silence is measured from: the Server's
+ * `silentSince` (when the silent Node or Hub was last heard), and without it, as before Story 7.2,
+ * the last Reading for a silent Node and `statusSince` for a silent Hub or a Lot without a
+ * Reading. [duration] is that silence at the `now` the overview was built with, rounded down. [opensAddNode] is the one tap target a
  * tile has: a live *no Node* tile, for Administrators and Owners.
  */
 public data class LotTile(
@@ -466,7 +468,8 @@ public data class LotTile(
         ): LotTile {
             val hub = lot.unknownCause == LotUnknownCause.Hub
             val reading = lot.lastReadingAtEpochMs
-            val since = if (hub) lot.statusSinceEpochMs else reading ?: lot.statusSinceEpochMs
+            val since =
+                lot.silentSinceEpochMs ?: if (hub) lot.statusSinceEpochMs else reading ?: lot.statusSinceEpochMs
             val duration = since?.let { LotDuration.between(it, nowEpochMs) }
             // A percentage without the time it was read at is never shown.
             val soil = if (reading != null) lot.moisturePercent?.let(SoilMoisture::rounded) else null
@@ -509,13 +512,40 @@ public data class LotTile(
 }
 
 /**
+ * The notice above the tiles for one silent Hub (Story 7.2): "Hub ‹3F2A› silent for ‹12 min› — Lots
+ * behind it can't be read." [shortName] is the Hub's name in it and [duration] its silence at the
+ * `now` the overview was built with, rounded down. It cannot be dismissed, and it is announced
+ * politely when it appears, not on every minute tick.
+ */
+public data class HubNotice(
+    val deviceId: String,
+    val shortName: String,
+    val silentSinceEpochMs: Long,
+    val duration: LotDuration,
+) {
+    public companion object {
+        public fun of(
+            hub: SilentHub,
+            nowEpochMs: Long,
+        ): HubNotice =
+            HubNotice(
+                deviceId = hub.deviceId,
+                shortName = DeviceName.short(hub.deviceId),
+                silentSinceEpochMs = hub.silentSinceEpochMs,
+                duration = LotDuration.between(hub.silentSinceEpochMs, nowEpochMs),
+            )
+    }
+}
+
+/**
  * The Site overview of a [LotsState.Ready], built for one `now`. The shells build it again on
  * their minute tick, so [staleAge] and the tiles' durations move; nothing here is announced.
  *
  * In [stale] mode the stale header replaces the summary ([fetchedAtEpochMs] is "Last data ‹t›",
  * [staleAge] its age), every tile is [LotTileVariant.Stale] and every [menu] item is disabled
  * with "Needs your Server". [headline] and [counts] are still filled, for the shells that keep
- * them; they describe the last good data.
+ * them; they describe the last good data. [hubNotices] has one notice per silent Hub of the Site,
+ * in the Server's order, and none in stale mode: what is not live does not say "silent for".
  */
 public data class LotsOverview(
     val stale: Boolean,
@@ -526,6 +556,7 @@ public data class LotsOverview(
     val counts: List<LotCount>,
     val tiles: List<LotTile>,
     val menu: List<SiteMenuItem>,
+    val hubNotices: List<HubNotice> = emptyList(),
 ) {
     public companion object {
         public fun of(
@@ -546,6 +577,7 @@ public data class LotsOverview(
                         LotTile.of(it, ready.stale, ready.fetchedAtEpochMs, nowEpochMs, canAddNode, canCalibrate)
                     },
                 menu = ready.siteMenu(),
+                hubNotices = if (ready.stale) emptyList() else ready.silentHubs.map { HubNotice.of(it, nowEpochMs) },
             )
         }
     }

@@ -143,6 +143,17 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             HttpStatusCode.NotFound,
             DeviceNotFoundAsync);
 
+        // The Silence Window of a Device no Site has enrolled (Story 7.2): 404 device-not-found for an allowed
+        // caller, as for a move.
+        _samples["PUT /sites/{siteId}/devices/{deviceId}/silence-window"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PutAsJsonAsync(
+                    new Uri($"/sites/{siteId}/devices/{UnknownNodeId()}/silence-window", UriKind.Relative),
+                    new { windowSeconds = 28800 },
+                    cancellationToken),
+            HttpStatusCode.NotFound,
+            DeviceNotFoundAsync);
+
         // A Sensor no Site has declared: an allowed caller passes the access rule and meets 404 sensor-not-found,
         // which tells it apart from the 403 of a caller below Administrator and the 404 of a missing Site.
         _samples["POST /sites/{siteId}/sensors/{sensorId}/calibration"] = new(

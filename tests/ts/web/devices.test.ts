@@ -2,12 +2,28 @@ import { isRedirect } from '@sveltejs/kit';
 import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import DevicesPage from '../../../apps/ts/web/src/routes/(app)/devices/+page.svelte';
-import { devicesAccessOf, devicesNoticeOf, hubsOf, lastSeenText, lotChoicesOf, nodesOf, statusOf, type DeviceListItem, type DevicesNotice } from '$lib/devices';
+import {
+  deviceRowId,
+  devicesAccessOf,
+  devicesNoticeOf,
+  hubsOf,
+  lastSeenText,
+  lotChoicesOf,
+  nodesOf,
+  silenceWindowParts,
+  silenceWindowSeconds,
+  silenceWindowText,
+  silentText,
+  statusOf,
+  type DeviceListItem,
+  type DevicesNotice,
+} from '$lib/devices';
 import type { Lot } from '$lib/lots';
-import { deviceAction, listDevices, loadDevices, moveDevice, unassignDevice } from '$lib/server/devices';
+import { deviceAction, listDevices, loadDevices, moveDevice, setSilenceWindow, silenceWindowAction, unassignDevice } from '$lib/server/devices';
 import type { Role } from '$lib/roles';
 import type { Site } from '$lib/sites';
 import { FakeCookies, fakeServer, fetchFailed, jsonResponse, problemResponse } from './fakes.ts';
+import { read, webSrc } from './helpers.ts';
 
 const serverUrl = new URL('https://server.example');
 const locals = { session: { identity: { authenticated: true, accessTokenRaw: 'access-token-1', idToken: { name: 'Simon Novak' } } } };
@@ -139,9 +155,9 @@ describe('Devices rows', () => {
   });
 
   test('UX-DR84 UX-DR85 the mobile app notice is for Owners and Administrators only', () => {
-    expect(devicesAccessOf('Owner')).toEqual({ mobileAppNotice: true, canManageNodes: true });
-    expect(devicesAccessOf('Administrator')).toEqual({ mobileAppNotice: true, canManageNodes: true });
-    expect(devicesAccessOf('Member')).toEqual({ mobileAppNotice: false, canManageNodes: false });
+    expect(devicesAccessOf('Owner')).toEqual({ mobileAppNotice: true, canManageNodes: true, canSetSilenceWindow: true });
+    expect(devicesAccessOf('Administrator')).toEqual({ mobileAppNotice: true, canManageNodes: true, canSetSilenceWindow: true });
+    expect(devicesAccessOf('Member')).toEqual({ mobileAppNotice: false, canManageNodes: false, canSetSilenceWindow: false });
   });
 });
 
@@ -199,13 +215,16 @@ describe('Devices surface', () => {
     expect(body).not.toContain('cf-section-title');
   });
 
-  test('UX-DR85 an Owner or Administrator on the web gets the notice in place of Add actions, and no form, button or input', () => {
+  test('UX-DR85 an Owner or Administrator on the web gets the notice in place of Add actions; the only control of a Hub row is its Silence Window', () => {
     for (const role of ['Owner', 'Administrator'] as const) {
       for (const devices of [[], [online]]) {
         const body = page(role, devices);
         expect(text(body)).toContain('Adding a Hub or Node needs the Coldframe mobile app.');
         expect(body).toContain('id="cf-devices-web-notice"');
-        expect(body).not.toMatch(/<(?:form|button|input|select|textarea)\b/u);
+        // Story 7.2 gives every Device row the Silence Window action; nothing else is a control, and nothing adds a Device.
+        const withoutWindow = body.replace(/<details class="cf-devices__window[\s\S]*?<\/details>/gu, '');
+        expect(withoutWindow).not.toMatch(/<(?:form|button|input|select|textarea)\b/u);
+        expect(body.match(/<form\b/gu) ?? []).toHaveLength(devices.length);
         expect(body).not.toMatch(/<a\b/u);
         expect(text(body)).not.toMatch(/Add a (?:Hub|Node)/u);
       }
@@ -343,5 +362,181 @@ describe('Move or unassign a Node (UX-DR31)', () => {
     const body = page('Administrator', [assigned, unassignedNode], null, 'UTC', lots, { action: 'moveNode', deviceId: assigned.id, notice: 'lotClaimed' });
     expect(text(row(body, assigned.id))).toContain('That Lot already has a Node. Choose another Lot.');
     expect(text(row(body, unassignedNode.id))).not.toContain('That Lot already has a Node');
+  });
+});
+
+/** Story 7.2: silent rows and the Silence Window. The page's clock is 07:04 UTC. */
+const silentNode: DeviceListItem = {
+  id: '9c0d1e4b5a673f2a',
+  kind: 'node',
+  lotId: 'l1',
+  lotName: 'Beans',
+  online: false,
+  lastSeenAt: '2026-10-06T01:00:00.000Z',
+  silentSince: '2026-10-06T01:00:00.000Z',
+  silenceWindowSeconds: 28_800,
+  silenceWindowOverridden: true,
+};
+const silentHub: DeviceListItem = { id: '3f2a9c0d1e4b5a67', kind: 'hub', online: false, lastSeenAt: '2026-10-06T06:52:00.000Z', silentSince: '2026-10-06T06:52:00.000Z', silenceWindowSeconds: 300, silenceWindowOverridden: false };
+const heardHub: DeviceListItem = { ...online, id: '1b00aa11bb22cc33', silenceWindowSeconds: 300, silenceWindowOverridden: false };
+
+describe('Silent Device rows (Story 7.2)', () => {
+  test('UX-DR30 UX-DR117 a silent row says "Silent 6 h": now minus silent-since, rounded down', () => {
+    expect(silentText(silentNode, now)).toBe('Silent 6 h');
+    expect(silentText(silentHub, now)).toBe('Silent 12 min');
+    expect(silentText({ silentSince: '2026-10-03T07:00:00.000Z' }, now)).toBe('Silent 3 d');
+    // Not silent: nothing. A silent-since that cannot be read is still a silent Device.
+    expect(silentText(online, now)).toBeNull();
+    expect(silentText({ silentSince: 'x' }, now)).toBe('Silent');
+  });
+
+  test('UX-DR30 a silent Hub and a silent Node show the help icon and the silence beside last seen; upper case is style only', () => {
+    const body = page('Member', [silentHub, silentNode, heardHub]);
+    expect(text(row(body, silentHub.id))).toBe('3f2a9c0d1e4b5a67 Offline Silent 12 min Last seen 6:52 AM');
+    expect(text(row(body, silentNode.id))).toBe('9c0d1e4b5a673f2a Beans Silent 6 h Last seen 1:00 AM —');
+    for (const id of [silentHub.id, silentNode.id]) {
+      expect(row(body, id)).toMatch(/<span class="cf-devices__silent[^"]*">[\s\S]*?data-icon="help"[\s\S]*?Silent/u);
+      expect(row(body, id)).toContain('data-silent="true"');
+    }
+    expect(body).not.toMatch(/SILENT/u);
+    expect(read(`${webSrc}/routes/(app)/devices/+page.svelte`)).toMatch(/\.cf-devices__silent \{[^}]*text-transform: uppercase/u);
+    // A Device that is heard has the row it had.
+    expect(text(row(body, heardHub.id))).toBe('1b00aa11bb22cc33 Online Last seen 7:03 AM');
+    expect(row(body, heardHub.id)).not.toContain('data-silent');
+    expect(row(body, heardHub.id)).not.toContain('cf-devices__silent');
+  });
+
+  test('UX-DR26 every row has the anchor a Health Alert links to', () => {
+    expect(deviceRowId(silentHub.id)).toBe('device-3f2a9c0d1e4b5a67');
+    const body = page('Member', [silentHub, silentNode]);
+    expect(row(body, silentHub.id)).toContain('id="device-3f2a9c0d1e4b5a67"');
+    expect(row(body, silentNode.id)).toContain('id="device-9c0d1e4b5a673f2a"');
+  });
+});
+
+describe('Silence Window (Story 7.2)', () => {
+  const formOf = (fields: Record<string, string>): Request => new Request('http://localhost/devices', { method: 'POST', body: new URLSearchParams(fields), headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+  const windowOf = (body: string, id: string): string => /<details class="cf-devices__window[\s\S]*?<\/details>/u.exec(row(body, id))?.[0] ?? '';
+
+  test('UX-DR84 a number with a unit is whole seconds from 1 min to 30 days; anything else is refused before it is sent', () => {
+    expect(silenceWindowSeconds('8', 'h')).toBe(28_800);
+    expect(silenceWindowSeconds('1', 'min')).toBe(60);
+    expect(silenceWindowSeconds(' 30 ', 'd')).toBe(2_592_000);
+    expect(silenceWindowSeconds('720', 'h')).toBe(2_592_000);
+    for (const [amount, unit] of [['0', 'min'], ['31', 'd'], ['721', 'h'], ['43201', 'min'], ['1.5', 'h'], ['-2', 'h'], ['', 'h'], ['six', 'h'], ['1e3', 'min'], ['6', 's'], ['6', '']] as const) {
+      expect(silenceWindowSeconds(amount, unit), `${amount} ${unit}`).toBeNull();
+    }
+  });
+
+  test('UX-DR84 the window in force reads in the largest unit that divides it', () => {
+    expect(silenceWindowText({ silenceWindowSeconds: 21_600 })).toBe('6 h');
+    expect(silenceWindowText({ silenceWindowSeconds: 300 })).toBe('5 min');
+    expect(silenceWindowText({ silenceWindowSeconds: 172_800 })).toBe('2 d');
+    expect(silenceWindowText({ silenceWindowSeconds: 5400 })).toBe('90 min');
+    expect(silenceWindowParts(28_800)).toEqual({ amount: 8, unit: 'h' });
+    // Whole seconds the form cannot express read as the nearest minute; a Server that sends none shows no value.
+    expect(silenceWindowText({ silenceWindowSeconds: 90 })).toBe('2 min');
+    expect(silenceWindowText({})).toBeNull();
+    expect(silenceWindowParts(0)).toBeNull();
+  });
+
+  test('UX-DR84 an Owner and an Administrator get the row action on Hubs and Nodes: the value in force, a number, a unit and Save', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      const body = page(role, [silentHub, silentNode], null, 'UTC', lots);
+      const hubWindow = windowOf(body, silentHub.id);
+      expect(text(hubWindow)).toBe('Silence Window · 5 min Silence Window min h d From 1 min to 30 d. Without its own value a Node uses 6 h and a Hub 5 min. Save');
+      expect(hubWindow).toContain('action="?/setSilenceWindow"');
+      expect(hubWindow).toMatch(/<input[^>]*type="number"[^>]*name="amount"[^>]*value="5"/u);
+      expect(hubWindow).toMatch(/<option value="min" selected[^>]*>min<\/option>/u);
+      expect(hubWindow).toContain(`name="deviceId" value="${silentHub.id}"`);
+      // Use default only while the Device has its own window.
+      expect(text(hubWindow)).not.toContain('Use default');
+      const nodeWindow = windowOf(body, silentNode.id);
+      expect(text(nodeWindow)).toMatch(/^Silence Window · 8 h Silence Window min h d .* Save Use default$/u);
+      expect(nodeWindow).toMatch(/<input[^>]*name="amount"[^>]*value="8"/u);
+      expect(nodeWindow).toMatch(/<option value="h" selected[^>]*>h<\/option>/u);
+      expect(nodeWindow).toContain('name="useDefault"');
+      expect(hubWindow + nodeWindow).not.toMatch(/disabled/u);
+    }
+  });
+
+  test('UX-DR84 a Member sees the silence and last seen and no Silence Window control: hidden, never disabled', () => {
+    const body = page('Member', [silentHub, silentNode], null, 'UTC', lots);
+    expect(text(row(body, silentHub.id))).toBe('3f2a9c0d1e4b5a67 Offline Silent 12 min Last seen 6:52 AM');
+    expect(text(body)).not.toContain('Silence Window');
+    expect(body).not.toContain('setSilenceWindow');
+    expect(body).not.toMatch(/<(?:form|button|input|select|textarea|dialog|details|a)\b/u);
+    expect(body).not.toMatch(/disabled/u);
+  });
+
+  test('UX-DR84 setSilenceWindow puts the seconds, or an empty body for the default, with the token', async () => {
+    const fake = fakeServer((request) => jsonResponse(200, request.headers.get('content-length') === '2' ? { windowSeconds: 21_600, overridden: false } : { windowSeconds: 28_800, overridden: true }));
+    expect(await setSilenceWindow(locals, siteId, silentNode.id, 28_800, { serverUrl, fetch: fake.fetch })).toEqual({ ok: { windowSeconds: 28_800, overridden: true } });
+    await setSilenceWindow(locals, siteId, silentNode.id, null, { serverUrl, fetch: fake.fetch });
+    expect(fake.seen).toEqual([
+      { method: 'PUT', path: `/sites/${siteId}/devices/${silentNode.id}/silence-window`, authorization: 'Bearer access-token-1', key: null, body: '{"windowSeconds":28800}' },
+      { method: 'PUT', path: `/sites/${siteId}/devices/${silentNode.id}/silence-window`, authorization: 'Bearer access-token-1', key: null, body: '{}' },
+    ]);
+  });
+
+  test('UX-DR84 the action saves a valid value and returns to the default', async () => {
+    const fake = fakeServer(() => jsonResponse(200, { windowSeconds: 28_800, overridden: true }));
+    const dependencies = { serverUrl, fetch: fake.fetch };
+    expect(await silenceWindowAction(locals, formOf({ siteId, deviceId: silentNode.id, amount: '8', unit: 'h' }), dependencies)).toEqual({ action: 'setSilenceWindow', deviceId: silentNode.id, done: true });
+    expect(await silenceWindowAction(locals, formOf({ siteId, deviceId: silentNode.id, useDefault: '1' }), dependencies)).toEqual({ action: 'setSilenceWindow', deviceId: silentNode.id, done: true });
+    expect(fake.seen.map((request) => request.body)).toEqual(['{"windowSeconds":28800}', '{}']);
+  });
+
+  test('UX-DR84 an out-of-range value is refused before the Server is asked, and the form gets what was entered back', async () => {
+    const fake = fakeServer(() => jsonResponse(200, { windowSeconds: 60, overridden: true }));
+    for (const [amount, unit] of [['0', 'min'], ['31', 'd'], ['90.5', 'min'], ['abc', 'h']] as const) {
+      const result = (await silenceWindowAction(locals, formOf({ siteId, deviceId: silentNode.id, amount, unit }), { serverUrl, fetch: fake.fetch })) as { status: number; data: unknown };
+      expect(result.status).toBe(400);
+      expect(result.data).toEqual({ action: 'setSilenceWindow', deviceId: silentNode.id, notice: 'range', amount, unit });
+    }
+    expect(fake.seen).toEqual([]);
+  });
+
+  test('UX-DR84 the Server\'s refusals become the notice of that Device; a 401 signs out', async () => {
+    const fields = { siteId, deviceId: silentNode.id, amount: '8', unit: 'h' };
+    const refusals: [number, string, number][] = [
+      [403, 'forbidden', 403],
+      [404, 'notFound', 404],
+      [400, 'range', 400],
+      [500, 'unexpected', 502],
+    ];
+    for (const [status, notice, failureStatus] of refusals) {
+      const fake = fakeServer(() => problemResponse(status, 'x'));
+      const result = (await silenceWindowAction(locals, formOf(fields), { serverUrl, fetch: fake.fetch })) as { status: number; data: unknown };
+      expect(result.status).toBe(failureStatus);
+      expect(result.data).toEqual({ action: 'setSilenceWindow', deviceId: silentNode.id, notice, amount: '8', unit: 'h' });
+    }
+    const unreachable = (await silenceWindowAction(locals, formOf(fields), { serverUrl, fetch: () => Promise.reject(fetchFailed('ECONNREFUSED')) })) as { data: { notice: string } };
+    expect(unreachable.data.notice).toBe('unreachable');
+    const expired = await redirectOf(() => silenceWindowAction(locals, formOf(fields), { serverUrl, fetch: fakeServer(() => problemResponse(401, 'unauthorized')).fetch }));
+    expect(expired.location).toContain('/.oidc/signout');
+  });
+
+  test('UX-DR84 a refused range shows the range under the field, with what was entered, in the open form', () => {
+    const body = page('Administrator', [silentHub, silentNode], null, 'UTC', lots, { action: 'setSilenceWindow', deviceId: silentNode.id, notice: 'range', amount: '31', unit: 'd' });
+    const nodeWindow = windowOf(body, silentNode.id);
+    expect(nodeWindow).toMatch(/^<details class="cf-devices__window[^"]*" open/u);
+    expect(text(nodeWindow)).toContain('Enter a whole number from 1 min to 30 d.');
+    expect(nodeWindow).toMatch(/<input[^>]*name="amount"[^>]*value="31"[^>]*aria-invalid="true"/u);
+    expect(nodeWindow).toMatch(/<option value="d" selected[^>]*>d<\/option>/u);
+    expect(row(body, silentNode.id)).not.toContain('cf-inline-notice');
+    // The other row is as it was.
+    expect(text(windowOf(body, silentHub.id))).not.toContain('Enter a whole number');
+    expect(windowOf(body, silentHub.id)).not.toMatch(/^<details[^>]* open/u);
+  });
+
+  test('UX-DR84 a 403 after the Role changed shows "You can\'t change this on ‹Site›" beside that Device only', () => {
+    const failure = { action: 'setSilenceWindow', deviceId: silentHub.id, notice: 'forbidden', amount: '10', unit: 'min' };
+    const body = page('Administrator', [silentHub, silentNode], null, 'UTC', lots, failure);
+    expect(row(body, silentHub.id)).toContain('id="cf-hub-3f2a9c0d1e4b5a67-notice"');
+    expect(text(row(body, silentHub.id))).toContain("You can't change this on Home. Ask an Owner or Administrator.");
+    expect(text(row(body, silentNode.id))).not.toContain("You can't change this");
+    const gone = page('Owner', [silentHub, silentNode], null, 'UTC', lots, { action: 'setSilenceWindow', deviceId: silentNode.id, notice: 'notFound' });
+    expect(text(row(gone, silentNode.id))).toContain('That Device is gone. Reload the page.');
   });
 });

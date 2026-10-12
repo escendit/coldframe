@@ -180,8 +180,8 @@ test.describe('Live updates through the web origin', () => {
     await expect(page.getByRole('link', { name: /^Tomatoes, OK/u })).toBeVisible();
     const before = (await serverSites()).lotReads;
 
-    // Devices are not on the overview, and Alerts are: only the second reads again.
-    expect(await sendLive('readmodel.changed', { resource: 'devices', id: '7c19000000000001', version: 11 })).toBe(1);
+    // A resource no page shows is dropped. (Since Story 7.2 a `devices` hint does concern the overview: `silence.spec.ts`.)
+    expect(await sendLive('readmodel.changed', { resource: 'members', id: '7c19000000000001', version: 11 })).toBe(1);
     await patchLot(tomatoesId, { status: 'needsWater', moisturePercent: 20 });
     await page.waitForTimeout(500);
     expect((await serverSites()).lotReads).toBe(before);

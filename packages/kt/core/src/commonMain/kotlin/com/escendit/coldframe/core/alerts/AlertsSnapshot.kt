@@ -12,9 +12,19 @@ package com.escendit.coldframe.core.alerts
  * [alertEyebrows] (`needsWater`, `belowLow`, `aboveHigh` or `health`), [alertIcons] (the Carbon icon
  * name: `rain-drop`, `arrow--down`, `arrow--up`, `help`, `battery--low` or `tools`),
  * [alertQuantities] (the contract's `SensorQuantity`, empty when this app does not know it),
- * [alertLotIds], [alertLotNames], [alertDeviceIds], [alertOpenedAt] (Unix milliseconds in decimal),
+ * [alertLotIds], [alertLotNames] (both empty for a Hub's Alert and for a Node on no Lot),
+ * [alertDeviceIds], [alertOpenedAt] (Unix milliseconds in decimal),
  * [alertClosedAt] (the same, empty while the Alert is open) and [alertTargets] (`lot` opens Lot
  * detail of the Alert's Lot, `devices` the Devices surface).
+ *
+ * The title of each row (Story 7.2), for the `now` the snapshot was taken at: [alertTitles] is
+ * `needsWater`, `tooWet`, `tooLow`, `tooHigh`, `nodeOnLotSilent`, `nodeSilent`, `hubSilent`,
+ * `battery`, `uncalibrated`, `healthOnLot` or `health`, with its
+ * parts: [alertLotNames] for the kinds that name a Lot, [alertDeviceNames] (the Device's short name,
+ * "3F2A", always filled) for `nodeSilent` and `hubSilent`, and for the three silent kinds the silence
+ * [alertDurationValues] with [alertDurationUnits] (`minutes`, `hours` or `days`). Both are empty
+ * when the title has no " for …": a closed row, or an Alert without a silent-since.
+ * [alertDeviceKinds] is `node`, `hub` or empty; [alertSilentSince] Unix milliseconds in decimal or empty.
  */
 public data class AlertsSnapshot(
     val surface: String,
@@ -37,10 +47,19 @@ public data class AlertsSnapshot(
     val alertOpenedAt: List<String> = emptyList(),
     val alertClosedAt: List<String> = emptyList(),
     val alertTargets: List<String> = emptyList(),
+    val alertTitles: List<String> = emptyList(),
+    val alertDeviceKinds: List<String> = emptyList(),
+    val alertDeviceNames: List<String> = emptyList(),
+    val alertSilentSince: List<String> = emptyList(),
+    val alertDurationValues: List<String> = emptyList(),
+    val alertDurationUnits: List<String> = emptyList(),
 )
 
-/** The snapshot of [state]. */
-public fun snapshotOf(state: AlertsState): AlertsSnapshot {
+/** The snapshot of [state], with the silence in the titles measured at [nowEpochMs]. */
+public fun snapshotOf(
+    state: AlertsState,
+    nowEpochMs: Long,
+): AlertsSnapshot {
     val surface =
         when (state) {
             AlertsState.Idle -> "idle"
@@ -51,6 +70,7 @@ public fun snapshotOf(state: AlertsState): AlertsSnapshot {
     val failed = state as? AlertsState.Failed
     val ready = state as? AlertsState.Ready
     val alerts = ready?.alerts.orEmpty()
+    val titles = alerts.map { it.title(nowEpochMs) }
     return AlertsSnapshot(
         surface = surface,
         notice = failed?.notice?.name?.replaceFirstChar { it.lowercase() },
@@ -66,11 +86,30 @@ public fun snapshotOf(state: AlertsState): AlertsSnapshot {
         alertEyebrows = alerts.map { it.eyebrow.key },
         alertIcons = alerts.map { it.icon.key },
         alertQuantities = alerts.map { it.quantity?.key.orEmpty() },
-        alertLotIds = alerts.map { it.lotId },
-        alertLotNames = alerts.map { it.lotName },
+        alertLotIds = alerts.map { it.lotId.orEmpty() },
+        alertLotNames = alerts.map { it.lotName.orEmpty() },
         alertDeviceIds = alerts.map { it.deviceId },
         alertOpenedAt = alerts.map { it.openedAtEpochMs.toString() },
         alertClosedAt = alerts.map { it.closedAtEpochMs?.toString().orEmpty() },
         alertTargets = alerts.map { it.target.key },
+        alertTitles = titles.map { it.kind.key },
+        alertDeviceKinds = alerts.map { it.deviceKind?.key.orEmpty() },
+        alertDeviceNames = alerts.map { it.deviceName },
+        alertSilentSince = alerts.map { it.silentSinceEpochMs?.toString().orEmpty() },
+        alertDurationValues =
+            titles.map {
+                it.duration
+                    ?.value
+                    ?.toString()
+                    .orEmpty()
+            },
+        alertDurationUnits =
+            titles.map {
+                it.duration
+                    ?.unit
+                    ?.name
+                    ?.lowercase()
+                    .orEmpty()
+            },
     )
 }

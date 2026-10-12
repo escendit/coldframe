@@ -9,7 +9,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isHeading
@@ -18,6 +21,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
@@ -30,6 +35,8 @@ import com.escendit.coldframe.core.devices.LotOption
 import com.escendit.coldframe.core.devices.NodeActionFailure
 import com.escendit.coldframe.core.devices.NodeActionNotice
 import com.escendit.coldframe.core.devices.NodeSummary
+import com.escendit.coldframe.core.devices.SilenceWindowFailure
+import com.escendit.coldframe.core.devices.SilenceWindowNotice
 import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.signin.SignInState
@@ -107,6 +114,7 @@ class DevicesScreenTest {
                         load = { calls += "load" },
                         moveNode = { node, lot -> calls += "move $node $lot" },
                         unassignNode = { calls += "unassign $it" },
+                        setSilenceWindow = { device, seconds -> calls += "window $device ${seconds ?: "default"}" },
                     ),
                 nodeSetupActions = NodeSetupActions(open = { calls += "openNode $it" }),
                 now = { now },
@@ -415,12 +423,25 @@ class DevicesScreenTest {
 
         val row = compose.onNodeWithText("7c19a1b2c3d4e5f6").fetchSemanticsNode()
         val labels = row.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label }
-        assertEquals(listOf("Move Node 7c19a1b2c3d4e5f6", "Unassign Node 7c19a1b2c3d4e5f6"), labels)
+        assertEquals(
+            listOf(
+                "Move Node 7c19a1b2c3d4e5f6",
+                "Unassign Node 7c19a1b2c3d4e5f6",
+                "Silence Window for Node 7c19a1b2c3d4e5f6",
+            ),
+            labels,
+        )
 
         val spare = compose.onNodeWithText("7c19000000000003").fetchSemanticsNode()
         assertEquals(
-            listOf("Move Node 7c19000000000003"),
+            listOf("Move Node 7c19000000000003", "Silence Window for Node 7c19000000000003"),
             spare.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label },
+        )
+        // A Hub row has the one action a Hub has.
+        val hub = compose.onNodeWithText("3f2a9c0d1e4b5a67").fetchSemanticsNode()
+        assertEquals(
+            listOf("Silence Window for Hub 3f2a9c0d1e4b5a67"),
+            hub.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label },
         )
     }
 
@@ -479,5 +500,199 @@ class DevicesScreenTest {
         )
 
         compose.onNodeWithText("That Lot already has a Node. Choose another Lot.").assertExists()
+    }
+
+    // Story 7.2: silent Devices and the Silence Window.
+
+    private val hubId = "3f2a9c0d1e4b5a67"
+    private val nodeId = "9c0d1e4b5a673f2a"
+
+    /** Hub 3F2A, last heard 12 min before [now], on the default window of a Hub. */
+    private val silentHub =
+        HubSummary(
+            hubId,
+            online = false,
+            lastSeenAtEpochMs = Instant.parse("2026-10-06T06:52:00Z").toEpochMilli(),
+            silentSinceEpochMs = Instant.parse("2026-10-06T06:52:00Z").toEpochMilli(),
+            silenceWindowSeconds = 300,
+        )
+
+    /** A Node on Beans, last heard 6 h 4 min before [now], with its own window of 8 h. */
+    private val silentNode =
+        NodeSummary(
+            nodeId,
+            "lot-b",
+            "Beans",
+            62,
+            false,
+            ChargeState.NotCharging,
+            Instant.parse("2026-10-06T01:00:00Z").toEpochMilli(),
+            silentSinceEpochMs = Instant.parse("2026-10-06T01:00:00Z").toEpochMilli(),
+            silenceWindowSeconds = 28_800,
+            silenceWindowOverridden = true,
+        )
+
+    private fun silence(
+        role: SiteRole,
+        failure: SilenceWindowFailure? = null,
+    ) = DevicesState.Ready(
+        homeSite(role),
+        listOf(silentHub),
+        listOf(silentNode, tomatoesNode),
+        silenceWindowFailure = failure,
+    )
+
+    private val inDialog = hasAnyAncestor(isDialog())
+
+    private fun dialogButton(label: String) = compose.onNode(hasText(label, ignoreCase = true).and(inDialog))
+
+    @Test
+    fun `UX-DR30 a silent Hub and a silent Node say Silent and for how long beside their last seen`() {
+        show(SiteRole.Member, silence(SiteRole.Member))
+
+        // Sentence case in the catalogue, upper case by style.
+        compose.onNodeWithText("SILENT 12 MIN").assertExists()
+        compose.onNodeWithText("SILENT 6 H").assertExists()
+        assertEquals(
+            listOf(
+                "3f2a9c0d1e4b5a67 Offline SILENT 12 MIN Last seen 6:52 AM Silence Window · 5 min",
+                "9c0d1e4b5a673f2a Beans SILENT 6 H Last seen 1:00 AM 62 % not charging Silence Window · 8 h",
+                "7c19a1b2c3d4e5f6 Tomatoes Last seen 7:02 AM 62 % charging",
+            ),
+            rows().map { it.replace('\u202F', ' ') },
+        )
+    }
+
+    @Test
+    fun `UX-DR30 a Device that is not silent is a row as before`() {
+        show(SiteRole.Owner, withNodes(tomatoesNode))
+
+        compose.onAllNodes(hasText("SILENT", substring = true)).assertCountEquals(0)
+        // No Silence Window from the Server: nothing is said about it, and the action still shows.
+        compose.onAllNodes(hasText("Silence Window ·", substring = true)).assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR84 a Member sees silence and last seen but no Silence Window control, hidden and not disabled`() {
+        show(SiteRole.Member, silence(SiteRole.Member))
+
+        compose.onNodeWithText("Silence Window · 8 h").assertExists()
+        compose.onAllNodesWithText("SILENCE WINDOW").assertCountEquals(0)
+        compose.onNodeWithContentDescription("Silence Window for Hub $hubId").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Silence Window for Node $nodeId").assertDoesNotExist()
+        // Nothing in the tab can be pressed: only the four tabs of the shell.
+        assertEquals(4, compose.allNodes().count { it.isClickable })
+        val row = compose.onNodeWithText(hubId).fetchSemanticsNode()
+        assertFalse(row.config.contains(androidx.compose.ui.semantics.SemanticsActions.CustomActions))
+    }
+
+    @Test
+    fun `UX-DR84 UX-DR31 an Administrator and an Owner get the Silence Window action on every Hub and Node`() {
+        for (role in listOf(SiteRole.Administrator, SiteRole.Owner)) {
+            assertTrue(DevicesState.canSetSilenceWindow(role))
+        }
+        show(SiteRole.Administrator, silence(SiteRole.Administrator))
+
+        compose.onAllNodesWithText("SILENCE WINDOW").assertCountEquals(3)
+        compose.onNodeWithContentDescription("Silence Window for Hub $hubId").assertExists()
+        compose.onNodeWithContentDescription("Silence Window for Node $nodeId").assertExists()
+        compose.onNodeWithContentDescription("Silence Window for Node 7c19a1b2c3d4e5f6").assertExists()
+    }
+
+    @Test
+    fun `UX-DR31 the Silence Window dialog shows the current value and Save sends whole seconds`() {
+        show(SiteRole.Administrator, silence(SiteRole.Administrator))
+
+        compose.onNodeWithContentDescription("Silence Window for Node $nodeId").performScrollTo().performClick()
+
+        compose.onNode(hasText("Silence Window for Node $nodeId").and(inDialog)).assertExists()
+        compose.onNode(hasText("Silence Window · 8 h").and(inDialog)).assertExists()
+        compose
+            .onNode(
+                hasText("From 1 min to 30 d. Without its own value a Node uses 6 h and a Hub 5 min.").and(inDialog),
+            ).assertExists()
+        // The field holds the number, the unit its unit.
+        compose.onNode(hasSetTextAction()).assertTextEquals("8")
+        dialogButton("h").assertIsSelected()
+
+        compose.onNode(hasSetTextAction()).performTextReplacement("12")
+        dialogButton("d").performClick()
+        dialogButton("d").assertIsSelected()
+        dialogButton("Save").performClick()
+
+        assertEquals(listOf("load", "window $nodeId 1036800"), calls)
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR31 a value outside 1 min to 30 days is refused in the dialog with the range, and nothing is sent`() {
+        show(SiteRole.Owner, silence(SiteRole.Owner))
+        compose.onNodeWithContentDescription("Silence Window for Hub $hubId").performClick()
+        compose.onNode(hasSetTextAction()).assertTextEquals("5")
+        dialogButton("min").assertIsSelected()
+
+        for (text in listOf("0", "90.5", "", "43201")) {
+            compose.onNode(hasSetTextAction()).performTextReplacement(text)
+            dialogButton("Save").performClick()
+
+            compose.onNode(hasText("Enter a whole number from 1 min to 30 d.").and(inDialog)).assertExists()
+        }
+        dialogButton("d").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("31")
+        dialogButton("Save").performClick()
+        compose.onNode(hasText("Enter a whole number from 1 min to 30 d.").and(inDialog)).assertExists()
+        assertEquals(listOf("load"), calls)
+
+        // Typing again takes the message away; the largest value is sent.
+        compose.onNode(hasSetTextAction()).performTextReplacement("30")
+        compose.onAllNodes(hasText("Enter a whole number from 1 min to 30 d.")).assertCountEquals(0)
+        dialogButton("Save").performClick()
+        assertEquals(listOf("load", "window $hubId 2592000"), calls)
+    }
+
+    @Test
+    fun `UX-DR31 Use default shows only for a Device with its own window and sends no value`() {
+        show(SiteRole.Administrator, silence(SiteRole.Administrator))
+
+        // The Hub follows the default of its kind: there is nothing to return to.
+        compose.onNodeWithContentDescription("Silence Window for Hub $hubId").performClick()
+        compose.onAllNodes(hasText("Use default", ignoreCase = true)).assertCountEquals(0)
+        dialogButton("Cancel").performClick()
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+        assertEquals(listOf("load"), calls)
+
+        compose.onNodeWithContentDescription("Silence Window for Node $nodeId").performScrollTo().performClick()
+        dialogButton("Use default").performClick()
+
+        assertEquals(listOf("load", "window $nodeId default"), calls)
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR84 a 403 on the Silence Window says You can't change this on the Site, under that Device`() {
+        show(
+            SiteRole.Administrator,
+            silence(SiteRole.Administrator, SilenceWindowFailure(hubId, SilenceWindowNotice.Forbidden)),
+        )
+
+        compose.onNodeWithText("You can't change this on Home garden. Ask an Owner or Administrator.").assertExists()
+    }
+
+    @Test
+    fun `UX-DR31 a Silence Window that was not saved says why under that Device`() {
+        val messages =
+            mapOf(
+                SilenceWindowNotice.OutOfRange to "Enter a whole number from 1 min to 30 d.",
+                SilenceWindowNotice.NotFound to "That Device is gone.",
+                SilenceWindowNotice.Unreachable to "Can't reach your Server.",
+                SilenceWindowNotice.Unexpected to "That didn't work. Try again.",
+            )
+        show(SiteRole.Owner, silence(SiteRole.Owner))
+        for ((notice, message) in messages) {
+            devices = silence(SiteRole.Owner, SilenceWindowFailure(nodeId, notice))
+            compose.waitForIdle()
+
+            compose.onNodeWithText(message).assertExists()
+        }
     }
 }
