@@ -16,8 +16,12 @@ const pending: Record<'polite' | 'assertive', string[]> = { polite: [], assertiv
 export function announce(message: string, priority: 'polite' | 'assertive' = 'polite'): void {
   announcements[priority] = '';
   const waiting = pending[priority];
-  waiting.push(message);
-  if (waiting.length > 1) {
+  const first = waiting.length === 0;
+  // The same message again before the region is filled is said once, not twice.
+  if (!waiting.includes(message)) {
+    waiting.push(message);
+  }
+  if (!first) {
     return;
   }
   setTimeout(() => {
