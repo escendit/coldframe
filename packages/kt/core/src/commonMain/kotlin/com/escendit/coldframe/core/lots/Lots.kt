@@ -58,8 +58,10 @@ public enum class LotPauseSource {
 
 /**
  * A live Lot of the current Site, as the Server reported it. Every field is the Server's; times
- * are epoch milliseconds. [unknownCause] comes only with [LotStatus.Unknown], [pausedBy] and
- * [pausedUntilEpochMs] only with [LotStatus.Paused]. [moisturePercent] and
+ * are epoch milliseconds. [unknownCause] comes only with [LotStatus.Unknown], and with it
+ * [silentSinceEpochMs] (when the silent Node or Hub was last heard; `null` when the Server did not
+ * record it) and, for a silent Hub, [silentHubId]. [pausedBy] and
+ * [pausedUntilEpochMs] come only with [LotStatus.Paused]. [moisturePercent] and
  * [lowThresholdPercent] are unrounded; [SoilMoisture] formats them. [node] and [sensors] are sent
  * only by the single-Lot read (Lot detail), never by the list.
  */
@@ -76,6 +78,18 @@ public data class LotSummary(
     val lowThresholdPercent: Double? = null,
     val node: NodeStatus? = null,
     val sensors: List<SensorReading> = emptyList(),
+    val silentHubId: String? = null,
+    val silentSinceEpochMs: Long? = null,
+)
+
+/**
+ * A Hub of the Site with an open silent Alert, as the Lots list names it (Story 7.2), whether or
+ * not a Lot is behind it. [silentSinceEpochMs] is its last accepted heartbeat, or its enrolment if
+ * it never sent one.
+ */
+public data class SilentHub(
+    val deviceId: String,
+    val silentSinceEpochMs: Long,
 )
 
 /**
@@ -244,7 +258,9 @@ public sealed interface LotsState {
      *
      * [fetchedAtEpochMs] is the time of the last successful refresh ("as of", "Last data").
      * [staleReason] is set while the Lots are not live; [refreshing] while a read is on its way
-     * over the shown Lots. [reminderCadence] is the Site's Reminder cadence.
+     * over the shown Lots. [reminderCadence] is the Site's Reminder cadence. [silentHubs] are the
+     * Site's silent Hubs by Device ID, as the last successful read listed them; Lots shown from this
+     * device on a cold start come with none.
      */
     public data class Ready(
         val site: SiteSummary,
@@ -258,6 +274,7 @@ public sealed interface LotsState {
         val staleReason: StaleReason? = null,
         val refreshing: Boolean = false,
         val reminderCadence: SiteReminderCadence = SiteReminderCadence(null),
+        val silentHubs: List<SilentHub> = emptyList(),
     ) : LotsState {
         val settings: SiteSettings get() = SiteSettings.of(site.role)
         val siteId: String get() = site.id

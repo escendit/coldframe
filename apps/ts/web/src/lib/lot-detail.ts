@@ -6,7 +6,7 @@
  */
 import type { Lot, LotHistory, NodeStatus, SensorQuantity, SensorReading } from '@coldframe/api-client';
 import { t, type MessageKey } from '$lib/i18n';
-import { formatDay, formatNumber, formatPercent, formatWhen } from '$lib/i18n/format';
+import { formatDay, formatNumber, formatPercent, formatWhen, shortDeviceId } from '$lib/i18n/format';
 import { formatSoil, lotTile, statusOf, type TileContext, type TileIcon, type TileVariant } from '$lib/lot-tiles';
 
 export type { LotHistory, NodeStatus, SensorQuantity, SensorReading } from '@coldframe/api-client';
@@ -135,8 +135,6 @@ export interface LotHero {
 export interface HeroContext extends TileContext {
   /** The caller may change the Site (Admin+): the paused-by-Site hint then says how to resume. */
   readonly admin: boolean;
-  /** The Hub the Server names for a Hub-silent Lot, when one is known. */
-  readonly hubId: string | null;
 }
 
 function notesOf(lot: Lot, context: HeroContext): readonly string[] {
@@ -144,7 +142,11 @@ function notesOf(lot: Lot, context: HeroContext): readonly string[] {
     case 'needsCalibration':
       return [t('lotDetail.noPercent')];
     case 'unknown':
-      return [lot.unknownCause === 'hub' ? (context.hubId === null ? t('lotDetail.hubSilentNoId') : t('lotDetail.hubSilent', { hubId: context.hubId })) : t('lotDetail.nodeSilent')];
+      if (lot.unknownCause !== 'hub') {
+        return [t('lotDetail.nodeSilent')];
+      }
+      // The Server names the silent Hub (`silentHubId`, Story 7.2); without it the copy has no ID.
+      return [lot.silentHubId === undefined ? t('lotDetail.hubSilentNoId') : t('lotDetail.hubSilent', { hubId: shortDeviceId(lot.silentHubId) })];
     case 'paused': {
       const notes: string[] = [];
       const until = lot.pausedUntil === undefined ? null : new Date(lot.pausedUntil);

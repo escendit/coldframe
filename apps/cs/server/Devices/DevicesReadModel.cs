@@ -13,6 +13,8 @@ namespace Coldframe.Server.Devices;
 /// <param name="BatteryPercent">A Node's battery charge in its newest device report, or <see langword="null"/> when unknown.</param>
 /// <param name="Charging">A Node's stored charger token in its newest device report (<c>charging</c>, <c>not_charging</c>, <c>unknown</c>), or <see langword="null"/> without a report.</param>
 /// <param name="ReportedAt">When a Node's newest device report was taken, or <see langword="null"/> without one.</param>
+/// <param name="SilentSince">When a silent Device was last heard (Story 7.2), or <see langword="null"/> while it has no open <c>silent</c> Alert.</param>
+/// <param name="SilenceWindowOverrideSeconds">The Device's own Silence Window in seconds, or <see langword="null"/> while the default of its kind is in force.</param>
 public sealed record DeviceView(
     string DeviceId,
     string Kind,
@@ -21,7 +23,9 @@ public sealed record DeviceView(
     string? LotName = null,
     short? BatteryPercent = null,
     string? Charging = null,
-    DateTimeOffset? ReportedAt = null);
+    DateTimeOffset? ReportedAt = null,
+    DateTimeOffset? SilentSince = null,
+    long? SilenceWindowOverrideSeconds = null);
 
 /// <summary>
 /// Reads the devices projection. Edge API handlers read Devices only from here; grains never read it.
@@ -30,7 +34,8 @@ public sealed class DevicesReadModel(NpgsqlDataSource dataSource)
 {
     private const string ListSql =
         """
-        SELECT d.device_id, d.kind, d.lot_id, d.last_seen_at, l.name, r.battery_percent, r.charging, r.measured_at
+        SELECT d.device_id, d.kind, d.lot_id, d.last_seen_at, l.name, r.battery_percent, r.charging, r.measured_at,
+               d.silent_since, d.silence_window_seconds
         FROM devices d
         LEFT JOIN lots l ON l.site_id = d.site_id AND l.lot_id = d.lot_id
         LEFT JOIN LATERAL (
@@ -89,7 +94,9 @@ public sealed class DevicesReadModel(NpgsqlDataSource dataSource)
                 await reader.IsDBNullAsync(4, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(4),
                 await reader.IsDBNullAsync(5, cancellationToken).ConfigureAwait(false) ? null : reader.GetInt16(5),
                 await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(6),
-                await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(7)));
+                await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(7),
+                await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+                await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetInt64(9)));
         }
 
         return devices;

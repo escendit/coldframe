@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Server.Edge;
 using Coldframe.Server.Journal;
 using Npgsql;
 using NpgsqlTypes;
@@ -24,8 +25,8 @@ public sealed class AlertsProjector : IProjector
     // The first event of an Alert stream. An open applied again, also after its close, keeps the row as it is.
     private const string OpenSql =
         """
-        INSERT INTO alerts (alert_id, site_id, lot_id, device_id, sensor_id, kind, side, quantity, opened_at)
-        VALUES (@alert_id, @site_id, @lot_id, @device_id, @sensor_id, @kind, @side, @quantity, @opened_at)
+        INSERT INTO alerts (alert_id, site_id, lot_id, device_id, sensor_id, kind, side, quantity, opened_at, device_kind, silent_since)
+        VALUES (@alert_id, @site_id, @lot_id, @device_id, @sensor_id, @kind, @side, @quantity, @opened_at, @device_kind, @silent_since)
         ON CONFLICT (alert_id) DO NOTHING
         """;
 
@@ -80,6 +81,14 @@ public sealed class AlertsProjector : IProjector
                     command.Parameters.AddWithValue("side", NpgsqlDbType.Text, (object?)AlertNames.Side(opened.Side) ?? DBNull.Value);
                     command.Parameters.AddWithValue("quantity", NpgsqlDbType.Text, (object?)opened.Quantity ?? DBNull.Value);
                     command.Parameters.AddWithValue("opened_at", opened.OpenedAt.ToUniversalTime());
+                    command.Parameters.AddWithValue(
+                        "device_kind",
+                        NpgsqlDbType.Text,
+                        opened.DeviceKind is { } deviceKind ? EdgeValidation.DeviceKindName(deviceKind) : DBNull.Value);
+                    command.Parameters.AddWithValue(
+                        "silent_since",
+                        NpgsqlDbType.TimestampTz,
+                        opened.SilentSince is { } silentSince ? silentSince.ToUniversalTime() : DBNull.Value);
 
                     // Only a row that is new is a change: an open applied again touches nothing.
                     if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)

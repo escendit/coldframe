@@ -124,10 +124,12 @@ test.describe('Devices', () => {
 
       await expect(page.locator('#cf-devices-web-notice')).toHaveText('Adding a Hub or Node needs the Coldframe mobile app.');
 
-      // UX-DR31: an Owner may move every Node and unassign the ones on a Lot; the Hubs have no actions.
+      // UX-DR31: an Owner may move every Node and unassign the ones on a Lot. A Hub's only action is its Silence Window (Story 7.2).
       await expect(nodes.nth(0).getByRole('button', { name: 'Unassign' })).toBeVisible();
       await expect(nodes.nth(2).getByRole('button', { name: 'Unassign' })).toHaveCount(0);
-      await expect(page.getByRole('list', { name: 'Hubs' }).locator('form, button, input, select, textarea, summary')).toHaveCount(0);
+      await expect(page.getByRole('list', { name: 'Hubs' }).locator('summary')).toHaveText(['Silence Window · 5 min', 'Silence Window · 5 min']);
+      await expect(page.getByRole('list', { name: 'Hubs' }).locator('details:not(.cf-devices__window), form:not([action="?/setSilenceWindow"])')).toHaveCount(0);
+      await expect(nodes.nth(0).locator('.cf-devices__window summary')).toHaveText('Silence Window · 6 h');
 
       await axeClean(page, `devices (${theme})`);
       await nothingClipped(page, `devices (${theme})`);

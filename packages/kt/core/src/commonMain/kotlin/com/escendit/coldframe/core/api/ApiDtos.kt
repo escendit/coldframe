@@ -36,7 +36,8 @@ public data class RenameRequestDto(
 /**
  * `Lot`: [status] is a `LotStatus` value computed by the Server (AD-14), with the fields that
  * support it. Timestamps are ISO-8601 UTC. [unknownCause] (`node` or `hub`) comes only with
- * `unknown`; [pausedBy] (`device`, `site`) and [pausedUntil] only with `paused`. The contract
+ * `unknown`, and with it [silentSince] (when the silent Device was last heard) and, for `hub`,
+ * [silentHubId]; [pausedBy] (`device`, `site`) and [pausedUntil] only with `paused`. The contract
  * requires [statusSince]; it is tolerated missing so that a Server one release behind still
  * lists its Lots. [removed] only on a removed Lot.
  */
@@ -49,6 +50,8 @@ public data class LotDto(
     val statusSince: String? = null,
     val lastReadingAt: String? = null,
     val unknownCause: String? = null,
+    val silentHubId: String? = null,
+    val silentSince: String? = null,
     val pausedBy: List<String>? = null,
     val pausedUntil: String? = null,
     val moisturePercent: Double? = null,
@@ -103,10 +106,21 @@ public data class LotHistoryDto(
     val nextCursor: String? = null,
 )
 
-/** `LotList`: the Site's live Lots in the Server's order. */
+/**
+ * `LotList`: the Site's live Lots in the Server's order. [silentHubs] are the Site's Hubs with an
+ * open silent Alert, by Device ID, whether or not a Lot is behind them; absent when none is.
+ */
 @Serializable
 public data class LotListDto(
     val lots: List<LotDto>,
+    val silentHubs: List<SilentHubDto>? = null,
+)
+
+/** `SilentHub`: a silent Hub and when its last heartbeat was accepted (its enrolment if it never sent one). */
+@Serializable
+public data class SilentHubDto(
+    val deviceId: String,
+    val silentSince: String,
 )
 
 /** `CreateLotRequest`: only the name. */
@@ -153,7 +167,9 @@ public data class MoveDeviceRequestDto(
 
 /**
  * `DeviceListItem`: a Device of the Site's Devices list. [online] is computed by the Server when
- * it answers; [lastSeenAt] is ISO-8601 UTC and absent until the first heartbeat.
+ * it answers; [lastSeenAt] is ISO-8601 UTC and absent until the first heartbeat. [silentSince] is
+ * present exactly while the Device has an open silent Alert; [silenceWindowSeconds] is the Silence
+ * Window in force and [silenceWindowOverridden] whether it is the Device's own.
  */
 @Serializable
 public data class DeviceListItemDto(
@@ -165,6 +181,22 @@ public data class DeviceListItemDto(
     val lotName: String? = null,
     val batteryPercent: Int? = null,
     val charging: String? = null,
+    val silentSince: String? = null,
+    val silenceWindowSeconds: Int? = null,
+    val silenceWindowOverridden: Boolean? = null,
+)
+
+/** `SetSilenceWindowRequest`: the Device's own Silence Window in whole seconds; left out means "use the default". */
+@Serializable
+public data class SetSilenceWindowRequestDto(
+    val windowSeconds: Int? = null,
+)
+
+/** `SilenceWindow`: the Silence Window in force for a Device, and whether it is the Device's own. */
+@Serializable
+public data class SilenceWindowDto(
+    val windowSeconds: Int,
+    val overridden: Boolean,
 )
 
 /** `DeviceList`: every enrolled Device of the Site: Hubs by Device ID, then Nodes by Lot name. */
@@ -283,14 +315,37 @@ public data class AlertDto(
 )
 
 /**
- * `AlertList`: a page of the Site's Alerts, open newest first, then closed newest first.
- * [openCount] is every open Alert of the Site whatever the page; [nextCursor] only when more follow.
+ * `HealthAlert`: an Alert about a Device, not about a Reading (Story 7.2). [kind] is the extensible
+ * `AlertKind`, never `threshold`; [deviceKind] is `hub` or `node` and is tolerated missing. [lotId]
+ * and [lotName] are absent for a Hub and for a Node on no Lot. [silentSince] is when a silent Device
+ * was last heard, absent for another kind and for an Alert opened before the Server recorded it.
+ */
+@Serializable
+public data class HealthAlertDto(
+    val id: String,
+    val kind: String,
+    val deviceId: String,
+    val openedAt: String,
+    val deviceKind: String? = null,
+    val lotId: String? = null,
+    val lotName: String? = null,
+    val silentSince: String? = null,
+    val closedAt: String? = null,
+    val reason: String? = null,
+)
+
+/**
+ * `AlertList`: a page of the Site's Threshold Alerts ([alerts]), open newest first, then closed newest
+ * first. [healthAlerts] are the Site's Health Alerts in the same order; they are not paged and come
+ * with the first page only. [openCount] is every open Alert of the Site, Threshold and Health,
+ * whatever the page; [nextCursor] only when more Threshold Alerts follow.
  */
 @Serializable
 public data class AlertListDto(
     val alerts: List<AlertDto>,
     val openCount: Int,
     val nextCursor: String? = null,
+    val healthAlerts: List<HealthAlertDto>? = null,
 )
 
 /** `NotificationWindow`: the daily Notification Window, `"HH:mm"` (24 h) wall-clock times in the User's time zone. */

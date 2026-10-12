@@ -12,7 +12,6 @@ import { isTimeZone } from './create-site';
 import { lotDetailKey, readThrough, recall, userKeyOf, type LastGoodDependencies } from './last-good';
 import { signedOutRedirect, timeZoneCookieName } from './shell';
 import { call, type SitesDependencies, type SitesError, type SitesResult } from './sites';
-import { listDevices } from './devices';
 import { getSensorThresholds } from './thresholds';
 
 type Locals = Pick<App.Locals, 'session'>;
@@ -21,8 +20,6 @@ type Locals = Pick<App.Locals, 'session'>;
 export interface LotDetail {
   readonly lot: Lot;
   readonly histories: Readonly<Partial<Record<SensorQuantity, LotHistory>>>;
-  /** The Hub a Hub-silent Lot names, when the Server lists one; otherwise null. */
-  readonly hubId: string | null;
   /** The Thresholds of the calibratable soil Sensor, for the chart band and the summary; null when it has none or they could not be read. */
   readonly thresholds: SensorThresholds | null;
 }
@@ -67,13 +64,8 @@ async function readDetail(locals: Locals, siteId: string, lotId: string, depende
     }
     histories[quantity] = answer.ok;
   }
-  let hubId: string | null = null;
-  if (lot.ok.status === 'unknown' && lot.ok.unknownCause === 'hub') {
-    const devices = await listDevices(locals, siteId, dependencies);
-    hubId = 'ok' in devices ? (devices.ok.find((device) => device.kind === 'hub')?.id ?? null) : null;
-  }
   const thresholds = thresholdsRead === null ? null : await thresholdsRead;
-  return { ok: { lot: lot.ok, histories, hubId, thresholds: thresholds !== null && 'ok' in thresholds ? thresholds.ok : null } };
+  return { ok: { lot: lot.ok, histories, thresholds: thresholds !== null && 'ok' in thresholds ? thresholds.ok : null } };
 }
 
 function noticeOf(error: SitesError): LotDetailNotice {

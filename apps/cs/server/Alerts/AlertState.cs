@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 
 namespace Coldframe.Server.Alerts;
 
@@ -90,6 +91,20 @@ public sealed class AlertState
     public bool CloseReported { get; private set; }
 
     /// <summary>
+    /// Whether a Device's Alert is about a Hub or a Node (Story 7.2); <see langword="null"/> for a Threshold Alert
+    /// and for an Alert opened before that story.
+    /// </summary>
+    [Id(13)]
+    public DeviceKind? DeviceKind { get; private set; }
+
+    /// <summary>
+    /// When a silent Device was last heard (Story 7.2); <see langword="null"/> for another kind and for an Alert
+    /// opened before that story.
+    /// </summary>
+    [Id(14)]
+    public DateTimeOffset? SilentSince { get; private set; }
+
+    /// <summary>
     /// Whether the Site grain still has to be told that the Alert opened or that it closed.
     /// </summary>
     public bool ReportPending => Lifecycle switch
@@ -118,6 +133,8 @@ public sealed class AlertState
         DeviceId = @event.DeviceId;
         Quantity = @event.Quantity;
         OpenedAt = @event.OpenedAt;
+        DeviceKind = @event.DeviceKind;
+        SilentSince = @event.SilentSince;
     }
 
     public void Apply(AlertClosed @event)

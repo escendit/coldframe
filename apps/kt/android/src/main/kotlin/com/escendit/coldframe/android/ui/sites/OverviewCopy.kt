@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalResources
 import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.format.Formats
+import com.escendit.coldframe.core.lots.HubNotice
 import com.escendit.coldframe.core.lots.LotCount
 import com.escendit.coldframe.core.lots.LotDuration
 import com.escendit.coldframe.core.lots.LotDurationUnit
@@ -373,6 +374,10 @@ class OverviewCopy(
             LotStatus.Paused -> R.string.lot_tile_spoken_was_paused
             LotStatus.NoNode -> R.string.lot_tile_spoken_was_no_node
         }
+
+    /** The notice of a silent Hub (UX-DR81): "Hub 3F2A silent for 12 min — Lots behind it can't be read." */
+    fun hubSilent(notice: HubNotice): String =
+        text(R.string.garden_hub_silent, notice.shortName, duration(notice.duration))
 
     /** "6 h": the unit is the core's choice. */
     private fun duration(duration: LotDuration): String =

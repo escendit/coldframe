@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
 
 namespace Coldframe.Contracts.Notifications;
@@ -38,6 +39,8 @@ public enum NotificationKind
 /// <param name="DeviceId">The Device ID of that Sensor's Node, or of the Device the Alert is about.</param>
 /// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>; <see langword="null"/> for a Device's Alert.</param>
 /// <param name="OpenedAt">When the Alert opened.</param>
+/// <param name="DeviceKind">Whether a Device's Alert is about a Hub or a Node (Story 7.2); <see langword="null"/> for a Threshold Alert and for an Alert tracked before that story.</param>
+/// <param name="SilentSince">When a silent Device was last heard (Story 7.2); <see langword="null"/> for another kind and for an Alert tracked before that story.</param>
 [GenerateSerializer]
 [Alias("coldframe.notification-entry")]
 public sealed record NotificationEntry(
@@ -48,7 +51,9 @@ public sealed record NotificationEntry(
     [property: Id(4)] Guid? SensorId,
     [property: Id(5)] string DeviceId,
     [property: Id(6)] string? Quantity,
-    [property: Id(7)] DateTimeOffset OpenedAt);
+    [property: Id(7)] DateTimeOffset OpenedAt,
+    [property: Id(8)] DeviceKind? DeviceKind = null,
+    [property: Id(9)] DateTimeOffset? SilentSince = null);
 
 /// <summary>
 /// The push provider of a device (Story 6.5).

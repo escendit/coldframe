@@ -744,3 +744,59 @@ source_spec: `spec-7-1-silent-device-alert-on-the-server.md`
 severity: low
 reason: With two silos, a restart of one moves the clock of every Device that activates on it although the other kept accepting frames. On one silo too, restarts more often than a Node's 6 h window (a crash loop, frequent deploys) mean a dead Node never alerts. This follows the intent's "last Server start" rule; a cluster-wide fact (restart the clock only when no silo was active) would close it.
 status: open
+
+### DW-97: In the Android and iOS apps, Save on the Silence Window closes the dialog although the core sent nothing because another Device change was under way.
+origin: code-review 7-2
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/devices/DevicesScreen.kt, packages/kt/core/src/iosMain/kotlin/com/escendit/coldframe/core/devices/IosDevices.kt, apps/swift/ios/Sources/ColdframeIOS/UI/DevicesViews.swift
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: The core refuses a second change while one is in flight and returns nothing, so the shell closes the dialog and the typed value is lost without a notice. The core could return whether it started the request, and the shells could disable every Silence Window action while any Device action is working.
+status: open
+
+### DW-98: On iOS, a Silence Window entry that is refused leaves the range error under the row after Cancel.
+origin: code-review 7-2
+location: packages/kt/core/src/iosMain/kotlin/com/escendit/coldframe/core/devices/IosDevices.kt, apps/swift/ios/Sources/ColdframeIOS/UI/DevicesViews.swift
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: The wrapper forwards an unparsable entry as 0, so the core stores an out-of-range failure that shows both in the sheet and under the row and stays after Cancel. The wrapper could return false without touching the core. Found by reading; not reproduced on a device.
+status: open
+
+### DW-99: A Silence Window that is not a whole number of minutes is shown rounded and rewritten by an unchanged Save.
+origin: code-review 7-2
+location: apps/ts/web/src/lib/devices.ts, packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/devices/Devices.kt, apps/cs/server/Edge/EdgeApi.cs
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: The endpoint accepts any whole number of seconds from 60 to 2592000, while every client offers minutes, hours and days. A window of 90 s set through the API shows as 2 min on the web and 1 min in the apps, and Save sends that. Accepting only multiples of 60 on the Server would close it.
+status: open
+
+### DW-100: A silence that was already open when Story 7.2 was deployed gets the time its Alert opened as its silent-since on the Devices list.
+origin: code-review 7-2
+location: apps/cs/server/Devices/DevicesProjector.cs, apps/cs/server/Lots/LotsReadModel.cs
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: Events journaled before this story carry no silent-since, so the projector falls back to the time the Alert opened, which is one Silence Window later than the last report. Until the Device reports again, the Devices row and the Hub notice count from a later moment than the Lot tile. The read model could fall back to the last report instead.
+status: open
+
+### DW-101: The migration of Story 7.2 replays the devices projection over live rows.
+origin: code-review 7-2
+location: apps/cs/migrations/Migrations/M20261012090000AddSilenceColumns.cs
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: The migration deletes the checkpoint and keeps the rows, so during the replay the rows step through historic values and each historic assign or unassign emits a live hint; the web can briefly show a Hub notice for a silence that ended long ago. A Server of the previous version still running at that moment would advance the new checkpoint without filling the new columns. Running the migration with the Server stopped avoids both.
+status: open
+
+### DW-102: The open count of Alerts can be higher than the number of Health Alerts the list shows.
+origin: code-review 7-2
+location: apps/cs/server/Alerts/AlertsReadModel.cs
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: The count takes every open Alert that is not a Threshold Alert; the Health list drops a row whose Device kind is unknown and stops at 200. It needs an Alert stored before this story for a Device that has no row in the devices table. The count could use the same condition.
+status: open
+
+### DW-103: On Android, the open Silence Window dialog and its typed value are lost on rotation.
+origin: code-review 7-2
+location: apps/kt/android/src/main/kotlin/com/escendit/coldframe/android/ui/devices/DevicesScreen.kt
+source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
+severity: low
+reason: The dialog state is a plain `remember` inside the Ready branch, so a configuration change or a pass through Loading drops it. `rememberSaveable` above the branch would keep it.
+status: open

@@ -42,6 +42,38 @@ public sealed class DeviceStateSilenceTests
         Assert.Null(state.SilenceWindowOverride);
     }
 
+    // Story 7.2: "silent since" is when the Device was last heard, which the clock start is not once a Server
+    // start or a relay Hub's recovery moved it.
+    [Fact]
+    public void ADeviceWasLastHeardAtItsLastReportOrElseAtItsEnrolmentWhateverRestartedItsClock()
+    {
+        var hub = Enrolled(DeviceKind.Hub);
+        var node = Enrolled(DeviceKind.Node);
+
+        Assert.Equal((T, T), (hub.LastHeardAt, node.LastHeardAt));
+        Assert.Null(new DeviceState().LastHeardAt);
+
+        hub.Apply(new DeviceSeen(T.AddMinutes(2), 2, null));
+        node.Apply(new DeviceReported(T.AddMinutes(15), T.AddMinutes(16)));
+        node.Apply(new DeviceSilenceClockRestarted(T.AddHours(5), SilenceClockRestartCause.ServerStarted, null, T.AddHours(5)));
+
+        Assert.Equal((T.AddMinutes(2), T.AddMinutes(15)), (hub.LastHeardAt, node.LastHeardAt));
+        Assert.Equal(T.AddHours(5), node.SilenceFrom);
+    }
+
+    [Fact]
+    public void TheOpenOfASilenceCarriesWhenTheDeviceWasLastHeardAndAnOlderEpisodeNone()
+    {
+        var stated = Enrolled(DeviceKind.Node);
+        var older = Enrolled(DeviceKind.Node);
+
+        stated.Apply(new DeviceSilenceStarted(1, AlertIds.Silent(NodeId, 1), SiteId, null, T.AddHours(6), T.AddHours(6), T));
+        older.Apply(new DeviceSilenceStarted(1, AlertIds.Silent(NodeId, 1), SiteId, null, T.AddHours(6), T.AddHours(6)));
+
+        Assert.Equal((DateTimeOffset?)T, Assert.Single(stated.PendingAlertDeliveries).SilentSince);
+        Assert.Null(Assert.Single(older.PendingAlertDeliveries).SilentSince);
+    }
+
     [Fact]
     public void AHubsClockRunsFromItsLastAcceptedHeartbeat()
     {

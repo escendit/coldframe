@@ -216,6 +216,23 @@ public class ColdframeApi(
             it.body<DeviceDto>()
         }
 
+    /**
+     * `PUT /sites/{siteId}/devices/{deviceId}/silence-window` (`setDeviceSilenceWindow`, Admin+): [windowSeconds]
+     * is the Device's own Silence Window; `null` leaves it out of the body, which returns the Device to the default.
+     */
+    override suspend fun setSilenceWindow(
+        siteId: String,
+        deviceId: String,
+        windowSeconds: Int?,
+    ): ApiResult<SilenceWindowDto> =
+        call({
+            http.put("$base/sites/${siteId.encoded()}/devices/${deviceId.encoded()}/silence-window") {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(SetSilenceWindowRequestDto(windowSeconds))
+            }
+        }) { it.body<SilenceWindowDto>() }
+
     /** `GET /sites/{siteId}/sensors/{sensorId}/calibration` (`getSensorCalibration`, Admin+). */
     override suspend fun getSensorCalibration(
         siteId: String,

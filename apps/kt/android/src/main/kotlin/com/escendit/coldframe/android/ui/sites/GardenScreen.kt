@@ -24,6 +24,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +54,7 @@ import com.escendit.coldframe.android.ui.notifications.PushActions
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
+import com.escendit.coldframe.core.lots.HubNotice
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsOverview
 import com.escendit.coldframe.core.lots.LotsState
@@ -92,6 +94,7 @@ import com.escendit.coldframe.core.sites.SiteMenu as SiteMenuModel
  *
  * Above the tiles the overview says what [push] asks for (Story 6.5): on the first landing the one line of why,
  * which leads to the OS prompt (UX-DR122), and while notifications are off the notice with Open Settings (UX-DR88).
+ * Below it, one notice per silent Hub of the Site (UX-DR81, Story 7.2), named by the core and announced once.
  *
  * [now] is the clock ages and durations are told against; [zone] is the phone's.
  */
@@ -153,7 +156,12 @@ fun GardenScreen(
         },
     ) {
         // Outside the scrolling content, so the region takes no room in it.
-        StaleAnnouncer(events = events, siteId = site.id, copy = copy)
+        StaleAnnouncer(
+            events = events,
+            siteId = site.id,
+            copy = copy,
+            hubNotices = overview?.hubNotices.orEmpty(),
+        )
         Column(
             modifier =
                 Modifier
@@ -192,6 +200,13 @@ fun GardenScreen(
                 )
             }
             OverviewPushNotice(push, pushActions)
+            // A silent Hub (UX-DR81): never dismissable, no action. Its duration moves with the minute
+            // tick, so the notice itself is no live region; StaleAnnouncer says it once.
+            overview?.hubNotices?.forEach { hub ->
+                key(hub.deviceId) {
+                    InlineNotice(message = copy.hubSilent(hub), announcement = Announcement.None)
+                }
+            }
             FirstRunTiles(steps, onAddHub = onAddHub)
             if (steps.memberNotice) {
                 InlineNotice(message = stringResource(R.string.garden_member_notice))
@@ -273,14 +288,21 @@ private fun RefreshBar(
  * before it is filled. Each event of this Site empties it and fills it on the next frame, so the
  * same words twice are still read. Nothing else writes to it: not the age tick, not a refresh
  * that changes nothing.
+ *
+ * The same region announces a silent Hub once (UX-DR81): when its notice appears in [hubNotices],
+ * with the words the notice has at that moment. The minute tick, which moves the duration in the
+ * notice, announces nothing, and neither does a refresh that still lists the Hub. A Hub that
+ * recovered and went silent again is announced again.
  */
 @Composable
 internal fun StaleAnnouncer(
     events: Flow<LotsEvent>,
     siteId: String,
     copy: OverviewCopy,
+    hubNotices: List<HubNotice> = emptyList(),
 ) {
     val words by rememberUpdatedState(copy)
+    val hubs by rememberUpdatedState(hubNotices)
     var shown by remember { mutableStateOf("") }
     LaunchedEffect(events, siteId) {
         shown = ""
@@ -293,6 +315,17 @@ internal fun StaleAnnouncer(
                     is LotsEvent.EnteredStale -> words.enteredStale(event.fetchedAtEpochMs)
                     is LotsEvent.LeftStale -> words.leftStale()
                 }
+        }
+    }
+    val silentIds = hubNotices.map { it.deviceId }
+    var announced by remember(siteId) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(siteId, silentIds) {
+        val fresh = hubs.filter { it.deviceId !in announced }
+        announced = silentIds.toSet()
+        if (fresh.isNotEmpty()) {
+            shown = ""
+            withFrameNanos { }
+            shown = fresh.joinToString(" ") { words.hubSilent(it) }
         }
     }
     Box(

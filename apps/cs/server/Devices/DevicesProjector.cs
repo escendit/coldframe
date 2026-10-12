@@ -2,6 +2,7 @@ using Coldframe.Contracts.Devices;
 using Coldframe.Server.Edge;
 using Coldframe.Server.Journal;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Coldframe.Server.Devices;
 
@@ -9,7 +10,9 @@ namespace Coldframe.Server.Devices;
 /// Projects the Device streams into <c>devices</c>, the read model of the Devices list. It is the only writer
 /// of that table. A row exists only for an enrolled Device: <c>device.enrolled</c> creates it,
 /// <c>device.assigned</c> and <c>device.moved</c> set its Lot, <c>device.unassigned</c> clears it and
-/// <c>device.seen</c> sets its last-seen time. The Site's roster (<c>site.device-registered</c>) never creates a row, since it can exist without an enrolment.
+/// <c>device.seen</c> sets its last-seen time. Silence (Story 7.2): <c>device.silence-started</c> sets
+/// <c>silent_since</c>, <c>device.silence-ended</c> clears it, and <c>device.silence-window-set</c> stores the
+/// Device's own Silence Window. The Site's roster (<c>site.device-registered</c>) never creates a row, since it can exist without an enrolment.
 /// </summary>
 public sealed class DevicesProjector : IProjector
 {
@@ -39,6 +42,30 @@ public sealed class DevicesProjector : IProjector
         """
         UPDATE devices SET last_seen_at = @seen_at
         WHERE device_id = @device_id AND (last_seen_at IS NULL OR last_seen_at < @seen_at)
+        RETURNING site_id
+        """;
+
+    // Silent since the Device was last heard. An episode journaled before Story 7.2 does not say when: it
+    // counts from the moment the silence was found. Applied again, the same time changes no row.
+    private const string SilenceStartedSql =
+        """
+        UPDATE devices SET silent_since = @silent_since
+        WHERE device_id = @device_id AND silent_since IS DISTINCT FROM @silent_since
+        RETURNING site_id
+        """;
+
+    private const string SilenceEndedSql =
+        """
+        UPDATE devices SET silent_since = NULL
+        WHERE device_id = @device_id AND silent_since IS NOT NULL
+        RETURNING site_id
+        """;
+
+    // NULL is "the default of the kind": the read model resolves it, so a changed default needs no replay.
+    private const string SilenceWindowSql =
+        """
+        UPDATE devices SET silence_window_seconds = @window_seconds
+        WHERE device_id = @device_id AND silence_window_seconds IS DISTINCT FROM @window_seconds
         RETURNING site_id
         """;
 
@@ -110,6 +137,29 @@ public sealed class DevicesProjector : IProjector
                 cancellationToken,
                 ("device_id", deviceId),
                 ("seen_at", seen.SeenAt.ToUniversalTime())),
+            DeviceSilenceStarted started => ExecuteAsync(
+                transaction,
+                SilenceStartedSql,
+                deviceId,
+                changes,
+                cancellationToken,
+                ("device_id", deviceId),
+                ("silent_since", (started.SilentSince ?? started.StartedAt).ToUniversalTime())),
+            DeviceSilenceEnded => ExecuteAsync(
+                transaction,
+                SilenceEndedSql,
+                deviceId,
+                changes,
+                cancellationToken,
+                ("device_id", deviceId)),
+            DeviceSilenceWindowSet window => ExecuteAsync(
+                transaction,
+                SilenceWindowSql,
+                deviceId,
+                changes,
+                cancellationToken,
+                ("device_id", deviceId),
+                ("window_seconds", window.WindowSeconds)),
             _ => Task.CompletedTask,
         };
     }
@@ -122,13 +172,21 @@ public sealed class DevicesProjector : IProjector
         string deviceId,
         ReadModelChanges changes,
         CancellationToken cancellationToken,
-        params (string Name, object Value)[] parameters)
+        params (string Name, object? Value)[] parameters)
     {
         await using var command = new NpgsqlCommand(sql, transaction.Connection, transaction);
 
         foreach (var (name, value) in parameters)
         {
-            command.Parameters.AddWithValue(name, value);
+            // Only the Silence Window can be NULL, and its column is a bigint.
+            if (value is null)
+            {
+                command.Parameters.AddWithValue(name, NpgsqlDbType.Bigint, DBNull.Value);
+            }
+            else
+            {
+                command.Parameters.AddWithValue(name, value);
+            }
         }
 
         if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string siteId)

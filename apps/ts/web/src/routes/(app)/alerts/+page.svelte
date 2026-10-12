@@ -17,7 +17,7 @@
   const timeZone = $derived(data.timeZone ?? browserTimeZone ?? 'UTC');
 
   // Open Threshold Alerts, open Health Alerts, then Closed (UX-DR64); each in the Server's order.
-  const groups = $derived(alertGroups(data.alerts, { now: new Date(data.loadedAt), locale, timeZone }));
+  const groups = $derived(alertGroups(data.alerts, { now: new Date(data.loadedAt), locale, timeZone }, data.healthAlerts));
   const noneOpen = $derived(groups.threshold.length === 0 && groups.health.length === 0);
 
   onMount(() => {

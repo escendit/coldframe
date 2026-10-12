@@ -8,11 +8,13 @@ import type {
   FakeCalibrationReading,
   FakeDevice,
   FakeDeviceAction,
+  FakeHealthAlert,
   FakeLiveControl,
   FakeLiveState,
   FakeLot,
   FakeNotificationsSeed,
   FakeNotificationsState,
+  FakeSilenceWindowPut,
   FakeSite,
   FakeSitePost,
   FakeThresholds,
@@ -64,6 +66,7 @@ export async function serverSites(): Promise<{
   calibrationPosts: FakeCalibrationPost[];
   thresholds: FakeThresholds[];
   thresholdPuts: FakeThresholdsPut[];
+  silenceWindowPuts: FakeSilenceWindowPut[];
 }> {
   const response = await fetch(`${idpOrigin}/control/sites`);
   return (await response.json()) as {
@@ -78,15 +81,19 @@ export async function serverSites(): Promise<{
     calibrationPosts: FakeCalibrationPost[];
     thresholds: FakeThresholds[];
     thresholdPuts: FakeThresholdsPut[];
+    silenceWindowPuts: FakeSilenceWindowPut[];
   };
 }
 
-/** Seeds the fake Server's Alerts; `alertsStatus` makes their list answer that status instead. `resetSites` clears both. */
-export async function setAlerts(alerts: readonly FakeAlert[], alertsStatus: number | null = null): Promise<void> {
+/**
+ * Seeds the fake Server's Alerts and (Story 7.2) its Health Alerts; `alertsStatus` makes their list answer that status
+ * instead. `resetSites` clears them all.
+ */
+export async function setAlerts(alerts: readonly FakeAlert[], alertsStatus: number | null = null, healthAlerts: readonly FakeHealthAlert[] = []): Promise<void> {
   const response = await fetch(`${idpOrigin}/control/alerts`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ alerts, ...(alertsStatus === null ? {} : { alertsStatus }) }),
+    body: JSON.stringify({ alerts, healthAlerts, ...(alertsStatus === null ? {} : { alertsStatus }) }),
   });
   expect(response.ok).toBe(true);
 }

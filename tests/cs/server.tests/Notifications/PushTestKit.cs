@@ -76,6 +76,11 @@ internal sealed class FakeLookups : IPushLookups
 
     public Dictionary<(Guid Sensor, ThresholdSide Side), PushValue> Thresholds { get; } = [];
 
+    /// <summary>
+    /// The Nodes the Server stored a Reading of.
+    /// </summary>
+    public HashSet<string> Reported { get; } = new(StringComparer.Ordinal);
+
     public bool Fail { get; set; }
 
     /// <summary>
@@ -100,6 +105,9 @@ internal sealed class FakeLookups : IPushLookups
 
     public Task<PushValue?> ThresholdAsync(Guid sensorId, ThresholdSide side, CancellationToken cancellationToken) =>
         HangThresholds ? new TaskCompletionSource<PushValue?>().Task : Answer(Thresholds.GetValueOrDefault((sensorId, side)));
+
+    public Task<PushDevice?> DeviceAsync(string deviceId, CancellationToken cancellationToken) =>
+        Answer<PushDevice>(new PushDevice(Reported.Contains(deviceId)));
 
     private Task<T?> Answer<T>(T? value)
         where T : class

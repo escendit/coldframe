@@ -1,8 +1,12 @@
+import type { components } from '@coldframe/api-client';
 import type { MessageKey } from '$lib/i18n';
 import { hasRole, type Role } from '$lib/roles';
 import { checkSiteName, type NameError } from '$lib/sites';
 
 export type { Lot, LotStatus } from '@coldframe/api-client';
+
+/** A Hub with an open silent Alert, as `LotList.silentHubs` lists it (Story 7.2). */
+export type SilentHub = components['schemas']['SilentHub'];
 
 /** What a Role may change in Site settings (UX-DR74, UX-DR84). Hidden, never disabled. */
 export interface SiteSettingsAccess {

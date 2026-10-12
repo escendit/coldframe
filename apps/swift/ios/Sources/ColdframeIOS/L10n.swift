@@ -560,6 +560,29 @@ public enum L10n: String, CaseIterable, Sendable {
   /// The name of Android's notification channel. iOS has no channels; the key is here because
   /// the two catalogues match key for key.
   case pushChannelAlerts = "push_channel_alerts"
+  // Story 7.2: silence in the apps and the Silence Window.
+  case gardenHubSilent = "garden_hub_silent"
+  case lotDetailHubSilentNamed = "lot_detail_hub_silent_named"
+  case devicesSilent = "devices_silent"
+  case devicesSilenceWindow = "devices_silence_window"
+  case devicesSilenceWindowSummary = "devices_silence_window_summary"
+  case devicesSilenceWindowHub = "devices_silence_window_hub"
+  case devicesSilenceWindowNode = "devices_silence_window_node"
+  case devicesSilenceWindowUnit = "devices_silence_window_unit"
+  case devicesSilenceWindowUnitMinutes = "devices_silence_window_unit_minutes"
+  case devicesSilenceWindowUnitHours = "devices_silence_window_unit_hours"
+  case devicesSilenceWindowUnitDays = "devices_silence_window_unit_days"
+  case devicesSilenceWindowHelper = "devices_silence_window_helper"
+  case devicesSilenceWindowRange = "devices_silence_window_range"
+  case devicesSilenceWindowSave = "devices_silence_window_save"
+  case devicesSilenceWindowUseDefault = "devices_silence_window_use_default"
+  case devicesSilenceWindowNotFound = "devices_silence_window_not_found"
+  case alertTitleSilentFor = "alert_title_silent_for"
+  case alertTitleHubSilent = "alert_title_hub_silent"
+  case alertTitleHubSilentFor = "alert_title_hub_silent_for"
+  case alertTitleNodeSilent = "alert_title_node_silent"
+  case alertTitleNodeSilentFor = "alert_title_node_silent_for"
+  case alertTitleHealth = "alert_title_health"
 
   /// Keys whose catalogue entry has plural variations (UX-DR125).
   public static let plurals: Set<L10n> = [

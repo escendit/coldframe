@@ -4,7 +4,7 @@
  */
 import { fail, type ActionFailure, type Cookies } from '@sveltejs/kit';
 import type { Lot } from '@coldframe/api-client';
-import { devicesAccessOf, type DeviceAction, type DeviceActionFailure, type DeviceActionNotice, type DeviceActionSuccess, type DeviceListItem, type DevicesNotice } from '$lib/devices';
+import { devicesAccessOf, silenceWindowSeconds, type DeviceAction, type DeviceActionFailure, type DeviceActionNotice, type DeviceActionSuccess, type DeviceListItem, type DevicesNotice } from '$lib/devices';
 import type { Site } from '$lib/sites';
 import { isTimeZone } from './create-site';
 import { listLots } from './lots';
@@ -88,6 +88,22 @@ export function unassignDevice(locals: Locals, siteId: string, deviceId: string,
   return call(locals, dependencies, (client) => client.POST('/sites/{siteId}/devices/{deviceId}/unassign', { params: { path: { siteId, deviceId } } }));
 }
 
+/**
+ * Sets a Device's own Silence Window in whole seconds, or returns it to the default of its kind when
+ * `windowSeconds` is null (Administrator and up). The answer is the window in force.
+ */
+export function setSilenceWindow(
+  locals: Locals,
+  siteId: string,
+  deviceId: string,
+  windowSeconds: number | null,
+  dependencies: SitesDependencies = {},
+): Promise<SitesResult<{ windowSeconds: number; overridden: boolean }>> {
+  return call(locals, dependencies, (client) =>
+    client.PUT('/sites/{siteId}/devices/{deviceId}/silence-window', { params: { path: { siteId, deviceId } }, body: windowSeconds === null ? {} : { windowSeconds } }),
+  );
+}
+
 function text(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === 'string' ? value : '';
@@ -101,7 +117,7 @@ function noticeOf(error: Exclude<SitesError, 'unauthorized'>): DeviceActionNotic
     case 'unreachable':
     case 'certificate':
       return error;
-    // A 400 is a form the page did not send, and a 422 or 503 cannot come from these calls.
+    // A 400 is a form the page did not send (the Silence Window maps its own below), and a 422 or 503 cannot come from these calls.
     case 'validation':
     case 'keyReused':
     case 'unavailable':
@@ -114,6 +130,7 @@ const statusOf: Readonly<Record<DeviceActionNotice, number>> = {
   forbidden: 403,
   lotClaimed: 409,
   notFound: 404,
+  range: 400,
   unexpected: 502,
   unreachable: 502,
   certificate: 502,
@@ -124,7 +141,7 @@ const statusOf: Readonly<Record<DeviceActionNotice, number>> = {
  * stale page of a demoted caller gets a 403 and nothing changes.
  */
 export async function deviceAction(
-  action: DeviceAction,
+  action: Exclude<DeviceAction, 'setSilenceWindow'>,
   locals: Locals,
   request: Request,
   dependencies: SitesDependencies = {},
@@ -144,4 +161,33 @@ export async function deviceAction(
   }
   const notice = noticeOf(result.error);
   return fail(statusOf[notice], { action, deviceId, notice });
+}
+
+/**
+ * The Silence Window action of a Device row: `siteId`, `deviceId`, and either `amount` with `unit`
+ * (min, h or d) or `useDefault`. A value outside 1 min to 30 days is refused here, before the Server is
+ * asked, and the form gets what was entered back. The Server authorizes by Role (AD-4): a stale page of
+ * a demoted caller gets its 403 as `forbidden` and nothing changes. A 400 from the Server is the same
+ * `range` refusal.
+ */
+export async function silenceWindowAction(locals: Locals, request: Request, dependencies: SitesDependencies = {}): Promise<DeviceActionSuccess | ActionFailure<DeviceActionFailure>> {
+  const action = 'setSilenceWindow';
+  const form = await request.formData();
+  const siteId = text(form, 'siteId');
+  const deviceId = text(form, 'deviceId');
+  const useDefault = form.has('useDefault');
+  const entered = useDefault ? {} : { amount: text(form, 'amount'), unit: text(form, 'unit') };
+  const seconds = useDefault ? null : silenceWindowSeconds(text(form, 'amount'), text(form, 'unit'));
+  if (!useDefault && seconds === null) {
+    return fail(statusOf.range, { action, deviceId, notice: 'range', ...entered });
+  }
+  const result = await setSilenceWindow(locals, siteId, deviceId, seconds, dependencies);
+  if ('ok' in result) {
+    return { action, deviceId, done: true };
+  }
+  if (result.error === 'unauthorized') {
+    return signedOutRedirect();
+  }
+  const notice = result.error === 'validation' ? 'range' : noticeOf(result.error);
+  return fail(statusOf[notice], { action, deviceId, notice, ...entered });
 }

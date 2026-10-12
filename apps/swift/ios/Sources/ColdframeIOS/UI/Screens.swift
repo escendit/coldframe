@@ -577,7 +577,10 @@
       signIn.observe { [weak self] in self?.presentation = $0 }
       appearance.observe { [weak self] in self?.theme = $0 }
       sites?.observe { [weak self] in self?.sites = $0 }
-      lots?.observe { [weak self] in self?.lots = $0 }
+      lots?.observe { [weak self] in
+        self?.lots = $0
+        self?.announceSilentHubs(in: $0)
+      }
       // Entering and leaving stale mode are said once, politely (UX-DR106); the minute tick
       // and an unchanged refresh send no event.
       // While a Lot is open its own events are said instead of the overview's, so entering or
@@ -600,9 +603,24 @@
     }
 
     private static func announce(_ event: LotsEventPresentation) {
-      if let text = event.text(.catalogue()) {
-        AccessibilityNotification.Announcement(AttributedString(text)).post()
-      }
+      if let text = event.text(.catalogue()) { post(text) }
+    }
+
+    /// The silent Hubs already announced (UX-DR81).
+    private var hubAnnouncements = HubNoticeAnnouncements()
+
+    /// A silent Hub is said once, politely, when its notice appears above the tiles, with the
+    /// words it has then. The minute tick moves the duration in the notice and a refresh lists
+    /// the Hub again: neither is new, so neither is said.
+    private func announceSilentHubs(in lots: LotsPresentation) {
+      let fresh = hubAnnouncements.fresh(in: lots.overview?.hubNotices ?? [])
+      guard !fresh.isEmpty else { return }
+      let context = CopyContext.catalogue()
+      Self.post(fresh.map { $0.text(context) }.joined(separator: " "))
+    }
+
+    private static func post(_ text: String) {
+      AccessibilityNotification.Announcement(AttributedString(text)).post()
     }
 
     /// The push actions for the views; nothing happens without a service.

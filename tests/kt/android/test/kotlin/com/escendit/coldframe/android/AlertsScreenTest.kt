@@ -44,6 +44,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.GraphicsMode
+import java.time.Instant
 import java.time.ZoneOffset
 import java.util.Locale
 import java.util.TimeZone
@@ -314,6 +315,73 @@ class AlertsScreenTest {
         row("Node battery low on Lot 'Salad', since Thu").performClick()
         assertEquals("Devices", selectedTab())
         assertEquals(1, calls.count { it.startsWith("openLot") })
+    }
+
+    // Story 7.2: Health rows of silent Devices.
+
+    @Test
+    fun `UX-DR117 a silent Node is named by its Lot, a Hub and a Node on no Lot by their short name`() {
+        assertEquals("Node on Lot 'Beans' silent for 6 h", copy.title(AlertFixtures.silentNode))
+        assertEquals("Hub 3F2A silent for 5 min", copy.title(AlertFixtures.silentHub))
+        assertEquals("Node 9C0D silent for 6 h", copy.title(AlertFixtures.silentSpareNode))
+        assertEquals("Health Alert", copy.eyebrow(AlertFixtures.silentHub))
+    }
+
+    @Test
+    fun `UX-DR117 a closed row and an open one without silent-since drop the duration`() {
+        assertEquals("Hub 1B00 silent", copy.title(AlertFixtures.closedSilentHub))
+        assertEquals("Health Alert · closed Thu", copy.eyebrow(AlertFixtures.closedSilentHub))
+        assertEquals("Hub 3F2A silent", copy.title(AlertFixtures.silentHubNoSince))
+        assertEquals(
+            "Node 9C0D silent",
+            copy.title(AlertFixtures.silentSpareNode.copy(silentSinceEpochMs = null)),
+        )
+        assertEquals("Node on Lot 'Beans' silent", copy.title(AlertFixtures.silentNode.copy(silentSinceEpochMs = null)))
+    }
+
+    @Test
+    fun `UX-DR117 the silence in a title is rounded down, in minutes, hours, then days`() {
+        fun silentSince(text: String) =
+            copy.title(AlertFixtures.silentHub.copy(silentSinceEpochMs = Instant.parse(text).toEpochMilli()))
+
+        assertEquals("Hub 3F2A silent for 59 min", silentSince("2026-10-09T06:04:01Z"))
+        assertEquals("Hub 3F2A silent for 1 h", silentSince("2026-10-09T06:04:00Z"))
+        assertEquals("Hub 3F2A silent for 23 h", silentSince("2026-10-08T07:04:01Z"))
+        assertEquals("Hub 3F2A silent for 1 d", silentSince("2026-10-08T07:04:00Z"))
+        assertEquals("Hub 3F2A silent for 3 d", silentSince("2026-10-05T08:00:00Z"))
+    }
+
+    @Test
+    fun `UX-DR25 a Health kind this app does not know keeps the neutral Health row, with or without a Lot`() {
+        assertEquals("Health Alert on Lot 'Leeks'", copy.title(AlertFixtures.unknownKind))
+        assertEquals("Health Alert", copy.title(AlertFixtures.unknownKindOnHub))
+        assertEquals("Health Alert", copy.eyebrow(AlertFixtures.unknownKindOnHub))
+    }
+
+    @Test
+    fun `UX-DR25 UX-DR64 Node and Hub Health rows stand in the Health group and open Devices`() {
+        show(AlertFixtures.ready(AlertFixtures.silentDevices))
+
+        assertTrue(top("Threshold Alerts") < top("Health Alerts"))
+        assertTrue(top("Health Alerts") < top("Closed"))
+        assertEquals(
+            listOf(
+                "Tomatoes needs water, since 5:45 AM",
+                "Hub 3F2A silent for 5 min, since 7:04 AM",
+                "Node on Lot 'Beans' silent for 6 h, since 7:00 AM",
+                "Node 9C0D silent for 6 h, since 6:30 AM",
+                "Hub 1B00 silent, since Thu, closed Thu",
+            ),
+            rows(),
+        )
+
+        // A Hub's Alert has no Lot: it leads to Devices, like every silent row.
+        row("Hub 3F2A silent for 5 min, since 7:04 AM").performClick()
+        assertEquals("Devices", selectedTab())
+        alertsTab().performClick()
+        row("Node 9C0D silent for 6 h, since 6:30 AM").performScrollTo().performClick()
+        assertEquals("Devices", selectedTab())
+        assertFalse(calls.any { it.startsWith("openLot") })
     }
 
     @Test

@@ -5,12 +5,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.core.appearance.ThemePreference
@@ -83,10 +88,20 @@ class AccessibilityTest {
         }
     }
 
+    /** The touch bounds of [control] after scrolling it into view, when something above it scrolls. */
+    private fun inView(control: SemanticsNode): Rect {
+        val node = compose.onNode(SemanticsMatcher("is node ${control.id}") { it.id == control.id }, true)
+        val scrolls = generateSequence(control.parent) { it.parent }.any { SemanticsActions.ScrollBy in it.config }
+        if (scrolls) node.performScrollTo()
+        return node.fetchSemanticsNode().touchBoundsInRoot
+    }
+
     private fun assertTouchTargetsAreAtLeast48dp(screen: String) {
         val minimum = with(compose.density) { 48.dp.toPx() } - 0.5f
         for (control in compose.allNodes().filter { it.isClickable }) {
-            val bounds = control.touchBoundsInRoot
+            // A control below the fold has its touch bounds clipped away: it is measured once it is in view.
+            val bounds =
+                control.touchBoundsInRoot.takeIf { it.width >= minimum && it.height >= minimum } ?: inView(control)
             assertTrue(
                 bounds.width >= minimum && bounds.height >= minimum,
                 "$screen: \"${control.spokenLabel()}\" is ${bounds.width}x${bounds.height} px",

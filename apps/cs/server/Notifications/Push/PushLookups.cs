@@ -32,7 +32,24 @@ public interface IPushLookups
     /// The Sensor's effective Threshold of <paramref name="side"/>, in display units.
     /// </summary>
     Task<PushValue?> ThresholdAsync(Guid sensorId, ThresholdSide side, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns what a silent Node's text needs to know of the Node (Story 7.2): whether the Server ever stored a
+    /// Reading of it.
+    /// </summary>
+    /// <param name="deviceId">The Node's Device ID.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<PushDevice?> DeviceAsync(string deviceId, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A Node as a push text needs it (Story 7.2).
+/// </summary>
+/// <param name="HasReadings">
+/// Whether the Server stored a Reading of the Node. A Node without one is silent since its enrolment, and its
+/// text names no time of a last Reading.
+/// </param>
+public sealed record PushDevice(bool HasReadings);
 
 /// <summary>
 /// Looks the names and values up where the Server keeps them: the Site in the identity projection, the Lot in
@@ -90,6 +107,16 @@ public sealed class PushLookups(
         return SensorConversion.Convert(quantity, reader.GetInt64(0), calibration) is var (value, unit)
             ? new PushReading(new PushValue(value, unit), reader.GetFieldValue<DateTimeOffset>(1))
             : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<PushDevice?> DeviceAsync(string deviceId, CancellationToken cancellationToken)
+    {
+        // One index probe per partition (ix_readings_device_id_measured_at); the first row ends it.
+        await using var command = dataSource.CreateCommand("SELECT EXISTS (SELECT 1 FROM readings WHERE device_id = @device_id)");
+        command.Parameters.AddWithValue("device_id", deviceId);
+
+        return new PushDevice((bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!);
     }
 
     /// <inheritdoc />

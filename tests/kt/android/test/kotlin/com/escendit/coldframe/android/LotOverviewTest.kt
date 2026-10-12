@@ -661,6 +661,99 @@ class LotOverviewTest {
         assertEquals("Live again.", region().description)
     }
 
+    // Story 7.2: a silent Hub.
+
+    private val hubNotice = "Hub 3F2A silent for 12 min — Lots behind it can't be read."
+
+    @Test
+    fun `UX-DR81 a silent Hub has a notice above the tiles that names it and how long it has been silent`() {
+        show(LotFixtures.hubSilent())
+
+        val notice = compose.onNodeWithText(hubNotice).fetchSemanticsNode()
+        val tiles = tiles(LotFixtures.withSilentHub)
+        assertTrue(notice.positionInRoot.y < tiles.first().positionInRoot.y)
+        // Not dismissable and without an action: nothing in or around the notice can be pressed.
+        assertFalse(notice.isClickable)
+        assertEquals(
+            compose.allNodes().count { it.isClickable },
+            run {
+                lots = LotFixtures.ready(LotFixtures.withSilentHub)
+                compose.waitForIdle()
+                compose.allNodes().count { it.isClickable }
+            },
+        )
+    }
+
+    @Test
+    fun `UX-DR81 UX-DR18 the Lots behind the Hub are the Server's unknown tiles, above every OK Lot`() {
+        show(LotFixtures.hubSilent())
+
+        assertEquals(
+            listOf(
+                "Tomatoes, needs water, about 20 percent, low 30 percent, Reading 7:02 AM",
+                // 6 h since the Node was last heard, not the 4 min since its Alert opened.
+                "Beans, unknown, Node silent for 6 hours, last about 40 percent at 1:04 AM",
+                "Herbs, unknown, Hub silent for 12 minutes, last Reading 6:30 AM",
+                "Lettuce, OK, about 35 percent, low 25 percent",
+            ),
+            tiles(LotFixtures.withSilentHub).map { it.description },
+        )
+    }
+
+    @Test
+    fun `UX-DR81 UX-DR106 the Hub notice is announced politely once, and the minute tick moves it without a word`() {
+        show(LotFixtures.hubSilent())
+        val region = { liveRegions().single() }
+        assertEquals(LiveRegionMode.Polite, region().config[SemanticsProperties.LiveRegion])
+        assertEquals(hubNotice, region().description)
+        // The notice itself is plain text: only the region speaks.
+        assertNull(
+            compose
+                .onNodeWithText(hubNotice)
+                .fetchSemanticsNode()
+                .config
+                .getOrNull(SemanticsProperties.LiveRegion),
+        )
+
+        clock = LotFixtures.now.plusSeconds(60)
+        compose.mainClock.advanceTimeBy(60_000)
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Hub 3F2A silent for 13 min — Lots behind it can't be read.").assertExists()
+        assertEquals(hubNotice, region().description)
+
+        // A refresh that still lists the Hub says nothing either.
+        lots = LotFixtures.hubSilent().copy(refreshing = true)
+        compose.waitForIdle()
+        assertEquals(hubNotice, region().description)
+    }
+
+    @Test
+    fun `UX-DR81 a silent Hub with no Lot behind it still has its notice, and a Hub that recovers loses it`() {
+        show(LotFixtures.hubSilent(lots = listOf(LotFixtures.ok)))
+        compose.onNodeWithText(hubNotice).assertExists()
+        assertEquals(
+            "Lettuce, OK, about 35 percent, low 25 percent",
+            tiles(listOf(LotFixtures.ok)).single().description,
+        )
+
+        lots = LotFixtures.ready(listOf(LotFixtures.ok))
+        compose.waitForIdle()
+
+        compose.onAllNodes(hasText("Hub 3F2A", substring = true)).assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR81 without a silent Hub, and in stale mode, there is no Hub notice`() {
+        show(LotFixtures.ready())
+        compose.onAllNodes(hasText("Lots behind it", substring = true)).assertCountEquals(0)
+        assertEquals("", liveRegions().single().description)
+
+        lots = LotFixtures.hubSilent(staleReason = StaleReason.Unreachable)
+        compose.waitForIdle()
+        compose.onAllNodes(hasText("Lots behind it", substring = true)).assertCountEquals(0)
+    }
+
     @Test
     fun `UX-DR106 an event of another Site is not announced`() {
         show(LotFixtures.ready())

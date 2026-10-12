@@ -1,3 +1,4 @@
+import ColdframeDesignTokens
 import Foundation
 import Testing
 
@@ -10,7 +11,10 @@ private func devices(
   hubIds: [String] = ["3f2a9c0d1e4b5a67"], hubStatuses: [String] = ["online"],
   hubLastSeen: [String] = ["1791270120000"], nodes: [NodeFixture] = [],
   canManageNodes: Bool = false, lots: [LotFixture] = [], workingNodeId: String = "",
-  failedNodeId: String = "", actionNotice: String = ""
+  failedNodeId: String = "", actionNotice: String = "", siteName: String? = "Home garden",
+  hubSilence: [SilenceFixture.Device] = [], nodeSilence: [SilenceFixture.Device] = [],
+  canSetSilenceWindow: Bool = false, silenceWindowWorkingId: String = "",
+  silenceWindowFailedId: String = "", silenceWindowNotice: String = ""
 ) -> DevicesPresentation {
   DevicesPresentation(
     surface: surface, notice: notice, siteId: siteId, canAddHub: canAddHub,
@@ -20,7 +24,77 @@ private func devices(
     nodeLastSeen: nodes.map(\.lastSeen), canManageNodes: canManageNodes,
     nodeLotIds: nodes.map(\.lotId), lotIds: lots.map(\.id), lotNames: lots.map(\.name),
     lotHasNode: lots.map(\.hasNode), workingNodeId: workingNodeId, failedNodeId: failedNodeId,
-    actionNotice: actionNotice)
+    actionNotice: actionNotice, siteName: siteName, hubSilence: SilenceFixture.lists(hubSilence),
+    nodeSilence: SilenceFixture.lists(nodeSilence), canSetSilenceWindow: canSetSilenceWindow,
+    silenceWindowWorkingId: silenceWindowWorkingId, silenceWindowFailedId: silenceWindowFailedId,
+    silenceWindowNotice: silenceWindowNotice)
+}
+
+/// Silence as the core flattens it into the `hub…` and `node…` silence lists of a
+/// `DevicesSnapshot` (Story 7.2), at the clock of `Overview` (6 October 2026, 10:00 UTC): Hub
+/// 3f2a… silent for 12 min on the default window, Hub 1b00… heard with its own window of 10 min,
+/// the Beans Node silent for 6 h on the default window, the Tomatoes Node heard with its own
+/// window of 8 h.
+enum SilenceFixture {
+  /// One Device's entries of the silence lists; empty is "the core sent none".
+  struct Device {
+    var shortName = ""
+    var silentSince = ""
+    var silenceValue = ""
+    var silenceUnit = ""
+    var windowSeconds = ""
+    var windowValue = ""
+    var windowUnit = ""
+    var overridden = false
+  }
+
+  static func lists(_ devices: [Device]) -> DevicesPresentation.SilenceLists {
+    DevicesPresentation.SilenceLists(
+      shortNames: devices.map(\.shortName), silentSince: devices.map(\.silentSince),
+      silenceValues: devices.map(\.silenceValue), silenceUnits: devices.map(\.silenceUnit),
+      windowSeconds: devices.map(\.windowSeconds), windowValues: devices.map(\.windowValue),
+      windowUnits: devices.map(\.windowUnit), windowOverridden: devices.map(\.overridden))
+  }
+
+  static let silentHubId = "3f2a9c0d1e4b5a67"
+  static let heardHubId = "1b00aa11bb22cc33"
+  static let silentNodeId = "1b2c3d4e5f607182"
+  static let heardNodeId = "7c19aa01bb02cc03"
+
+  static let silentHub = Device(
+    shortName: "3F2A", silentSince: String(Overview.nowMs - 12 * 60_000), silenceValue: "12",
+    silenceUnit: "minutes", windowSeconds: "300", windowValue: "5", windowUnit: "minutes")
+  static let heardHub = Device(
+    shortName: "1B00", windowSeconds: "600", windowValue: "10", windowUnit: "minutes",
+    overridden: true)
+  static let silentNode = Device(
+    shortName: "1B2C", silentSince: String(Overview.earlierMs), silenceValue: "6",
+    silenceUnit: "hours", windowSeconds: "21600", windowValue: "6", windowUnit: "hours")
+  static let heardNode = Device(
+    shortName: "7C19", windowSeconds: "28800", windowValue: "8", windowUnit: "hours",
+    overridden: true)
+
+  /// The Devices of Site "Home garden" for an Administrator or Owner, or for a Member.
+  static func devices(
+    canSetSilenceWindow: Bool = true, workingId: String = "", failedId: String = "",
+    notice: String = ""
+  ) -> DevicesPresentation {
+    DevicesPresentation(
+      surface: "ready", notice: nil, siteId: "a", canAddHub: canSetSilenceWindow,
+      canAddNode: canSetSilenceWindow, hubIds: [silentHubId, heardHubId],
+      hubStatuses: ["offline", "online"],
+      hubLastSeen: [String(Overview.nowMs - 12 * 60_000), String(Overview.nowMs - 30_000)],
+      nodeIds: [silentNodeId, heardNodeId], nodeLotNames: ["Beans", "Tomatoes"],
+      nodeBatteries: ["14", "62"], nodeBatteryLow: [true, false],
+      nodeCharging: ["notCharging", "charging"],
+      nodeLastSeen: [String(Overview.earlierMs), String(Overview.readingMs)],
+      canManageNodes: canSetSilenceWindow, nodeLotIds: ["lot-b", "lot-t"],
+      lotIds: ["lot-b", "lot-t"], lotNames: ["Beans", "Tomatoes"], lotHasNode: [true, true],
+      siteName: "Home garden", hubSilence: lists([silentHub, heardHub]),
+      nodeSilence: lists([silentNode, heardNode]), canSetSilenceWindow: canSetSilenceWindow,
+      silenceWindowWorkingId: workingId, silenceWindowFailedId: failedId,
+      silenceWindowNotice: notice)
+  }
 }
 
 /// A Lot as the core flattens it into the `lot…` lists of `DevicesSnapshot`.
@@ -351,4 +425,275 @@ func devicesUnassignCopy() throws {
   #expect(entries["devices_move"] == "Move")
   #expect(entries["devices_current_lot"] == "Current Lot")
   #expect(entries["add_node_lot_has_node"] == "Has a Node")
+}
+
+// MARK: - Silence and the Silence Window (Story 7.2)
+
+private let context = Overview.context
+
+@Test(
+  "UX-DR30 a silent Hub and a silent Node show the help icon and Silent with the core's duration"
+)
+func devicesSilentRows() throws {
+  let presentation = SilenceFixture.devices()
+  let hub = try #require(presentation.hubs.first)
+  let node = try #require(presentation.nodes.first)
+
+  #expect(hub.silence.isSilent)
+  #expect(hub.silence.icon == .help)
+  #expect(hub.silence.silentText(context) == "Silent 12 min")
+  #expect(hub.silence.silence == LotDurationPresentation(value: 12, unit: .minutes))
+  #expect(
+    hub.silence.silentSince
+      == Date(timeIntervalSince1970: Double(Overview.nowMs - 12 * 60_000) / 1000))
+  #expect(hub.silence.shortName == "3F2A")
+  #expect(node.silence.isSilent)
+  #expect(node.silence.icon == .help)
+  #expect(node.silence.silentText(context) == "Silent 6 h")
+  // The silence stands beside the last seen, which reads as before; the ID stays whole.
+  #expect(hub.id == SilenceFixture.silentHubId)
+  #expect(
+    hub.lastSeenCopy(now: context.now, timeZone: context.timeZone, locale: context.locale)
+      == Copy(.devicesLastSeen, .text("09:48")))
+  #expect(
+    node.lastSeenCopy(now: context.now, timeZone: context.timeZone, locale: context.locale)
+      == Copy(.devicesLastSeen, .text("01:05")))
+  // Sentence case in the catalogue; upper case is the style's.
+  #expect(try Catalogue.entries()["devices_silent"] == "Silent %@")
+  #expect(Typography.statusLabel.uppercase)
+}
+
+@Test("UX-DR30 a Device that is not silent has no mark, whatever its status or last seen")
+func devicesHeardRows() throws {
+  let presentation = SilenceFixture.devices()
+  let hub = try #require(presentation.hubs.last)
+  let node = try #require(presentation.nodes.last)
+
+  for silence in [hub.silence, node.silence] {
+    #expect(!silence.isSilent)
+    #expect(silence.icon == nil)
+    #expect(silence.silentText(context) == nil)
+    #expect(silence.silentSince == nil)
+  }
+  // Offline is the Server's status word and silent the Server's Alert: neither makes the other.
+  let offline = try #require(devices(hubStatuses: ["offline"]).hubs.first)
+  #expect(!offline.silence.isSilent)
+  // Days, when the core says days.
+  var long = SilenceFixture.silentNode
+  long.silenceValue = "2"
+  long.silenceUnit = "days"
+  let days = try #require(devices(nodes: [beans], nodeSilence: [long]).nodes.first)
+  #expect(days.silence.silentText(context) == "Silent 2 d")
+}
+
+@Test("UX-DR30 every row names the Silence Window in force, for every Role")
+func devicesWindowSummary() throws {
+  for canSet in [true, false] {
+    let presentation = SilenceFixture.devices(canSetSilenceWindow: canSet)
+    #expect(
+      presentation.hubs.map { $0.silence.windowText(context) } == [
+        "Silence Window · 5 min", "Silence Window · 10 min",
+      ])
+    #expect(
+      presentation.nodes.map { $0.silence.windowText(context) } == [
+        "Silence Window · 6 h", "Silence Window · 8 h",
+      ])
+    #expect(presentation.hubs.map(\.silence.windowOverridden) == [false, true])
+    #expect(presentation.nodes.map(\.silence.windowSeconds) == [21600, 28800])
+  }
+  var month = SilenceFixture.heardNode
+  month.windowSeconds = "2592000"
+  month.windowValue = "30"
+  month.windowUnit = "days"
+  let node = try #require(devices(nodes: [tomatoes], nodeSilence: [month]).nodes.first)
+  #expect(node.silence.windowText(context) == "Silence Window · 30 d")
+  #expect(try Catalogue.entries()["devices_silence_window_summary"] == "Silence Window · %@")
+}
+
+@Test(
+  "UX-DR30 a row the core sent no silence for, or a value this client cannot read, is as before"
+)
+func devicesSilenceDegrades() throws {
+  // No silence lists at all: an older core.
+  let plain = devices(nodes: [tomatoes])
+  #expect(plain.hubs.first?.silence == DeviceSilencePresentation.none)
+  #expect(plain.nodes.first?.silence == DeviceSilencePresentation.none)
+  #expect(plain.hubs.first?.silence.windowText(context) == nil)
+  // Empty entries, a unit of later, and a value without its unit.
+  var odd = SilenceFixture.silentHub
+  odd.silenceUnit = "fortnights"
+  odd.windowUnit = "fortnights"
+  var half = SilenceFixture.silentHub
+  half.silenceValue = ""
+  half.windowValue = ""
+  for device in [SilenceFixture.Device(), odd, half] {
+    let hub = try #require(devices(hubSilence: [device]).hubs.first)
+    #expect(!hub.silence.isSilent)
+    #expect(hub.silence.silentText(context) == nil)
+    #expect(hub.silence.windowText(context) == nil)
+    #expect(hub.isOnline)
+  }
+  // Shorter silence lists than rows: the rows stay, the ones without an entry as before.
+  let ragged = devices(
+    hubIds: ["1b00aa11bb22cc33", "3f2a9c0d1e4b5a67"], hubStatuses: ["online", "offline"],
+    hubLastSeen: ["1791270120000", ""], hubSilence: [SilenceFixture.heardHub])
+  #expect(ragged.hubs.count == 2)
+  #expect(ragged.hubs[0].silence.windowText(context) == "Silence Window · 10 min")
+  #expect(ragged.hubs[1].silence == DeviceSilencePresentation.none)
+}
+
+@Test(
+  "UX-DR31 UX-DR84 Silence Window is a row action for an Administrator or Owner; a Member has none"
+)
+func devicesSilenceWindowByRole() {
+  let admin = SilenceFixture.devices()
+  let member = SilenceFixture.devices(canSetSilenceWindow: false)
+
+  #expect(admin.canSetSilenceWindow)
+  #expect(admin.silenceWindow(for: SilenceFixture.silentHubId) != nil)
+  #expect(admin.silenceWindow(for: SilenceFixture.heardNodeId) != nil)
+  // For a Member the control does not exist: no action and no sheet, not a disabled one.
+  #expect(!member.canSetSilenceWindow)
+  for id in [
+    SilenceFixture.silentHubId, SilenceFixture.heardHubId, SilenceFixture.silentNodeId,
+    SilenceFixture.heardNodeId,
+  ] {
+    #expect(member.silenceWindow(for: id) == nil, "\(id)")
+  }
+  // The Member still sees the silence, the last seen and the window in force.
+  #expect(member.hubs.first?.silence.silentText(context) == "Silent 12 min")
+  #expect(member.nodes.first?.silence.windowText(context) == "Silence Window · 6 h")
+  // The flag is the core's; it is its own, not Move's or Add a Hub's.
+  #expect(!devices(canAddHub: true, canManageNodes: true).canSetSilenceWindow)
+  #expect(devices(canAddHub: false, canSetSilenceWindow: true).canSetSilenceWindow)
+  let failed = devices(surface: "failed", notice: "unreachable", canSetSilenceWindow: true)
+  #expect(!failed.canSetSilenceWindow)
+  #expect(!devices(siteId: nil, canSetSilenceWindow: true).canSetSilenceWindow)
+  #expect(!DevicesPresentation.waiting.canSetSilenceWindow)
+  // A Device that is not listed has no sheet.
+  #expect(admin.silenceWindow(for: "0000000000000000") == nil)
+}
+
+@Test(
+  "UX-DR31 the Silence Window sheet shows the window in force, a number with min, h or d, and Save"
+)
+func devicesSilenceWindowSheet() throws {
+  let presentation = SilenceFixture.devices()
+  let hub = try #require(presentation.silenceWindow(for: SilenceFixture.silentHubId))
+  let node = try #require(presentation.silenceWindow(for: SilenceFixture.heardNodeId))
+
+  #expect(hub.device == .hub)
+  #expect(hub.title == Copy(.devicesSilenceWindowHub, .text(SilenceFixture.silentHubId)))
+  #expect(context.resolve(hub.title) == "Silence Window for Hub 3f2a9c0d1e4b5a67")
+  #expect(hub.currentText(context) == "Silence Window · 5 min")
+  #expect(hub.initialText == "5")
+  #expect(hub.initialUnit == .minutes)
+  #expect(node.device == .node)
+  #expect(context.resolve(node.title) == "Silence Window for Node 7c19aa01bb02cc03")
+  #expect(node.currentText(context) == "Silence Window · 8 h")
+  #expect(node.initialText == "8")
+  #expect(node.initialUnit == .hours)
+
+  let segments = node.unitSegments(selected: .hours)
+  #expect(segments.map(\.value) == [.minutes, .hours, .days])
+  #expect(segments.map { context.text($0.label) } == ["min", "h", "d"])
+  #expect(segments.map(\.isSelected) == [false, true, false])
+  // Selection is a trait and a checkmark, never colour alone.
+  #expect(segments[1].traits == [.button, .selected])
+  #expect(segments[1].showsCheckmark)
+
+  let entries = try Catalogue.entries()
+  #expect(entries[SilenceWindowPresentation.label.rawValue] == "Silence Window")
+  #expect(entries[SilenceWindowPresentation.unitLabel.rawValue] == "Unit")
+  #expect(
+    entries[SilenceWindowPresentation.helper.rawValue]
+      == "From 1 min to 30 d. Without its own value a Node uses 6 h and a Hub 5 min.")
+  #expect(entries["devices_silence_window_save"] == "Save")
+}
+
+@Test("UX-DR31 Use default shows only when the Device has its own Silence Window")
+func devicesSilenceWindowUseDefault() throws {
+  let presentation = SilenceFixture.devices()
+
+  #expect(presentation.silenceWindow(for: SilenceFixture.silentHubId)?.showsUseDefault == false)
+  #expect(presentation.silenceWindow(for: SilenceFixture.heardHubId)?.showsUseDefault == true)
+  #expect(presentation.silenceWindow(for: SilenceFixture.silentNodeId)?.showsUseDefault == false)
+  #expect(presentation.silenceWindow(for: SilenceFixture.heardNodeId)?.showsUseDefault == true)
+  // A Device whose window the Server did not send: an empty field in hours, and no default.
+  let bare = devices(canSetSilenceWindow: true)
+  let sheet = try #require(bare.silenceWindow(for: "3f2a9c0d1e4b5a67"))
+  #expect(sheet.current == nil)
+  #expect(sheet.currentText(context) == nil)
+  #expect(sheet.initialText == "")
+  #expect(sheet.initialUnit == .hours)
+  #expect(!sheet.showsUseDefault)
+  #expect(try Catalogue.entries()["devices_silence_window_use_default"] == "Use default")
+}
+
+@Test(
+  "UX-DR31 a value outside 1 min to 30 days is refused before sending, with the range in the message"
+)
+func devicesSilenceWindowOutOfRange() throws {
+  // The core refuses it, sends nothing and names the Device; the row and the sheet say the range.
+  let refused = SilenceFixture.devices(
+    failedId: SilenceFixture.heardNodeId, notice: "outOfRange")
+
+  #expect(refused.nodes.map(\.silence.windowNotice) == [nil, .outOfRange])
+  #expect(refused.hubs.allSatisfy { $0.silence.windowNotice == nil })
+  #expect(SilenceWindowNoticeKind.outOfRange.message == .devicesSilenceWindowRange)
+  #expect(SilenceWindowPresentation.rangeError == .devicesSilenceWindowRange)
+  #expect(!SilenceWindowNoticeKind.outOfRange.takesSiteName)
+  #expect(
+    try Catalogue.entries()["devices_silence_window_range"]
+      == "Enter a whole number from 1 min to 30 d.")
+  // Nothing was saved: the window in force is the one from before.
+  #expect(refused.nodes.last?.silence.windowText(context) == "Silence Window · 8 h")
+  #expect(refused.nodes.allSatisfy { !$0.silence.windowWorking })
+}
+
+@Test("UX-DR84 UX-DR31 a 403 race says You can't change this on the Site, under that Device only")
+func devicesSilenceWindowForbidden() throws {
+  let refused = SilenceFixture.devices(
+    failedId: SilenceFixture.silentHubId, notice: "forbidden")
+  let notice = try #require(refused.hubs.first?.silence.windowNotice)
+
+  #expect(notice == .forbidden)
+  #expect(notice.message == .siteSettingsForbidden)
+  #expect(notice.takesSiteName)
+  #expect(refused.siteName == "Home garden")
+  #expect(
+    context.text(notice.message, .text(refused.siteName))
+      == "You can't change this on Home garden. Ask an Owner or Administrator.")
+  #expect(refused.hubs.last?.silence.windowNotice == nil)
+  #expect(refused.nodes.allSatisfy { $0.silence.windowNotice == nil })
+}
+
+@Test("UX-DR31 the Device whose Silence Window is saved is working; every refusal has its words")
+func devicesSilenceWindowState() throws {
+  let working = SilenceFixture.devices(workingId: SilenceFixture.silentNodeId)
+  #expect(working.nodes.map(\.silence.windowWorking) == [true, false])
+  #expect(working.hubs.allSatisfy { !$0.silence.windowWorking })
+
+  let entries = try Catalogue.entries()
+  for kind in SilenceWindowNoticeKind.allCases {
+    #expect(entries[kind.message.rawValue] != nil, "\(kind)")
+    let refused = SilenceFixture.devices(
+      failedId: SilenceFixture.heardHubId, notice: kind.rawValue)
+    #expect(refused.hubs.last?.silence.windowNotice == kind)
+    #expect(kind.takesSiteName == (kind == .forbidden))
+  }
+  #expect(SilenceWindowNoticeKind.notFound.message == .devicesSilenceWindowNotFound)
+  #expect(entries["devices_silence_window_not_found"] == "That Device is gone.")
+  #expect(SilenceWindowNoticeKind.unreachable.message == .devicesUnreachable)
+  #expect(SilenceWindowNoticeKind.certificate.message == .noticeCertificate)
+  #expect(SilenceWindowNoticeKind.unexpected.message == .devicesActionUnexpected)
+  // A notice this client does not know still says that nothing changed; no notice says nothing.
+  let later = SilenceFixture.devices(failedId: SilenceFixture.heardHubId, notice: "later")
+  #expect(later.hubs.last?.silence.windowNotice == .unexpected)
+  let none = SilenceFixture.devices(failedId: SilenceFixture.heardHubId, notice: "")
+  #expect(none.hubs.last?.silence.windowNotice == nil)
+  // A refused move is the Node's own notice; the two do not mix.
+  let moved = devices(
+    nodes: [tomatoes], canManageNodes: true, failedNodeId: tomatoes.id, actionNotice: "lotTaken")
+  #expect(moved.nodes.first?.silence.windowNotice == nil)
 }

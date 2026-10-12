@@ -63,26 +63,36 @@
   }
 
   /// Inline notice (UX-DR56): `layer-01`, 3 pt `border-strong` left edge, `body` text, one
-  /// action or none, never dismissable. Announced when it appears (UX-DR104).
+  /// action or none, never dismissable. Announced when it appears (UX-DR104), unless its words
+  /// move with the clock: such a notice is said once by its screen, and a tick says nothing.
   public struct InlineNotice: View {
-    let message: L10n
-    /// Fills the entry's `%@`, such as the Site or Lot the notice names.
-    let subject: String?
+    /// The words: a catalogue entry, with `subject` for its `%@`, or text resolved by the caller.
+    let resolved: String
     let action: (label: L10n, perform: () -> Void)?
     let announcement: Announcement
+    /// False for a notice whose screen announces it.
+    let announces: Bool
     @Environment(\.palette) private var palette
 
+    /// `subject` fills the entry's `%@`, such as the Site or Lot the notice names.
     public init(
       message: L10n, subject: String? = nil, announcement: Announcement = .polite,
       action: (label: L10n, perform: () -> Void)? = nil
     ) {
-      self.message = message
-      self.subject = subject
+      self.resolved = subject.map { message.string($0) } ?? message.string
       self.announcement = announcement
+      self.announces = true
       self.action = action
     }
 
-    private var resolved: String { subject.map { message.string($0) } ?? message.string }
+    /// A notice whose catalogue entry takes more than one part, resolved by the caller, such as
+    /// the silent Hub's (UX-DR81). With `announces` false nothing is posted from here.
+    public init(text: String, announces: Bool = true, announcement: Announcement = .polite) {
+      self.resolved = text
+      self.announcement = announcement
+      self.announces = announces
+      self.action = nil
+    }
 
     public var body: some View {
       VStack(alignment: .leading, spacing: Spacing.step3) {
@@ -106,6 +116,7 @@
     }
 
     private func announce() {
+      guard announces else { return }
       var text = AttributedString(resolved)
       if announcement == .assertive {
         text.accessibilitySpeechAnnouncementPriority = .high

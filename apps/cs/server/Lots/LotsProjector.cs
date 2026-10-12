@@ -149,8 +149,8 @@ public sealed class LotsProjector : IProjector
     // open after its close nor a second close.
     private const string OpenAlertSql =
         """
-        INSERT INTO lot_status_alerts (alert_id, device_id, sensor_id, quantity, kind, side, opened_at)
-        VALUES (@alert_id, @device_id, @sensor_id, @quantity, @kind, @side, @opened_at)
+        INSERT INTO lot_status_alerts (alert_id, device_id, sensor_id, quantity, kind, side, opened_at, silent_since)
+        VALUES (@alert_id, @device_id, @sensor_id, @quantity, @kind, @side, @opened_at, @silent_since)
         ON CONFLICT (alert_id) DO NOTHING
         """;
 
@@ -465,6 +465,10 @@ public sealed class LotsProjector : IProjector
                     command.Parameters.AddWithValue("kind", KindName(opened.Kind));
                     command.Parameters.AddWithValue("side", NpgsqlDbType.Text, (object?)SideName(opened.Side) ?? DBNull.Value);
                     command.Parameters.AddWithValue("opened_at", opened.OpenedAt.ToUniversalTime());
+                    command.Parameters.AddWithValue(
+                        "silent_since",
+                        NpgsqlDbType.TimestampTz,
+                        opened.SilentSince is { } silentSince ? silentSince.ToUniversalTime() : DBNull.Value);
 
                     // Opened once: an event applied again evaluates nothing.
                     if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)

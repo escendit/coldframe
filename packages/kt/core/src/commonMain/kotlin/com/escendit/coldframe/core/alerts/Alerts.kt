@@ -1,5 +1,7 @@
 package com.escendit.coldframe.core.alerts
 
+import com.escendit.coldframe.core.devices.DeviceName
+import com.escendit.coldframe.core.lots.LotDuration
 import com.escendit.coldframe.core.lots.SensorQuantity
 import com.escendit.coldframe.core.sites.SiteSummary
 
@@ -7,7 +9,8 @@ import com.escendit.coldframe.core.sites.SiteSummary
  * The Alerts surface as both shells draw it (Story 6.2): the Alert row in its four variants, in
  * the groups Threshold, Health and Closed. Everything here is structured data over the Server's
  * fields; the shells own the string catalogues. Nothing decides whether an Alert is open, and
- * nothing re-sorts: the Server lists open Alerts newest first, then the closed ones.
+ * nothing re-sorts: the Server lists open Alerts newest first, then the closed ones. Threshold
+ * Alerts come from the contract's `alerts`, Health Alerts from `healthAlerts` (Story 7.2).
  */
 
 /** The Threshold a Threshold Alert crossed, as the contract's `AlertSide` names it. */
@@ -62,7 +65,7 @@ public enum class AlertCondition(
     /** Another quantity above its high: "<Lot> <quantity> too high". */
     TooHigh("tooHigh"),
 
-    /** The Node is silent. */
+    /** The Device, a Node or a Hub, is silent. */
     Silent("silent"),
 
     /** The Node's battery is low. */
@@ -71,7 +74,7 @@ public enum class AlertCondition(
     /** The soil Sensor needs Calibration. */
     Uncalibrated("uncalibrated"),
 
-    /** A kind, side or quantity this app does not know: a Health row that names only the Lot. */
+    /** A kind, side or quantity this app does not know: a neutral Health row that names the Lot or the Device. */
     Unknown("unknown"),
 }
 
@@ -105,23 +108,99 @@ public enum class AlertTarget(
     Devices("devices"),
 }
 
+/** The Device a Health Alert is about, as the contract's `DeviceKind` names it. */
+public enum class AlertDeviceKind(
+    /** The contract value. */
+    public val key: String,
+) {
+    Node("node"),
+    Hub("hub"),
+    ;
+
+    public companion object {
+        public fun fromServer(value: String?): AlertDeviceKind? = entries.firstOrNull { it.key == value }
+    }
+}
+
+/** Which title sentence a row gets; the shells hold one catalogue entry per kind (two for the silent ones). */
+public enum class AlertTitleKind(
+    public val key: String,
+) {
+    /** "‹Lot› needs water". */
+    NeedsWater("needsWater"),
+
+    /** "‹Lot› too wet". */
+    TooWet("tooWet"),
+
+    /** "‹Lot› ‹quantity› too low". */
+    TooLow("tooLow"),
+
+    /** "‹Lot› ‹quantity› too high". */
+    TooHigh("tooHigh"),
+
+    /** "Node on Lot '‹Lot›' silent for ‹duration›"; without a duration "Node on Lot '‹Lot›' silent". */
+    NodeOnLotSilent("nodeOnLotSilent"),
+
+    /** A Node on no Lot: "Node ‹9C0D› silent for ‹duration›"; without a duration "Node ‹9C0D› silent". */
+    NodeSilent("nodeSilent"),
+
+    /** "Hub ‹3F2A› silent for ‹duration›"; without a duration "Hub ‹3F2A› silent". */
+    HubSilent("hubSilent"),
+
+    /** "Node battery low on Lot '‹Lot›'". */
+    Battery("battery"),
+
+    /** "Soil Sensor on Lot '‹Lot›' needs Calibration". */
+    Uncalibrated("uncalibrated"),
+
+    /** The neutral Health row with a Lot: "Health Alert on Lot '‹Lot›'". */
+    HealthOnLot("healthOnLot"),
+
+    /** The neutral Health row without a Lot: "Health Alert". */
+    Health("health"),
+}
+
+/**
+ * The inputs of a row's title, so Android and iOS say the same (Story 7.2). [lotName] is set for
+ * the kinds that name a Lot, [deviceName] (the short name, "3F2A") for the kinds that name a Device.
+ * [duration] is the silence of an open silent Alert whose silent-since the Server sent, rounded
+ * down; `null` drops " for …" from the title (a closed row, or an Alert opened before the Server
+ * recorded it).
+ */
+public data class AlertTitle(
+    val kind: AlertTitleKind,
+    val lotName: String? = null,
+    val deviceName: String? = null,
+    val duration: LotDuration? = null,
+)
+
 /**
  * An Alert of the current Site, as the Server listed it. [kind] is the contract's extensible
  * `AlertKind`, kept as sent; [side] and [quantity] are `null` when absent or not known to this app.
  * [closedAtEpochMs] is `null` while the Alert is open. The Alert carries no value and no Threshold.
+ *
+ * A Health Alert (Story 7.2) is about a Device: [deviceKind] says whether a Node or a Hub (`null`
+ * for a Threshold Alert and for a kind this app does not know), [lotId] and [lotName] are `null`
+ * for a Hub and for a Node on no Lot, and [silentSinceEpochMs] is when a silent Device was last
+ * heard, `null` for another kind and for an Alert opened before the Server recorded it.
  */
 public data class AlertSummary(
     val id: String,
     val kind: String,
     val side: AlertSide?,
     val quantity: SensorQuantity?,
-    val lotId: String,
-    val lotName: String,
+    val lotId: String?,
+    val lotName: String?,
     val deviceId: String,
     val openedAtEpochMs: Long,
     val closedAtEpochMs: Long?,
+    val deviceKind: AlertDeviceKind? = null,
+    val silentSinceEpochMs: Long? = null,
 ) {
     val open: Boolean get() = closedAtEpochMs == null
+
+    /** "3F2A": the Device's short name, as in "Hub 3F2A". */
+    val deviceName: String get() = DeviceName.short(deviceId)
 
     /**
      * What is wrong. A Threshold Alert is read only with a side and a quantity this app knows;
@@ -192,13 +271,66 @@ public data class AlertSummary(
                 AlertCondition.Silent, AlertCondition.Unknown -> AlertIcon.Help
             }
 
-    /** Threshold and uncalibrated rows open Lot detail of [lotId]; silent, battery and unknown rows open Devices. */
+    /**
+     * Threshold and uncalibrated rows open Lot detail of [lotId]; silent, battery and unknown rows open
+     * Devices, and so does any row without a Lot.
+     */
     val target: AlertTarget
         get() =
             when (condition) {
                 AlertCondition.Silent, AlertCondition.Battery, AlertCondition.Unknown -> AlertTarget.Devices
-                else -> AlertTarget.Lot
+                else -> if (lotId == null) AlertTarget.Devices else AlertTarget.Lot
             }
+
+    /**
+     * The title of the row at [nowEpochMs]. A silent Hub is named by its short name, a silent Node by
+     * its Lot, or by its short name when it is on none. Anything the row cannot name that way (a kind
+     * this app does not know, a Lot-bound kind without a Lot) gets the neutral Health title.
+     */
+    public fun title(nowEpochMs: Long): AlertTitle =
+        when (condition) {
+            AlertCondition.NeedsWater -> lotTitle(AlertTitleKind.NeedsWater)
+            AlertCondition.TooWet -> lotTitle(AlertTitleKind.TooWet)
+            AlertCondition.TooLow -> lotTitle(AlertTitleKind.TooLow)
+            AlertCondition.TooHigh -> lotTitle(AlertTitleKind.TooHigh)
+            AlertCondition.Silent -> silentTitle(nowEpochMs)
+            AlertCondition.Battery -> lotTitle(AlertTitleKind.Battery)
+            AlertCondition.Uncalibrated -> lotTitle(AlertTitleKind.Uncalibrated)
+            AlertCondition.Unknown -> neutralTitle()
+        }
+
+    private fun lotTitle(kind: AlertTitleKind): AlertTitle =
+        if (lotName == null) neutralTitle() else AlertTitle(kind, lotName = lotName)
+
+    private fun silentTitle(nowEpochMs: Long): AlertTitle {
+        // A closed row, and an Alert without a silent-since, say only that the Device is silent.
+        val duration = silentSinceEpochMs?.takeIf { open }?.let { LotDuration.between(it, nowEpochMs) }
+        return when {
+            deviceKind == AlertDeviceKind.Hub -> {
+                AlertTitle(AlertTitleKind.HubSilent, deviceName = deviceName, duration = duration)
+            }
+
+            // Also an Alert from before the Server sent a Device kind: with a Lot it was a Node's.
+            lotName != null -> {
+                AlertTitle(AlertTitleKind.NodeOnLotSilent, lotName = lotName, duration = duration)
+            }
+
+            deviceKind == AlertDeviceKind.Node -> {
+                AlertTitle(AlertTitleKind.NodeSilent, deviceName = deviceName, duration = duration)
+            }
+
+            else -> {
+                neutralTitle()
+            }
+        }
+    }
+
+    private fun neutralTitle(): AlertTitle =
+        if (lotName == null) {
+            AlertTitle(AlertTitleKind.Health)
+        } else {
+            AlertTitle(AlertTitleKind.HealthOnLot, lotName = lotName)
+        }
 
     public companion object {
         /** The contract's `AlertKind` values; the set is extensible. */
@@ -237,8 +369,9 @@ public sealed interface AlertsState {
     ) : AlertsState
 
     /**
-     * [alerts] in the Server's order: open newest first, then closed newest first. [openCount] is
-     * the Server's count of open Alerts of the Site, shown on the Alerts tab. [refreshing] while a
+     * [alerts] in the Server's order: the open Threshold Alerts newest first, the open Health Alerts
+     * newest first, then the closed ones of both newest first. [openCount] is the Server's count of
+     * open Alerts of the Site, Threshold and Health, shown on the Alerts tab. [refreshing] while a
      * read is on its way over shown rows.
      */
     public data class Ready(

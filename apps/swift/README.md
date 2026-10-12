@@ -54,6 +54,43 @@ Swift runtimes.
   (spoken "Alerts, 5 open"); the core reads the count when a Site becomes current, and the app
   calls `refresh` whenever it comes to the front and on pull-to-refresh, `load` on every entry
   of the tab and for Try again. A failed load shows the notice, no rows and no count.
+  Silence (Story 7.2) is the Server's everywhere: no view derives a status, sorts Lots or measures
+  a silence. The core hands over what is silent, since when, the short names ("3F2A") and every
+  duration (`now − silentSince`, rounded down: minutes under 1 h, hours under 24 h, then days);
+  the shell adds the catalogue's words. A value the core did not send, or one this build does not
+  know, leaves the row as it was before.
+  - *Hub notice* (`LotsPresentation`, `GardenView`, UX-DR81): one Inline notice per silent Hub of
+    the Site above the tiles, under the push notices: "Hub 3F2A silent for 12 min — Lots behind
+    it can't be read." It has no action, cannot be closed, shows also when no Lot is behind the
+    Hub and is absent in stale mode. Its duration moves with the minute tick, so the notice posts
+    nothing itself: `ShellModel` announces a Hub once, politely, when its notice appears
+    (`HubNoticeAnnouncements`), and again only after it recovered and went silent again.
+  - *Lot detail hero*: a Lot behind a silent Hub says "Hub 3F2A is silent; Lots behind it can't
+    be read.", or the sentence without an ID when the Server names no Hub. A silent Node keeps
+    "Check power or range."
+  - *Devices rows* (`DevicesPresentation`, `DevicesView`): a silent Hub or Node shows the `help`
+    icon and "Silent 6 h" with its last seen, in sentence case in the catalogue and upper case
+    by style, and every row whose Device has a Silence Window from the Server names it:
+    "Silence Window · 8 h".
+  - *Silence Window sheet*: a row action on every Hub and Node, also a custom accessibility
+    action of the row, for Administrators and Owners (`canSetSilenceWindow` of the snapshot). For
+    a Member the control does not exist. The sheet shows the window in force, a number field
+    with a unit of min, h or d (a Segmented choice), Save, Cancel, and "Use default" only when
+    the Device has its own window. Save hands what was typed to the core
+    (`setSilenceWindowText`), which refuses anything that is no whole number from 1 min to 30
+    days and sends nothing; the sheet then stays open with "Enter a whole number from 1 min to
+    30 d." under the field. A change the Server refused shows under the row; a 403 says "You
+    can't change this on ‹Site›. Ask an Owner or Administrator."
+  - *Health titles* (`AlertsPresentation`, UX-DR117): the core names the sentence and its parts:
+    "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A silent for 5 min", "Node 9C0D silent for
+    6 h" for a Node on no Lot. A closed row, and an open one without a silent-since, drops
+    " for …". A kind the app does not know is "Health Alert on Lot '‹Lot›'", or "Health Alert"
+    without a Lot. Every silent row, and every row without a Lot, opens Devices.
+  - Devices and Alerts each have a one-minute tick like the overview's: it reads the core's
+    snapshot again (`current()`), so the silences move, and fetches nothing. A tapped silent
+    notification still opens the overview: the push route carries no Device ID.
+  Battery and uncalibrated rows have no producer before Stories 7.3 and 7.4; they are built and
+  tested from fixtures.
   `NotificationSettingsService` (Story 6.3) carries My notifications as a
   `NotificationSettingsPresentation` built from the core's flat `NotificationSettingsSnapshot`.
   Settings lists My notifications first, above Site settings; the screen calls `load` on every

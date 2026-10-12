@@ -252,6 +252,32 @@ class LotsSnapshotTest {
     }
 
     @Test
+    fun uxDr81TheSilentHubNoticesCrossAsParallelListsAndAreEmptyInStaleMode() {
+        val silent =
+            overview.copy(
+                silentHubs =
+                    listOf(
+                        SilentHub("3f2a9c0d1e4b5a67", NOW - 12 * minute),
+                        SilentHub("9c0d1e4b5a673f2a", NOW - 26 * hour),
+                    ),
+            )
+
+        val snapshot = snapshotOf(silent, NOW)
+
+        assertEquals(listOf("3f2a9c0d1e4b5a67", "9c0d1e4b5a673f2a"), snapshot.hubNoticeIds)
+        assertEquals(listOf("3F2A", "9C0D"), snapshot.hubNoticeNames)
+        assertEquals(
+            listOf((NOW - 12 * minute).toString(), (NOW - 26 * hour).toString()),
+            snapshot.hubNoticeSilentSince,
+        )
+        assertEquals(listOf("12", "1"), snapshot.hubNoticeDurationValues)
+        assertEquals(listOf("minutes", "days"), snapshot.hubNoticeDurationUnits)
+        assertTrue(snapshotOf(overview, NOW).hubNoticeIds.isEmpty())
+        assertTrue(snapshotOf(silent.copy(staleReason = StaleReason.Unreachable), NOW).hubNoticeIds.isEmpty())
+        assertTrue(snapshotOf(LotsState.Loading(home), NOW).hubNoticeIds.isEmpty())
+    }
+
+    @Test
     fun uxDr80LoadingAndFailedCarryNoOverview() {
         for (state in listOf(
             LotsState.Loading(home),

@@ -2,7 +2,7 @@ import { isRedirect } from '@sveltejs/kit';
 import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import AlertsPage from '../../../apps/ts/web/src/routes/(app)/alerts/+page.svelte';
-import { alertGroups, alertRow, alertsNoticeOf, type Alert, type AlertsContext, type AlertsNotice } from '$lib/alerts';
+import { alertGroups, alertRow, alertsNoticeOf, healthAlertRow, type Alert, type AlertsContext, type AlertsNotice, type HealthAlert } from '$lib/alerts';
 import AlertRows from '$lib/components/AlertRows.svelte';
 import Icon from '$lib/components/Icon.svelte';
 import { messages } from '$lib/i18n';
@@ -58,8 +58,10 @@ async function redirectOf(action: () => unknown): Promise<{ status: number; loca
   throw new Error('Expected a redirect.');
 }
 
-function page(alerts: readonly Alert[], alertsNotice: AlertsNotice | null = null, timeZone: string | null = 'UTC'): string {
-  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [home], currentSite: home, sitesNotice: null, alerts, openCount: alerts.filter((item) => item.closedAt === undefined).length, alertsNotice, loadedAt: now.toISOString(), timeZone };
+function page(alerts: readonly Alert[], alertsNotice: AlertsNotice | null = null, timeZone: string | null = 'UTC', healthAlerts?: readonly HealthAlert[]): string {
+  const openCount = [...alerts, ...(healthAlerts ?? [])].filter((item) => item.closedAt === undefined).length;
+  // Without `healthAlerts` the data is what a Server before Story 7.2 gave: the page renders as it did.
+  const data = { user: { displayName: 'Simon', initials: 'S' }, theme: 'system', sites: [home], currentSite: home, sitesNotice: null, alerts, ...(healthAlerts === undefined ? {} : { healthAlerts }), openCount, alertsNotice, loadedAt: now.toISOString(), timeZone };
   return render(AlertsPage, { props: { data, params: {} } as never }).body;
 }
 
@@ -305,7 +307,7 @@ describe('The Alerts page', () => {
 describe('The Alerts call (AD-14)', () => {
   test('UX-DR64 listAlerts sends the token and returns the Alerts in the Server\'s order with the open count', async () => {
     const fake = fakeServer(() => jsonResponse(200, { alerts: [tomatoes, closedWater], openCount: 1 }));
-    expect(await listAlerts(locals, siteId, { serverUrl, fetch: fake.fetch })).toEqual({ ok: { alerts: [tomatoes, closedWater], openCount: 1 } });
+    expect(await listAlerts(locals, siteId, { serverUrl, fetch: fake.fetch })).toEqual({ ok: { alerts: [tomatoes, closedWater], healthAlerts: [], openCount: 1 } });
     expect(fake.seen).toEqual([{ method: 'GET', path: `/sites/${siteId}/alerts`, authorization: 'Bearer access-token-1', key: null, body: '' }]);
   });
 
@@ -322,7 +324,7 @@ describe('The Alerts call (AD-14)', () => {
       return jsonResponse(200, pages[query.get('cursor') ?? '']);
     });
     const result = await listAlerts(locals, siteId, { serverUrl, fetch: fake.fetch });
-    expect(result).toEqual({ ok: { alerts: [tomatoes, herbs, peppers, closedWater, closedHigh], openCount: 3 } });
+    expect(result).toEqual({ ok: { alerts: [tomatoes, herbs, peppers, closedWater, closedHigh], healthAlerts: [], openCount: 3 } });
     expect(queries).toEqual([`limit=${String(alertsPageLimit)}`, `cursor=c-1&limit=${String(alertsPageLimit)}`, `cursor=c-2&limit=${String(alertsPageLimit)}`]);
   });
 
@@ -332,7 +334,7 @@ describe('The Alerts call (AD-14)', () => {
       'c-1': { alerts: [herbs, peppers], openCount: 3 },
     };
     const fake = fakeServer((request) => jsonResponse(200, pages[new URL(request.url).searchParams.get('cursor') ?? '']));
-    expect(await listAlerts(locals, siteId, { serverUrl, fetch: fake.fetch })).toEqual({ ok: { alerts: [tomatoes, herbs, peppers], openCount: 3 } });
+    expect(await listAlerts(locals, siteId, { serverUrl, fetch: fake.fetch })).toEqual({ ok: { alerts: [tomatoes, herbs, peppers], healthAlerts: [], openCount: 3 } });
   });
 
   test('listAlerts stops at the page cap however long the Server keeps handing out cursors', async () => {
@@ -359,6 +361,7 @@ describe('The Alerts call (AD-14)', () => {
     const fake = fakeServer(() => jsonResponse(200, { alerts: [], openCount: 0 }));
     expect(await loadAlerts(locals, null, new FakeCookies(), { serverUrl, fetch: fake.fetch, now: () => now })).toEqual({
       alerts: [],
+      healthAlerts: [],
       openCount: 0,
       alertsNotice: null,
       loadedAt: '2026-10-09T07:17:00.000Z',
@@ -371,6 +374,7 @@ describe('The Alerts call (AD-14)', () => {
     const fake = fakeServer(() => jsonResponse(200, { alerts: [tomatoes], openCount: 1 }));
     expect(await loadAlerts(locals, home, new FakeCookies({ cf_time_zone: 'Europe/Zurich' }), { serverUrl, fetch: fake.fetch, now: () => now })).toEqual({
       alerts: [tomatoes],
+      healthAlerts: [],
       openCount: 1,
       alertsNotice: null,
       loadedAt: '2026-10-09T07:17:00.000Z',
@@ -404,5 +408,126 @@ describe('The Alerts call (AD-14)', () => {
     const fake = fakeServer(() => problemResponse(401, 'unauthorized'));
     const redirect = await redirectOf(() => loadAlerts(locals, home, new FakeCookies(), { serverUrl, fetch: fake.fetch, now: () => now }));
     expect(redirect.location).toContain('/.oidc/signout');
+  });
+});
+
+/** Story 7.2: Health Alerts of `AlertList.healthAlerts`. The clock is 07:17 UTC. */
+function health(id: string, fields: Partial<HealthAlert> = {}): HealthAlert {
+  return { id, kind: 'silent', deviceId: '9c0d1e4b5a673f2a', deviceKind: 'node', openedAt: '2026-10-09T07:05:00.000Z', ...fields };
+}
+
+const silentBeans = health('h-1', { lotId: 'lot-Beans', lotName: 'Beans', silentSince: '2026-10-09T01:05:00.000Z' });
+const silentHub = health('h-2', { deviceId: '3f2a9c0d1e4b5a67', deviceKind: 'hub', silentSince: '2026-10-09T07:11:30.000Z', openedAt: '2026-10-09T07:16:30.000Z' });
+const silentSpare = health('h-3', { silentSince: '2026-10-09T01:00:00.000Z', openedAt: '2026-10-09T07:00:00.000Z' });
+const closedHub = health('h-4', { deviceId: '3f2a9c0d1e4b5a67', deviceKind: 'hub', silentSince: '2026-10-09T05:00:00.000Z', openedAt: '2026-10-09T05:05:00.000Z', closedAt: '2026-10-09T05:20:00.000Z', reason: 'recovered' });
+
+describe('Health Alerts of the Health list (Story 7.2)', () => {
+  test('UX-DR25 UX-DR117 a silent Node on a Lot: "Node on Lot \'Beans\' silent for 6 h", hatched, help icon', () => {
+    expect(healthAlertRow(silentBeans, context)).toEqual({
+      id: 'h-1',
+      variant: 'health',
+      icon: 'help',
+      eyebrow: 'Health Alert',
+      title: "Node on Lot 'Beans' silent for 6 h",
+      spoken: "Node on Lot 'Beans' silent for 6 h, since 07:05",
+      href: '/devices#device-9c0d1e4b5a673f2a',
+      hatched: true,
+    });
+  });
+
+  test('UX-DR25 UX-DR117 a silent Hub is named by the first four hex digits in upper case: "Hub 3F2A silent for 5 min"', () => {
+    expect(healthAlertRow(silentHub, context)).toMatchObject({ variant: 'health', icon: 'help', title: 'Hub 3F2A silent for 5 min', href: '/devices#device-3f2a9c0d1e4b5a67' });
+    // A Hub has no Lot, whatever else the Server sent with it.
+    expect(healthAlertRow({ ...silentHub, lotName: 'Beans' }, context).title).toBe('Hub 3F2A silent for 5 min');
+  });
+
+  test('UX-DR25 UX-DR117 a silent Node on no Lot is named by its ID: "Node 9C0D silent for 6 h"', () => {
+    expect(healthAlertRow(silentSpare, context).title).toBe('Node 9C0D silent for 6 h');
+  });
+
+  test('UX-DR117 the duration is now minus silent-since, rounded down: minutes, then hours, then days', () => {
+    const at = (silentSince: string): string => healthAlertRow({ ...silentHub, silentSince }, context).title;
+    expect(at('2026-10-09T07:16:01.000Z')).toBe('Hub 3F2A silent for 0 min');
+    expect(at('2026-10-09T06:17:01.000Z')).toBe('Hub 3F2A silent for 59 min');
+    expect(at('2026-10-09T06:17:00.000Z')).toBe('Hub 3F2A silent for 1 h');
+    expect(at('2026-10-08T07:17:01.000Z')).toBe('Hub 3F2A silent for 23 h');
+    expect(at('2026-10-06T07:00:00.000Z')).toBe('Hub 3F2A silent for 3 d');
+    // A silent-since after the clock (skew) is no negative duration.
+    expect(at('2026-10-09T08:00:00.000Z')).toBe('Hub 3F2A silent for 0 min');
+  });
+
+  test('UX-DR25 a closed row, and an open one without silent-since, drop the duration', () => {
+    expect(healthAlertRow(closedHub, context)).toMatchObject({ variant: 'closed', title: 'Hub 3F2A silent', eyebrow: 'Health Alert · closed 05:20', spoken: 'Hub 3F2A silent, since 05:05, closed 05:20', hatched: false });
+    expect(healthAlertRow({ ...silentBeans, closedAt: '2026-10-09T07:10:00.000Z' }, context).title).toBe("Node on Lot 'Beans' silent");
+    expect(healthAlertRow({ ...silentSpare, closedAt: '2026-10-09T07:10:00.000Z' }, context).title).toBe('Node 9C0D silent');
+    // Opened before the Server recorded silent-since, or a value it cannot read.
+    expect(healthAlertRow({ ...silentHub, silentSince: undefined }, context).title).toBe('Hub 3F2A silent');
+    expect(healthAlertRow({ ...silentBeans, silentSince: undefined }, context).title).toBe("Node on Lot 'Beans' silent");
+    expect(healthAlertRow({ ...silentSpare, silentSince: 'yesterday' }, context).title).toBe('Node 9C0D silent');
+  });
+
+  test('UX-DR25 a Health kind this client does not know keeps the neutral Health row, with or without a Lot', () => {
+    expect(healthAlertRow(health('h-9', { kind: 'frost', lotId: 'lot-Basil', lotName: 'Basil', silentSince: '2026-10-09T01:05:00.000Z' }), context)).toMatchObject({
+      variant: 'health',
+      icon: 'help',
+      eyebrow: 'Health Alert',
+      title: "Health Alert on Lot 'Basil'",
+      href: '/devices#device-9c0d1e4b5a673f2a',
+    });
+    expect(healthAlertRow(health('h-9', { kind: 'frost' }), context).title).toBe('Health Alert');
+    // The later kinds of Epic 7 keep today's titles and icons; without a Lot they are the neutral row.
+    expect(healthAlertRow(health('h-9', { kind: 'battery', lotName: 'Lettuce', lotId: 'l' }), context)).toMatchObject({ icon: 'battery--low', title: "Node battery low on Lot 'Lettuce'", href: '/devices#device-9c0d1e4b5a673f2a' });
+    expect(healthAlertRow(health('h-9', { kind: 'uncalibrated', lotName: 'Potatoes', lotId: 'l-7' }), context)).toMatchObject({ icon: 'tools', title: "Soil Sensor on Lot 'Potatoes' needs Calibration", href: '/garden/l-7' });
+    expect(healthAlertRow(health('h-9', { kind: 'uncalibrated' }), context)).toMatchObject({ icon: 'tools', title: 'Health Alert', href: '/devices#device-9c0d1e4b5a673f2a' });
+  });
+
+  test('UX-DR26 a Health row links to the row of its Device on Devices', () => {
+    expect([silentBeans, silentHub, silentSpare, closedHub].map((item) => healthAlertRow(item, context).href)).toEqual([
+      '/devices#device-9c0d1e4b5a673f2a',
+      '/devices#device-3f2a9c0d1e4b5a67',
+      '/devices#device-9c0d1e4b5a673f2a',
+      '/devices#device-3f2a9c0d1e4b5a67',
+    ]);
+  });
+
+  test('UX-DR64 the groups: Threshold from alerts, Health from healthAlerts in the Server order, Closed holds both; nothing is re-sorted', () => {
+    const groups = alertGroups([tomatoes, herbs, closedWater], context, [silentHub, silentBeans, silentSpare, closedHub]);
+    expect(groups.threshold.map((row) => row.id)).toEqual(['a-1', 'a-2']);
+    expect(groups.health.map((row) => row.id)).toEqual(['h-2', 'h-1', 'h-3']);
+    expect(groups.closed.map((row) => row.id)).toEqual(['a-9', 'h-4']);
+    // A missing Health list is no Health Alerts; an Alert listed twice shows once.
+    expect(alertGroups([tomatoes], context, undefined).health).toEqual([]);
+    expect(alertGroups([tomatoes], context, [silentBeans, silentBeans]).health.map((row) => row.id)).toEqual(['h-1']);
+  });
+
+  test('UX-DR64 UX-DR25 the page lists the Health rows under Health Alerts and the closed one under Closed', () => {
+    const body = page([tomatoes], null, 'UTC', [silentHub, silentBeans, silentSpare, closedHub]);
+    expect(ids(body)).toEqual(['a-1', 'h-2', 'h-1', 'h-3', 'h-4']);
+    expect(text(body)).toBe(
+      "Alerts Threshold Alerts Needs water · 5:45 AM Tomatoes needs water Health Alerts Health Alert Hub 3F2A silent for 5 min Health Alert Node on Lot 'Beans' silent for 6 h Health Alert Node 9C0D silent for 6 h Closed Health Alert · closed 5:20 AM Hub 3F2A silent",
+    );
+    expect(item(body, 'h-2')).toContain('href="/devices#device-3f2a9c0d1e4b5a67"');
+    expect(item(body, 'h-2')).toContain('aria-label="Hub 3F2A silent for 5 min, since 7:16 AM"');
+    expect(item(body, 'h-1')).toContain('data-variant="health"');
+    expect(item(body, 'h-4')).toContain('data-variant="closed"');
+    // Only Health Alerts open: no empty state.
+    expect(text(page([], null, 'UTC', [silentHub]))).toBe('Alerts Health Alerts Health Alert Hub 3F2A silent for 5 min');
+  });
+
+  test('a Server that sends no Health list renders as before', () => {
+    expect(text(page([]))).toBe('Alerts No open Alerts.');
+    expect(ids(page([tomatoes]))).toEqual(['a-1']);
+  });
+
+  test('UX-DR64 listAlerts takes the Health Alerts of the first page only: later pages carry none', async () => {
+    const pages: Record<string, unknown> = {
+      '': { alerts: [tomatoes], healthAlerts: [silentBeans, silentHub], openCount: 3, nextCursor: 'c-1' },
+      // A later page never has them; one that did would not replace the first page's.
+      'c-1': { alerts: [herbs], healthAlerts: [closedHub], openCount: 3 },
+    };
+    const fake = fakeServer((request) => jsonResponse(200, pages[new URL(request.url).searchParams.get('cursor') ?? '']));
+    expect(await listAlerts(locals, siteId, { serverUrl, fetch: fake.fetch })).toEqual({ ok: { alerts: [tomatoes, herbs], healthAlerts: [silentBeans, silentHub], openCount: 3 } });
+    const loaded = await loadAlerts(locals, home, new FakeCookies(), { serverUrl, fetch: fakeServer(() => jsonResponse(200, pages[''])).fetch, now: () => now });
+    expect(loaded.healthAlerts).toEqual([silentBeans, silentHub]);
   });
 });

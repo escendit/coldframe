@@ -20,8 +20,11 @@ import com.escendit.coldframe.android.ui.theme.textStyle
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
-/** How urgently TalkBack announces a notice when it appears (UX-DR104). */
-enum class Announcement { Polite, Assertive }
+/**
+ * How urgently TalkBack announces a notice when it appears (UX-DR104). [None] is for a notice whose
+ * text moves with the clock: its screen announces it once by other means, and a tick says nothing.
+ */
+enum class Announcement { Polite, Assertive, None }
 
 /** The notice's one action, if any. */
 data class NoticeActionUi(
@@ -31,7 +34,8 @@ data class NoticeActionUi(
 
 /**
  * Inline notice (UX-DR56): `layer-01`, 3 dp `border-strong` left edge, `body` text. Never
- * dismissable; at most one action. The message is a live region, so it is announced on arrival.
+ * dismissable; at most one action. The message is a live region, so it is announced on arrival,
+ * unless [announcement] is [Announcement.None].
  */
 @Composable
 fun InlineNotice(
@@ -63,11 +67,11 @@ fun InlineNotice(
             color = colors.textPrimary,
             modifier =
                 Modifier.semantics {
-                    liveRegion =
-                        when (announcement) {
-                            Announcement.Polite -> LiveRegionMode.Polite
-                            Announcement.Assertive -> LiveRegionMode.Assertive
-                        }
+                    when (announcement) {
+                        Announcement.Polite -> liveRegion = LiveRegionMode.Polite
+                        Announcement.Assertive -> liveRegion = LiveRegionMode.Assertive
+                        Announcement.None -> Unit
+                    }
                 },
         )
         if (action != null) {

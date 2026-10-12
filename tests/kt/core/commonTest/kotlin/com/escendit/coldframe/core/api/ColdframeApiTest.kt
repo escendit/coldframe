@@ -976,4 +976,199 @@ class ColdframeApiTest {
             assertEquals("https://server.example/me/push-registrations/inst-1", request.url.toString())
             assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
         }
+
+    // Story 7.2
+
+    @Test
+    fun uxDr81ListLotsReadsTheSilentHubsAndTheSilenceOfAnUnknownLot() =
+        runTest {
+            answer = {
+                respond(
+                    """{"lots":[{"id":"l1","name":"Lettuce","status":"unknown",""" +
+                        """"statusSince":"2026-10-06T07:00:00.000Z",""" +
+                        """"unknownCause":"hub","silentHubId":"3f2a9c0d1e4b5a67",""" +
+                        """"silentSince":"2026-10-06T06:55:00.000Z","later":1}],""" +
+                        """"silentHubs":[{"deviceId":"3f2a9c0d1e4b5a67","silentSince":"2026-10-06T06:55:00.000Z"}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listLots("a")
+
+            assertEquals(
+                ApiResult.Ok(
+                    LotListDto(
+                        listOf(
+                            LotDto(
+                                id = "l1",
+                                name = "Lettuce",
+                                status = "unknown",
+                                statusSince = "2026-10-06T07:00:00.000Z",
+                                unknownCause = "hub",
+                                silentHubId = "3f2a9c0d1e4b5a67",
+                                silentSince = "2026-10-06T06:55:00.000Z",
+                            ),
+                        ),
+                        silentHubs = listOf(SilentHubDto("3f2a9c0d1e4b5a67", "2026-10-06T06:55:00.000Z")),
+                    ),
+                ),
+                result,
+            )
+        }
+
+    @Test
+    fun uxDr30ListDevicesReadsTheSilenceFieldsAndADeviceWithoutThemStillDecodes() =
+        runTest {
+            answer = {
+                respond(
+                    """{"devices":[""" +
+                        """{"id":"3f2a9c0d1e4b5a67","kind":"hub","online":true,""" +
+                        """"silenceWindowSeconds":300,"silenceWindowOverridden":false},""" +
+                        """{"id":"9c0d1e4b5a673f2a","kind":"node","online":false,""" +
+                        """"silentSince":"2026-10-06T01:05:00.000Z",""" +
+                        """"silenceWindowSeconds":28800,"silenceWindowOverridden":true},""" +
+                        """{"id":"7c19000000000001","kind":"node","online":false}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listDevices("a")
+
+            assertEquals(
+                ApiResult.Ok(
+                    DeviceListDto(
+                        listOf(
+                            DeviceListItemDto(
+                                "3f2a9c0d1e4b5a67",
+                                "hub",
+                                true,
+                                silenceWindowSeconds = 300,
+                                silenceWindowOverridden = false,
+                            ),
+                            DeviceListItemDto(
+                                "9c0d1e4b5a673f2a",
+                                "node",
+                                false,
+                                silentSince = "2026-10-06T01:05:00.000Z",
+                                silenceWindowSeconds = 28_800,
+                                silenceWindowOverridden = true,
+                            ),
+                            DeviceListItemDto("7c19000000000001", "node", false),
+                        ),
+                    ),
+                ),
+                result,
+            )
+        }
+
+    @Test
+    fun uxDr25ListAlertsReadsTheHealthAlertsBesideTheThresholdAlerts() =
+        runTest {
+            answer = {
+                respond(
+                    """{"alerts":[],"healthAlerts":[""" +
+                        """{"id":"h1","kind":"silent","deviceId":"9c0d1e4b5a673f2a","deviceKind":"node",""" +
+                        """"lotId":"l1","lotName":"Beans","silentSince":"2026-10-06T01:05:00.000Z",""" +
+                        """"openedAt":"2026-10-06T07:05:00.000Z"},""" +
+                        """{"id":"h2","kind":"silent","deviceId":"3f2a9c0d1e4b5a67","deviceKind":"hub",""" +
+                        """"openedAt":"2026-10-06T07:00:00.000Z","closedAt":"2026-10-06T07:20:00.000Z",""" +
+                        """"reason":"recovered","later":1},""" +
+                        """{"id":"h3","kind":"flooded","deviceId":"9c0d1e4b5a673f2a",""" +
+                        """"openedAt":"2026-10-06T07:00:00.000Z"}],""" +
+                        """"openCount":2}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listAlerts("a", null)
+
+            assertEquals(
+                ApiResult.Ok(
+                    AlertListDto(
+                        alerts = emptyList(),
+                        openCount = 2,
+                        healthAlerts =
+                            listOf(
+                                HealthAlertDto(
+                                    id = "h1",
+                                    kind = "silent",
+                                    deviceId = "9c0d1e4b5a673f2a",
+                                    openedAt = "2026-10-06T07:05:00.000Z",
+                                    deviceKind = "node",
+                                    lotId = "l1",
+                                    lotName = "Beans",
+                                    silentSince = "2026-10-06T01:05:00.000Z",
+                                ),
+                                HealthAlertDto(
+                                    id = "h2",
+                                    kind = "silent",
+                                    deviceId = "3f2a9c0d1e4b5a67",
+                                    openedAt = "2026-10-06T07:00:00.000Z",
+                                    deviceKind = "hub",
+                                    closedAt = "2026-10-06T07:20:00.000Z",
+                                    reason = "recovered",
+                                ),
+                                // A kind this app does not know, without a Device kind: it still decodes.
+                                HealthAlertDto("h3", "flooded", "9c0d1e4b5a673f2a", "2026-10-06T07:00:00.000Z"),
+                            ),
+                    ),
+                ),
+                result,
+            )
+        }
+
+    @Test
+    fun uxDr31SetSilenceWindowPutsWholeSecondsToTheDevicesSilenceWindowRoute() =
+        runTest {
+            answer = { respond("""{"windowSeconds":28800,"overridden":true}""", HttpStatusCode.OK, json) }
+
+            val result = api().setSilenceWindow("a", "9c0d1e4b5a673f2a", 28_800)
+
+            assertEquals(ApiResult.Ok(SilenceWindowDto(28_800, true)), result)
+            val sent = requests.single()
+            assertEquals(HttpMethod.Put, sent.method)
+            assertEquals("https://server.example/sites/a/devices/9c0d1e4b5a673f2a/silence-window", sent.url.toString())
+            assertEquals("Bearer access-1", sent.headers[HttpHeaders.Authorization])
+            assertEquals("""{"windowSeconds":28800}""", sent.text())
+        }
+
+    @Test
+    fun uxDr31UseDefaultPutsABodyWithoutWindowSeconds() =
+        runTest {
+            answer = { respond("""{"windowSeconds":300,"overridden":false}""", HttpStatusCode.OK, json) }
+
+            val result = api().setSilenceWindow("a", "3f2a9c0d1e4b5a67", null)
+
+            assertEquals(ApiResult.Ok(SilenceWindowDto(300, false)), result)
+            assertEquals("{}", requests.single().text())
+        }
+
+    @Test
+    fun uxDr84SilenceWindowProblemsMapToTheirFailures() =
+        runTest {
+            val cases =
+                listOf(
+                    Triple(HttpStatusCode.BadRequest, "validation", ApiFailure.Validation),
+                    Triple(HttpStatusCode.Forbidden, "forbidden", ApiFailure.Forbidden),
+                    Triple(HttpStatusCode.NotFound, "device-not-found", ApiFailure.NotFound),
+                    Triple(HttpStatusCode.NotFound, "site-not-found", ApiFailure.NotFound),
+                )
+            for ((status, type, failure) in cases) {
+                answer = { respond(problem(type), status, problem) }
+                assertEquals(
+                    ApiResult.Failed(failure),
+                    api().setSilenceWindow("a", "9c0d1e4b5a673f2a", 600),
+                    type,
+                )
+            }
+            answer = { respond("", HttpStatusCode.Unauthorized) }
+            assertEquals(
+                ApiResult.Failed(ApiFailure.Unauthorized),
+                api().setSilenceWindow("a", "9c0d1e4b5a673f2a", 600),
+            )
+            assertEquals(1, unauthorized)
+        }
 }

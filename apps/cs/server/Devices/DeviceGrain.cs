@@ -846,7 +846,8 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                     siteId,
                     State.LotId,
                     State.SilenceDueAt ?? dueAt,
-                    now));
+                    now,
+                    State.LastHeardAt));
                 await ConfirmEvents();
             }
 
@@ -913,7 +914,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             // Not cancelled by the caller: the journaled episode is delivered until the Alert grain holds it.
             var result = delivery.Change == AlertLifecycle.Open
                 ? await alert.OpenForDevice(
-                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At),
+                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At, State.Kind, delivery.SilentSince),
                     CancellationToken.None)
                 : await alert.Close(new CloseAlert(delivery.Reason ?? AlertCloseReason.Recovered, delivery.At), CancellationToken.None);
 

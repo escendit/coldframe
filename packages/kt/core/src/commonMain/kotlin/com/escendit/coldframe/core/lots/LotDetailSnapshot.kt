@@ -17,7 +17,9 @@ import com.escendit.coldframe.core.devices.DevicesState
  *   [heroSoilPercent], [heroLowPercent], [heroReadingAt], [heroNote] (`none`,
  *   `noPercentUntilCalibrated`, `checkPowerOrRange`, `hubSilent`, `pausedUntil`, `paused`,
  *   `pausedWithSite`), [heroPausedUntil], [heroResumeSiteHint], [heroNeedsWaterFill] and the
- *   silence [heroDurationValue] with [heroDurationUnit].
+ *   silence [heroDurationValue] with [heroDurationUnit]. [heroSilentHubName] is the short name
+ *   of the silent Hub ("3F2A") for the `hubSilent` note: "Hub 3F2A is silent; Lots behind it can't
+ *   be read."; empty when the Server named none, and the note then has no ID.
  * - [noNode] and [canAddNode] (Admin+, mobile).
  * - Sensor cells, one entry per Sensor in the Server's order ([hasSensors] false while stale or
  *   without a Node): [sensorQuantities], [sensorNumbers], [sensorUnits] (`raw`, `celsius`,
@@ -111,6 +113,7 @@ public data class LotDetailSnapshot(
     val barBelowLow: List<Boolean>,
     /** The days (`yyyy-MM-dd`) with a low under the low Threshold, for the accessible summary. */
     val chartBelowLowDays: List<String>,
+    val heroSilentHubName: String = "",
 )
 
 private fun Enum<*>.key(): String = name.replaceFirstChar { it.lowercase() }
@@ -239,5 +242,6 @@ public fun snapshotOf(
         chartBandHighFraction = chart?.band?.highFraction ?: 0.0,
         barBelowLow = bars.map { it.belowLow },
         chartBelowLowDays = chart?.belowLowDays.orEmpty(),
+        heroSilentHubName = hero?.silentHubName.orEmpty(),
     )
 }

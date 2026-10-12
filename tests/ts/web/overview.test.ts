@@ -292,6 +292,7 @@ describe('Stale mode of the Site overview', () => {
     const cookies = new FakeCookies({ cf_time_zone: 'Europe/Zurich' });
     expect(await loadGarden(locals, home, cookies, null, dependencies)).toEqual({
       lots: [tomatoes, herbs, potatoes],
+      silentHubs: [],
       lotsNotice: null,
       staleSince: null,
       loadedAt: '2026-10-06T07:00:00.000Z',
@@ -302,6 +303,7 @@ describe('Stale mode of the Site overview', () => {
     fake.seen.length = 0;
     expect(await loadGarden(locals, home, cookies, null, dependencies)).toEqual({
       lots: [tomatoes, herbs, potatoes],
+      silentHubs: [],
       lotsNotice: null,
       staleSince: '2026-10-06T07:01:00.000Z',
       loadedAt: '2026-10-06T07:02:00.000Z',

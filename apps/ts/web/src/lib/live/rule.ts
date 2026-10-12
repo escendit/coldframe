@@ -26,7 +26,7 @@ function isOverview(pathname: string): boolean {
  * | `lots` | the overview; Lot detail and its sub-pages of that Lot |
  * | `readings` | the overview; Lot detail of that Lot |
  * | `alerts` | Alerts; the overview |
- * | `devices` | Devices |
+ * | `devices` | Devices; the overview (a Device that turns silent or recovers changes the Hub notice and the tiles) |
  */
 export function showsResource(pathname: string, hint: Pick<ReadModelChanged, 'resource' | 'id'>): boolean {
   const lot = openLot(pathname);
@@ -40,7 +40,7 @@ export function showsResource(pathname: string, hint: Pick<ReadModelChanged, 're
     case 'alerts':
       return isOverview(pathname) || pathname.replace(/\/+$/u, '') === '/alerts';
     case 'devices':
-      return pathname.replace(/\/+$/u, '') === '/devices';
+      return isOverview(pathname) || pathname.replace(/\/+$/u, '') === '/devices';
     default:
       return false;
   }

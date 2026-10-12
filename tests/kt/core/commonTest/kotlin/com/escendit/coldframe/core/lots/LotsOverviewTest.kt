@@ -284,7 +284,7 @@ class LotsOverviewTest {
     }
 
     @Test
-    fun uxDr18ASilentNodeIsMeasuredFromItsLastReading() {
+    fun uxDr18ASilentNodeWithoutASilentSinceIsMeasuredFromItsLastReading() {
         val lot =
             LotSummary(
                 "b",
@@ -316,7 +316,7 @@ class LotsOverviewTest {
     }
 
     @Test
-    fun uxDr18ASilentHubIsMeasuredFromStatusSince() {
+    fun uxDr18ASilentHubWithoutASilentSinceIsMeasuredFromStatusSince() {
         val tile =
             tile(
                 LotSummary(
@@ -337,6 +337,118 @@ class LotsOverviewTest {
         assertEquals(LotTileFoot.LastReading, tile.foot)
         assertEquals(NOW - 20 * MINUTE, tile.readingAtEpochMs)
         assertNull(tile.soilPercent)
+    }
+
+    @Test
+    fun uxDr18ASilentNodeIsMeasuredFromTheServersSilentSinceRoundedDown() {
+        val tile =
+            tile(
+                LotSummary(
+                    "b",
+                    "Beans",
+                    LotStatus.Unknown,
+                    // The Alert opened 5 min ago; the Node was last heard 6 h 5 min ago.
+                    statusSinceEpochMs = NOW - 5 * MINUTE,
+                    lastReadingAtEpochMs = NOW - 7 * HOUR,
+                    unknownCause = LotUnknownCause.Node,
+                    moisturePercent = 41.0,
+                    silentSinceEpochMs = NOW - 6 * HOUR - 5 * MINUTE,
+                ),
+            )
+
+        assertEquals(NOW - 6 * HOUR - 5 * MINUTE, tile.durationSinceEpochMs)
+        assertEquals(LotDuration(6, LotDurationUnit.Hours), tile.duration)
+        assertEquals(LotTileValue.Duration, tile.value)
+        // The foot still names the last Reading: "was ~40 % at ‹t›".
+        assertEquals(LotTileFoot.WasPercentAt, tile.foot)
+        assertEquals(NOW - 7 * HOUR, tile.readingAtEpochMs)
+        assertEquals(40, tile.soilPercent)
+    }
+
+    @Test
+    fun uxDr18ASilentHubIsMeasuredFromTheServersSilentSince() {
+        val tile =
+            tile(
+                LotSummary(
+                    "l",
+                    "Lettuce",
+                    LotStatus.Unknown,
+                    statusSinceEpochMs = NOW - 7 * MINUTE,
+                    lastReadingAtEpochMs = NOW - 20 * MINUTE,
+                    unknownCause = LotUnknownCause.Hub,
+                    silentHubId = "3f2a9c0d1e4b5a67",
+                    silentSinceEpochMs = NOW - 12 * MINUTE - 59_000,
+                ),
+            )
+
+        assertEquals(LotTileLabel.HubSilent, tile.label)
+        assertEquals(LotTileSpoken.HubSilent, tile.spoken)
+        assertEquals(LotDuration(12, LotDurationUnit.Minutes), tile.duration)
+    }
+
+    @Test
+    fun uxDr18ASilenceIsToldInMinutesUnderAnHourHoursUnderADayAndDaysFromThereAlwaysRoundedDown() {
+        fun silentFor(ms: Long) =
+            tile(LotSummary("b", "Beans", LotStatus.Unknown, silentSinceEpochMs = NOW - ms)).duration
+
+        assertEquals(LotDuration(0, LotDurationUnit.Minutes), silentFor(59_000))
+        assertEquals(LotDuration(59, LotDurationUnit.Minutes), silentFor(HOUR - 1))
+        assertEquals(LotDuration(1, LotDurationUnit.Hours), silentFor(HOUR))
+        assertEquals(LotDuration(23, LotDurationUnit.Hours), silentFor(24 * HOUR - 1))
+        assertEquals(LotDuration(1, LotDurationUnit.Days), silentFor(24 * HOUR))
+        assertEquals(LotDuration(2, LotDurationUnit.Days), silentFor(3 * 24 * HOUR - 1))
+    }
+
+    @Test
+    fun uxDr81EverySilentHubHasANoticeWithItsShortNameAndItsSilenceInTheServersOrder() {
+        val state =
+            ready(listOf(lot(LotStatus.Ok, "Herbs"))).copy(
+                silentHubs =
+                    listOf(
+                        SilentHub("3f2a9c0d1e4b5a67", NOW - 12 * MINUTE - 30_000),
+                        SilentHub("1b00aa11bb22cc33", NOW - 3 * HOUR),
+                    ),
+            )
+
+        val overview = LotsOverview.of(state, NOW)
+
+        assertEquals(
+            listOf(
+                HubNotice(
+                    deviceId = "3f2a9c0d1e4b5a67",
+                    shortName = "3F2A",
+                    silentSinceEpochMs = NOW - 12 * MINUTE - 30_000,
+                    duration = LotDuration(12, LotDurationUnit.Minutes),
+                ),
+                HubNotice("1b00aa11bb22cc33", "1B00", NOW - 3 * HOUR, LotDuration(3, LotDurationUnit.Hours)),
+            ),
+            overview.hubNotices,
+        )
+        // No Lot is behind either Hub: the notices show all the same, and no Lot changes.
+        assertEquals(listOf(LotTileVariant.Ok), overview.tiles.map { it.variant })
+        // A minute later the durations have moved.
+        assertEquals(
+            LotDuration(13, LotDurationUnit.Minutes),
+            LotsOverview
+                .of(state, NOW + MINUTE)
+                .hubNotices
+                .first()
+                .duration,
+        )
+    }
+
+    @Test
+    fun uxDr81WithoutASilentHubThereIsNoNoticeAndStaleDataNeverSaysSilentFor() {
+        val lots = listOf(lot(LotStatus.Unknown, "Beans"))
+        assertEquals(emptyList(), LotsOverview.of(ready(lots), NOW).hubNotices)
+
+        val hubs = listOf(SilentHub("3f2a9c0d1e4b5a67", NOW - 12 * MINUTE))
+        for (reason in StaleReason.entries) {
+            assertEquals(
+                emptyList(),
+                LotsOverview.of(ready(lots, staleReason = reason).copy(silentHubs = hubs), NOW).hubNotices,
+            )
+        }
     }
 
     @Test

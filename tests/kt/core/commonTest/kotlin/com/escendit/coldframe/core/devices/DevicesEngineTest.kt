@@ -7,7 +7,10 @@ import com.escendit.coldframe.core.api.DeviceListDto
 import com.escendit.coldframe.core.api.DeviceListItemDto
 import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotListDto
+import com.escendit.coldframe.core.api.SilenceWindowDto
 import com.escendit.coldframe.core.api.SiteDto
+import com.escendit.coldframe.core.lots.LotDuration
+import com.escendit.coldframe.core.lots.LotDurationUnit
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
 import com.escendit.coldframe.core.sites.FakeSitesApi
@@ -25,6 +28,11 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+/** 2026-10-06T07:10:00Z: the `now` every snapshot of these tests is taken at. No test reads a wall clock. */
+private const val NOW_MS = 1_791_270_600_000L
+
+private fun snapshotOf(state: DevicesState): DevicesSnapshot = snapshotOf(state, NOW_MS)
 
 /** An in-memory Server for the Devices list, per Site. */
 class FakeDevicesApi : DevicesApi {
@@ -92,6 +100,30 @@ class FakeDevicesApi : DevicesApi {
         lots[siteId] = lots[siteId].orEmpty().map { if (it.id == node.lotId) it.copy(status = "noNode") else it }
         return ApiResult.Ok(DeviceDto(deviceId, "node", siteId))
     }
+
+    /** The answer of the next Silence Window change, or `null` to accept it as the Server would. */
+    var windowFailure: ApiFailure? = null
+
+    override suspend fun setSilenceWindow(
+        siteId: String,
+        deviceId: String,
+        windowSeconds: Int?,
+    ): ApiResult<SilenceWindowDto> {
+        calls += "window $siteId $deviceId ${windowSeconds ?: "default"}"
+        windowFailure?.let { return ApiResult.Failed(it) }
+        val device = devices[siteId].orEmpty().first { it.id == deviceId }
+        // The Server's bookkeeping: the window in force, the default of the kind when none is given.
+        val inForce = windowSeconds ?: if (device.kind == "hub") 300 else 21_600
+        devices[siteId] =
+            devices[siteId].orEmpty().map {
+                if (it.id == deviceId) {
+                    it.copy(silenceWindowSeconds = inForce, silenceWindowOverridden = windowSeconds != null)
+                } else {
+                    it
+                }
+            }
+        return ApiResult.Ok(SilenceWindowDto(inForce, windowSeconds != null))
+    }
 }
 
 class DevicesEngineTest {
@@ -120,7 +152,7 @@ class DevicesEngineTest {
                 newKey = { "site-key" },
                 zones = { emptyList() },
             )
-        val devices = DevicesEngine(api, sitesEngine, backgroundScope)
+        val devices = DevicesEngine(api, sitesEngine, backgroundScope, now = { NOW_MS })
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
         return sitesEngine to devices
@@ -467,6 +499,17 @@ class DevicesEngineTest {
                     hubStatuses = listOf("offline", "online"),
                     hubLastSeen = listOf("", "1791270120000"),
                     canManageNodes = true,
+                    hubShortNames = listOf("1B00", "3F2A"),
+                    hubSilentSince = listOf("", ""),
+                    hubSilenceValues = listOf("", ""),
+                    hubSilenceUnits = listOf("", ""),
+                    hubWindowSeconds = listOf("", ""),
+                    hubWindowValues = listOf("", ""),
+                    hubWindowUnits = listOf("", ""),
+                    hubWindowOverridden = listOf(false, false),
+                    canSetSilenceWindow = true,
+                    silenceWindowMinSeconds = 60,
+                    silenceWindowMaxSeconds = 2_592_000,
                 ),
                 snapshot,
             )
@@ -698,5 +741,343 @@ class DevicesEngineTest {
             runCurrent()
 
             assertIs<DevicesState.Idle>(devices.state.value)
+        }
+
+    // Story 7.2: silence on Device rows and the Silence Window.
+
+    private val hubId = "3f2a9c0d1e4b5a67"
+    private val nodeId = "9c0d1e4b5a673f2a"
+
+    /** A Hub silent for 12 min and a Node on Beans silent for 6 h 5 min at [NOW_MS], and a Node that is heard. */
+    private fun seedSilence() {
+        api.devices["a"] =
+            listOf(
+                DeviceListItemDto(
+                    hubId,
+                    "hub",
+                    online = false,
+                    lastSeenAt = "2026-10-06T06:58:00.000Z",
+                    silentSince = "2026-10-06T06:58:00.000Z",
+                    silenceWindowSeconds = 300,
+                    silenceWindowOverridden = false,
+                ),
+                DeviceListItemDto(
+                    nodeId,
+                    "node",
+                    online = false,
+                    lotId = "l-beans",
+                    lotName = "Beans",
+                    lastSeenAt = "2026-10-06T01:05:00.000Z",
+                    silentSince = "2026-10-06T01:05:00.000Z",
+                    silenceWindowSeconds = 28_800,
+                    silenceWindowOverridden = true,
+                ),
+                DeviceListItemDto("7c19000000000001", "node", online = true, lotId = "l-peas", lotName = "Peas"),
+            )
+    }
+
+    @Test
+    fun uxDr30ASilentHubAndNodeCarryTheServersSilentSinceAndTheirSilenceRoundedDown() =
+        runTest {
+            seedSilence()
+
+            val ready = devicesFor("Member").ready()
+
+            val hub = ready.hubs.single()
+            assertTrue(hub.silent)
+            assertEquals("3F2A", hub.shortName)
+            assertEquals(LotDuration(12, LotDurationUnit.Minutes), hub.silence(NOW_MS))
+            assertEquals(SilenceWindowLength(5, SilenceWindowUnit.Minutes), hub.silenceWindow)
+            assertFalse(hub.silenceWindowOverridden)
+            val node = ready.nodes.first()
+            assertTrue(node.silent)
+            assertEquals("9C0D", node.shortName)
+            // 6 h 5 min is "6 h": rounded down, never up.
+            assertEquals(LotDuration(6, LotDurationUnit.Hours), node.silence(NOW_MS))
+            assertEquals(SilenceWindowLength(8, SilenceWindowUnit.Hours), node.silenceWindow)
+            assertTrue(node.silenceWindowOverridden)
+        }
+
+    @Test
+    fun uxDr30ADeviceWithoutTheSilenceFieldsIsARowAsBefore() =
+        runTest {
+            seedSilence()
+
+            val heard = devicesFor().ready().nodes.last()
+
+            assertFalse(heard.silent)
+            assertNull(heard.silence(NOW_MS))
+            assertNull(heard.silenceWindow)
+            assertFalse(heard.silenceWindowOverridden)
+        }
+
+    @Test
+    fun aSilentSinceThatIsNotAnInstantLeavesTheRowNotSilentInsteadOfFailingTheList() =
+        runTest {
+            api.devices["a"] = listOf(DeviceListItemDto(hubId, "hub", online = false, silentSince = "a while ago"))
+
+            assertFalse(
+                devicesFor()
+                    .ready()
+                    .hubs
+                    .single()
+                    .silent,
+            )
+        }
+
+    @Test
+    fun uxDr84OnlyAdministratorsAndOwnersGetTheSilenceWindowAction() =
+        runTest {
+            seedSilence()
+            assertTrue(DevicesState.canSetSilenceWindow(SiteRole.Owner))
+            assertTrue(DevicesState.canSetSilenceWindow(SiteRole.Administrator))
+            assertFalse(DevicesState.canSetSilenceWindow(SiteRole.Member))
+
+            val devices = devicesFor("Member")
+
+            assertFalse(devices.state.value.canSetSilenceWindow)
+            assertFalse(snapshotOf(devices.state.value).canSetSilenceWindow)
+            // Even a call straight at the engine does nothing for a Member.
+            devices.setSilenceWindow(nodeId, 3_600)
+            devices.setSilenceWindow(nodeId, null)
+            runCurrent()
+            assertEquals(listOf("list a"), api.calls)
+            assertNull(devices.ready().silenceWindowFailure)
+        }
+
+    @Test
+    fun uxDr31SettingTheSilenceWindowSendsWholeSecondsThenReadsTheServersAnswerAgain() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Administrator")
+            api.calls.clear()
+
+            devices.setSilenceWindow(hubId, 600)
+            assertEquals(hubId, snapshotOf(devices.state.value).silenceWindowWorkingId)
+            runCurrent()
+
+            assertEquals(listOf("window a $hubId 600", "list a", "lots a"), api.calls)
+            val hub = devices.ready().hubs.single()
+            assertEquals(600, hub.silenceWindowSeconds)
+            assertTrue(hub.silenceWindowOverridden)
+            assertNull(devices.ready().silenceWindowWorkingId)
+            assertNull(devices.ready().silenceWindowFailure)
+        }
+
+    @Test
+    fun uxDr31UseDefaultSendsNoValueAndTheRowShowsTheDefaultOfTheKind() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Owner")
+            api.calls.clear()
+
+            devices.setSilenceWindow(nodeId, null)
+            runCurrent()
+
+            assertEquals("window a $nodeId default", api.calls.first())
+            val node = devices.ready().nodes.first()
+            assertEquals(SilenceWindowLength(6, SilenceWindowUnit.Hours), node.silenceWindow)
+            assertFalse(node.silenceWindowOverridden)
+        }
+
+    @Test
+    fun uxDr31AWindowOutsideOneMinuteToThirtyDaysIsRefusedBeforeAnythingIsSent() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Administrator")
+            api.calls.clear()
+
+            for (seconds in listOf(59, 2_592_001, 0, -60)) {
+                devices.setSilenceWindow(nodeId, seconds)
+                runCurrent()
+
+                assertEquals(
+                    SilenceWindowFailure(nodeId, SilenceWindowNotice.OutOfRange),
+                    devices.ready().silenceWindowFailure,
+                    seconds.toString(),
+                )
+            }
+            assertEquals(emptyList(), api.calls)
+            // The ends of the range are sent.
+            devices.setSilenceWindow(nodeId, 60)
+            runCurrent()
+            devices.setSilenceWindow(nodeId, 2_592_000)
+            runCurrent()
+            assertEquals(
+                listOf("window a $nodeId 60", "window a $nodeId 2592000"),
+                api.calls.filter { it.startsWith("window") },
+            )
+            assertNull(devices.ready().silenceWindowFailure)
+        }
+
+    @Test
+    fun uxDr84ARefusedSilenceWindowShowsItsReasonForThatDeviceAndChangesNothing() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Administrator")
+            val cases =
+                listOf(
+                    // The Role changed since the list loaded: "You can't change this on ‹Site›…".
+                    ApiFailure.Forbidden to SilenceWindowNotice.Forbidden,
+                    ApiFailure.NotFound to SilenceWindowNotice.NotFound,
+                    ApiFailure.Validation to SilenceWindowNotice.OutOfRange,
+                    ApiFailure.Unreachable to SilenceWindowNotice.Unreachable,
+                    ApiFailure.Certificate to SilenceWindowNotice.Certificate,
+                    ApiFailure.Unexpected to SilenceWindowNotice.Unexpected,
+                )
+
+            for ((failure, notice) in cases) {
+                api.windowFailure = failure
+                devices.setSilenceWindow(hubId, 600)
+                runCurrent()
+
+                assertEquals(SilenceWindowFailure(hubId, notice), devices.ready().silenceWindowFailure, failure.name)
+                assertNull(devices.ready().silenceWindowWorkingId)
+                assertEquals(
+                    300,
+                    devices
+                        .ready()
+                        .hubs
+                        .single()
+                        .silenceWindowSeconds,
+                )
+            }
+
+            api.windowFailure = ApiFailure.Forbidden
+            devices.setSilenceWindow(hubId, 600)
+            runCurrent()
+            val snapshot = snapshotOf(devices.state.value)
+            assertEquals(hubId, snapshot.silenceWindowFailedId)
+            assertEquals("forbidden", snapshot.silenceWindowNotice)
+            assertEquals("", snapshot.silenceWindowWorkingId)
+        }
+
+    @Test
+    fun aSilenceWindowForADeviceThatIsNotListedIsNeverSentAndA401EndsTheSession() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Administrator")
+            api.calls.clear()
+
+            devices.setSilenceWindow("nope", 600)
+            runCurrent()
+            assertEquals(emptyList(), api.calls)
+
+            api.windowFailure = ApiFailure.Unauthorized
+            devices.setSilenceWindow(hubId, 600)
+            runCurrent()
+            assertIs<DevicesState.Idle>(devices.state.value)
+        }
+
+    @Test
+    fun aSilenceWindowChangeUnderWayBlocksAnotherOne() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Administrator")
+            api.calls.clear()
+
+            devices.setSilenceWindow(hubId, 600)
+            devices.setSilenceWindow(nodeId, 3_600)
+            runCurrent()
+
+            assertEquals(listOf("window a $hubId 600"), api.calls.filter { it.startsWith("window") })
+        }
+
+    @Test
+    fun aSilenceWindowChangeUnderWayBlocksAMoveAndAnUnassignSoItsAnswerIsNotDropped() =
+        runTest {
+            seedSilence()
+            val devices = devicesFor("Administrator")
+            api.calls.clear()
+            api.windowFailure = ApiFailure.Forbidden
+
+            devices.setSilenceWindow(hubId, 600)
+            devices.unassignNode(nodeId)
+            devices.moveNode("7c19000000000001", "l-basil")
+            runCurrent()
+
+            assertEquals(listOf("window a $hubId 600"), api.calls)
+            assertEquals(
+                SilenceWindowFailure(hubId, SilenceWindowNotice.Forbidden),
+                devices.ready().silenceWindowFailure,
+            )
+        }
+
+    @Test
+    fun uxDr31TheSilenceWindowIsAWholeNumberOfMinutesHoursOrDaysWithinTheRange() {
+        assertEquals(60, SilenceWindow.MIN_SECONDS)
+        assertEquals(2_592_000, SilenceWindow.MAX_SECONDS)
+        assertEquals(28_800, SilenceWindow.secondsOf("8", SilenceWindowUnit.Hours))
+        assertEquals(60, SilenceWindow.secondsOf(" 1 ", SilenceWindowUnit.Minutes))
+        assertEquals(2_592_000, SilenceWindow.secondsOf("30", SilenceWindowUnit.Days))
+        assertEquals(2_592_000, SilenceWindow.secondsOf("43200", SilenceWindowUnit.Minutes))
+        for ((text, unit) in listOf(
+            "0" to SilenceWindowUnit.Minutes,
+            "31" to SilenceWindowUnit.Days,
+            "721" to SilenceWindowUnit.Hours,
+            "90.5" to SilenceWindowUnit.Minutes,
+            "1,5" to SilenceWindowUnit.Hours,
+            "-5" to SilenceWindowUnit.Minutes,
+            "" to SilenceWindowUnit.Hours,
+            "six" to SilenceWindowUnit.Hours,
+            "99999999999999999999" to SilenceWindowUnit.Minutes,
+        )) {
+            assertNull(SilenceWindow.secondsOf(text, unit), "$text ${unit.key}")
+        }
+        assertEquals(listOf("minutes", "hours", "days"), SilenceWindowUnit.entries.map { it.key })
+        assertEquals(SilenceWindowUnit.Hours, SilenceWindowUnit.fromKey("hours"))
+        assertNull(SilenceWindowUnit.fromKey("weeks"))
+    }
+
+    @Test
+    fun theSilenceWindowIsShownInTheLargestUnitThatHoldsItExactly() {
+        assertEquals(SilenceWindowLength(5, SilenceWindowUnit.Minutes), SilenceWindow.lengthOf(300))
+        assertEquals(SilenceWindowLength(6, SilenceWindowUnit.Hours), SilenceWindow.lengthOf(21_600))
+        assertEquals(SilenceWindowLength(8, SilenceWindowUnit.Hours), SilenceWindow.lengthOf(28_800))
+        assertEquals(SilenceWindowLength(90, SilenceWindowUnit.Minutes), SilenceWindow.lengthOf(5_400))
+        assertEquals(SilenceWindowLength(2, SilenceWindowUnit.Days), SilenceWindow.lengthOf(172_800))
+        assertEquals(SilenceWindowLength(30, SilenceWindowUnit.Days), SilenceWindow.lengthOf(2_592_000))
+        // Whole seconds the apps cannot enter are told in minutes, rounded down.
+        assertEquals(SilenceWindowLength(1, SilenceWindowUnit.Minutes), SilenceWindow.lengthOf(90))
+    }
+
+    @Test
+    fun theHubShortNameIsTheFirstFourHexDigitsOfTheDeviceIdInUpperCase() {
+        assertEquals("3F2A", DeviceName.short("3f2a9c0d1e4b5a67"))
+        assertEquals("9C0D", DeviceName.short("9c0d1e4b5a673f2a"))
+        assertEquals("AB", DeviceName.short("ab"))
+    }
+
+    @Test
+    fun theSnapshotCarriesSilenceAndTheSilenceWindowAsParallelListsForSwift() =
+        runTest {
+            seedSilence()
+
+            val devices = devicesFor("Owner")
+            val snapshot = snapshotOf(devices.state.value)
+
+            assertEquals(listOf("3F2A"), snapshot.hubShortNames)
+            assertEquals(listOf("1791269880000"), snapshot.hubSilentSince)
+            assertEquals(listOf("12"), snapshot.hubSilenceValues)
+            assertEquals(listOf("minutes"), snapshot.hubSilenceUnits)
+            assertEquals(listOf("300"), snapshot.hubWindowSeconds)
+            assertEquals(listOf("5"), snapshot.hubWindowValues)
+            assertEquals(listOf("minutes"), snapshot.hubWindowUnits)
+            assertEquals(listOf(false), snapshot.hubWindowOverridden)
+            assertEquals(listOf("9C0D", "7C19"), snapshot.nodeShortNames)
+            assertEquals(listOf("1791248700000", ""), snapshot.nodeSilentSince)
+            assertEquals(listOf("6", ""), snapshot.nodeSilenceValues)
+            assertEquals(listOf("hours", ""), snapshot.nodeSilenceUnits)
+            assertEquals(listOf("28800", ""), snapshot.nodeWindowSeconds)
+            assertEquals(listOf("8", ""), snapshot.nodeWindowValues)
+            assertEquals(listOf("hours", ""), snapshot.nodeWindowUnits)
+            assertEquals(listOf(true, false), snapshot.nodeWindowOverridden)
+            assertTrue(snapshot.canSetSilenceWindow)
+            assertEquals(60, snapshot.silenceWindowMinSeconds)
+            assertEquals(2_592_000, snapshot.silenceWindowMaxSeconds)
+            // A minute tick later the durations have moved and nothing else has.
+            val later = snapshotOf(devices.state.value, NOW_MS + 48 * 60_000L)
+            assertEquals(listOf("1"), later.hubSilenceValues)
+            assertEquals(listOf("hours"), later.hubSilenceUnits)
         }
 }

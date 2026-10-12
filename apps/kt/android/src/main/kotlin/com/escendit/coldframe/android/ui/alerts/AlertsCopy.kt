@@ -7,9 +7,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalResources
 import com.escendit.coldframe.R
 import com.escendit.coldframe.android.ui.format.Formats
-import com.escendit.coldframe.core.alerts.AlertCondition
 import com.escendit.coldframe.core.alerts.AlertEyebrow
 import com.escendit.coldframe.core.alerts.AlertSummary
+import com.escendit.coldframe.core.alerts.AlertTitleKind
 import com.escendit.coldframe.core.lots.SensorQuantity
 import java.time.Instant
 import java.time.ZoneId
@@ -20,7 +20,8 @@ import androidx.compose.ui.text.intl.Locale as ComposeLocale
  * The words of an Alert row (UX-DR25, UX-DR98): the core's structured [AlertSummary] in, sentences
  * from `strings.xml` out. It decides nothing: the condition, the eyebrow and whether the Alert is
  * closed come from the core. An Alert carries no value and no Threshold, so the row names the Lot
- * and the side only. [now] is the clock "today" is told against.
+ * and the side only; a Health Alert names its Lot or its Device (Story 7.2). [now] is the clock
+ * "today" and every silence are told against.
  */
 class AlertsCopy(
     private val resources: Resources,
@@ -40,43 +41,75 @@ class AlertsCopy(
             SensorQuantity.SoilMoisture, null -> R.string.alert_quantity_soil_moisture
         }
 
-    /** What is wrong, naming the Lot: "Tomatoes needs water". */
+    /**
+     * What is wrong: "Tomatoes needs water", "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A silent for
+     * 5 min". Which sentence, and the Lot, the Device's short name and the silence in it, are the core's
+     * ([AlertSummary.title]); a silent row without a duration drops " for …".
+     */
     fun title(alert: AlertSummary): String {
-        val lot = alert.lotName
-        return when (alert.condition) {
-            AlertCondition.NeedsWater -> {
+        val title = alert.title(now.toEpochMilli())
+        val lot = title.lotName.orEmpty()
+        val device = title.deviceName.orEmpty()
+        val silence = title.duration?.let { Formats.duration(resources, it) }
+        return when (title.kind) {
+            AlertTitleKind.NeedsWater -> {
                 resources.getString(R.string.alert_title_needs_water, lot)
             }
 
-            AlertCondition.TooWet -> {
+            AlertTitleKind.TooWet -> {
                 resources.getString(R.string.alert_title_too_wet, lot)
             }
 
-            AlertCondition.TooLow -> {
+            AlertTitleKind.TooLow -> {
                 resources.getString(R.string.alert_title_too_low, lot, resources.getString(quantity(alert.quantity)))
             }
 
-            AlertCondition.TooHigh -> {
+            AlertTitleKind.TooHigh -> {
                 resources.getString(R.string.alert_title_too_high, lot, resources.getString(quantity(alert.quantity)))
             }
 
-            AlertCondition.Silent -> {
-                resources.getString(R.string.alert_title_silent, lot)
+            AlertTitleKind.NodeOnLotSilent -> {
+                silent(R.string.alert_title_silent, R.string.alert_title_silent_for, lot, silence)
             }
 
-            AlertCondition.Battery -> {
+            AlertTitleKind.NodeSilent -> {
+                silent(R.string.alert_title_node_silent, R.string.alert_title_node_silent_for, device, silence)
+            }
+
+            AlertTitleKind.HubSilent -> {
+                silent(R.string.alert_title_hub_silent, R.string.alert_title_hub_silent_for, device, silence)
+            }
+
+            AlertTitleKind.Battery -> {
                 resources.getString(R.string.alert_title_battery, lot)
             }
 
-            AlertCondition.Uncalibrated -> {
+            AlertTitleKind.Uncalibrated -> {
                 resources.getString(R.string.alert_title_uncalibrated, lot)
             }
 
-            AlertCondition.Unknown -> {
+            AlertTitleKind.HealthOnLot -> {
                 resources.getString(R.string.alert_title_unknown, lot)
+            }
+
+            AlertTitleKind.Health -> {
+                resources.getString(R.string.alert_title_health)
             }
         }
     }
+
+    /** "… silent for 6 h" with a [silence], "… silent" without one. */
+    private fun silent(
+        @StringRes plain: Int,
+        @StringRes timed: Int,
+        subject: String,
+        silence: String?,
+    ): String =
+        if (silence == null) {
+            resources.getString(plain, subject)
+        } else {
+            resources.getString(timed, subject, silence)
+        }
 
     /**
      * The line over the title, in sentence case (uppercase comes from style): the kind of Alert with

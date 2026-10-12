@@ -290,6 +290,11 @@ public sealed record DeviceSilenceClockRestarted(
 /// <param name="LotId">The Lot of a Node when the episode started; <see langword="null"/> for a Hub or an unassigned Node.</param>
 /// <param name="DueAt">The expiry that passed: the clock start plus the Silence Window.</param>
 /// <param name="StartedAt">When the Device grain found the expiry overdue.</param>
+/// <param name="SilentSince">
+/// When the Device was last heard (Story 7.2): a Node's newest accepted <c>measured_at</c>, a Hub's last accepted
+/// heartbeat, or the enrolment time of a Device that never reported. Not the clock start, which a Server start or
+/// a Hub's recovery moves. <see langword="null"/> in an event journaled before that story.
+/// </param>
 [EventType("device.silence-started")]
 [GenerateSerializer]
 [Alias("coldframe.device-silence-started")]
@@ -299,7 +304,8 @@ public sealed record DeviceSilenceStarted(
     [property: Id(2)] string SiteId,
     [property: Id(3)] string? LotId,
     [property: Id(4)] DateTimeOffset DueAt,
-    [property: Id(5)] DateTimeOffset StartedAt);
+    [property: Id(5)] DateTimeOffset StartedAt,
+    [property: Id(6)] DateTimeOffset? SilentSince = null);
 
 /// <summary>
 /// The Device's silence episode ended (Story 7.1): its Alert is closed with <paramref name="Reason"/>. The next

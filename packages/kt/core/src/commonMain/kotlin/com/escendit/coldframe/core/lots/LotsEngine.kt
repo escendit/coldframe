@@ -4,6 +4,7 @@ import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotListDto
+import com.escendit.coldframe.core.api.SilentHubDto
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
@@ -226,7 +227,7 @@ public class LotsEngine(
             }
             when (result) {
                 is ApiResult.Ok -> {
-                    landed(result.value.lots.filter { it.removed != true })
+                    landed(result.value.lots.filter { it.removed != true }, result.value.silentHubs.orEmpty())
                 }
 
                 is ApiResult.Failed -> {
@@ -243,7 +244,10 @@ public class LotsEngine(
     }
 
     /** A read succeeded: the Lots are live, and they are the new last good Lots of the Site. */
-    private fun landed(lots: List<LotDto>) {
+    private fun landed(
+        lots: List<LotDto>,
+        silentHubs: List<SilentHubDto>,
+    ) {
         val current = mutableState.value
         val site = current.site ?: return
         val fetchedAt = now()
@@ -255,9 +259,11 @@ public class LotsEngine(
                     fetchedAtEpochMs = fetchedAt,
                     staleReason = null,
                     refreshing = false,
+                    silentHubs = silentHubs.toSilentHubs(),
                 )
             } else {
                 ready(site, lots.toSummaries(), fetchedAt, staleReason = null)
+                    .copy(silentHubs = silentHubs.toSilentHubs())
             }
         if ((current as? LotsState.Ready)?.staleReason == StaleReason.Unreachable) {
             mutableEvents.tryEmit(LotsEvent.LeftStale(site.id))
@@ -726,7 +732,18 @@ public class LotsEngine(
                 lowThresholdPercent = lowThresholdPercent,
                 node = node?.toNodeStatus(),
                 sensors = sensors.orEmpty().mapNotNull { it.toSensorReading() },
+                silentHubId = silentHubId,
+                silentSinceEpochMs = silentSince?.let(DevicesEngine::epochMsOf),
             )
+
+        /**
+         * The Server's silent Hubs in its order (by Device ID), each once. One whose `silentSince`
+         * cannot be read cannot say how long it has been silent and is left out.
+         */
+        fun List<SilentHubDto>.toSilentHubs(): List<SilentHub> =
+            distinctBy { it.deviceId }.mapNotNull { hub ->
+                DevicesEngine.epochMsOf(hub.silentSince)?.let { SilentHub(hub.deviceId, it) }
+            }
 
         fun loadNoticeOf(failure: ApiFailure): SitesNotice =
             when (failure) {

@@ -128,6 +128,14 @@ public sealed class DeviceState
     public DateTimeOffset? LastRecoveredAt { get; private set; }
 
     /// <summary>
+    /// When the Device was last heard (Story 7.2), or <see langword="null"/> before enrolment: a Node's newest
+    /// accepted <c>measured_at</c>, a Hub's last accepted heartbeat, or the enrolment time of a Device that never
+    /// reported. It is what a silence counts from for a reader; the clock start (<see cref="SilenceFrom"/>) can
+    /// be a Server start or a Hub's recovery, which is not when the Device went quiet.
+    /// </summary>
+    public DateTimeOffset? LastHeardAt => (Kind == DeviceKind.Hub ? LastSeenAt : LastReportedAt) ?? EnrolledAt;
+
+    /// <summary>
     /// The Silence Window in force: the Device's override, else the default of its kind.
     /// </summary>
     public TimeSpan SilenceWindow => SilenceRule.Window(Kind, SilenceWindowOverride);
@@ -346,7 +354,8 @@ public sealed class DeviceState
             @event.SiteId,
             @event.LotId,
             Reason: null,
-            @event.StartedAt));
+            @event.StartedAt,
+            @event.SilentSince));
     }
 
     public void Apply(DeviceSilenceEnded @event)
@@ -409,6 +418,7 @@ public sealed record CalibrationInForce(
 /// <param name="LotId">The Lot of a Node when the episode started; <see langword="null"/> without one and for a close.</param>
 /// <param name="Reason">Why the Alert closes; <see langword="null"/> for an open.</param>
 /// <param name="At">When the Alert opened or closed.</param>
+/// <param name="SilentSince">For an open of a silent Alert, when the Device was last heard (Story 7.2); <see langword="null"/> otherwise and for an episode journaled before that story.</param>
 [GenerateSerializer]
 [Alias("coldframe.device-pending-alert-delivery")]
 public sealed record PendingDeviceAlertDelivery(
@@ -419,4 +429,5 @@ public sealed record PendingDeviceAlertDelivery(
     [property: Id(4)] string? SiteId,
     [property: Id(5)] string? LotId,
     [property: Id(6)] AlertCloseReason? Reason,
-    [property: Id(7)] DateTimeOffset At);
+    [property: Id(7)] DateTimeOffset At,
+    [property: Id(8)] DateTimeOffset? SilentSince = null);

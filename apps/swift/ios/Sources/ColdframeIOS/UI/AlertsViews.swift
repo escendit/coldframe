@@ -9,15 +9,19 @@
   public struct AlertsActions {
     public var load: () -> Void
     public var refresh: () -> Void
+    /// The one-minute tick: the silence in the titles moves; nothing is fetched.
+    public var tick: () -> Void
 
     public init(service: AlertsService) {
       load = { service.load() }
       refresh = { service.refresh() }
+      tick = { service.tick() }
     }
 
     private init() {
       load = {}
       refresh = {}
+      tick = {}
     }
 
     public static let none = AlertsActions()
@@ -27,8 +31,10 @@
   /// closed in the last 7 days under "Closed", each in the Server's order. Without an open Alert
   /// it reads "No open Alerts." (UX-DR82), followed by Closed when it has rows. A failed load
   /// shows the notice and no rows. A Threshold or uncalibrated row pushes Lot detail on this
-  /// tab's own stack; a silent or battery row opens Devices. `now` is the clock the times are
-  /// told against.
+  /// tab's own stack; a silent or battery row opens Devices, and so does any row without a Lot.
+  /// A Health row is titled as the core named it (UX-DR117): "Node on Lot 'Beans' silent for
+  /// 6 h", "Hub 3F2A silent for 5 min"; a one-minute tick moves that silence and fetches
+  /// nothing. `now` is the clock the times are told against.
   public struct AlertsView: View {
     let presentation: AlertsPresentation
     let actions: AlertsActions
@@ -78,6 +84,15 @@
       .background(palette.background)
       .refreshable { [actions] in
         await MainActor.run { actions.refresh() }
+      }
+      .task { [actions] in
+        // The only timer of Alerts: once a minute the core's snapshot is read again.
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .seconds(60))
+          if !Task.isCancelled {
+            await MainActor.run { actions.tick() }
+          }
+        }
       }
       .navigationDestination(item: $openedLot) { lot in
         // The core reads the Lot while the destination is on screen and forgets it on leaving.

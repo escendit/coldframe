@@ -6,6 +6,7 @@ import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.LotSummary
 import com.escendit.coldframe.core.lots.LotUnknownCause
 import com.escendit.coldframe.core.lots.LotsState
+import com.escendit.coldframe.core.lots.SilentHub
 import com.escendit.coldframe.core.lots.SiteNameForm
 import com.escendit.coldframe.core.lots.StaleReason
 import com.escendit.coldframe.core.sites.SiteRole
@@ -122,6 +123,36 @@ object LotFixtures {
             status = LotStatus.NoNode,
             statusSinceEpochMs = at("2026-09-28T07:00:00Z"),
         )
+
+    // Story 7.2: silence as the Server names it.
+
+    /** Hub 3F2A, last heard 12 min before [now]. */
+    val silentHub = SilentHub("3f2a9c0d1e4b5a67", at("2026-10-06T06:52:00Z"))
+
+    /** A Node last heard 6 h ago; its silent Alert opened later, which is not what the tile counts from. */
+    val silentNode =
+        unknownNode.copy(
+            statusSinceEpochMs = at("2026-10-06T07:00:00Z"),
+            silentSinceEpochMs = at("2026-10-06T01:04:00Z"),
+        )
+
+    /** A Lot behind [silentHub]: unknown with the Hub as cause, silent for as long as the Hub. */
+    val behindSilentHub =
+        unknownHub.copy(
+            statusSinceEpochMs = at("2026-10-06T06:57:00Z"),
+            silentHubId = silentHub.deviceId,
+            silentSinceEpochMs = silentHub.silentSinceEpochMs,
+        )
+
+    /** The Server's order with a silent Hub: needs water, the unknown Lots above every OK Lot, then OK. */
+    val withSilentHub: List<LotSummary> = listOf(needsWater, silentNode, behindSilentHub, ok)
+
+    /** The overview while [silentHub] is silent. */
+    fun hubSilent(
+        lots: List<LotSummary> = withSilentHub,
+        role: SiteRole = SiteRole.Owner,
+        staleReason: StaleReason? = null,
+    ): LotsState.Ready = ready(lots, role, staleReason).copy(silentHubs = listOf(silentHub))
 
     /** One Lot per tile variant, in the Server's order. */
     val everyVariant: List<LotSummary> =

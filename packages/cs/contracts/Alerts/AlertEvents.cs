@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Events;
 
 namespace Coldframe.Contracts.Alerts;
@@ -15,6 +16,15 @@ namespace Coldframe.Contracts.Alerts;
 /// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>; <see langword="null"/> for a Device's Alert.</param>
 /// <param name="Episode">The episode of the opening grain the Alert ID is derived from.</param>
 /// <param name="OpenedAt">When the opening grain journaled the episode.</param>
+/// <param name="DeviceKind">
+/// Whether a Device's Alert is about a Hub or a Node (Story 7.2); <see langword="null"/> for a Threshold Alert and
+/// in an event journaled before that story.
+/// </param>
+/// <param name="SilentSince">
+/// For a silent Alert, when the Device was last heard, or when it was enrolled if it never reported (Story 7.2):
+/// every displayed silence duration counts from here. <see langword="null"/> for another kind and in an event
+/// journaled before that story.
+/// </param>
 [EventType("alert.opened")]
 [GenerateSerializer]
 [Alias("coldframe.alert-opened")]
@@ -27,7 +37,9 @@ public sealed record AlertOpened(
     [property: Id(5)] string DeviceId,
     [property: Id(6)] string? Quantity,
     [property: Id(7)] int Episode,
-    [property: Id(8)] DateTimeOffset OpenedAt);
+    [property: Id(8)] DateTimeOffset OpenedAt,
+    [property: Id(9)] DeviceKind? DeviceKind = null,
+    [property: Id(10)] DateTimeOffset? SilentSince = null);
 
 /// <summary>
 /// The Alert closed (Story 6.1). Final: a closed Alert never opens again, the Sensor's next episode is another

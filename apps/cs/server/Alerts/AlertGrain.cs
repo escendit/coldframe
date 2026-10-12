@@ -145,7 +145,9 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
                 request.DeviceId,
                 Quantity: null,
                 request.Episode,
-                request.OpenedAt));
+                request.OpenedAt,
+                request.DeviceKind,
+                request.SilentSince));
             await ConfirmEvents();
         }
 
@@ -204,7 +206,9 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
                     State.Quantity,
                     State.OpenedAt,
                     State.Reason,
-                    State.ClosedAt));
+                    State.ClosedAt,
+                    State.DeviceKind,
+                    State.SilentSince));
 
     /// <inheritdoc />
     public async Task ReceiveReminder(string reminderName, TickStatus status)
@@ -239,7 +243,7 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
 
             if (!State.OpenReported)
             {
-                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId, State.SensorId, State.DeviceId!, State.Quantity, State.OpenedAt);
+                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId, State.SensorId, State.DeviceId!, State.Quantity, State.OpenedAt, State.DeviceKind, State.SilentSince);
 
                 // Not cancelled by the caller: the journaled Alert is reported until the Site holds it.
                 var acknowledged = await site.AlertOpened(alert, CancellationToken.None);

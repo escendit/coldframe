@@ -31,6 +31,35 @@ public sealed record AlertView(
     string? Reason);
 
 /// <summary>
+/// A Health Alert as the Alerts list returns it (Story 7.2): an Alert about a Device. The names are the
+/// contract's.
+/// </summary>
+/// <param name="AlertId">The Alert ID.</param>
+/// <param name="Kind">The kind, such as <c>silent</c>; never <c>threshold</c>.</param>
+/// <param name="DeviceId">The Device the Alert is about.</param>
+/// <param name="DeviceKind">
+/// <c>hub</c> or <c>node</c>: what the Alert recorded, else the kind of the enrolled Device (an Alert opened
+/// before Story 7.2 recorded none).
+/// </param>
+/// <param name="LotId">The Lot the Alert was opened for; <see langword="null"/> for a Hub, a Node on no Lot, and while the Lot cannot be read.</param>
+/// <param name="LotName">The current name of that Lot; <see langword="null"/> exactly when <paramref name="LotId"/> is.</param>
+/// <param name="SilentSince">When a silent Device was last heard; <see langword="null"/> for an Alert that did not record it.</param>
+/// <param name="OpenedAt">When the Alert opened.</param>
+/// <param name="ClosedAt">When the Alert closed, or <see langword="null"/> while it is open.</param>
+/// <param name="Reason">Why the Alert closed, or <see langword="null"/> while it is open.</param>
+public sealed record HealthAlertView(
+    Guid AlertId,
+    string Kind,
+    string DeviceId,
+    string DeviceKind,
+    string? LotId,
+    string? LotName,
+    DateTimeOffset? SilentSince,
+    DateTimeOffset OpenedAt,
+    DateTimeOffset? ClosedAt,
+    string? Reason);
+
+/// <summary>
 /// Where a page of the Alerts list ended: the section, the time the section is ordered by and the Alert ID.
 /// </summary>
 /// <param name="Closed">Whether the last Alert of the page was a closed one.</param>
@@ -62,7 +91,13 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 
     private const long TicksPerMicrosecond = 10;
 
-    // The only kind the contract's Alert can describe today.
+    /// <summary>
+    /// The most Health Alerts one answer lists (Story 7.2). They are bounded by the number of Devices, so the list
+    /// is not paged.
+    /// </summary>
+    public const int HealthLimit = 200;
+
+    // The only kind the contract's Alert can describe: every other kind is a Health Alert, listed on its own.
     private static readonly string ListedKind = AlertNames.Kind(Coldframe.Contracts.Alerts.AlertKind.Threshold);
 
     // One ordered list: the open Alerts (section 0) newest openedAt first, then the closed ones (section 1)
@@ -86,13 +121,36 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
         LIMIT @take
         """;
 
-    // The same rows as the open section of the list, whatever the page.
+    // The Health Alerts (Story 7.2): every kind but the Threshold Alert, in the order of the list above. A Hub's
+    // Alert and that of a Node on no Lot have no Lot, so the Lot is left-joined; the Device kind is the one the
+    // Alert recorded, else the one of the enrolled Device. A row whose Device kind cannot be told is left out:
+    // the contract cannot describe it.
+    private const string HealthSql =
+        """
+        SELECT a.alert_id, a.kind, a.device_id, COALESCE(a.device_kind, d.kind), l.lot_id, l.name, a.silent_since,
+               a.opened_at, a.closed_at, a.reason
+        FROM alerts a
+        LEFT JOIN lots l ON l.site_id = a.site_id AND l.lot_id = a.lot_id
+        LEFT JOIN devices d ON d.device_id = a.device_id
+        WHERE a.site_id = @site_id
+          AND a.kind <> @kind
+          AND COALESCE(a.device_kind, d.kind) IS NOT NULL
+          AND (a.closed_at IS NULL OR a.closed_at >= @closed_since)
+        ORDER BY (a.closed_at IS NOT NULL)::int, COALESCE(a.closed_at, a.opened_at) DESC, a.alert_id
+        LIMIT @take
+        """;
+
+    // Every open Alert of the Site, whatever the page: the open section of the Threshold list (with its join)
+    // and the open Health Alerts, which need no Lot.
     private const string CountOpenSql =
         """
-        SELECT count(*)
-        FROM alerts a
-        JOIN lots l ON l.site_id = a.site_id AND l.lot_id = a.lot_id
-        WHERE a.site_id = @site_id AND a.kind = @kind AND a.closed_at IS NULL
+        SELECT (SELECT count(*)
+                FROM alerts a
+                JOIN lots l ON l.site_id = a.site_id AND l.lot_id = a.lot_id
+                WHERE a.site_id = @site_id AND a.kind = @kind AND a.closed_at IS NULL)
+             + (SELECT count(*)
+                FROM alerts a
+                WHERE a.site_id = @site_id AND a.kind <> @kind AND a.closed_at IS NULL)
         """;
 
     /// <summary>
@@ -154,7 +212,47 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
-    /// Counts the Site's open Threshold Alerts.
+    /// Returns the Site's Health Alerts (Story 7.2): open ones newest <c>openedAt</c> first, then those closed at
+    /// or after <paramref name="closedSince"/> newest <c>closedAt</c> first, at most <see cref="HealthLimit"/>.
+    /// </summary>
+    /// <param name="siteId">The Site ID, in its canonical form.</param>
+    /// <param name="closedSince">The cut-off for closed Alerts: the Server clock minus <see cref="ClosedRetention"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<IReadOnlyList<HealthAlertView>> ListHealthAlertsAsync(string siteId, DateTimeOffset closedSince, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(siteId);
+
+        await using var command = dataSource.CreateCommand(HealthSql);
+        command.Parameters.AddWithValue("site_id", siteId);
+        command.Parameters.AddWithValue("kind", ListedKind);
+        command.Parameters.AddWithValue("closed_since", closedSince.ToUniversalTime());
+        command.Parameters.AddWithValue("take", HealthLimit);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var alerts = new List<HealthAlertView>();
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // The Lot's ID and name come from the same joined row: both or neither.
+            alerts.Add(new HealthAlertView(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                await reader.IsDBNullAsync(4, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(4),
+                await reader.IsDBNullAsync(5, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(5),
+                await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetFieldValue<DateTimeOffset>(7),
+                await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+                await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(9)));
+        }
+
+        return alerts;
+    }
+
+    /// <summary>
+    /// Counts the Site's open Alerts of every kind: Threshold and Health (Story 7.2).
     /// </summary>
     /// <param name="siteId">The Site ID, in its canonical form.</param>
     /// <param name="cancellationToken">Cancels the read.</param>

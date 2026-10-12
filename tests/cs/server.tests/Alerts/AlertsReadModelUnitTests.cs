@@ -90,11 +90,60 @@ public sealed class AlertsReadModelUnitTests
         Assert.Equal(1, json.RootElement.GetProperty("openCount").GetInt32());
     }
 
+    // Story 7.2: Health Alerts are listed beside the Threshold Alerts, and only without the cursor.
     [Fact]
-    public void AClosedAlertWithoutASideCarriesItsCloseAndTheNextCursor()
+    public void AnOpenHealthAlertOfANodeOnALotCarriesItsDeviceKindItsLotAndWhenItWasLastHeard()
+    {
+        var opened = new DateTimeOffset(2026, 10, 6, 7, 5, 0, TimeSpan.Zero);
+        var view = new HealthAlertView(Guid.Parse("7c1d2e3f-4a5b-5c6d-8e7f-9a0b1c2d3e4f"), "silent", "9c0d1e4b5a673f2a", "node", "lot-4", "Beans", opened.AddHours(-6), opened, null, null);
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(new AlertListResponse([], 1, HealthAlerts: [EdgeApi.ToHealthAlert(view)]), Web));
+
+        Assert.Equal(["alerts", "healthAlerts", "openCount"], Names(json.RootElement));
+        var alert = json.RootElement.GetProperty("healthAlerts")[0];
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt", "silentSince"], Names(alert));
+        Assert.Equal(("silent", "node", "Beans"), (alert.GetProperty("kind").GetString(), alert.GetProperty("deviceKind").GetString(), alert.GetProperty("lotName").GetString()));
+        Assert.Equal("2026-10-06T01:05:00.000Z", alert.GetProperty("silentSince").GetString());
+        Assert.Equal("2026-10-06T07:05:00.000Z", alert.GetProperty("openedAt").GetString());
+    }
+
+    [Fact]
+    public void AClosedHealthAlertOfAHubHasNoLotAndOneOpenedBeforeTheStoryNoSilentSince()
+    {
+        var opened = new DateTimeOffset(2026, 10, 6, 7, 0, 0, TimeSpan.Zero);
+        var view = new HealthAlertView(Guid.NewGuid(), "silent", "3f2a9c0d1e4b5a67", "hub", null, null, null, opened, opened.AddMinutes(20), "recovered");
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(new AlertListResponse([], 0, HealthAlerts: [EdgeApi.ToHealthAlert(view)]), Web));
+
+        Assert.Equal(
+            ["closedAt", "deviceId", "deviceKind", "id", "kind", "openedAt", "reason"],
+            Names(json.RootElement.GetProperty("healthAlerts")[0]));
+    }
+
+    [Fact]
+    public void AHealthAlertWhoseLotNameCannotBeReadNamesNoLotAtAll()
+    {
+        var opened = new DateTimeOffset(2026, 10, 6, 7, 0, 0, TimeSpan.Zero);
+        var view = new HealthAlertView(Guid.NewGuid(), "silent", "9c0d1e4b5a673f2a", "node", "lot-4", null, null, opened, null, null);
+
+        var alert = EdgeApi.ToHealthAlert(view);
+
+        Assert.Equal(((string?)null, (string?)null), (alert.LotId, alert.LotName));
+    }
+
+    [Fact]
+    public void APageReadWithACursorCarriesNoHealthAlerts()
+    {
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(new AlertListResponse([], 3, "next"), Web));
+
+        Assert.Equal(["alerts", "nextCursor", "openCount"], Names(json.RootElement));
+    }
+
+    [Fact]
+    public void AClosedAlertCarriesItsCloseAndTheNextCursor()
     {
         var opened = new DateTimeOffset(2026, 10, 9, 5, 45, 0, TimeSpan.Zero);
-        var view = new AlertView(Guid.NewGuid(), "silent", null, "soil_moisture", "lot-1", "Tomatoes", "3f2a9c0d1e4b5a67", opened, opened.AddMinutes(55), "recovered");
+        var view = new AlertView(Guid.NewGuid(), "threshold", null, "soil_moisture", "lot-1", "Tomatoes", "3f2a9c0d1e4b5a67", opened, opened.AddMinutes(55), "recovered");
 
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(new AlertListResponse([EdgeApi.ToAlert(view)], 0, "next"), Web));
 

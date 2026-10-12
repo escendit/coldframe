@@ -3,11 +3,15 @@
  * the Server's (AD-14); the only client logic is which of the four variants a row is, its copy and
  * where it leads. A row carries no value and no Threshold: the Alert has none.
  */
-import type { Alert } from '@coldframe/api-client';
+import type { Alert, components } from '@coldframe/api-client';
+import { deviceRowId } from '$lib/devices';
 import { t, type MessageKey } from '$lib/i18n';
-import { formatWhen } from '$lib/i18n/format';
+import { formatSilence, formatWhen, shortDeviceId } from '$lib/i18n/format';
 
 export type { Alert } from '@coldframe/api-client';
+
+/** A Health Alert of `AlertList.healthAlerts` (Story 7.2): about a Device, with a Lot only when a Node was on one. */
+export type HealthAlert = components['schemas']['HealthAlert'];
 
 /** Set when the Server could not list the Alerts. No row is shown then. */
 export type AlertsNotice = 'unreachable' | 'certificate';
@@ -44,7 +48,7 @@ export interface AlertRow {
   readonly title: string;
   /** The one label a screen reader speaks for the whole row: the condition and when it started. */
   readonly spoken: string;
-  /** Lot detail for a Threshold or uncalibrated Alert, Devices for a silent Node, a low battery or an unknown kind. */
+  /** Lot detail for a Threshold or uncalibrated Alert; Devices, at the Device's row, for a silent Device, a low battery or an unknown kind. */
   readonly href: string;
   /** Hatched rows put their text on a solid plate. */
   readonly hatched: boolean;
@@ -116,6 +120,55 @@ function healthCondition(alert: Alert): Condition {
   }
 }
 
+/** Where a Health Alert about a Device leads: that Device's row on Devices (UX-DR26). */
+export function deviceRowHref(deviceId: string): string {
+  return `/devices#${deviceRowId(deviceId)}`;
+}
+
+/**
+ * "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A silent for 5 min" or "Node 9C0D silent for 6 h"
+ * (Story 7.2). The duration is `now − silentSince`, rounded down, and only an open Alert has one: a
+ * closed row, and an Alert opened before the Server recorded its silent-since, end at "silent".
+ */
+function silentTitle(alert: HealthAlert, context: AlertsContext): string {
+  const duration = alert.closedAt === undefined ? formatSilence(alert.silentSince, context.now) : null;
+  if (alert.deviceKind === 'hub') {
+    const hubId = shortDeviceId(alert.deviceId);
+    return duration === null ? t('alerts.title.silentHub', { hubId }) : t('alerts.title.silentHubFor', { hubId, duration });
+  }
+  if (alert.lotName !== undefined) {
+    return duration === null ? t('alerts.title.silent', { lotName: alert.lotName }) : t('alerts.title.silentFor', { lotName: alert.lotName, duration });
+  }
+  const nodeId = shortDeviceId(alert.deviceId);
+  return duration === null ? t('alerts.title.silentNode', { nodeId }) : t('alerts.title.silentNodeFor', { nodeId, duration });
+}
+
+/** The neutral Health row: a kind this client does not know, or one it cannot word without a Lot. */
+function neutralTitle(alert: HealthAlert): string {
+  return alert.lotName === undefined ? t('alerts.title.otherNoLot') : t('alerts.title.other', { lotName: alert.lotName });
+}
+
+/** What a Health Alert of `AlertList.healthAlerts` says and where it leads. */
+function deviceCondition(alert: HealthAlert, context: AlertsContext): Condition {
+  const base = { group: 'health', needsWater: false, eyebrow: t('alerts.eyebrow.health') } as const;
+  const devices = deviceRowHref(alert.deviceId);
+  switch (alert.kind) {
+    case 'silent':
+      return { ...base, icon: 'help', title: silentTitle(alert, context), href: devices };
+    case 'battery':
+      return { ...base, icon: 'battery--low', title: alert.lotName === undefined ? neutralTitle(alert) : t('alerts.title.battery', { lotName: alert.lotName }), href: devices };
+    case 'uncalibrated':
+      return {
+        ...base,
+        icon: 'tools',
+        title: alert.lotName === undefined ? neutralTitle(alert) : t('alerts.title.uncalibrated', { lotName: alert.lotName }),
+        href: alert.lotId === undefined ? devices : `/garden/${alert.lotId}`,
+      };
+    default:
+      return { ...base, icon: 'help', title: neutralTitle(alert), href: devices };
+  }
+}
+
 function conditionOf(alert: Alert): Condition {
   if (alert.kind === 'threshold' && (alert.side === 'low' || alert.side === 'high') && Object.hasOwn(quantityKeys, alert.quantity)) {
     return thresholdCondition(alert, alert.side);
@@ -129,7 +182,15 @@ function when(value: string, context: AlertsContext): string {
 
 /** The row of one Alert: its variant, icon, eyebrow, title, spoken label and where it leads. */
 export function alertRow(alert: Alert, context: AlertsContext): AlertRow {
-  const condition = conditionOf(alert);
+  return rowOf(alert, conditionOf(alert), context);
+}
+
+/** The row of one Health Alert (Story 7.2): hatched while open, the Closed outline afterwards. */
+export function healthAlertRow(alert: HealthAlert, context: AlertsContext): AlertRow {
+  return rowOf(alert, deviceCondition(alert, context), context);
+}
+
+function rowOf(alert: Pick<Alert, 'id' | 'openedAt' | 'closedAt'>, condition: Condition, context: AlertsContext): AlertRow {
   const since = t('alerts.since', { time: when(alert.openedAt, context) });
   const base = { id: alert.id, icon: condition.icon, title: condition.title, href: condition.href };
 
@@ -156,16 +217,29 @@ export function alertRow(alert: Alert, context: AlertsContext): AlertRow {
 }
 
 /**
- * The page's groups: open Threshold Alerts, open Health Alerts (every other kind), then Closed.
- * Each keeps the Server's order, which is newest first.
+ * The page's groups: open Threshold Alerts, open Health Alerts, then Closed. `alerts` is the Server's
+ * Threshold list and `healthAlerts` its Health list (Story 7.2); each keeps the Server's order, which is
+ * newest first, and neither is re-sorted: Closed holds the closed Threshold Alerts, then the closed Health
+ * Alerts. An entry of `alerts` that is no Threshold Alert still renders as a Health row, as before. A
+ * missing Health list is no Health Alerts.
  */
-export function alertGroups(alerts: readonly Alert[], context: AlertsContext): AlertGroups {
+export function alertGroups(alerts: readonly Alert[], context: AlertsContext, healthAlerts: readonly HealthAlert[] | undefined = []): AlertGroups {
   const threshold: AlertRow[] = [];
   const health: AlertRow[] = [];
   const closed: AlertRow[] = [];
+  const seen = new Set<string>();
+  const place = (row: AlertRow): void => {
+    // One row per Alert, where it first came.
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      (row.variant === 'closed' ? closed : row.variant === 'health' ? health : threshold).push(row);
+    }
+  };
   for (const alert of alerts) {
-    const row = alertRow(alert, context);
-    (row.variant === 'closed' ? closed : row.variant === 'health' ? health : threshold).push(row);
+    place(alertRow(alert, context));
+  }
+  for (const alert of healthAlerts) {
+    place(healthAlertRow(alert, context));
   }
   return { threshold, health, closed };
 }

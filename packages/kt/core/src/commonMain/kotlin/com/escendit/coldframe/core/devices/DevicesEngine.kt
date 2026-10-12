@@ -6,6 +6,7 @@ import com.escendit.coldframe.core.api.DeviceDto
 import com.escendit.coldframe.core.api.DeviceListDto
 import com.escendit.coldframe.core.api.DeviceListItemDto
 import com.escendit.coldframe.core.api.LotListDto
+import com.escendit.coldframe.core.api.SilenceWindowDto
 import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.SensorFormat
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 import kotlin.time.Instant
 
 /** The Devices call; [com.escendit.coldframe.core.api.ColdframeApi] in the apps. */
@@ -40,6 +42,16 @@ public interface DevicesApi {
         siteId: String,
         deviceId: String,
     ): ApiResult<DeviceDto>
+
+    /**
+     * Sets the Silence Window of a Hub or Node (Admin+): [windowSeconds] is the Device's own window,
+     * `null` returns it to the default of its kind. The answer is the window in force.
+     */
+    public suspend fun setSilenceWindow(
+        siteId: String,
+        deviceId: String,
+        windowSeconds: Int?,
+    ): ApiResult<SilenceWindowDto>
 }
 
 /**
@@ -53,6 +65,8 @@ public class DevicesEngine(
     private val api: DevicesApi,
     private val sites: SitesEngine,
     private val scope: CoroutineScope,
+    /** The clock silence durations are told against in the Swift snapshot; injected in tests. */
+    internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     private val mutableState = MutableStateFlow<DevicesState>(DevicesState.Idle)
 
@@ -165,7 +179,7 @@ public class DevicesEngine(
     ) {
         val current = mutableState.value as? DevicesState.Ready ?: return
         val node = current.nodes.firstOrNull { it.id == nodeId } ?: return
-        if (!DevicesState.canManageNodes(current.site.role) || current.workingNodeId != null) return
+        if (!DevicesState.canManageNodes(current.site.role) || current.busy) return
         if (current.choicesFor(node).none { it.id == lotId && it.selectable }) {
             // Taken, or gone from the list, since the picker opened: say so instead of closing silently.
             mutableState.value = current.copy(failure = NodeActionFailure(nodeId, NodeActionNotice.LotTaken))
@@ -178,11 +192,7 @@ public class DevicesEngine(
     public fun unassignNode(nodeId: String) {
         val current = mutableState.value as? DevicesState.Ready ?: return
         val node = current.nodes.firstOrNull { it.id == nodeId } ?: return
-        if (!DevicesState.canManageNodes(current.site.role) || current.workingNodeId != null ||
-            node.lotId == null
-        ) {
-            return
-        }
+        if (!DevicesState.canManageNodes(current.site.role) || current.busy || node.lotId == null) return
         act(current, nodeId) { api.unassignDevice(current.site.id, nodeId) }
     }
 
@@ -218,6 +228,69 @@ public class DevicesEngine(
             }
         }
     }
+
+    /**
+     * Sets the Silence Window of [deviceId], a Hub or a Node (Story 7.2): [windowSeconds] is the
+     * Device's own window, `null` is "use the default". Only a [DevicesState.Ready] surface of an
+     * Administrator or Owner does anything. A value outside 1 min to 30 days is refused here, with
+     * [SilenceWindowNotice.OutOfRange], and nothing is sent. The list is read again after the Server
+     * accepted, so the row shows its answer; a refusal is a [SilenceWindowFailure] and nothing else changes.
+     */
+    public fun setSilenceWindow(
+        deviceId: String,
+        windowSeconds: Int?,
+    ) {
+        val current = mutableState.value as? DevicesState.Ready ?: return
+        if (!DevicesState.canSetSilenceWindow(current.site.role)) return
+        if (current.busy) return
+        if (current.hubs.none { it.id == deviceId } && current.nodes.none { it.id == deviceId }) return
+        if (windowSeconds != null && !SilenceWindow.valid(windowSeconds)) {
+            mutableState.value =
+                current.copy(silenceWindowFailure = SilenceWindowFailure(deviceId, SilenceWindowNotice.OutOfRange))
+            return
+        }
+        val started = generation
+        mutableState.value = current.copy(silenceWindowWorkingId = deviceId, silenceWindowFailure = null)
+        scope.launch {
+            val result = api.setSilenceWindow(current.site.id, deviceId, windowSeconds)
+            if (started != generation) return@launch
+            val now = mutableState.value as? DevicesState.Ready ?: return@launch
+            when (result) {
+                is ApiResult.Ok -> {
+                    mutableState.value = now.copy(silenceWindowWorkingId = null, silenceWindowFailure = null)
+                    refresh(now.site)
+                }
+
+                is ApiResult.Failed -> {
+                    if (result.failure == ApiFailure.Unauthorized) {
+                        generation++
+                        mutableState.value = DevicesState.Idle
+                    } else {
+                        mutableState.value =
+                            now.copy(
+                                silenceWindowWorkingId = null,
+                                silenceWindowFailure =
+                                    SilenceWindowFailure(deviceId, silenceWindowNoticeOf(result.failure)),
+                            )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun silenceWindowNoticeOf(failure: ApiFailure): SilenceWindowNotice =
+        when (failure) {
+            ApiFailure.Forbidden -> SilenceWindowNotice.Forbidden
+            ApiFailure.NotFound -> SilenceWindowNotice.NotFound
+            ApiFailure.Validation -> SilenceWindowNotice.OutOfRange
+            ApiFailure.Unreachable -> SilenceWindowNotice.Unreachable
+            ApiFailure.Certificate -> SilenceWindowNotice.Certificate
+            else -> SilenceWindowNotice.Unexpected
+        }
+
+    // One change at a time: each one ends in a list read that would drop the answer of another.
+    private val DevicesState.Ready.busy: Boolean
+        get() = workingNodeId != null || silenceWindowWorkingId != null
 
     /** Reads the list again without dropping the rows first: the Server just accepted a change. */
     private fun refresh(site: SiteSummary) {
@@ -263,7 +336,16 @@ public class DevicesEngine(
         internal fun List<DeviceListItemDto>.toHubs(): List<HubSummary> =
             filter { it.kind == KIND_HUB }
                 .sortedBy { it.id }
-                .map { HubSummary(it.id, it.online, it.lastSeenAt?.let(::epochMsOf)) }
+                .map {
+                    HubSummary(
+                        id = it.id,
+                        online = it.online,
+                        lastSeenAtEpochMs = it.lastSeenAt?.let(::epochMsOf),
+                        silentSinceEpochMs = it.silentSince?.let(::epochMsOf),
+                        silenceWindowSeconds = it.silenceWindowSeconds,
+                        silenceWindowOverridden = it.silenceWindowOverridden == true,
+                    )
+                }
 
         /** The contract's `DeviceKind` of a Node. */
         public const val KIND_NODE: String = "node"
@@ -280,6 +362,9 @@ public class DevicesEngine(
                         batteryLow = SensorFormat.batteryLow(it.batteryPercent),
                         charging = ChargeState.fromServer(it.charging),
                         lastSeenAtEpochMs = it.lastSeenAt?.let(::epochMsOf),
+                        silentSinceEpochMs = it.silentSince?.let(::epochMsOf),
+                        silenceWindowSeconds = it.silenceWindowSeconds,
+                        silenceWindowOverridden = it.silenceWindowOverridden == true,
                     )
                 }
 

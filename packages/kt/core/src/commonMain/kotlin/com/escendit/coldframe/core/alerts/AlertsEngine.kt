@@ -4,6 +4,7 @@ import com.escendit.coldframe.core.api.AlertDto
 import com.escendit.coldframe.core.api.AlertListDto
 import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
+import com.escendit.coldframe.core.api.HealthAlertDto
 import com.escendit.coldframe.core.lots.SensorQuantity
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesEngine
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 import kotlin.time.Instant
 
 /** The Alerts call; [com.escendit.coldframe.core.api.ColdframeApi] in the apps. */
@@ -34,6 +36,8 @@ public interface AlertsApi {
  *
  * Every read follows `nextCursor` to the end, at most [MAX_PAGES] pages; a read that stops there
  * with a cursor still left shows the Alerts of the pages it read, without a sign that more follow.
+ * The pages hold Threshold Alerts; the Health Alerts (`healthAlerts`, Story 7.2) are not paged and
+ * are taken from the first page, the only one that carries them.
  * Shown rows stay while a read runs. There is no stale mode: a read that fails, on any page, leaves [AlertsState.Failed]
  * without rows and without a count. Answers for an earlier Site, session or read are dropped.
  */
@@ -41,6 +45,8 @@ public class AlertsEngine(
     private val api: AlertsApi,
     private val sites: SitesEngine,
     private val scope: CoroutineScope,
+    /** The clock silence durations are told against in the Swift snapshot; injected in tests. */
+    internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     private val mutableState = MutableStateFlow<AlertsState>(AlertsState.Idle)
 
@@ -114,6 +120,7 @@ public class AlertsEngine(
         val started = ++generation
         scope.launch {
             val alerts = mutableListOf<AlertDto>()
+            var health: List<HealthAlertDto>? = null
             var openCount = 0
             var cursor: String? = null
             var pages = 0
@@ -123,6 +130,8 @@ public class AlertsEngine(
                 when (result) {
                     is ApiResult.Ok -> {
                         alerts += result.value.alerts
+                        // Sent with the first page only; a later page never replaces them.
+                        if (health == null) health = result.value.healthAlerts
                         // The same on every page; the last page's is the newest.
                         openCount = result.value.openCount
                         cursor = result.value.nextCursor
@@ -137,7 +146,8 @@ public class AlertsEngine(
                 }
             } while (cursor != null && ++pages < MAX_PAGES)
             val latest = mutableState.value.site ?: return@launch
-            mutableState.value = AlertsState.Ready(latest, alerts.toSummaries(), openCount)
+            mutableState.value =
+                AlertsState.Ready(latest, listed(alerts.toSummaries(), health.orEmpty().toHealthSummaries()), openCount)
         }
     }
 
@@ -177,6 +187,58 @@ public class AlertsEngine(
                     closedAtEpochMs = closedAt,
                 )
             }
+
+        /**
+         * The Server's Health Alerts in its order, each once. As for a Threshold Alert, one without a
+         * readable `openedAt`, or with an unreadable `closedAt`, is left out. A `silentSince` that
+         * cannot be read is dropped and the Alert stays: its title then has no duration. A kind or a
+         * Device kind this app does not know is kept and drawn as the neutral Health row.
+         */
+        internal fun List<HealthAlertDto>.toHealthSummaries(): List<AlertSummary> =
+            distinctBy { it.id }.mapNotNull { alert ->
+                val openedAt = epochMsOf(alert.openedAt) ?: return@mapNotNull null
+                val closedAt = alert.closedAt?.let { epochMsOf(it) ?: return@mapNotNull null }
+                AlertSummary(
+                    id = alert.id,
+                    kind = alert.kind,
+                    side = null,
+                    quantity = null,
+                    lotId = alert.lotId,
+                    lotName = alert.lotName,
+                    deviceId = alert.deviceId,
+                    openedAtEpochMs = openedAt,
+                    closedAtEpochMs = closedAt,
+                    deviceKind = AlertDeviceKind.fromServer(alert.deviceKind),
+                    silentSinceEpochMs = alert.silentSince?.let(::epochMsOf),
+                )
+            }
+
+        /**
+         * One list of both: the open Threshold Alerts, the open Health Alerts, then the closed ones.
+         * Each list keeps the Server's order; the two closed runs, each newest first, are only
+         * interleaved by their closing time (a Threshold Alert first on a tie), so "Closed" is newest
+         * first as a whole. An Alert the Server listed in both is shown once.
+         */
+        internal fun listed(
+            threshold: List<AlertSummary>,
+            health: List<AlertSummary>,
+        ): List<AlertSummary> {
+            val others = health.filter { alert -> threshold.none { it.id == alert.id } }
+            val closedThreshold = threshold.filter { !it.open }
+            val closedHealth = others.filter { !it.open }
+            val closed = ArrayList<AlertSummary>(closedThreshold.size + closedHealth.size)
+            var next = 0
+            for (alert in closedThreshold) {
+                while (next < closedHealth.size && closedHealth[next].closedAtOrMin() > alert.closedAtOrMin()) {
+                    closed += closedHealth[next++]
+                }
+                closed += alert
+            }
+            closed += closedHealth.subList(next, closedHealth.size)
+            return threshold.filter { it.open } + others.filter { it.open } + closed
+        }
+
+        private fun AlertSummary.closedAtOrMin(): Long = closedAtEpochMs ?: Long.MIN_VALUE
 
         /** An ISO-8601 instant as Unix milliseconds, or `null` when it is not one. */
         internal fun epochMsOf(instant: String): Long? = Instant.parseOrNull(instant)?.toEpochMilliseconds()

@@ -32,7 +32,7 @@
 
   const lot = $derived(data.detail?.lot ?? null);
   const admin = $derived(data.currentSite !== null && hasRole(data.currentSite.role, 'Administrator'));
-  const context = $derived({ now, locale, timeZone, staleSince, admin, hubId: data.detail?.hubId ?? null });
+  const context = $derived({ now, locale, timeZone, staleSince, admin });
   const hero = $derived(lot === null ? null : lotHero(lot, context));
   const spoken = $derived(lot === null ? '' : heroSpoken(lot, context));
   const cells = $derived(lot?.sensors === undefined ? [] : sensorCells(lot.sensors, context));

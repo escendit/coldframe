@@ -4,6 +4,7 @@ import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.LotDto
 import com.escendit.coldframe.core.api.LotListDto
+import com.escendit.coldframe.core.api.SilentHubDto
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.api.SiteReminderCadenceDto
 import com.escendit.coldframe.core.notifications.ReminderCadence
@@ -48,8 +49,11 @@ class FakeLotsApi : LotsApi {
         listGate?.await()
         listFailures.removeFirstOrNull()?.let { return ApiResult.Failed(it) }
         listFailure?.let { return ApiResult.Failed(it) }
-        return ApiResult.Ok(LotListDto(lots[siteId].orEmpty().toList()))
+        return ApiResult.Ok(LotListDto(lots[siteId].orEmpty().toList(), silentHubs[siteId]))
     }
+
+    /** The Site's silent Hubs as the list names them; a Site without an entry sends no `silentHubs` at all. */
+    val silentHubs = mutableMapOf<String, List<SilentHubDto>>()
 
     override suspend fun createLot(
         siteId: String,

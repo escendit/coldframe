@@ -150,6 +150,23 @@ class LotDetailScreenTest {
     }
 
     @Test
+    fun `UX-DR78 a Lot behind a silent Hub names the Hub by its short name and how long it has been silent`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.behindSilentHub))
+
+        assertShown("Hub 3F2A is silent; Lots behind it can't be read.")
+        assertShown("12 min")
+        assertNotShown("Check power or range.")
+    }
+
+    @Test
+    fun `UX-DR78 without a Hub ID from the Server the hero keeps the copy that names no Hub`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.behindUnnamedHub))
+
+        assertShown("The Hub is silent; Lots behind it can't be read.")
+        assertNotShown("3F2A", substring = true)
+    }
+
+    @Test
     fun `UX-DR78 a paused Lot says until when`() {
         show(LotDetailFixtures.ready(LotDetailFixtures.paused))
 

@@ -27,6 +27,13 @@ enum AlertsFixture {
     var openedAt = String(AlertsFixture.openedMs)
     var closedAt = ""
     var target = "lot"
+    /// The title sentence the core names (Story 7.2), with its parts; empty when it named none.
+    var title = ""
+    var deviceKind = ""
+    var deviceName = ""
+    var silentSince = ""
+    var durationValue = ""
+    var durationUnit = ""
 
     /// The same Alert once closed at 06:40, as the core flattens it: only the group, the variant
     /// and the time change.
@@ -36,35 +43,67 @@ enum AlertsFixture {
       alert.group = "closed"
       alert.variant = "closed"
       alert.closedAt = String(AlertsFixture.closedMs)
+      // A closed row has no " for …".
+      alert.durationValue = ""
+      alert.durationUnit = ""
       return alert
     }
   }
 
   static let needsWater = Alert(
     id: "a1", variant: "needsWater", condition: "needsWater", eyebrow: "needsWater",
-    icon: "rain-drop")
+    icon: "rain-drop", title: "needsWater")
   static let tooWet = Alert(
     id: "a2", condition: "tooWet", eyebrow: "aboveHigh", icon: "arrow--up", lotId: "lot-h",
-    lotName: "Herbs")
+    lotName: "Herbs", title: "tooWet")
   static let tooCold = Alert(
     id: "a3", condition: "tooLow", eyebrow: "belowLow", icon: "arrow--down",
-    quantity: "air_temperature", lotId: "lot-b", lotName: "Beans")
+    quantity: "air_temperature", lotId: "lot-b", lotName: "Beans", title: "tooLow")
   static let tooHumid = Alert(
     id: "a4", condition: "tooHigh", eyebrow: "aboveHigh", icon: "arrow--up",
-    quantity: "relative_humidity", lotId: "lot-b", lotName: "Beans")
+    quantity: "relative_humidity", lotId: "lot-b", lotName: "Beans", title: "tooHigh")
+  /// A silent Alert from before the Server recorded a Device kind and a silent-since.
   static let silent = Alert(
     id: "h1", group: "health", variant: "health", condition: "silent", eyebrow: "health",
-    icon: "help", lotId: "lot-p", lotName: "Peppers", target: "devices")
+    icon: "help", quantity: "", lotId: "lot-p", lotName: "Peppers", target: "devices",
+    title: "nodeOnLotSilent", deviceName: "7C19")
   static let battery = Alert(
     id: "h2", group: "health", variant: "health", condition: "battery", eyebrow: "health",
-    icon: "battery--low", lotId: "lot-p", lotName: "Peppers", target: "devices")
+    icon: "battery--low", quantity: "", lotId: "lot-p", lotName: "Peppers", target: "devices",
+    title: "battery", deviceKind: "node", deviceName: "7C19")
   static let uncalibrated = Alert(
     id: "h3", group: "health", variant: "health", condition: "uncalibrated", eyebrow: "health",
-    icon: "tools", lotId: "lot-c", lotName: "Carrots")
+    icon: "tools", quantity: "", lotId: "lot-c", lotName: "Carrots", title: "uncalibrated",
+    deviceKind: "node", deviceName: "7C19")
   /// A kind the core does not know.
   static let unknownKind = Alert(
     id: "h4", group: "health", variant: "health", condition: "unknown", eyebrow: "health",
-    icon: "help", quantity: "", lotId: "lot-c", lotName: "Carrots", target: "devices")
+    icon: "help", quantity: "", lotId: "lot-c", lotName: "Carrots", target: "devices",
+    title: "healthOnLot", deviceName: "7C19")
+  /// 01:05 today: when the silent Node was last heard, 6 h before the Alert opened at 07:05.
+  static let silentSinceMs: Int64 = Overview.earlierMs
+  /// Story 7.2: a silent Node on Lot "Beans", last heard at 01:05.
+  static let silentNode = Alert(
+    id: "s1", group: "health", variant: "health", condition: "silent", eyebrow: "health",
+    icon: "help", quantity: "", lotId: "lot-b", lotName: "Beans", deviceId: "7c19aa01bb02cc03",
+    target: "devices", title: "nodeOnLotSilent", deviceKind: "node", deviceName: "7C19",
+    silentSince: String(silentSinceMs), durationValue: "6", durationUnit: "hours")
+  /// A silent Hub: no Lot, named by its short name.
+  static let silentHub = Alert(
+    id: "s2", group: "health", variant: "health", condition: "silent", eyebrow: "health",
+    icon: "help", quantity: "", lotId: "", lotName: "", deviceId: "3f2a9c0d1e4b5a67",
+    target: "devices", title: "hubSilent", deviceKind: "hub", deviceName: "3F2A",
+    silentSince: String(Overview.nowMs - 5 * 60_000), durationValue: "5", durationUnit: "minutes")
+  /// A silent Node on no Lot, named by its short name.
+  static let silentSpareNode = Alert(
+    id: "s3", group: "health", variant: "health", condition: "silent", eyebrow: "health",
+    icon: "help", quantity: "", lotId: "", lotName: "", deviceId: "9c0d0e0f10111213",
+    target: "devices", title: "nodeSilent", deviceKind: "node", deviceName: "9C0D",
+    silentSince: String(silentSinceMs), durationValue: "6", durationUnit: "hours")
+  static let closedSilentHub = silentHub.closed(id: "s4")
+
+  /// The Health rows of silent Devices, in the Server's order: open, then closed.
+  static let silentDevices = [silentNode, silentHub, silentSpareNode, closedSilentHub]
   static let closedNeedsWater: Alert = {
     var alert = needsWater.closed(id: "c1")
     alert.lotId = "lot-s"
@@ -93,7 +132,10 @@ enum AlertsFixture {
       icons: alerts.map(\.icon), quantities: alerts.map(\.quantity),
       lotIds: alerts.map(\.lotId), lotNames: alerts.map(\.lotName),
       deviceIds: alerts.map(\.deviceId), openedAts: alerts.map(\.openedAt),
-      closedAts: alerts.map(\.closedAt), targets: alerts.map(\.target))
+      closedAts: alerts.map(\.closedAt), targets: alerts.map(\.target),
+      titles: alerts.map(\.title), deviceKinds: alerts.map(\.deviceKind),
+      deviceNames: alerts.map(\.deviceName), silentSinces: alerts.map(\.silentSince),
+      durationValues: alerts.map(\.durationValue), durationUnits: alerts.map(\.durationUnit))
   }
 
   static func row(_ alert: Alert) throws -> AlertRowPresentation {
@@ -375,6 +417,7 @@ func alertsUnknownNames() throws {
   later.eyebrow = "frost"
   later.icon = "snowflake"
   later.target = "weather"
+  later.title = "frost"
   let open = try AlertsFixture.row(later)
   later.closedAt = String(AlertsFixture.closedMs)
   let closed = try AlertsFixture.row(later)
@@ -385,6 +428,8 @@ func alertsUnknownNames() throws {
   #expect(open.eyebrow == .health)
   #expect(open.icon == .help)
   #expect(open.target == .devices)
+  #expect(open.title == .healthOnLot)
+  #expect(open.titleText(context) == "Health Alert on Lot 'Tomatoes'")
   #expect(closed.group == .closed)
   #expect(closed.variant == .closed)
   // A quantity without a word names only the Lot.
@@ -413,6 +458,152 @@ func alertsCopy() throws {
   #expect(Typography.statusLabel.uppercase)
 }
 
+// MARK: - Health rows of silent Devices (Story 7.2)
+
+@Test("UX-DR117 a silent Node is named by its Lot, a Hub and a Node on no Lot by their short name")
+func alertTitlesOfSilentDevices() throws {
+  let node = try AlertsFixture.row(AlertsFixture.silentNode)
+  let hub = try AlertsFixture.row(AlertsFixture.silentHub)
+  let spare = try AlertsFixture.row(AlertsFixture.silentSpareNode)
+
+  #expect(node.titleText(context) == "Node on Lot 'Beans' silent for 6 h")
+  #expect(hub.titleText(context) == "Hub 3F2A silent for 5 min")
+  #expect(spare.titleText(context) == "Node 9C0D silent for 6 h")
+  #expect(node.title == .nodeOnLotSilent)
+  #expect(hub.title == .hubSilent)
+  #expect(spare.title == .nodeSilent)
+  #expect(node.deviceKind == .node)
+  #expect(hub.deviceKind == .hub)
+  #expect(hub.deviceName == "3F2A")
+  #expect(node.silentSince == Date(timeIntervalSince1970: Double(Overview.earlierMs) / 1000))
+  #expect(node.duration == LotDurationPresentation(value: 6, unit: .hours))
+  // They are Health rows like any other: hatched, the help icon, a bare eyebrow.
+  for row in [node, hub, spare] {
+    #expect(row.group == .health)
+    #expect(row.variant == .health)
+    #expect(row.icon == .help)
+    #expect(row.eyebrowText(context) == "Health Alert")
+  }
+  #expect(hub.spokenText(context) == "Hub 3F2A silent for 5 min, since 05:45")
+}
+
+@Test("UX-DR117 the silence is the core's, in its unit: minutes, hours or days")
+func alertTitleDurations() throws {
+  var days = AlertsFixture.silentHub
+  days.durationValue = "2"
+  days.durationUnit = "days"
+  var hour = AlertsFixture.silentSpareNode
+  hour.durationValue = "1"
+  hour.durationUnit = "hours"
+
+  #expect(try AlertsFixture.row(days).titleText(context) == "Hub 3F2A silent for 2 d")
+  #expect(try AlertsFixture.row(hour).titleText(context) == "Node 9C0D silent for 1 h")
+}
+
+@Test("UX-DR117 a closed row and an open one without a silent-since drop the duration")
+func alertTitlesWithoutDuration() throws {
+  let closed = try AlertsFixture.row(AlertsFixture.closedSilentHub)
+  #expect(closed.titleText(context) == "Hub 3F2A silent")
+  #expect(closed.eyebrowText(context) == "Health Alert · closed 06:40")
+  #expect(closed.spokenText(context) == "Hub 3F2A silent, since 05:45, closed 06:40")
+
+  var hub = AlertsFixture.silentHub
+  var spare = AlertsFixture.silentSpareNode
+  var node = AlertsFixture.silentNode
+  for index in 0..<3 {
+    // The core leaves both empty; one without the other, or a unit this client does not know,
+    // reads the same way.
+    hub.durationValue = index == 1 ? "5" : ""
+    hub.durationUnit = index == 0 ? "" : index == 1 ? "fortnights" : "minutes"
+    #expect(try AlertsFixture.row(hub).titleText(context) == "Hub 3F2A silent", "\(index)")
+  }
+  spare.silentSince = ""
+  spare.durationValue = ""
+  spare.durationUnit = ""
+  node.silentSince = ""
+  node.durationValue = ""
+  node.durationUnit = ""
+  #expect(try AlertsFixture.row(spare).titleText(context) == "Node 9C0D silent")
+  #expect(try AlertsFixture.row(node).titleText(context) == "Node on Lot 'Beans' silent")
+  // The Alert of before this story: no Device kind, no silent-since, named by its Lot.
+  #expect(
+    try AlertsFixture.row(AlertsFixture.silent).titleText(context)
+      == "Node on Lot 'Peppers' silent")
+}
+
+@Test(
+  "UX-DR117 UX-DR26 a Health kind the core does not know is the neutral row, with or without a Lot"
+)
+func alertTitlesNeutral() throws {
+  var onLot = AlertsFixture.unknownKind
+  onLot.title = "healthOnLot"
+  var bare = AlertsFixture.unknownKind
+  bare.title = "health"
+  bare.lotId = ""
+  bare.lotName = ""
+  // A title this client does not know yet: the neutral title that fits what the row has.
+  var laterOnLot = AlertsFixture.silentNode
+  laterOnLot.title = "frozen"
+  var laterBare = AlertsFixture.silentHub
+  laterBare.title = "frozen"
+
+  #expect(try AlertsFixture.row(onLot).titleText(context) == "Health Alert on Lot 'Carrots'")
+  #expect(try AlertsFixture.row(bare).titleText(context) == "Health Alert")
+  #expect(try AlertsFixture.row(laterOnLot).titleText(context) == "Health Alert on Lot 'Beans'")
+  #expect(try AlertsFixture.row(laterBare).titleText(context) == "Health Alert")
+  #expect(try AlertsFixture.row(bare).icon == .help)
+  #expect(try AlertsFixture.row(bare).variant == .health)
+}
+
+@Test("UX-DR117 a snapshot without titles reads as before: each condition's own sentence")
+func alertTitlesFallBackToTheCondition() throws {
+  let alerts = AlertsFixture.every
+  let untitled = AlertsPresentation(
+    surface: "ready", notice: nil, siteId: "a", siteName: "Home garden", openCount: 8,
+    refreshing: false, ids: alerts.map(\.id), groups: alerts.map(\.group),
+    variants: alerts.map(\.variant), conditions: alerts.map(\.condition),
+    eyebrows: alerts.map(\.eyebrow), icons: alerts.map(\.icon),
+    quantities: alerts.map(\.quantity), lotIds: alerts.map(\.lotId),
+    lotNames: alerts.map(\.lotName), deviceIds: alerts.map(\.deviceId),
+    openedAts: alerts.map(\.openedAt), closedAts: alerts.map(\.closedAt),
+    targets: alerts.map(\.target))
+  let titled = AlertsFixture.alerts()
+
+  #expect(untitled.rows.count == alerts.count)
+  #expect(untitled.rows.allSatisfy { $0.title == nil && $0.duration == nil })
+  #expect(untitled.rows.map { $0.titleText(context) } == titled.rows.map { $0.titleText(context) })
+  #expect(untitled.rows[4].titleText(context) == "Node on Lot 'Peppers' silent")
+}
+
+@Test("UX-DR64 UX-DR117 every silent row opens Devices, and so does any row without a Lot")
+func alertTargetsOfSilentDevices() throws {
+  for alert in AlertsFixture.silentDevices {
+    #expect(try AlertsFixture.row(alert).target == .devices, "\(alert.id)")
+  }
+  // The core sends a row without a Lot to Devices; a target that says otherwise is not followed.
+  var odd = AlertsFixture.silentHub
+  odd.target = "lot"
+  #expect(try AlertsFixture.row(odd).target == .devices)
+  // Health rows sit in the Health group after the Threshold Alerts; the closed one under Closed.
+  let alerts = AlertsFixture.alerts([AlertsFixture.needsWater] + AlertsFixture.silentDevices)
+  #expect(alerts.groups.map(\.kind) == [.threshold, .health, .closed])
+  #expect(alerts.groups[1].rows.map(\.id) == ["s1", "s2", "s3"])
+  #expect(alerts.openCount == 4)
+}
+
+@Test("UX-DR117 the titles of silent Devices are in the catalogue, sentence case, with their parts")
+func alertTitleCopy() throws {
+  let entries = try Catalogue.entries()
+
+  #expect(entries["alert_title_silent"] == "Node on Lot '%1$@' silent")
+  #expect(entries["alert_title_silent_for"] == "Node on Lot '%1$@' silent for %2$@")
+  #expect(entries["alert_title_hub_silent"] == "Hub %@ silent")
+  #expect(entries["alert_title_hub_silent_for"] == "Hub %1$@ silent for %2$@")
+  #expect(entries["alert_title_node_silent"] == "Node %@ silent")
+  #expect(entries["alert_title_node_silent_for"] == "Node %1$@ silent for %2$@")
+  #expect(entries["alert_title_health"] == "Health Alert")
+}
+
 // `AlertsActions` lives with the views, which exist only where SwiftUI does.
 #if canImport(SwiftUI)
   @Test("UX-DR98 the actions reach the service one for one")
@@ -423,6 +614,7 @@ func alertsCopy() throws {
       func observe(_ onChange: @escaping @MainActor (AlertsPresentation) -> Void) {}
       func load() { calls.append("load") }
       func refresh() { calls.append("refresh") }
+      func tick() { calls.append("tick") }
     }
     let spy = Spy()
     let actions = AlertsActions(service: spy)
@@ -431,7 +623,8 @@ func alertsCopy() throws {
     #expect(spy.calls == ["load"])
     actions.refresh()
     actions.load()
+    actions.tick()
 
-    #expect(spy.calls == ["load", "refresh", "load"])
+    #expect(spy.calls == ["load", "refresh", "load", "tick"])
   }
 #endif
