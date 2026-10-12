@@ -33,8 +33,8 @@ public static class ReminderIntervalRule
         own ?? site ?? ReminderCadence.Daily;
 
     /// <summary>
-    /// Whether <paramref name="kind"/> is a Health Alert: every kind that is not a Threshold Alert. None exists
-    /// before Epic 7.
+    /// Whether <paramref name="kind"/> is a Health Alert: every kind that is not a Threshold Alert, such as
+    /// <see cref="AlertKind.Silent"/> (Story 7.1).
     /// </summary>
     public static bool IsHealth(AlertKind kind) => kind != AlertKind.Threshold;
 

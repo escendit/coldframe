@@ -47,6 +47,9 @@ public sealed record AlertPage(IReadOnlyList<AlertView> Alerts, AlertCursor? Nex
 
 /// <summary>
 /// Reads the alerts projection (Story 6.2). Edge API handlers read Alerts only from here; grains never read it.
+/// The table also holds Health Alerts (Story 7.1), which have no Sensor, no quantity and maybe no Lot. The
+/// contract's <c>Alert</c> requires all three, so the list and the open count select Threshold Alerts only until
+/// the contract is extended with the clients (Story 7.2).
 /// </summary>
 public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 {
@@ -59,6 +62,9 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 
     private const long TicksPerMicrosecond = 10;
 
+    // The only kind the contract's Alert can describe today.
+    private static readonly string ListedKind = AlertNames.Kind(Coldframe.Contracts.Alerts.AlertKind.Threshold);
+
     // One ordered list: the open Alerts (section 0) newest openedAt first, then the closed ones (section 1)
     // newest closedAt first, both by Alert ID within one time. The Lot name is joined at read time, so a rename
     // shows at once; the join hides a row only while the lots read model is being rebuilt. The cut-off for
@@ -69,6 +75,7 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
         FROM alerts a
         JOIN lots l ON l.site_id = a.site_id AND l.lot_id = a.lot_id
         WHERE a.site_id = @site_id
+          AND a.kind = @kind
           AND (a.closed_at IS NULL OR a.closed_at >= @closed_since)
           AND (NOT @has_after
                OR (a.closed_at IS NOT NULL)::int > @after_section
@@ -85,12 +92,12 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
         SELECT count(*)
         FROM alerts a
         JOIN lots l ON l.site_id = a.site_id AND l.lot_id = a.lot_id
-        WHERE a.site_id = @site_id AND a.closed_at IS NULL
+        WHERE a.site_id = @site_id AND a.kind = @kind AND a.closed_at IS NULL
         """;
 
     /// <summary>
-    /// Returns a page of the Site's Alerts: every open Alert, newest first, then the Alerts closed at or after
-    /// <paramref name="closedSince"/>, newest close first.
+    /// Returns a page of the Site's Threshold Alerts: every open one, newest first, then the ones closed at or
+    /// after <paramref name="closedSince"/>, newest close first.
     /// </summary>
     /// <param name="siteId">The Site ID, in its canonical form.</param>
     /// <param name="closedSince">The oldest close that is still listed; the caller derives it from the Server clock.</param>
@@ -109,6 +116,7 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 
         await using var command = dataSource.CreateCommand(ListSql);
         command.Parameters.AddWithValue("site_id", siteId);
+        command.Parameters.AddWithValue("kind", ListedKind);
         command.Parameters.AddWithValue("closed_since", closedSince.ToUniversalTime());
         command.Parameters.AddWithValue("has_after", after is not null);
         command.Parameters.AddWithValue("after_section", after is { Closed: true } ? 1 : 0);
@@ -146,7 +154,7 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
-    /// Counts the Site's open Alerts.
+    /// Counts the Site's open Threshold Alerts.
     /// </summary>
     /// <param name="siteId">The Site ID, in its canonical form.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
@@ -156,6 +164,7 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 
         await using var command = dataSource.CreateCommand(CountOpenSql);
         command.Parameters.AddWithValue("site_id", siteId);
+        command.Parameters.AddWithValue("kind", ListedKind);
 
         return checked((int)(long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!);
     }

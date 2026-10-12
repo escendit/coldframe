@@ -9,13 +9,14 @@ namespace Coldframe.Server.Alerts;
 public static class AlertNames
 {
     /// <summary>
-    /// The contract's <c>AlertKind</c>. Only <c>threshold</c> is produced; a kind added to
-    /// <see cref="AlertKind"/> must be named here before any grain journals it.
+    /// The contract's <c>AlertKind</c>. <c>threshold</c> and <c>silent</c> (Story 7.1) are produced; a kind
+    /// added to <see cref="AlertKind"/> must be named here before any grain journals it.
     /// </summary>
     /// <param name="kind">What the Alert is about.</param>
     public static string Kind(AlertKind kind) => kind switch
     {
         AlertKind.Threshold => "threshold",
+        AlertKind.Silent => "silent",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "The Alert kind has no contract name."),
     };
 

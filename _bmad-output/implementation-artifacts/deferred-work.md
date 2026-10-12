@@ -728,3 +728,19 @@ source_spec: `spec-6-6-browser-notifications-and-live-updates-on-the-web.md`
 severity: medium (unverified)
 reason: A sites hint refetches every app page and a lots hint the Thresholds and Calibrate sub-pages, through invalidateAll(). Thresholds keeps its edits in $state(untrack(...)) and Site settings keys its rename input on the Site name, which suggests input survives, but nothing verifies it. A Playwright case that types into Thresholds and Site settings, sends a hint through the fake hub's /control endpoint and reads the inputs again would settle it.
 status: open
+
+### DW-95: No test shows that a Device enrolled before Story 7.1 gets its silence reminder when the Server starts.
+origin: code-review 88
+location: apps/cs/server/Hosting/SiloExtensions.cs, apps/cs/server/Devices/DeviceGrain.cs
+source_spec: `spec-7-1-silent-device-alert-on-the-server.md`
+severity: low
+reason: The reminder is asserted only right after Enrol. The TestCluster does not go through SiloExtensions, so the activation pass at start and DevicesReadModel.ListDeviceIdsAsync never run against an existing Device. A test that seeds a device.enrolled stream, restarts the silo, activates the grain through Silence() and reads the reminder row would settle it, ideally once through the real host.
+status: open
+
+### DW-96: The silence clock restarts at the start of the silo that activates the Device, not of the cluster.
+origin: code-review 88
+location: apps/cs/server/Devices/ServerStart.cs, apps/cs/server/Devices/DeviceGrain.cs
+source_spec: `spec-7-1-silent-device-alert-on-the-server.md`
+severity: low
+reason: With two silos, a restart of one moves the clock of every Device that activates on it although the other kept accepting frames. On one silo too, restarts more often than a Node's 6 h window (a crash loop, frequent deploys) mean a dead Node never alerts. This follows the intent's "last Server start" rule; a cluster-wide fact (restart the clock only when no silo was active) would close it.
+status: open

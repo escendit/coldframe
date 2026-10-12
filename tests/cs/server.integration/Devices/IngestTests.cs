@@ -134,8 +134,8 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
             Assert.False(await reader.ReadAsync(cancellationToken));
         }
 
-        // Nothing is journaled per frame: the enrolment, and the relay Hub once.
-        Assert.Equal(["device.enrolled", "device.relay-changed"], await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
+        // Journaled: the enrolment, the relay Hub once, and the Node's liveness, the frame's measured_at (Story 7.1).
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.reported"], await edge.AliasesAsync($"device/{node.DeviceId}", cancellationToken));
     }
 
     [Fact]
@@ -335,8 +335,8 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
             Assert.Equal("stored", result.Status);
         }
 
-        Assert.Equal(["device.enrolled", "device.relay-changed", "device.relay-changed"], await edge.AliasesAsync(stream, cancellationToken));
-        var events = await edge.ReadStreamAsync(stream, cancellationToken);
+        Assert.Equal(["device.enrolled", "device.relay-changed", "device.relay-changed"], await WithoutLivenessAsync(stream, cancellationToken));
+        var events = (await edge.ReadStreamAsync(stream, cancellationToken)).Where(journaled => journaled.Data is not DeviceReported).ToList();
         Assert.Equal(stage.Hub.DeviceId.ToString(), Assert.IsType<DeviceRelayChanged>(events[1].Data).HubId);
         Assert.Equal(stage.OtherHub.DeviceId.ToString(), Assert.IsType<DeviceRelayChanged>(events[2].Data).HubId);
 
@@ -359,7 +359,7 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
         var asked = Assert.Single(await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(node.SealFrame(first)), cancellationToken));
         Assert.Equal("stored", asked.Status);
         Assert.True(node.OpenDownlink(asked.Downlink!).SpecificationsUnknown);
-        Assert.Equal(["device.enrolled", "device.relay-changed"], await edge.AliasesAsync(stream, cancellationToken));
+        Assert.Equal(["device.enrolled", "device.relay-changed"], await WithoutLivenessAsync(stream, cancellationToken));
         foreach (var sensor in sensors)
         {
             Assert.Empty(await edge.AliasesAsync(sensor, cancellationToken));
@@ -377,19 +377,19 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
         }
 
         string[] journaled = ["device.enrolled", "device.relay-changed", "device.specifications-declared"];
-        Assert.Equal(journaled, await edge.AliasesAsync(stream, cancellationToken));
-        var accepted = Assert.IsType<DeviceSpecificationsDeclared>((await edge.ReadStreamAsync(stream, cancellationToken))[^1].Data);
+        Assert.Equal(journaled, await WithoutLivenessAsync(stream, cancellationToken));
+        var accepted = (await edge.ReadStreamAsync(stream, cancellationToken)).Select(journaled => journaled.Data).OfType<DeviceSpecificationsDeclared>().Single();
         Assert.Equal(node.SpecHash.ToByteArray(), accepted.SpecHash);
         Assert.Equal(sensors, accepted.Sensors.Select(sensor => $"sensor/{sensor.SensorId}"));
 
-        // The third frame is not asked, sends no set, and journals nothing.
+        // The third frame is not asked, sends no set, and journals nothing but the Node's liveness.
         var third = node.Wake(Now());
         Assert.Null(third.Specifications);
         var known = Assert.Single(await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(node.SealFrame(third)), cancellationToken));
         Assert.Equal("stored", known.Status);
         Assert.False(node.OpenDownlink(known.Downlink!).SpecificationsUnknown);
         Assert.Null(node.Wake(Now()).Specifications);
-        Assert.Equal(journaled, await edge.AliasesAsync(stream, cancellationToken));
+        Assert.Equal(journaled, await WithoutLivenessAsync(stream, cancellationToken));
         foreach (var sensor in sensors)
         {
             Assert.Equal(["sensor.declared"], await edge.AliasesAsync(sensor, cancellationToken));
@@ -674,4 +674,9 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
     }
 
     private sealed record Stage(string SiteId, string AdministratorToken, SimulatedDevice Hub, SimulatedDevice OtherHub);
+
+    // A Device's events without its liveness. Every frame that moves the Node's newest measured_at forward
+    // journals device.reported (Story 7.1), which sits between the events these tests are about.
+    private async Task<List<string>> WithoutLivenessAsync(string stream, CancellationToken cancellationToken) =>
+        [.. (await edge.AliasesAsync(stream, cancellationToken)).Where(alias => alias != "device.reported")];
 }

@@ -8,7 +8,8 @@ namespace Coldframe.Server.Devices;
 /// <summary>
 /// Registers the Devices: the enrolment key and the Device key vault (configuration section
 /// <see cref="EnrolmentOptions.SectionName"/>), checked at start, and the devices projector with its read
-/// model, and the ingestion store of the Device grain. The Device grain is found with the other grains.
+/// model, the ingestion store of the Device grain, and the Server's start time (<see cref="ServerStart"/>),
+/// which every Device grain restarts its silence clock at. The Device grain is found with the other grains.
 /// </summary>
 public static class DevicesHostingExtensions
 {
@@ -23,6 +24,11 @@ public static class DevicesHostingExtensions
         services.AddSingleton<EnrolmentKeyring>();
         services.AddSingleton<DeviceKeyVault>();
         services.AddSingleton<DevicesReadModel>();
+
+        // The Server start (Story 7.1), read from the TimeProvider when the host starts.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<ServerStart>();
+        services.AddHostedService(provider => provider.GetRequiredService<ServerStart>());
 
         // The ingestion tables, written only through the Device grain; a test host registers its own first.
         services.TryAddSingleton<DeviceIngestionStore>();

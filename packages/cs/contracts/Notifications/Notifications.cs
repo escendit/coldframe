@@ -33,10 +33,10 @@ public enum NotificationKind
 /// <param name="AlertId">The Alert ID.</param>
 /// <param name="Kind">What the Alert is about.</param>
 /// <param name="Side">The Threshold that was crossed; <see langword="null"/> for an Alert that is not a Threshold Alert.</param>
-/// <param name="LotId">The Lot the Alert was opened for.</param>
-/// <param name="SensorId">The Sensor that opened the Alert.</param>
-/// <param name="DeviceId">The Device ID of that Sensor's Node.</param>
-/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>.</param>
+/// <param name="LotId">The Lot the Alert was opened for; <see langword="null"/> for a Device's Alert without a Lot (Story 7.1).</param>
+/// <param name="SensorId">The Sensor that opened the Alert; <see langword="null"/> for a Device's Alert.</param>
+/// <param name="DeviceId">The Device ID of that Sensor's Node, or of the Device the Alert is about.</param>
+/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>; <see langword="null"/> for a Device's Alert.</param>
 /// <param name="OpenedAt">When the Alert opened.</param>
 [GenerateSerializer]
 [Alias("coldframe.notification-entry")]
@@ -44,10 +44,10 @@ public sealed record NotificationEntry(
     [property: Id(0)] Guid AlertId,
     [property: Id(1)] AlertKind Kind,
     [property: Id(2)] ThresholdSide? Side,
-    [property: Id(3)] string LotId,
-    [property: Id(4)] Guid SensorId,
+    [property: Id(3)] string? LotId,
+    [property: Id(4)] Guid? SensorId,
     [property: Id(5)] string DeviceId,
-    [property: Id(6)] string Quantity,
+    [property: Id(6)] string? Quantity,
     [property: Id(7)] DateTimeOffset OpenedAt);
 
 /// <summary>

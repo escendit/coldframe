@@ -179,8 +179,8 @@ internal static class PushTestKit
             Named(lookups, "Peppers", Entry("lot-peppers")),
             Named(lookups, "Lettuce", Entry("lot-lettuce", "relative_humidity", ThresholdSide.High)),
         };
-        lookups.Thresholds[(entries[2].SensorId, ThresholdSide.Low)] = new PushValue(5, "°C");
-        lookups.Thresholds[(entries[4].SensorId, ThresholdSide.High)] = new PushValue(90, "%");
+        lookups.Thresholds[(entries[2].SensorId!.Value, ThresholdSide.Low)] = new PushValue(5, "°C");
+        lookups.Thresholds[(entries[4].SensorId!.Value, ThresholdSide.High)] = new PushValue(90, "%");
 
         return new Notification(
             User,
@@ -274,7 +274,7 @@ internal static class PushTestKit
 
     private static NotificationEntry Named(FakeLookups lookups, string name, NotificationEntry entry)
     {
-        lookups.Lots[entry.LotId] = name;
+        lookups.Lots[entry.LotId!] = name;
         return entry;
     }
 }

@@ -55,7 +55,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         // The Readings are stored under their derived Sensor IDs, and no Sensor exists for them yet.
         Assert.Equal(DefaultSensorIds(node), await StoredSensorIdsAsync(node));
         await AssertNoSensorAsync(DefaultSensorIds(node));
-        Assert.Equal([Enrolled, RelayChanged], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged], await DeviceAliasesAsync(node));
 
         // A resend is a duplicate as before, and is asked again.
         var resend = await IngestAsync(node, node.SealFrame(frame));
@@ -66,7 +66,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         var bare = node.Wake(Now, attachSpecifications: false);
         bare.SpecHash = ByteString.Empty;
         Assert.True((await ReportAsync(node, bare)).SpecificationsUnknown);
-        Assert.Equal([Enrolled, RelayChanged], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged], await DeviceAliasesAsync(node));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
             Assert.Equal(new SensorDeclared(node.DeviceId.ToString(), slot, specifications[slot], declaredAt), only.Data);
         }
 
-        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await DeviceAliasesAsync(node));
         var declared = await LastDeclarationAsync(node);
         Assert.Equal(node.SpecHash.ToByteArray(), declared.SpecHash);
         Assert.Equal(declaredAt, declared.DeclaredAt);
@@ -133,7 +133,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
     public async Task TheSameHashAgainJournalsNothingWithOrWithoutTheSet()
     {
         var node = await DeclaredNodeAsync();
-        var device = await identity.AliasesAsync(Stream(node));
+        var device = await DeviceAliasesAsync(node);
 
         var without = node.Wake(Now);
         Assert.Null(without.Specifications);
@@ -148,7 +148,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         broken.Specifications.Specifications.Clear();
         Assert.False((await ReportAsync(node, broken)).SpecificationsUnknown);
 
-        Assert.Equal(device, await identity.AliasesAsync(Stream(node)));
+        Assert.Equal(device, await DeviceAliasesAsync(node));
         await AssertOnlyDeclaredAsync(DefaultSensorIds(node));
         Assert.Empty(InvalidSetWarnings(node));
     }
@@ -168,7 +168,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.NotEqual(oldHash, node.SpecHash);
 
         Assert.True((await ReportAsync(node, node.Wake(Now))).SpecificationsUnknown);
-        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await DeviceAliasesAsync(node));
         identity.Time.Advance(TimeSpan.FromMinutes(15));
         var changedAt = Now;
         Assert.False((await ReportAsync(node, node.Wake(changedAt))).SpecificationsUnknown);
@@ -183,7 +183,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         var snapshot = await identity.Sensor(ids[1]).Describe(Ct);
         Assert.Equal((air, ThresholdSetting.Default, new ThresholdSetting(ThresholdKind.Default, 45_000)), (snapshot!.Specification, snapshot.Low, snapshot.High));
 
-        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared, SpecificationsDeclared], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared, SpecificationsDeclared], await DeviceAliasesAsync(node));
         var declared = await LastDeclarationAsync(node);
         Assert.Equal(node.SpecHash.ToByteArray(), declared.SpecHash);
         Assert.Equal(ids, declared.Sensors.Select(sensor => sensor.SensorId));
@@ -314,7 +314,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.Equal(1L, await identity.Database.ScalarAsync<long>("SELECT COUNT(*) FROM readings WHERE sensor_id = @id", ("id", beyond)));
         Assert.Equal(1L, await identity.Database.ScalarAsync<long>("SELECT COUNT(*) FROM readings WHERE sensor_id = @id", ("id", otherQuantity)));
         await AssertNoSensorAsync([beyond, otherQuantity]);
-        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await DeviceAliasesAsync(node));
     }
 
     [Fact]
@@ -336,7 +336,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         // The Server still does not know the hash, so the next downlink asks again.
         Assert.True((await ReportAsync(node, after)).SpecificationsUnknown);
         await AssertNoSensorAsync(DefaultSensorIds(node));
-        Assert.Equal([Enrolled, RelayChanged], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged], await DeviceAliasesAsync(node));
 
         var again = node.Wake(Now);
         Assert.NotNull(again.Specifications);
@@ -380,7 +380,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
             Assert.Equal(SimulatedDevice.ReadingSeqs(frame), SimulatedDevice.AckedReadings(downlink));
             Assert.Equal(4L, await CountAsync("readings", node));
             await AssertNoSensorAsync(DefaultSensorIds(node));
-            Assert.Equal([Enrolled, RelayChanged], await identity.AliasesAsync(Stream(node)));
+            Assert.Equal([Enrolled, RelayChanged], await DeviceAliasesAsync(node));
 
             // One warning, naming only the Device.
             var warning = Assert.Single(InvalidSetWarnings(node));
@@ -418,7 +418,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         // No acknowledgement and no accepted set, but the frame's Readings are committed.
         Assert.Equal(DeviceIngestStatus.Retry, failed.Status);
         Assert.Null(failed.Downlink);
-        Assert.Equal([Enrolled, RelayChanged], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged], await DeviceAliasesAsync(node));
         Assert.Equal(8L, await CountAsync("readings", node));
 
         // The Sensor grains come first: the ones that could be declared were, before the Device journaled anything.
@@ -427,7 +427,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
 
         // The hash stays unknown: the next frame is asked again.
         Assert.True((await ReportAsync(node, node.Wake(Now, attachSpecifications: false))).SpecificationsUnknown);
-        Assert.Equal([Enrolled, RelayChanged], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged], await DeviceAliasesAsync(node));
 
         // The fault is removed: the set the Node sends next is accepted, and nothing is declared twice.
         identity.SensorFaults.Restore(ids[2]);
@@ -435,7 +435,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.NotNull(again.Specifications);
         Assert.False((await ReportAsync(node, again)).SpecificationsUnknown);
 
-        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await DeviceAliasesAsync(node));
         Assert.Equal(ids, (await LastDeclarationAsync(node)).Sensors.Select(sensor => sensor.SensorId));
         await AssertOnlyDeclaredAsync(ids);
     }
@@ -452,7 +452,7 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.False(downlink.SpecificationsUnknown);
         Assert.Equal(SimulatedDevice.ReadingSeqs(frame), SimulatedDevice.AckedReadings(downlink));
         await AssertOnlyDeclaredAsync(DefaultSensorIds(node));
-        Assert.Equal([Enrolled, "device.paused", RelayChanged, SpecificationsDeclared], await identity.AliasesAsync(Stream(node)));
+        Assert.Equal([Enrolled, "device.paused", RelayChanged, SpecificationsDeclared], await DeviceAliasesAsync(node));
         Assert.Equal(0L, await CountAsync("readings", node));
         Assert.Equal(0L, await CountAsync("device_reports", node));
     }
@@ -461,14 +461,14 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
     public async Task AfterARestartTheSameHashIsStillKnownAndNothingIsJournaled()
     {
         var node = await DeclaredNodeAsync();
-        var device = await identity.AliasesAsync(Stream(node));
+        var device = await DeviceAliasesAsync(node);
         Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], device);
 
         await identity.RestartSiloAsync();
 
         Assert.False((await ReportAsync(node, node.Wake(Now))).SpecificationsUnknown);
         Assert.False((await ReportAsync(node, node.Wake(Now, attachSpecifications: true))).SpecificationsUnknown);
-        Assert.Equal(device, await identity.AliasesAsync(Stream(node)));
+        Assert.Equal(device, await DeviceAliasesAsync(node));
         await AssertOnlyDeclaredAsync(DefaultSensorIds(node));
     }
 
@@ -509,6 +509,12 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.Equal(["sensor.declared", "sensor.specification-changed"], await identity.AliasesAsync($"sensor/{soilId}"));
     }
 
+
+    // The Device's events without its liveness. Every frame that moves the Node's newest measured_at forward
+    // journals device.reported (Story 7.1); the ingest and the silence suites pin that, and here it would only sit
+    // between the events this suite is about.
+    private async Task<List<string>> DeviceAliasesAsync(SimulatedDevice node) =>
+        [.. (await identity.AliasesAsync(Stream(node))).Where(alias => alias != "device.reported")];
     private static string Stream(SimulatedDevice node) => $"device/{node.DeviceId}";
 
     private static List<Guid> DefaultSensorIds(SimulatedDevice node) =>

@@ -359,6 +359,11 @@ public sealed class DeviceIngestRequestTests
         public Task<DeviceSummary?> Describe(CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task SetCalibration(SetCalibration request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<DeviceSilenceWindowResult> SetSilenceWindow(string siteId, TimeSpan? window, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DeviceSilence?> Silence(CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Only what the ingest handler uses: a Device grain by its string key.

@@ -113,11 +113,35 @@ public sealed class LotStateTests
     [InlineData(false, true, LotSilence.None)]
     [InlineData(true, false, LotSilence.Node)]
     [InlineData(true, true, LotSilence.None)]
-    public void ANodeThatDeclaredNothingIsTheOnlySilenceTheProjectorKnows(bool hasNode, bool hasDeclared, LotSilence silence)
+    public void ANodeThatDeclaredNothingIsSilentWithoutAnAlert(bool hasNode, bool hasDeclared, LotSilence silence)
     {
         var inputs = LotsProjector.InputsOf(hasNode, hasDeclared, LotPauseSources.Site, uncalibratedSoilSensor: true, openLowAlert: false);
 
         Assert.Equal(new LotStatusInputs(hasNode, LotPauseSources.Site, silence, true, OpenLowAlert: false), inputs);
+    }
+
+    // Story 7.1: an open silent Alert on the Node is cause node, one on its relay Hub alone is cause hub, and the
+    // Node, the more specific cause, wins. A Lot without a Node is never silent.
+    [Theory]
+    [InlineData(true, true, false, false, LotSilence.None, "needsWater", null)]
+    [InlineData(true, true, true, false, LotSilence.Node, "unknown", "node")]
+    [InlineData(true, true, false, true, LotSilence.Hub, "unknown", "hub")]
+    [InlineData(true, true, true, true, LotSilence.Node, "unknown", "node")]
+    [InlineData(true, false, false, true, LotSilence.Node, "unknown", "node")]
+    [InlineData(false, false, true, true, LotSilence.None, "noNode", null)]
+    public void AnOpenSilentAlertOnTheNodeOrItsRelayHubIsTheProjectorsSilence(
+        bool hasNode,
+        bool hasDeclared,
+        bool nodeSilent,
+        bool hubSilent,
+        LotSilence silence,
+        string status,
+        string? unknownCause)
+    {
+        var inputs = LotsProjector.InputsOf(hasNode, hasDeclared, LotPauseSources.None, uncalibratedSoilSensor: false, openLowAlert: true, nodeSilent, hubSilent);
+
+        Assert.Equal(silence, inputs.Silence);
+        Assert.Equal((status, unknownCause), (LotStatusRule.Evaluate(inputs).Status, LotStatusRule.Evaluate(inputs).UnknownCause));
     }
 
     [Theory]

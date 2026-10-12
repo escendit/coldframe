@@ -32,4 +32,24 @@ public static class AlertIds
     /// <param name="sensorId">The Sensor that evaluates.</param>
     /// <param name="episode">The Sensor's episode, from 1.</param>
     public static Guid Threshold(Guid sensorId, int episode) => SensorIds.UuidV5(Namespace, ThresholdName(sensorId, episode));
+
+    /// <summary>
+    /// The name a Silent Device Alert's ID is derived from (Story 7.1): <c>device:{deviceId}:silent:{episode}</c>,
+    /// the Device ID as 16 lowercase hex digits.
+    /// </summary>
+    /// <param name="deviceId">The Device that evaluates its own silence.</param>
+    /// <param name="episode">The Device's silence episode, from 1.</param>
+    public static string SilentName(string deviceId, int episode)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(deviceId);
+
+        return string.Create(CultureInfo.InvariantCulture, $"device:{deviceId}:silent:{episode}");
+    }
+
+    /// <summary>
+    /// The ID of the Silent Device Alert of a Device's silence episode.
+    /// </summary>
+    /// <param name="deviceId">The Device that evaluates its own silence.</param>
+    /// <param name="episode">The Device's silence episode, from 1.</param>
+    public static Guid Silent(string deviceId, int episode) => SensorIds.UuidV5(Namespace, SilentName(deviceId, episode));
 }

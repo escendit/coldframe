@@ -110,7 +110,108 @@ public interface IDeviceGrain : IGrainWithStringKey
     [Alias("set-calibration")]
     [AlwaysInterleave]
     Task SetCalibration(SetCalibration request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets or clears the Device's own Silence Window (Story 7.1). An override replaces the default of the
+    /// Device's kind (6 h for a Node, 5 min for a Hub); <see langword="null"/> clears it. A window outside 1 min
+    /// to 30 days, or one that is not a whole number of seconds, is refused and nothing is journaled; the window
+    /// already in force journals nothing either. Otherwise the Device journals
+    /// <see cref="DeviceSilenceWindowSet"/>, and the expiry moves with it.
+    /// </summary>
+    /// <param name="siteId">The canonical Site ID the caller reached the Device through.</param>
+    /// <param name="window">The override, or <see langword="null"/> to return to the default.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-silence-window")]
+    Task<DeviceSilenceWindowResult> SetSilenceWindow(string siteId, TimeSpan? window, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns where the Device's silence evaluation stands (Story 7.1), or <see langword="null"/> before it is
+    /// enrolled. It first processes what is overdue, like a wake of the Device's reminder: a Node whose window
+    /// expired asks its last relay Hub through this call, and the answer must not depend on whose reminder fired
+    /// first.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("silence")]
+    Task<DeviceSilence?> Silence(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// How <see cref="IDeviceGrain.SetSilenceWindow"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-silence-window-outcome")]
+public enum DeviceSilenceWindowOutcome
+{
+    /// <summary>
+    /// The window is in force now; <see cref="DeviceSilenceWindowSet"/> was journaled.
+    /// </summary>
+    Set = 0,
+
+    /// <summary>
+    /// The window was in force already. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Device is not enrolled on this Site. Nothing was journaled.
+    /// </summary>
+    NotFound = 2,
+
+    /// <summary>
+    /// The window is outside 1 min to 30 days or not a whole number of seconds. Nothing was journaled.
+    /// </summary>
+    OutOfRange = 3,
+}
+
+/// <summary>
+/// The result of <see cref="IDeviceGrain.SetSilenceWindow"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+/// <param name="Window">The Silence Window in force afterwards, unless the Device was not found.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-silence-window-result")]
+public sealed record DeviceSilenceWindowResult(
+    [property: Id(0)] DeviceSilenceWindowOutcome Outcome,
+    [property: Id(1)] TimeSpan? Window = null);
+
+/// <summary>
+/// A Device's open Health Alert of kind <c>silent</c> (Story 7.1).
+/// </summary>
+/// <param name="AlertId">The Alert ID.</param>
+/// <param name="Episode">The Device's silence episode the Alert belongs to.</param>
+/// <param name="OpenedAt">When the episode started.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-silent-alert")]
+public sealed record DeviceSilentAlert(
+    [property: Id(0)] Guid AlertId,
+    [property: Id(1)] int Episode,
+    [property: Id(2)] DateTimeOffset OpenedAt);
+
+/// <summary>
+/// Where a Device's silence evaluation stands (Story 7.1), all of it derived from the Device's journal.
+/// </summary>
+/// <param name="Kind">Hub or Node.</param>
+/// <param name="Window">The Silence Window in force: the Device's override, else the default of its kind.</param>
+/// <param name="WindowOverridden">Whether <paramref name="Window"/> is the Device's own override.</param>
+/// <param name="ClockStart">
+/// Where the window counts from: the latest of enrolment, the last accepted report, the last Server start, the
+/// last resume and, for a Node, the recovery of its last relay Hub.
+/// </param>
+/// <param name="DueAt">When the window expires: <paramref name="ClockStart"/> plus <paramref name="Window"/>.</param>
+/// <param name="Paused">Whether the Device is paused: a paused Device opens no Alert.</param>
+/// <param name="OpenAlert">The Device's open <c>silent</c> Alert, or <see langword="null"/>.</param>
+/// <param name="LastRecoveredAt">When the Device's last silence episode ended, or <see langword="null"/> before the first.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-silence")]
+public sealed record DeviceSilence(
+    [property: Id(0)] DeviceKind Kind,
+    [property: Id(1)] TimeSpan Window,
+    [property: Id(2)] bool WindowOverridden,
+    [property: Id(3)] DateTimeOffset ClockStart,
+    [property: Id(4)] DateTimeOffset DueAt,
+    [property: Id(5)] bool Paused,
+    [property: Id(6)] DeviceSilentAlert? OpenAlert = null,
+    [property: Id(7)] DateTimeOffset? LastRecoveredAt = null);
 
 /// <summary>
 /// The Calibration the Sensor grain sets in force on a Node's Device grain.

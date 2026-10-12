@@ -9,7 +9,8 @@ namespace Coldframe.Server.Alerts;
 /// Projects the Alert streams into <c>alerts</c>, the read model of the Alerts list (Story 6.2). It is the only
 /// writer of that table (AD-21). <c>alert.opened</c> creates the row and <c>alert.closed</c> sets its close; a
 /// closed Alert keeps its row, so an event applied again changes nothing and a rebuild from position 0 gives the
-/// same rows. <c>alert.site-notified</c> is not projected.
+/// same rows. <c>alert.site-notified</c> is not projected. A Device's Health Alert (Story 7.1) is stored like
+/// any other, without a Sensor, a quantity and, for a Hub or an unassigned Node, a Lot.
 /// </summary>
 public sealed class AlertsProjector : IProjector
 {
@@ -72,12 +73,12 @@ public sealed class AlertsProjector : IProjector
                 {
                     command.Parameters.AddWithValue("alert_id", alertId);
                     command.Parameters.AddWithValue("site_id", opened.SiteId);
-                    command.Parameters.AddWithValue("lot_id", opened.LotId);
+                    command.Parameters.AddWithValue("lot_id", NpgsqlDbType.Text, (object?)opened.LotId ?? DBNull.Value);
                     command.Parameters.AddWithValue("device_id", opened.DeviceId);
-                    command.Parameters.AddWithValue("sensor_id", opened.SensorId);
+                    command.Parameters.AddWithValue("sensor_id", NpgsqlDbType.Uuid, (object?)opened.SensorId ?? DBNull.Value);
                     command.Parameters.AddWithValue("kind", AlertNames.Kind(opened.Kind));
                     command.Parameters.AddWithValue("side", NpgsqlDbType.Text, (object?)AlertNames.Side(opened.Side) ?? DBNull.Value);
-                    command.Parameters.AddWithValue("quantity", opened.Quantity);
+                    command.Parameters.AddWithValue("quantity", NpgsqlDbType.Text, (object?)opened.Quantity ?? DBNull.Value);
                     command.Parameters.AddWithValue("opened_at", opened.OpenedAt.ToUniversalTime());
 
                     // Only a row that is new is a change: an open applied again touches nothing.

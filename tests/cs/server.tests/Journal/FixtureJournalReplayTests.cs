@@ -101,6 +101,28 @@ public sealed class FixtureJournalReplayTests
         Assert.Null(moved.LotId);
         Assert.Equal(["0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04"], moved.PendingReleases);
 
+        // Silence (Story 7.1): the Hub's clock runs from its last heartbeat with the default window. The moved
+        // Node reported, got a window of its own, had its clock restarted by a Server start and by its relay
+        // Hub's recovery, went silent (episode 1, delivered), reported again (recovered, the close not delivered
+        // yet), and its window was cleared: the default again, counted from its newest measured_at.
+        Assert.Equal(device.LastSeenAt, device.SilenceFrom);
+        Assert.Equal(device.LastSeenAt + SilenceRule.HubWindow, device.SilenceDueAt);
+        Assert.Null(device.OpenSilentAlert);
+        var silentAlert = Guid.Parse("dfa1c207-f801-5c34-9795-559203085894");
+        var recovered = new DateTimeOffset(2026, 10, 14, 14, 0, 0, TimeSpan.Zero);
+        Assert.Equal(silentAlert, AlertIds.Silent("5a4b3c2d1e0f7c21", 1));
+        Assert.Equal((recovered, recovered), (moved.LastReportedAt, moved.SilenceFrom));
+        Assert.Null(moved.SilenceWindowOverride);
+        Assert.Equal(recovered + SilenceRule.NodeWindow, moved.SilenceDueAt);
+        Assert.Equal((1, (DeviceSilentAlert?)null, recovered.AddSeconds(3)), (moved.SilenceEpisode, moved.OpenSilentAlert, moved.LastRecoveredAt));
+        var undeliveredClose = Assert.Single(moved.PendingAlertDeliveries);
+        Assert.Equal((silentAlert, AlertLifecycle.Closed, AlertKind.Silent), (undeliveredClose.AlertId, undeliveredClose.Change, undeliveredClose.Kind));
+
+        // Its Alert has no side, Sensor, quantity or Lot: the rows carry none of them.
+        var silent = Assert.IsType<AlertState>(states[$"alert/{silentAlert}"]);
+        Assert.Equal((AlertLifecycle.Closed, AlertKind.Silent, "5a4b3c2d1e0f7c21", false), (silent.Lifecycle, silent.Kind, silent.DeviceId, silent.ReportPending));
+        Assert.Equal(((ThresholdSide?)null, (string?)null, (Guid?)null, (string?)null), (silent.Side, silent.LotId, silent.SensorId, silent.Quantity));
+
         // Relayed by the Hub; paused by its Site and by itself, then the Site resumed: still paused.
         Assert.Equal("92064422c012f481", node.LastRelayHubId);
         Assert.True(node.IsPaused);

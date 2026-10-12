@@ -167,7 +167,9 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
         Assert.Equal(
             new Guid?[] { null, null, null, first.Id, first.Id, first.Id, second.Id },
             (await CalibrationIdsAsync(soil)).Skip(SetupReadings));
-        Assert.Equal(new DeviceCalibrationSet(soil, second.Id, 2, second.CalibratedAt), (await identity.Store.ReadStreamAsync($"device/{node.DeviceId}", Ct))[^1].Data);
+        Assert.Equal(
+            new DeviceCalibrationSet(soil, second.Id, 2, second.CalibratedAt),
+            (await identity.Store.ReadStreamAsync($"device/{node.DeviceId}", Ct)).Select(journaled => journaled.Data).OfType<DeviceCalibrationSet>().Last());
         Assert.Equal(
             ["sensor.declared", "sensor.calibrated", "sensor.calibration-delivered", "sensor.calibrated", "sensor.calibration-delivered"],
             await identity.AliasesAsync($"sensor/{soil}"));

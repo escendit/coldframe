@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Events;
 
 namespace Coldframe.Contracts.Devices;
@@ -215,3 +216,122 @@ public sealed record DeviceCalibrationSet(
     [property: Id(1)] Guid CalibrationId,
     [property: Id(2)] int Revision,
     [property: Id(3)] DateTimeOffset SetAt);
+
+/// <summary>
+/// The Server accepted a frame of the Node whose <c>measured_at</c> is newer than any it accepted before (Story
+/// 7.1): the Node's liveness. A Node's liveness is the newest <c>measured_at</c>, never the arrival time, so a
+/// backlog of old Readings does not make a silent Node look alive. Journaled once per such frame, so the Silence
+/// Window's expiry is derived from the Device's own stream; a paused Node journals none.
+/// </summary>
+/// <param name="MeasuredAt">The frame's <c>measured_at</c>, rebased for a Node without synced time.</param>
+/// <param name="ReportedAt">When the Server accepted the frame.</param>
+[EventType("device.reported")]
+[GenerateSerializer]
+[Alias("coldframe.device-reported")]
+public sealed record DeviceReported(
+    [property: Id(0)] DateTimeOffset MeasuredAt,
+    [property: Id(1)] DateTimeOffset ReportedAt);
+
+/// <summary>
+/// The Device's own Silence Window was set or cleared (Story 7.1). An override replaces the default of the
+/// Device's kind; without one the default is in force again. The expiry moves with it and needs no other event.
+/// </summary>
+/// <param name="WindowSeconds">The override in whole seconds, or <see langword="null"/> when it was cleared.</param>
+/// <param name="SetAt">When the window was set.</param>
+[EventType("device.silence-window-set")]
+[GenerateSerializer]
+[Alias("coldframe.device-silence-window-set")]
+public sealed record DeviceSilenceWindowSet(
+    [property: Id(0)] long? WindowSeconds,
+    [property: Id(1)] DateTimeOffset SetAt);
+
+/// <summary>
+/// Why a Device's silence clock was started again without a report of the Device (Story 7.1).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.silence-clock-restart-cause")]
+public enum SilenceClockRestartCause
+{
+    /// <summary>
+    /// The Server started: while it was down it could accept nothing, and that is no silence of the Device.
+    /// </summary>
+    ServerStarted = 0,
+
+    /// <summary>
+    /// The Node's last relay Hub recovered from its own silence: until then the Node could not have reported.
+    /// </summary>
+    RelayHubRecovered = 1,
+}
+
+/// <summary>
+/// The Device's silence clock was started again by something else than its own report (Story 7.1): the Silence
+/// Window now counts from <paramref name="From"/>. Never journaled for an earlier time than the clock holds.
+/// </summary>
+/// <param name="From">The new clock start: the Server's start, or when the relay Hub recovered.</param>
+/// <param name="Cause">Why the clock was restarted.</param>
+/// <param name="HubId">The relay Hub that recovered; <see langword="null"/> for a Server start.</param>
+/// <param name="RestartedAt">When the Device grain restarted the clock.</param>
+[EventType("device.silence-clock-restarted")]
+[GenerateSerializer]
+[Alias("coldframe.device-silence-clock-restarted")]
+public sealed record DeviceSilenceClockRestarted(
+    [property: Id(0)] DateTimeOffset From,
+    [property: Id(1)] SilenceClockRestartCause Cause,
+    [property: Id(2)] string? HubId,
+    [property: Id(3)] DateTimeOffset RestartedAt);
+
+/// <summary>
+/// The Device's Silence Window expired (Story 7.1): its next silence episode, journaled before its Health Alert
+/// of kind <c>silent</c> is opened, so a retry opens the same Alert. A Device has at most one open at a time.
+/// </summary>
+/// <param name="Episode">The Device's silence episode, from 1.</param>
+/// <param name="AlertId">The Alert ID: the UUIDv5 of <c>device:{deviceId}:silent:{episode}</c>.</param>
+/// <param name="SiteId">The Site of the Device.</param>
+/// <param name="LotId">The Lot of a Node when the episode started; <see langword="null"/> for a Hub or an unassigned Node.</param>
+/// <param name="DueAt">The expiry that passed: the clock start plus the Silence Window.</param>
+/// <param name="StartedAt">When the Device grain found the expiry overdue.</param>
+[EventType("device.silence-started")]
+[GenerateSerializer]
+[Alias("coldframe.device-silence-started")]
+public sealed record DeviceSilenceStarted(
+    [property: Id(0)] int Episode,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] string SiteId,
+    [property: Id(3)] string? LotId,
+    [property: Id(4)] DateTimeOffset DueAt,
+    [property: Id(5)] DateTimeOffset StartedAt);
+
+/// <summary>
+/// The Device's silence episode ended (Story 7.1): its Alert is closed with <paramref name="Reason"/>. The next
+/// silence is another episode and another Alert.
+/// </summary>
+/// <param name="Episode">The episode that ended.</param>
+/// <param name="AlertId">Its Alert.</param>
+/// <param name="Reason">Why it ended; a Device that reports again ends it as <c>Recovered</c>.</param>
+/// <param name="EndedAt">When the Device grain ended it: for a recovery, when the report was accepted.</param>
+[EventType("device.silence-ended")]
+[GenerateSerializer]
+[Alias("coldframe.device-silence-ended")]
+public sealed record DeviceSilenceEnded(
+    [property: Id(0)] int Episode,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] AlertCloseReason Reason,
+    [property: Id(3)] DateTimeOffset EndedAt);
+
+/// <summary>
+/// The Alert grain holds an open or a close of one of the Device's Alerts and its Site knows it (Story 7.1): the
+/// Device grain stops delivering it.
+/// </summary>
+/// <param name="AlertId">The Alert.</param>
+/// <param name="Change">
+/// What was delivered: <see cref="AlertLifecycle.Open"/> the open,
+/// <see cref="AlertLifecycle.Closed"/> the close.
+/// </param>
+/// <param name="DeliveredAt">When the Alert grain acknowledged it.</param>
+[EventType("device.alert-delivered")]
+[GenerateSerializer]
+[Alias("coldframe.device-alert-delivered")]
+public sealed record DeviceAlertDelivered(
+    [property: Id(0)] Guid AlertId,
+    [property: Id(1)] AlertLifecycle Change,
+    [property: Id(2)] DateTimeOffset DeliveredAt);

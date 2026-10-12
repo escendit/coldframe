@@ -35,25 +35,26 @@ public sealed class AlertState
     public string? SiteId { get; private set; }
 
     /// <summary>
-    /// The Lot the Alert was opened for, once opened.
+    /// The Lot the Alert was opened for, once opened; <see langword="null"/> for a Device's Alert without a Lot.
     /// </summary>
     [Id(4)]
     public string? LotId { get; private set; }
 
     /// <summary>
-    /// The Sensor that opened the Alert; only it closes the Alert.
+    /// The Sensor that opened the Alert, which alone closes it; <see langword="null"/> for a Device's Alert
+    /// (Story 7.1), which the Device closes.
     /// </summary>
     [Id(5)]
-    public Guid SensorId { get; private set; }
+    public Guid? SensorId { get; private set; }
 
     /// <summary>
-    /// The Device ID of that Sensor's Node, once opened.
+    /// The Device ID of that Sensor's Node, or of the Device the Alert is about, once opened.
     /// </summary>
     [Id(6)]
     public string? DeviceId { get; private set; }
 
     /// <summary>
-    /// What the Sensor measures, once opened.
+    /// What the Sensor measures, once opened; <see langword="null"/> for a Device's Alert.
     /// </summary>
     [Id(7)]
     public string? Quantity { get; private set; }
