@@ -768,8 +768,10 @@ recovered reports while one is.
   the time of the resend, and a frame measured before it that arrives afterwards is not counted.
 - **Retry.** The battery event is raised in the write of step 7. A write that fails in the database is repeated
   by the log-consistency adaptor until it lands, so the frame waits and its report is counted once. Should the
-  write throw, the frame answers `retry`, as for the liveness, and the resend counts the report: the in-memory
-  counted time moves only after the write.
+  write throw, the frame answers `retry`, as for the liveness. The events raised before the failed write are
+  still part of the grain's tentative state, and the resend is not newer than the liveness and the counted time
+  they moved, so it counts nothing again. No test reaches this branch (DW-106): this is read from the code, not
+  observed.
 
 **Episode before Alert.** The third low report journals `device.battery-low-started` with the Node's next
 low-battery episode, the Alert ID `UUIDv5(AlertIds.Namespace, "device:{deviceId}:battery:{episode}")`, the Lot the

@@ -669,7 +669,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 }
             }
 
-            // The report is counted: only now, so that a report whose write failed is counted by the resend.
+            // The report is counted: only now, after the write. A write that threw leaves its events in the
+            // grain's tentative state, whose liveness and counted time the resend is not newer than, so the
+            // resend counts nothing again. No test reaches that branch (DW-106).
             if (battery is { } counted)
             {
                 _batteryCountedAt = counted.MeasuredAt;
