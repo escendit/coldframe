@@ -5,7 +5,7 @@ created: '2026-10-13'
 baseline_revision: fd10f2b765a1c0ea85dc2bac10e8b0aaab1fcb7c
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-7-1-silent-device-alert-on-the-server.md'
@@ -42,6 +42,19 @@ deferred:
     location: >-
       apps/cs/server/Devices/DeviceGrain.cs (Ingest, step 7)
     severity: low
+  - summary: >-
+      A Node that charges by day and is below 20 % opens a battery Alert every evening and closes it as
+      "recovered" every morning, because a charging report counts as recovered at any level.
+    evidence: |-
+      BatteryRule.Classify returns Recovered for charger status "charging" whatever the level, as FR14 and the
+      intent say ("charging or at 20 % or above"). envelope.proto documents NOT_CHARGING as "no sun, or the
+      cell is full", so every solar Node is not charging at night. At 15 % that is three low reports after
+      dusk (open, a new episode and Alert ID, an immediate notification) and three charging reports after dawn
+      (closed "recovered" at a level that may still be 5 %). The code follows the requirement; whether closing
+      should need a level at or above 20 %, or a margin, is a product decision on FR14.
+    location: >-
+      apps/cs/server/Devices/BatteryRule.cs (Classify)
+    severity: medium
 ---
 
 <intent-contract>
@@ -184,6 +197,42 @@ iOS
   - `[low]` `[patch]` Intent: tests exercised each side of the Server/client seam separately and no restart — closed by the journey and the restart tests above.
   - `[false]` `[reject]` Intent: process — no acceptance criterion needs a human action outside the repository; the macOS CI jobs are a pull-request check, not an operator action.
 
+### 2026-10-13 — Review pass (follow-up)
+- verdicts: 32 findings — high 0, medium 7, low 12, false 13, maybe-false 0
+- findings:
+  - `[medium]` `[defer]` Blind: a solar Node below 20 % opens an Alert every evening and closes it every morning — `BatteryRule.Classify` counts a charging report as recovered at any level, as FR14 and the intent state, and `envelope.proto` says a Node is not charging without sun. The rule is the requirement's, not this story's choice; deferred for a product decision.
+  - `[medium]` `[defer]` Blind: an Alert closes "recovered" while the battery is still nearly empty — same cause as the row above; one deferred entry.
+  - `[false]` `[reject]` Blind: no hysteresis around 20 % — carried: the three-report rule on both sides is the intent's answer to flapping; the matrix rows pin it.
+  - `[low]` `[reject]` Blind: flapping episodes can fill the Health list of 200 and the response has no truncation marker — the limit and the unpaged list are Story 7.1's; it needs hundreds of closed episodes within 7 days, and a marker is new contract surface.
+  - `[low]` `[reject]` Blind: the reactivation floor compares the stored time of the report with a liveness moved by the frame's own time — verified: only a resent frame of a Node without synced time whose rebased time passes the measure time of a later frame drops that frame's report, which needs transport jitter longer than the report interval. Feeding the liveness from the stored time would change the Silence evaluation, which the intent forbids. The README already names the case.
+  - `[low]` `[patch]` Blind: the comment in Ingest step 7 and the README said a report whose write threw "is counted by the resend" — verified: the raised events stay in the tentative state, and `CountBattery` now also floors on `State.LastReportedAt`, so the resend counts nothing again. Comment and README corrected; the outcome (counted once) is unchanged and the branch stays unexercised (DW-106).
+  - `[false]` `[reject]` Blind: `OpenForDevice` accepts a missing or out-of-range level — carried: the only caller passes the frame's level, which `NodeFrameReader` refuses above 100.
+  - `[false]` `[reject]` Blind: `?? 0` and the close without an open Alert in `CountBattery` fabricate data — `Classify` returns Low only for a known level and `Advance` closes only while `current.Open`; neither fallback can be reached.
+  - `[false]` `[reject]` Blind: Reminders and open rows state the opening level as current — carried: the intent says the Alert states the level of the report that opened it and the Reminder keeps the title; the contract says so.
+  - `[false]` `[reject]` Blind: Reminders name a Lot the Node may have left — the intent says the Alert keeps the Lot the Node had when it opened, as the `silent` Alert does.
+  - `[false]` `[reject]` Blind: Android prints "Node battery  %" for a level kind without a level — carried: `AlertSummary.batteryTitle` sets those kinds only with a level.
+  - `[false]` `[reject]` Blind: percent formatting differs between clients — carried: 0–100 formats the same everywhere and "14 %" is the UX copy.
+  - `[low]` `[reject]` Blind: the threshold 20 lives in `BatteryRule` and in the Kotlin `LOW_BATTERY` of the icon — a drift would show the icon and the Alert at different levels; one constant across C# and Kotlin needs generated code, more than a correction.
+  - `[low]` `[reject]` Blind: `DeviceBatteryLowEnded` with no `MeasuredAt`, or a reason other than `recovered`, has no producer and no test — the nullable member is what the intent asks of new journaled members; its first producer is the Pause of Epic 8 (DW-104), which brings its tests.
+  - `[low]` `[reject]` Blind: the journey stops at the open row, and no TestCluster test lets a Node go silent with a battery Alert open — close is covered on the TestCluster and in the list tests; the silent-plus-battery outcome is the recorded residual risk awaiting a product decision, and a test would pin it.
+  - `[low]` `[reject]` Blind: `DeviceSilence` now also carries `OpenBatteryAlert` — a naming matter of a public grain contract; a rename touches every caller and is not a correction.
+  - `[medium]` `[defer]` Edge: carried — a Node paused mid-streak or with an open battery Alert keeps both; no Pause can be raised before Epic 8 (DW-104).
+  - `[false]` `[reject]` Edge: a Node clock that steps backward leaves reports uncounted until it passes the floor — the intent counts a report only when its time is newer than the last one counted.
+  - `[low]` `[reject]` Edge: carried — low reports separated by a long gap count as consecutive; the intent counts reports, not time.
+  - `[low]` `[reject]` Edge: a silence step that throws skips `DeliverAlertsAsync`, so a journaled battery open waits for the next wake — verified in `EvaluateSilenceAsync`: only an overdue window with an unreachable relay Hub, or a failed write, gets there; the intent's answer is the retry on the next wake or report, and a `finally` would restructure Story 7.1's evaluation.
+  - `[false]` `[reject]` Edge: carried — `OpenForDevice` with a missing or out-of-range level; the caller cannot produce one.
+  - `[medium]` `[defer]` Gap: carried — the iOS adapter's hand-off of `alertBatteryPercents` is executed by no test (DW-105).
+  - `[medium]` `[patch]` Gap: carried — the journal-failure path of a counted report; the first pass added the test, and the unreached `Retry` branch is deferred (DW-106).
+  - `[medium]` `[defer]` Gap (other): carried — a Node paused with an open battery Alert keeps it (DW-104).
+  - `[low]` `[patch]` Intent: carried — the copy rows are tested layer by layer; the first pass added the journey across the real Server and the web app.
+  - `[medium]` `[patch]` Intent: carried — the `retry` answer of a failed journal write is exercised by no test; same row as the Gap one above.
+  - `[low]` `[reject]` Intent: the count floor is wider than "the last report counted" — same defect as the Blind floor row, rejected with it.
+  - `[low]` `[reject]` Intent: on Android and iOS a battery row opens the Devices surface, not the Device's row — as the `silent` rows of Story 7.2 do; the core README lists it as absent because the push route carries no Device ID, which the intent forbids changing. A Site's Devices list is short, and landing on a row needs navigation work on both platforms.
+  - `[false]` `[reject]` Intent: "No Alert for a Hub" is enforced only at the Alert grain — `DeviceGrain.Ingest` answers before decoding unless `State.Kind` is `Node`, so a Hub never reaches `CountBattery`.
+  - `[false]` `[reject]` Intent: "Site and members told" is verified for one member — no code between the Alert grain and the members' Notifiers branches on the kind; the fan-out is the one Story 7.1's tests cover.
+  - `[false]` `[reject]` Intent: iOS `%@` against Android `%1$@` — the catalogue parity tests normalise the placeholders and pass (`Swift` and `Kotlin` jobs of PR #94).
+  - `[false]` `[reject]` Intent: `check-compat.sh` cannot be judged from the diff — the `Contracts` job of PR #94 ran it and passed.
+
 ## Design Notes
 
 - **Only the level travels.** A `battery` Alert opens only from a report that is not charging, so the kind already states the charger status; the copy says "not charging" and the payload adds one nullable integer at each hop.
@@ -214,33 +263,26 @@ iOS
 
 Status: done
 
-**Summary:** A Node's Device grain now counts its device reports and opens a Health Alert of kind `battery` with the third consecutive report below 20 % while not charging, and closes it with the third consecutive report that is charging or at 20 % or above. The Alert carries the level it opened with (`HealthAlert.batteryPercent`, additive), and web, Android, iOS and push word it "Node battery 14 %, not charging".
+**Summary:** A Node's Device grain counts its device reports and opens a Health Alert of kind `battery` with the third consecutive report below 20 % while not charging, and closes it with the third consecutive report that is charging or at 20 % or above. The Alert carries the level it opened with (`HealthAlert.batteryPercent`, additive), and web, Android, iOS and push word it "Node battery 14 %, not charging". Merged as PR #94. This follow-up pass re-reviewed the whole change since the baseline and corrected one explanation; it changed no behaviour.
 
-**Files changed:**
-- `apps/cs/server/Devices/BatteryRule.cs`, `DeviceGrain.cs`, `DeviceState.cs`, `DeviceIngestionStore.cs`; `packages/cs/contracts/Devices/*` -- the rule, the counting in `Ingest`, three new events, the stored time of the report key.
-- `apps/cs/server/Alerts/*`, `packages/cs/contracts/Alerts/*`, `Sites/SiteGrains.cs`, `Notifications/Notifications.cs`, `Identity/UserGrain.cs` -- `AlertKind.Battery`, its Alert ID, the level on every hop.
-- `apps/cs/migrations/Migrations/M20261013090000AddAlertBatteryPercent.cs`, `Alerts/AlertsProjector.cs`, `AlertsReadModel.cs`, `Lots/LotsProjector.cs`, `Edge/EdgeApi.cs` -- `alerts.battery_percent` and `batteryPercent` in the list.
-- `apps/cs/server/Notifications/Push/*` -- battery titles, bodies, Reminder and summary lines.
-- `packages/openapi/coldframe.openapi.json`, `packages/ts/api-client/src/schema.ts` -- the optional member, example, descriptions.
-- `apps/ts/web/src/lib/alerts.ts`, `i18n/en.json`; `packages/kt/core/.../alerts/*`, `api/ApiDtos.kt`; `apps/kt/android/.../AlertsCopy.kt`, `strings.xml`; `apps/swift/ios/**` -- the row titles on the three clients.
-- `tests/cs/**`, `tests/ts/**`, `tests/kt/**`, `tests/swift/**` -- rule, state, TestCluster, list, push, journey, client and snapshot tests with new baselines.
-- Six READMEs -- the low-battery rule and what changed for clients.
+**Files changed in this pass:**
+- `apps/cs/server/Devices/DeviceGrain.cs` -- the comment after Ingest step 7 now says what a resend does after a write that threw.
+- `apps/cs/README.md` -- the "Retry" bullet of the low-battery rule says the same.
+- The first pass's files are listed in PR #94.
 
-**Review:** 25 findings. Patched 11 rows in 7 entries (medium 2 entries: the reactivation floor, the journal-failure test; low 5). Deferred 3 entries (Pause handling for Epic 8; the untested iOS adapter hand-off; the unreached retry branch of step 7). Rejected 8 as false and 3 low ones; each reason is in the triage log.
+**Review (follow-up pass):** 32 findings from four layers. 13 are carried from the first pass with their verdicts. Patched 1 entry (low: the retry explanation). Deferred 1 new entry (medium: a charging report counts as recovered at any level, so a solar Node below 20 % opens and closes an Alert every day). Rejected 9 low and 7 false new findings; each reason is in the triage log. Patched counts by verdict: high 0, medium 0, low 1.
 
-**Follow-up review recommended: true** (2 medium entries patched). The specific risk: the reactivation floor now leans on `State.LastReportedAt`, and that change and its tests were written after the review layers ran, so no independent reviewer has read them.
+**Follow-up review recommended: false.** This pass patched no `high` entry. The risk the first pass named, the reactivation floor on `State.LastReportedAt`, was read by two independent layers and traced here: it holds for a reactivated grain, and its one residual case (a resent frame of a Node without synced time) needs transport jitter longer than the report interval and is in the README.
 
-**Verification (on the patched tree unless noted):**
-- `dotnet restore --locked-mode && dotnet build -warnaserror && dotnet format --verify-no-changes` -- clean.
-- `tests/cs/server.tests` -- 983 passed. `tests/cs/server.integration` -- 531 passed, none skipped.
-- `tests/cs/web.e2e` (real stack) -- 3 passed, including the new low-battery journey.
-- `packages/proto/check-compat.sh` -- no breaking Protobuf or OpenAPI change.
-- openapi check, `pnpm -r typecheck`, `pnpm -r lint` -- pass; web tests 740 passed; api-client tests 14 passed.
-- `./gradlew check` -- passed.
-- Before the review patches, which changed no web source, Kotlin or Swift code: `pnpm --filter @coldframe/web-e2e test` 133 passed; Swift container build, 354 tests and strict format lint passed.
+**Verification (this pass, on the patched tree):**
+- `dotnet restore --locked-mode && dotnet build --no-restore -warnaserror && dotnet format --verify-no-changes --no-restore` -- clean.
+- `tests/cs/server.tests` -- 983 passed.
+- `tests/cs/server.integration`, `BatteryAlertGrainTests` only -- 20 passed. The whole suite did not finish within this session's 10-minute command limit and was not repeated; the `.NET` job of the pull request runs it.
+- Not run again, because the patch is one C# comment and one README paragraph: the pnpm, Gradle, Swift and web end-to-end commands. All CI jobs of PR #94 passed on the code this pass reviewed, the macOS `Swift` and `iOS app` jobs included.
 
 **Residual risks:**
-- SwiftUI views, the iOS App target and `RenderTests` compile only on the macOS CI jobs `swift` and `ios`; their result on the pull request is the only check of those edits.
+- A solar Node below 20 % raises a new battery Alert every evening and shows "recovered" by day (deferred; a product decision on FR14).
 - Devices and Lot detail show the newest level and charger status, not the Alert: they can differ from the Alert's opening level while it is open.
 - A Node that dies with a low battery keeps its `battery` Alert open beside its `silent` one, each with a daily Reminder, until it reports again.
-- The server code was written before its tests, not test-first.
+- On Android and iOS a battery row opens the Devices surface, not the Node's row.
+- The `retry` branch of Ingest step 7 is still reached by no test (DW-106); what a resend does after it is read from the code.

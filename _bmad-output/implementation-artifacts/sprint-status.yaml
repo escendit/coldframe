@@ -97,7 +97,7 @@ development_status:
   epic-7: backlog
   7-1-silent-device-alert-on-the-server: done
   7-2-silence-in-the-apps-and-silence-window-settings: done
-  7-3-low-battery-alert: backlog
+  7-3-low-battery-alert: done
   7-4-uncalibrated-sensor-alert: backlog
   epic-7-retrospective: optional
 
