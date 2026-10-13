@@ -154,6 +154,32 @@ object LotFixtures {
         staleReason: StaleReason? = null,
     ): LotsState.Ready = ready(lots, role, staleReason).copy(silentHubs = listOf(silentHub))
 
+    // Story 8.2: the Site paused over winter, until 1 Mar 2027.
+
+    val sitePausedUntil: Instant = Instant.parse("2027-03-01T00:00:00Z")
+
+    private fun bySite(lot: LotSummary): LotSummary =
+        lot.copy(
+            status = LotStatus.Paused,
+            statusSinceEpochMs = at("2026-10-06T07:00:00Z"),
+            unknownCause = null,
+            pausedBy = listOf(LotPauseSource.Site),
+            pausedUntilEpochMs = sitePausedUntil.toEpochMilli(),
+        )
+
+    /** The Server's Lots of a paused Site: every Lot with a Node paused by the Site, then the one without. */
+    val allPausedBySite: List<LotSummary> = listOf(bySite(needsWater), bySite(unknownNode), bySite(ok), noNode)
+
+    /** The overview of a Site the Server lists as paused until [sitePausedUntil]. */
+    fun pausedSite(
+        role: SiteRole = SiteRole.Owner,
+        lots: List<LotSummary> = allPausedBySite,
+        staleReason: StaleReason? = null,
+    ): LotsState.Ready {
+        val ready = ready(lots, role, staleReason)
+        return ready.copy(site = ready.site.copy(paused = true, pausedUntilEpochMs = sitePausedUntil.toEpochMilli()))
+    }
+
     /** One Lot per tile variant, in the Server's order. */
     val everyVariant: List<LotSummary> =
         listOf(

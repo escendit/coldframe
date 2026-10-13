@@ -12,6 +12,8 @@
     public var refresh: () -> Void
     public var tick: () -> Void
     public var pick: (SensorQuantityKind) -> Void
+    /// Pause and Resume of the Lot's Node (Story 8.2).
+    public var pause: PauseActions
 
     public init(service: LotDetailService) {
       open = { service.open(lotId: $0, name: $1) }
@@ -19,6 +21,7 @@
       refresh = { service.refresh() }
       tick = { service.tick() }
       pick = { service.pick($0) }
+      pause = PauseActions(service: service.pause)
     }
 
     private init() {
@@ -27,6 +30,7 @@
       refresh = {}
       tick = {}
       pick = { _ in }
+      pause = .none
     }
 
     public static let none = LotDetailActions()
@@ -36,9 +40,17 @@
   /// chart with its Sensor picker, then a 2-up row of Device cells; the rows go 1-up from
   /// Accessibility 1. The core decided everything shown; this draws it with catalogue words.
   /// Calibrate and Set Thresholds show for Administrators and Owners where the core says so; a
-  /// Member sees View Thresholds, read-only (UX-DR84). Pause has no destination before Epic 8. Stale mode shows the stale header, the hero without a value, and no Sensor or Device
-  /// cell. A *no Node* Lot is the empty detail. Pull to refresh reads the Lot again; a one-minute
-  /// tick moves the stale age and announces nothing.
+  /// Member sees View Thresholds, read-only (UX-DR84). Stale mode shows the stale header, the
+  /// hero without a value, and no Sensor or Device cell. A *no Node* Lot is the empty detail.
+  /// Pull to refresh reads the Lot again; a one-minute tick moves the stale age and announces
+  /// nothing.
+  ///
+  /// Pause (Story 8.2): for Administrators and Owners, "Pause" under the hero opens the Pause
+  /// sheet with This Device selected, and "Resume" lifts the Node's own Pause at once. A Node
+  /// paused only by its Site has no Resume here: the hero says "Resume the Site to resume this
+  /// Node", and Pause stays. A Member has neither control and reads "Only Owners and
+  /// Administrators can resume it." on a paused Lot. The hero is one accessibility element, so
+  /// the controls are below it, never inside.
   public struct LotDetailView: View {
     let presentation: LotDetailPresentation
     let siteName: String
@@ -97,6 +109,8 @@
           }
         }
       }
+      // The core hands the sheet over only for a shown Lot: it belongs to this surface.
+      .pauseSheet(presentation.pause, actions: actions.pause, now: now, timeZone: timeZone)
     }
 
     @ViewBuilder
@@ -132,6 +146,7 @@
       if let hero = presentation.hero {
         LotDetailHero(hero: hero, context: context)
       }
+      pauseControls
       if presentation.noNode {
         noNode
       } else {
@@ -154,6 +169,32 @@
         if let device = presentation.device {
           deviceCells(device, context)
         }
+      }
+    }
+
+    /// Pause and Resume of the Lot's Node (UX-DR70), right under the hero. Which control shows is
+    /// the core's answer: hidden, never disabled. Resume is one tap; Pause opens the sheet. A
+    /// Member reads the one notice instead, and a Resume that did not happen says why, with Try
+    /// again.
+    @ViewBuilder
+    private var pauseControls: some View {
+      if let deviceId = presentation.resumeDeviceId {
+        PrimaryButton(
+          presentation.resumeLabel, variant: .secondary, isEnabled: !presentation.pauseWorking
+        ) {
+          actions.pause.resumeDevice(deviceId)
+        }
+      }
+      if let deviceId = presentation.pauseTargetId {
+        PrimaryButton(.pauseAction, variant: .secondary, isEnabled: !presentation.pauseWorking) {
+          actions.pause.openForDevice(deviceId)
+        }
+      }
+      if let notice = presentation.memberPausedNotice {
+        InlineNotice(message: notice)
+      }
+      if let failure = presentation.pause.failure {
+        PauseFailureNotice(failure: failure, actions: actions.pause)
       }
     }
 

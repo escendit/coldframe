@@ -8,26 +8,26 @@ export interface SiteMenuItem {
   readonly label: MessageKey;
   /** Disabled only in stale mode, with the reason "Needs your Server". */
   readonly disabled: boolean;
+  /** Where the item leads. Null for Pause and Resume, which act where they are: the shell opens the Pause modal or sends the Resume. */
   readonly href: string | null;
 }
 
 export interface SiteMenuOptions {
-  /** Pause arrives with the Pause story; until then Pause and Resume are not rendered. */
-  readonly pauseAvailable?: boolean;
-  /** Whether the Site is paused, which turns Pause into Resume. */
+  /** Whether the Site is paused (`Site.paused`, from the Server), which turns Pause into Resume. */
   readonly paused?: boolean;
   /** Stale mode: every item stays visible but disabled. */
   readonly stale?: boolean;
 }
 
 /**
- * Items of the Site menu (UX-DR22): Pause or Resume for Administrator and Owner (hidden for
- * Members, and only once Pause exists), then Site settings, which opens the Site settings surface. In stale mode every item is disabled.
+ * Items of the Site menu (UX-DR22): Pause or Resume for Administrator and Owner (hidden for Members,
+ * never disabled for them), then Site settings, which opens the Site settings surface. In stale mode
+ * every item is disabled.
  */
 export function siteMenuItems(role: Role, options: SiteMenuOptions = {}): readonly SiteMenuItem[] {
   const disabled = options.stale === true;
   const items: SiteMenuItem[] = [];
-  if (options.pauseAvailable === true && hasRole(role, 'Administrator')) {
+  if (hasRole(role, 'Administrator')) {
     items.push(
       options.paused === true
         ? { action: 'resume', label: 'siteMenu.resume', disabled, href: null }

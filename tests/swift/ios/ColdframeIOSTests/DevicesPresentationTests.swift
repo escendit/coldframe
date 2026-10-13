@@ -697,3 +697,220 @@ func devicesSilenceWindowState() throws {
     nodes: [tomatoes], canManageNodes: true, failedNodeId: tomatoes.id, actionNotice: "lotTaken")
   #expect(moved.nodes.first?.silence.windowNotice == nil)
 }
+
+// MARK: - Pause and Resume (Story 8.2)
+
+/// Pause as the core flattens it into the `hub…` and `node…` pause lists of a `DevicesSnapshot`:
+/// Hub 3f2a… paused by itself, Hub 1b00… paused by the Site alone, the Peppers Node 7c19… paused
+/// by itself and by the Site, the Beans Node paused by the Site alone, and a Node on no Lot that
+/// is not paused. What a row offers is the core's answer for the Role.
+enum PausedDevicesFixture {
+  /// One Device's entries of the pause lists.
+  struct Device {
+    var paused = false
+    var bySite = false
+    var canPause = false
+    var canResume = false
+    var resumeSiteHint = false
+  }
+
+  /// A Device as the core describes it to an Administrator or Owner (`admin`) or to a Member.
+  static func device(byDevice: Bool, bySite: Bool, admin: Bool) -> Device {
+    Device(
+      paused: byDevice || bySite, bySite: bySite, canPause: admin && !byDevice,
+      canResume: admin && byDevice, resumeSiteHint: admin && bySite)
+  }
+
+  static func lists(_ devices: [Device]) -> DevicesPresentation.PauseLists {
+    DevicesPresentation.PauseLists(
+      paused: devices.map(\.paused), pausedBySite: devices.map(\.bySite),
+      canPause: devices.map(\.canPause), canResume: devices.map(\.canResume),
+      resumeSiteHint: devices.map(\.resumeSiteHint))
+  }
+
+  static let ownHubId = PauseFixture.hubId
+  static let siteHubId = "1b00aa11bb22cc33"
+  static let bothNodeId = PauseFixture.nodeId
+  static let siteNodeId = "1b2c3d4e5f607182"
+  static let liveNodeId = "0a0b0c0d0e0f1011"
+
+  /// The Devices of Site "Home garden" for an Administrator or Owner, or for a Member.
+  static func devices(
+    admin: Bool = true, pause: PauseFixture = .closed, surface: String = "ready"
+  ) -> DevicesPresentation {
+    DevicesPresentation(
+      surface: surface, notice: nil, siteId: "a", canAddHub: admin, canAddNode: admin,
+      hubIds: [ownHubId, siteHubId], hubStatuses: ["online", "offline"],
+      hubLastSeen: [String(Overview.readingMs), String(Overview.earlierMs)],
+      nodeIds: [bothNodeId, siteNodeId, liveNodeId], nodeLotNames: ["Peppers", "Beans", ""],
+      nodeBatteries: ["62", "14", ""], nodeBatteryLow: [false, true, false],
+      nodeCharging: ["charging", "notCharging", ""],
+      nodeLastSeen: [String(Overview.readingMs), String(Overview.earlierMs), ""],
+      canManageNodes: admin, nodeLotIds: ["lot-p", "lot-b", ""],
+      lotIds: ["lot-b", "lot-p"], lotNames: ["Beans", "Peppers"], lotHasNode: [true, true],
+      siteName: "Home garden", canSetSilenceWindow: admin,
+      hubPause: lists([
+        device(byDevice: true, bySite: false, admin: admin),
+        device(byDevice: false, bySite: true, admin: admin),
+      ]),
+      nodePause: lists([
+        device(byDevice: true, bySite: true, admin: admin),
+        device(byDevice: false, bySite: true, admin: admin),
+        device(byDevice: false, bySite: false, admin: admin),
+      ]), pause: pause.build())
+  }
+}
+
+@Test("UX-DR70 paused rows say Paused, or Paused by Site when the Site is a source, for anyone")
+func devicesPausedRows() throws {
+  for admin in [true, false] {
+    let devices = PausedDevicesFixture.devices(admin: admin)
+    let hubs = devices.hubs.map(\.pause)
+    let nodes = devices.nodes.map(\.pause)
+
+    #expect(hubs.map(\.paused) == [true, true])
+    #expect(nodes.map(\.paused) == [true, true, false])
+    #expect(
+      (hubs + nodes).map { $0.label.map { context.text($0) } }
+        == ["Paused", "Paused by Site", "Paused by Site", "Paused by Site", nil])
+    // The pause icon and paused ink mean paused, and nothing else: a live row has neither.
+    #expect((hubs + nodes).map(\.icon) == Array(repeating: .pauseOutline, count: 4) + [nil])
+    #expect(DevicePausePresentation.ink == ColorTokens.statusPausedInk)
+    // The Server's status and last seen of the row are as before.
+    #expect(devices.hubs.map(\.status) == [.devicesOnline, .devicesOffline])
+  }
+  // A paused Device is never said to be fine.
+  let entries = try Catalogue.entries()
+  for key in ["lot_tile_label_paused", "lot_tile_label_paused_by_site"] {
+    #expect(entries[key]?.contains("OK") == false)
+  }
+}
+
+@Test("UX-DR70 an Administrator gets Pause or Resume on every row, as the Device's own Pause says")
+func devicesPauseControls() throws {
+  let devices = PausedDevicesFixture.devices()
+  let ownHub = try #require(devices.hubs.first)
+  let both = try #require(devices.nodes.first)
+  let live = try #require(devices.nodes.last)
+
+  // Its own Pause: Resume, and no second Pause.
+  #expect(ownHub.pause.canResume)
+  #expect(!ownHub.pause.canPause)
+  // Paused by itself and by the Site: it can be resumed, and stays paused with the Site.
+  #expect(both.pause.canResume)
+  #expect(!both.pause.canPause)
+  #expect(both.pause.resumeSiteHint)
+  // Not paused: Pause.
+  #expect(live.pause.canPause)
+  #expect(!live.pause.canResume)
+  #expect(devices.hubs.allSatisfy { $0.pause.hasControl })
+  #expect(devices.nodes.allSatisfy { $0.pause.hasControl })
+  // The spoken labels, also the names of the row's custom accessibility actions.
+  #expect(context.resolve(ownHub.resumeLabel) == "Resume Hub \(ownHub.id)")
+  #expect(context.resolve(ownHub.pauseLabel) == "Pause Hub \(ownHub.id)")
+  #expect(context.resolve(live.pauseLabel) == "Pause Node \(live.id)")
+  #expect(context.resolve(both.resumeLabel) == "Resume Node \(both.id)")
+  #expect(context.text(.pauseAction) == "Pause")
+  #expect(context.text(.pauseResume) == "Resume")
+}
+
+@Test(
+  "UX-DR70 a Device paused by the Site says Resume the Site to resume this Node, and a Hub row this Hub"
+)
+func devicesPausedBySiteOnly() throws {
+  let devices = PausedDevicesFixture.devices()
+  let hub = try #require(devices.hubs.last)
+  let node = try #require(devices.nodes.first { $0.id == PausedDevicesFixture.siteNodeId })
+
+  // No Resume for the Device: its Site's Pause is lifted from the Site menu. Pause stays.
+  for pause in [hub.pause, node.pause] {
+    #expect(!pause.canResume)
+    #expect(pause.canPause)
+    #expect(pause.resumeSiteHint)
+  }
+  #expect(hub.resumeSiteHint.map { context.text($0) } == "Resume the Site to resume this Hub")
+  #expect(node.resumeSiteHint.map { context.text($0) } == "Resume the Site to resume this Node")
+  // A Device with only its own Pause, and one that is not paused, have no hint.
+  #expect(devices.hubs.first?.resumeSiteHint == nil)
+  #expect(devices.nodes.last?.resumeSiteHint == nil)
+}
+
+@Test("UX-DR84 a Member sees the paused rows and no Pause, Resume or hint, hidden and not disabled")
+func devicesPauseForMember() {
+  let devices = PausedDevicesFixture.devices(admin: false)
+  let rows = devices.hubs.map(\.pause) + devices.nodes.map(\.pause)
+
+  #expect(rows.filter(\.paused).count == 4)
+  #expect(!rows.contains { $0.canPause || $0.canResume || $0.resumeSiteHint || $0.hasControl })
+  #expect(devices.hubs.allSatisfy { $0.resumeSiteHint == nil })
+  #expect(devices.nodes.allSatisfy { $0.resumeSiteHint == nil })
+  #expect(devices.pause.sheet == nil)
+}
+
+@Test("UX-DR46 UX-DR70 Pause on a row opens the sheet of Devices with This Device selected")
+func devicesPauseSheet() throws {
+  let devices = PausedDevicesFixture.devices(pause: .forDevice)
+  let sheet = try #require(devices.pause.sheet)
+
+  #expect(sheet.scopes == [.device, .site])
+  #expect(sheet.scope == .device)
+  #expect(context.resolve(sheet.primaryLabel) == "Pause 7C19")
+  // The sheet belongs to the shown list: no rows, no sheet.
+  #expect(PausedDevicesFixture.devices(pause: .forDevice, surface: "failed").pause == .none)
+  #expect(PausedDevicesFixture.devices(pause: .forDevice, surface: "loading").pause == .none)
+}
+
+@Test("UX-DR84 a 403 on a Resume says You can't change this on the Site, under that Device")
+func devicesResumeForbidden() throws {
+  let devices = PausedDevicesFixture.devices(
+    pause: .resumeFailed("forbidden", deviceId: PausedDevicesFixture.ownHubId))
+  let failure = try #require(devices.pauseFailure(for: PausedDevicesFixture.ownHubId))
+
+  #expect(
+    context.text(failure.message(unreachable: .devicesUnreachable), .text(failure.subject ?? ""))
+      == "You can't change this on Home garden. Ask an Owner or Administrator.")
+  #expect(!failure.tryAgain)
+  #expect(devices.pauseFailure(for: PausedDevicesFixture.siteHubId) == nil)
+  #expect(devices.pauseFailure(for: PausedDevicesFixture.bothNodeId) == nil)
+}
+
+@Test("UX-DR70 a Resume the Server did not answer says Can't reach your Server with Try again")
+func devicesResumeUnreachable() throws {
+  let devices = PausedDevicesFixture.devices(
+    pause: .resumeFailed("unreachable", deviceId: PausedDevicesFixture.bothNodeId, tryAgain: true))
+  let failure = try #require(devices.pauseFailure(for: PausedDevicesFixture.bothNodeId))
+
+  #expect(
+    context.text(failure.message(unreachable: .devicesUnreachable)) == "Can't reach your Server.")
+  #expect(failure.tryAgain)
+  // Nothing changed: the row is still paused and still offers Resume.
+  #expect(devices.nodes.first?.pause.canResume == true)
+}
+
+@Test("UX-DR70 while a Pause or Resume runs no row starts another")
+func devicesPauseOneAtATime() {
+  let resuming = PausedDevicesFixture.devices(
+    pause: PauseFixture(resumingScope: "device", resumingDeviceId: PausedDevicesFixture.ownHubId))
+  var saving = PauseFixture.forDevice
+  saving.working = true
+
+  #expect(resuming.pause.working)
+  #expect(PausedDevicesFixture.devices(pause: saving).pause.working)
+  #expect(!PausedDevicesFixture.devices().pause.working)
+}
+
+@Test("UX-DR70 rows the core sent no pause for, or lists of different lengths, read as not paused")
+func devicesPauseDegrades() {
+  let bare = SilenceFixture.devices()
+  let ragged = DevicesPresentation(
+    surface: "ready", notice: nil, siteId: "a", canAddHub: true,
+    hubIds: ["3f2a9c0d1e4b5a67", "1b00aa11bb22cc33"], hubStatuses: ["online", "online"],
+    hubLastSeen: ["", ""],
+    hubPause: DevicesPresentation.PauseLists(paused: [true], canResume: [true, true, true]))
+
+  #expect(bare.hubs.allSatisfy { $0.pause == .none })
+  #expect(bare.nodes.allSatisfy { $0.pause == .none })
+  #expect(ragged.hubs.map(\.pause.paused) == [true, false])
+  #expect(ragged.hubs.map(\.pause.canResume) == [true, true])
+  #expect(ragged.hubs.map(\.pause.canPause) == [false, false])
+}

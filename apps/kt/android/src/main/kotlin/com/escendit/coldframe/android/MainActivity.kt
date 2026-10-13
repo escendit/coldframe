@@ -33,8 +33,9 @@ import com.escendit.coldframe.android.ui.thresholds.ThresholdsActions
 
 /**
  * Registers the Custom Tabs flow, renders the root, and on every foreground resumes the session,
- * reads the Lots and the Alerts again (stale mode is left by the first read that succeeds) and
- * tells the core what Android says about notifications (UX-DR88).
+ * reads the Lots and the Alerts again (stale mode is left by the first read that succeeds; the Sites
+ * are read with the Lots, so a Pause that ended by itself shows) and tells the core what Android
+ * says about notifications (UX-DR88).
  * Add a Hub and Add a Node keep the screen on through their own view while a flow is open.
  *
  * Push (Story 6.5): the activity holds the `POST_NOTIFICATIONS` prompt and the system settings, and hands the
@@ -101,6 +102,10 @@ class MainActivity : ComponentActivity() {
             val alertsState by alerts.state.collectAsStateWithLifecycle()
             val notificationsState by notifications.state.collectAsStateWithLifecycle()
             val pushState by push.state.collectAsStateWithLifecycle()
+            // Pause belongs to the surface it was asked on: the Site menu, Lot detail, a Devices row.
+            val gardenPause by lots.pause.state.collectAsStateWithLifecycle()
+            val lotDetailPause by lotDetail.pause.state.collectAsStateWithLifecycle()
+            val devicesPause by devices.pause.state.collectAsStateWithLifecycle()
             // The OS prompt of UX-DR122; however it ends, it was answered.
             val askNotifications =
                 rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -176,6 +181,9 @@ class MainActivity : ComponentActivity() {
                 notificationsActions = notificationsActions,
                 push = pushState,
                 pushActions = pushActions,
+                gardenPause = gardenPause,
+                lotDetailPause = lotDetailPause,
+                devicesPause = devicesPause,
             )
         }
     }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { SiteMenuAction } from '$lib/site-menu';
   import type { Site } from '$lib/sites';
   import type { DisplayUser } from '$lib/user';
   import AppHeader from './AppHeader.svelte';
@@ -13,16 +14,18 @@
     currentSite?: Site | null;
     /** Stale mode: the Site menu stays visible but disabled (UX-DR79). */
     stale?: boolean;
+    /** Pause or Resume was chosen in the Site menu. */
+    onsitemenu?: (action: SiteMenuAction) => void;
     children: Snippet;
   }
 
-  let { user, currentPath, sites = [], currentSite = null, stale = false, children }: Props = $props();
+  let { user, currentPath, sites = [], currentSite = null, stale = false, onsitemenu, children }: Props = $props();
 
   let menuOpen = $state(false);
 </script>
 
 <div class="cf-app-shell">
-  <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} {sites} {currentSite} {currentPath} {stale} />
+  <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} {sites} {currentSite} {currentPath} {stale} {onsitemenu} />
   <div class="cf-app-shell__body">
     <SideNav {currentPath} open={menuOpen} onnavigate={() => (menuOpen = false)} />
     <main id="cf-main" class="cf-app-shell__main">

@@ -59,9 +59,9 @@ public class IosSignIn private constructor(
     /** The Sites of the signed-in user; loads whenever the session becomes signed in. */
     public val sites: IosSites = IosSites(sitesEngine, scope)
 
-    private val lotsEngine = SitesWiring.lots(api, sitesEngine, settings, scope, cadence = api)
-    private val lotDetailEngine = SitesWiring.lotDetail(api, sitesEngine, settings, scope)
-    private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope)
+    private val lotsEngine = SitesWiring.lots(api, sitesEngine, settings, scope, cadence = api, pause = api)
+    private val lotDetailEngine = SitesWiring.lotDetail(api, sitesEngine, settings, scope, pause = api)
+    private val devicesEngine = SitesWiring.devices(api, sitesEngine, scope, pause = api)
     private val calibrateEngine = SitesWiring.calibrate(api, sitesEngine, scope)
     private val thresholdsEngine = SitesWiring.thresholds(api, sitesEngine, scope, lotDetailEngine, lotsEngine)
     private val radio = KableSetupRadio(IosRadioState())

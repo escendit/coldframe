@@ -275,7 +275,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         if (resumed)
         {
-            await CatchUpLotsAsync();
+            await CatchUpPauseReadModelsAsync();
         }
 
         // Which Sensor holds the current evaluation context is not journaled (Story 7.4): every activation sends
@@ -409,7 +409,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
             if (resumed)
             {
-                await CatchUpLotsAsync();
+                await CatchUpPauseReadModelsAsync();
             }
         }
     }
@@ -1081,14 +1081,14 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     // What follows every journaled Pause change, before the command answers: the closes of the Device's own
     // Alerts are delivered (and a resume finds its window restarted), every Sensor is sent the new evaluation
-    // context, which closes or reopens its Alerts, and the lots projection is brought up to date so that the next
-    // read of the Lot shows the change. None of it throws or changes the answer: whatever did not arrive is
-    // delivered again by the next wake or report.
+    // context, which closes or reopens its Alerts, and the lots and devices projections are brought up to date so
+    // that the next read of the Lot and of the Devices list shows the change. None of it throws or changes the
+    // answer: whatever did not arrive is delivered again by the next wake or report.
     private async Task AfterPauseChangeAsync()
     {
         await EvaluateSilenceAsync(reported: false);
         await PushContextsAsync();
-        await CatchUpLotsAsync();
+        await CatchUpPauseReadModelsAsync();
     }
 
     // Lifts the Device's own Pause source once its due-at has passed (AD-6, Story 8.1): the end date is journaled
@@ -1132,12 +1132,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     private async Task AfterOwnPauseEndedAsync()
     {
         await PushContextsAsync();
-        await CatchUpLotsAsync();
+        await CatchUpPauseReadModelsAsync();
     }
 
-    // Read-your-writes for the Lot's status after a Pause change. The events are journaled, so a failure here only
-    // delays the Lots list.
-    private async Task CatchUpLotsAsync()
+    // Read-your-writes after a Pause change, for both read models that show it: the Lot's status and the Device's
+    // row in the Devices list (Story 8.2). The events are journaled, so a failure here only delays the read.
+    private async Task CatchUpPauseReadModelsAsync()
     {
         try
         {
@@ -1149,6 +1149,8 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         {
             LogLotsCatchUpFailed(Logger, DeviceId, exception);
         }
+
+        await CatchUpDevicesAsync();
     }
 
     private ILogger Logger => ServiceProvider.GetRequiredService<ILogger<DeviceGrain>>();

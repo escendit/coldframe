@@ -78,12 +78,18 @@ func glossaryTerms() throws {
   let terms =
     (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["terms"] as? [String] ?? []
   #expect(terms.contains("Site"))
-  for (key, value) in try Catalogue.entries() {
+  // The glossary holds nouns. One string uses a glossary word as a verb, in the copy UX-DR46
+  // gives for the Pause sheet; only that key and that word are let through.
+  let verbs = ["pause_until_helper": "pause"]
+  let entries = try Catalogue.entries()
+  #expect(entries["pause_until_helper"] == "Leave empty to pause until someone resumes.")
+  for (key, value) in entries {
     for term in terms {
       let pattern = "\\b\(NSRegularExpression.escapedPattern(for: term))s?\\b"
       let expression = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
       for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value)) {
         let found = String(value[Range(match.range, in: value)!])
+        if verbs[key] == found { continue }
         let initials = found.split(separator: " ").map { $0.first }
         #expect(initials == term.split(separator: " ").map { $0.first }, "\(key): \(found)")
       }
@@ -112,6 +118,7 @@ private let coveredUxDrs: [String: [Int]] = [
   "7.2 Silence in the apps and Silence Window settings": [30, 31, 78, 81, 84, 117],
   "7.3 Low-battery Alert": [25, 26],
   "7.4 Uncalibrated Sensor Alert": [25, 26],
+  "8.2 Pause and resume in the apps": [46, 70, 83],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -298,6 +305,54 @@ func silenceWindowCopy() throws {
   }
   #expect(
     SilenceWindowUnitKind.allCases.map { entries[$0.label.rawValue] } == ["min", "h", "d"])
+  #expect(
+    entries["site_settings_forbidden"]
+      == "You can't change this on %@. Ask an Owner or Administrator.")
+}
+
+@Test(
+  "UX-DR124 UX-DR46 UX-DR70 UX-DR83 the Pause strings are the Android ones, key for key and word for word"
+)
+func pauseCatalogueMatchesAndroid() throws {
+  let copy = try sharedCopy([
+    "pause_", "garden_site_paused", "devices_pause_", "devices_resume_", "site_menu_",
+    "lot_detail_resume_site", "lot_tile_label_paused",
+  ])
+
+  #expect(copy.android.count >= 30)
+  #expect(copy.android == copy.ios)
+  #expect(copy.ios["pause_title"] == "Pause")
+  #expect(copy.ios["pause_scope_device"] == "This Device")
+  #expect(copy.ios["pause_scope_site"] == "Whole Site")
+  #expect(copy.ios["pause_until"] == "Until")
+  #expect(copy.ios["pause_until_helper"] == "Leave empty to pause until someone resumes.")
+  #expect(copy.ios["pause_until_refused"] == "Choose a date after today.")
+  #expect(copy.ios["pause_primary"] == "Pause %1$@")
+  #expect(copy.ios["pause_member_notice"] == "Only Owners and Administrators can resume it.")
+  // UX-DR83: the first sentence of the product string, without an attribution.
+  #expect(copy.ios["garden_site_paused"] == "No Alerts are sent while the Site is paused.")
+  #expect(!copy.ios.values.contains { $0.contains("Paused by %") })
+  #expect(copy.ios["lot_detail_resume_site"] == "Resume the Site to resume this Node")
+  #expect(copy.ios["devices_resume_site_hub"] == "Resume the Site to resume this Hub")
+  #expect(copy.ios["site_menu_pause"] == "Pause %1$@")
+  #expect(copy.ios["site_menu_resume"] == "Resume %1$@")
+  #expect(copy.ios["site_menu_needs_server"] == "Needs your Server")
+}
+
+@Test("UX-DR124 UX-DR46 every Pause scope and notice has its catalogue entry")
+func pauseNoticeCopy() throws {
+  let entries = try Catalogue.entries()
+  for scope in PauseScopeKind.allCases {
+    #expect(entries[scope.label.rawValue] != nil, "\(scope)")
+  }
+  for kind in PauseNoticeKind.allCases {
+    for unreachable in [L10n.noticeUnreachable, .devicesUnreachable] {
+      #expect(entries[kind.message(unreachable: unreachable).rawValue] != nil, "\(kind)")
+    }
+  }
+  // The 403 copy is the one every Role-gated control shares (UX-DR84).
+  #expect(
+    PauseNoticeKind.forbidden.message(unreachable: .noticeUnreachable) == .siteSettingsForbidden)
   #expect(
     entries["site_settings_forbidden"]
       == "You can't change this on %@. Ask an Owner or Administrator.")

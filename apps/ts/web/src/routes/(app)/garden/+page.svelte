@@ -18,7 +18,7 @@
   import StaleHeader from '$lib/components/StaleHeader.svelte';
   import { calibrateAccessOf } from '$lib/calibrate';
   import { firstRunSteps } from '$lib/first-run';
-  import { appearedHubNotices, hubNotices, lastGoodLoad, onFocusDecision, siteHeadline, staleTransition, webAppProbePath } from '$lib/garden';
+  import { appearedHubNotices, hubNotices, lastGoodLoad, onFocusDecision, siteHeadline, sitePauseNotes, staleTransition, webAppProbePath } from '$lib/garden';
   import { locale, t } from '$lib/i18n';
   import { formatWhen } from '$lib/i18n/format';
   import { lotsNoticeOf } from '$lib/lots';
@@ -48,6 +48,8 @@
   const now = $derived(browserNow ?? new Date(data.loadedAt));
 
   const summary = $derived(siteHeadline(data.lots, locale, timeZone));
+  /** The paused-Site line and the Member's notice follow the Site the Server sent (UX-DR83, UX-DR84). */
+  const pauseNotes = $derived(data.currentSite === null ? null : sitePauseNotes(data.currentSite));
 
   $effect(() => {
     // Every load carries a new `loadedAt`, which runs this again.
@@ -133,7 +135,13 @@
     <StaleHeader siteName={data.currentSite.name} {staleSince} {now} {timeZone} />
   {:else}
     <!-- The headline and counts come from the Server's statuses; an empty Site says No Readings yet (UX-DR62, UX-DR82). -->
-    <SiteSummaryHeader siteName={data.currentSite.name} headline={summary.headline} subline={summary.subline} paused={summary.paused} />
+    <SiteSummaryHeader siteName={data.currentSite.name} headline={summary.headline} subline={summary.subline} paused={summary.paused} line={pauseNotes?.line ?? null} />
+    {#if pauseNotes !== null && pauseNotes.memberNotice !== null}
+      <!-- A Member sees the paused Site and no Resume (hidden, never disabled): the one notice says who can. -->
+      <div class="cf-garden__paused">
+        <InlineNotice id="cf-site-paused-notice" message={pauseNotes.memberNotice} />
+      </div>
+    {/if}
   {/if}
   <FirstRunSteps tiles={steps.tiles} actionable={steps.actionable} />
   <InlineNotice id="cf-garden-notice" message={steps.memberNotice ? t('garden.memberNotice') : t('garden.webNotice')} />
@@ -162,6 +170,10 @@
 <style>
   .cf-garden__lots {
     margin-block-start: var(--cf-spacing-6);
+  }
+
+  .cf-garden__paused {
+    margin-block-end: var(--cf-spacing-6);
   }
 
   .cf-garden__hubs {

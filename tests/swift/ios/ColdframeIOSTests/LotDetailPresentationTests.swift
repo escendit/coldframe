@@ -335,8 +335,15 @@ func detailParts() {
   #expect(presentation.device != nil)
   #expect(!presentation.stale)
   #expect(presentation.staleHeader(siteName: "Home garden") == nil)
-  // No admin strip: no Threshold, Calibrate or Pause action exists before Epics 5 and 8.
   #expect(!presentation.noNode)
+  // What a Role may do is the core's answer: this snapshot offers no Calibrate, no Thresholds
+  // and no Pause or Resume, so none of them exists here.
+  #expect(!presentation.canCalibrate)
+  #expect(presentation.thresholdsAction == nil)
+  #expect(presentation.pauseTargetId == nil)
+  #expect(presentation.resumeDeviceId == nil)
+  #expect(presentation.memberPausedNotice == nil)
+  #expect(presentation.pause == .none)
 }
 
 @Test("UX-DR63 a no-Node Lot is the empty detail, with Add a Node for an Admin+ only")
@@ -465,4 +472,126 @@ func snapshotShortLists() {
   #expect(presentation.sensors?.map(\.quantity) == [.soilMoisture, .airTemperature])
   #expect(presentation.quantities == [.soilMoisture, .airTemperature])
   #expect(presentation.picked == .soilMoisture)
+}
+
+// MARK: - Pause and Resume (Story 8.2)
+
+@Test(
+  "UX-DR70 an Administrator or Owner has Pause under the hero, which opens the sheet for its Node"
+)
+func detailPause() throws {
+  let presentation = LotDetailFixture.pausable.build()
+
+  #expect(presentation.pauseTargetId == PauseFixture.nodeId)
+  #expect(presentation.resumeDeviceId == nil)
+  #expect(presentation.memberPausedNotice == nil)
+  #expect(!presentation.pauseWorking)
+  // The sheet is the core's: This Device selected, and Whole Site.
+  var opened = LotDetailFixture.pausable
+  opened.pause = .forDevice
+  let sheet = try #require(opened.build().pause.sheet)
+  #expect(sheet.scope == .device)
+  #expect(context.resolve(sheet.primaryLabel) == "Pause 7C19")
+}
+
+@Test("UX-DR70 a Node paused by itself has Resume, one tap and no sheet, and no second Pause")
+func detailResume() throws {
+  let presentation = LotDetailFixture.resumable.build()
+  let hero = try #require(presentation.hero)
+
+  #expect(presentation.resumeDeviceId == PauseFixture.nodeId)
+  #expect(presentation.pauseTargetId == nil)
+  #expect(context.text(presentation.resumeLabel) == "Resume")
+  #expect(presentation.pause.sheet == nil)
+  // The end is the Server's `pausedUntil`, written by the day formatter.
+  #expect(hero.noteText(context) == "Paused until 1 Nov")
+  #expect(hero.resumeSiteText(context) == nil)
+}
+
+@Test("UX-DR70 a Node paused by the Site only has no Resume, says Resume the Site, and Pause stays")
+func detailPausedBySiteOnly() throws {
+  let presentation = LotDetailFixture.pausedBySiteOnly.build()
+  let hero = try #require(presentation.hero)
+
+  #expect(presentation.resumeDeviceId == nil)
+  #expect(presentation.pauseTargetId == PauseFixture.nodeId)
+  #expect(hero.noteText(context) == "Paused with the Site")
+  #expect(hero.resumeSiteText(context) == "Resume the Site to resume this Node")
+  // The hero is one accessibility element: the hint is in its label, and no control is in it.
+  #expect(hero.spokenText(context).hasSuffix("Resume the Site to resume this Node"))
+  let views = try Repo.text("apps/swift/ios/Sources/ColdframeIOS/UI/LotDetailViews.swift")
+  let heroView = try #require(
+    views.components(separatedBy: "struct LotDetailHero").last?
+      .components(separatedBy: "struct DetailCell").first)
+  #expect(heroView.contains(".accessibilityElement(children: .ignore)"))
+  #expect(!heroView.contains("Button"))
+}
+
+@Test("UX-DR84 a Member sees the paused Lot with the one notice and no Pause or Resume")
+func detailPausedForMember() throws {
+  let presentation = LotDetailFixture.pausedForMember.build()
+  let hero = try #require(presentation.hero)
+
+  #expect(hero.variant == .paused)
+  #expect(hero.noteText(context) == "Paused until 1 Nov")
+  #expect(presentation.pauseTargetId == nil)
+  #expect(presentation.resumeDeviceId == nil)
+  #expect(
+    presentation.memberPausedNotice.map { context.text($0) }
+      == "Only Owners and Administrators can resume it.")
+  // Paused by the Site, a Member gets no hint either: there is nothing for them to resume.
+  var bySite = LotDetailFixture.pausedBySite
+  bySite.heroResumeSiteHint = false
+  bySite.memberPausedNotice = true
+  #expect(try #require(bySite.build().hero).resumeSiteText(context) == nil)
+}
+
+@Test("UX-DR79 in stale mode and without a Node there is no Pause or Resume")
+func detailPauseNeedsALiveNode() {
+  let stale = LotDetailFixture.resumable.asStale.build()
+  let noNode = LotDetailFixture.noNodeLot.build()
+
+  for presentation in [stale, noNode] {
+    #expect(presentation.pauseTargetId == nil)
+    #expect(presentation.resumeDeviceId == nil)
+    #expect(presentation.memberPausedNotice == nil)
+  }
+  // A control without a Device to address does not exist, whatever the flags say.
+  var broken = LotDetailFixture.ok
+  broken.canPause = true
+  broken.canResume = true
+  #expect(broken.build().pauseTargetId == nil)
+  #expect(broken.build().resumeDeviceId == nil)
+}
+
+@Test("UX-DR70 while the Resume runs its button says Resuming… and cannot be pressed again")
+func detailResuming() {
+  var resuming = LotDetailFixture.resumable
+  resuming.pause = PauseFixture(resumingScope: "device", resumingDeviceId: PauseFixture.nodeId)
+  let presentation = resuming.build()
+
+  #expect(presentation.pauseWorking)
+  #expect(context.text(presentation.resumeLabel) == "Resuming…")
+  // Another Device's request is not this Lot's.
+  var other = LotDetailFixture.resumable
+  other.pause = PauseFixture(resumingScope: "device", resumingDeviceId: PauseFixture.hubId)
+  #expect(!other.build().pauseWorking)
+  #expect(context.text(other.build().resumeLabel) == "Resume")
+}
+
+@Test("UX-DR70 a Resume that did not happen says why under the hero, with Try again")
+func detailResumeFailed() throws {
+  var failed = LotDetailFixture.resumable
+  failed.pause = .resumeFailed("unreachable", deviceId: PauseFixture.nodeId, tryAgain: true)
+  let presentation = failed.build()
+  let failure = try #require(presentation.pause.failure)
+
+  // Lot detail's own "can't reach" copy.
+  #expect(failure.message(unreachable: .noticeUnreachable) == .noticeUnreachable)
+  #expect(failure.tryAgain)
+  // Nothing changed: the Lot is still paused and Resume is still offered.
+  #expect(presentation.resumeDeviceId == PauseFixture.nodeId)
+  // The sheet and the notice belong to a shown Lot only.
+  failed.surface = "loading"
+  #expect(failed.build().pause == .none)
 }

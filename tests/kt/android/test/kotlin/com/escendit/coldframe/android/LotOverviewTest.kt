@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
@@ -26,6 +27,7 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -53,7 +55,13 @@ import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.LotsOverview
 import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.lots.StaleReason
+import com.escendit.coldframe.core.lots.site
 import com.escendit.coldframe.core.signin.SignInState
+import com.escendit.coldframe.core.sites.PauseFailure
+import com.escendit.coldframe.core.sites.PauseNotice
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.PauseTarget
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesNotice
 import com.escendit.coldframe.designtokens.ColorTokens
@@ -88,6 +96,7 @@ class LotOverviewTest {
     private var foregrounds = 0
     private var clock: Instant = LotFixtures.now
     private var lots by mutableStateOf<LotsState>(LotsState.Idle)
+    private var pause by mutableStateOf(PauseState())
 
     private val defaultZone = TimeZone.getDefault()
 
@@ -112,13 +121,20 @@ class LotOverviewTest {
             AtFontScale(fontScale) {
                 ColdframeRoot(
                     state = SignInState.SignedIn("Simon"),
-                    sites = readySites(homeSite(role)),
+                    // The Site the Lots belong to is the current one: its Role and its Pause are the Server's.
+                    sites = readySites(lots.site?.takeIf { it.role == role } ?: homeSite(role)),
                     theme = ThemePreference.Light,
                     onSignIn = {},
                     onSignOut = {},
                     onSelectTheme = {},
                     lots = lots,
-                    lotsActions = LotsActions(load = { calls += "load" }, refresh = { calls += "refresh" }),
+                    lotsActions =
+                        LotsActions(
+                            load = { calls += "load" },
+                            refresh = { calls += "refresh" },
+                            pause = PauseFixtures.recording(calls),
+                        ),
+                    gardenPause = pause,
                     now = { clock },
                     nodeSetupActions = NodeSetupActions(open = { opened += it }),
                     lotDetailActions = LotDetailActions(open = { id, _ -> detailOpened += id }),
@@ -598,7 +614,139 @@ class LotOverviewTest {
         compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
 
         compose.onNode(hasText("Site settings").and(hasClickAction())).assertIsNotEnabled()
-        compose.onNodeWithText("Needs your Server").assertExists()
+        compose.onNode(hasText("Pause Home garden").and(hasClickAction())).assertIsNotEnabled()
+        // Each disabled item says why.
+        compose.onAllNodesWithText("Needs your Server").assertCountEquals(2)
+    }
+
+    // The paused Site (Story 8.2)
+
+    @Test
+    fun `UX-DR83 a paused Site reads Paused until, says no Alerts are sent, and every tile is paused by the Site`() {
+        show(LotFixtures.pausedSite())
+
+        compose.onNode(isHeading().and(hasText("Paused until Mar 1"))).assertExists()
+        compose.onNodeWithText("No Alerts are sent while the Site is paused.").assertExists()
+        assertEquals(
+            listOf(
+                "Tomatoes, paused until March 1",
+                "Beans, paused until March 1",
+                "Lettuce, paused until March 1",
+                "Carrots, no Node, add a Node",
+            ),
+            tiles(LotFixtures.allPausedBySite).map { it.description },
+        )
+        compose.onAllNodesWithText("PAUSED BY SITE", useUnmergedTree = true).assertCountEquals(3)
+        // An Owner has Resume in the Site menu, so there is no "ask someone" notice.
+        compose.onAllNodesWithText("Only Owners and Administrators can resume it.").assertCountEquals(0)
+        // Never "OK" for a paused Lot.
+        compose.onAllNodes(hasText("OK", substring = true)).assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR83 a Site paused without an end reads Paused, and the line follows the Site's paused member`() {
+        val open = LotFixtures.allPausedBySite.map { it.copy(pausedUntilEpochMs = null) }
+        show(LotFixtures.pausedSite(lots = open))
+
+        compose.onNode(isHeading().and(hasText("Paused"))).assertExists()
+        compose.onNodeWithText("No Alerts are sent while the Site is paused.").assertExists()
+
+        // The same Lots under a Site the Server does not list as paused: the headline keeps its rule, the line goes.
+        lots = LotFixtures.ready(open)
+        compose.waitForIdle()
+        compose.onNode(isHeading().and(hasText("Paused"))).assertExists()
+        compose.onAllNodesWithText("No Alerts are sent while the Site is paused.").assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR70 UX-DR22 Pause in the Site menu opens the Pause sheet with Whole Site as its only scope`() {
+        show(LotFixtures.ready(), role = SiteRole.Administrator)
+
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+        compose.onNodeWithText("Pause Home garden").performClick()
+        assertEquals(listOf("openForSite"), calls)
+
+        // The core opened the sheet.
+        pause = PauseFixtures.sheet(PauseFixtures.forSite)
+        compose.waitForIdle()
+
+        compose.onNode(isHeading().and(hasText("Pause"))).assertExists()
+        compose.onNode(isSelectable().and(hasText("WHOLE SITE"))).assertIsSelected()
+        // There is no Device in this context: This Device is not offered.
+        compose.onAllNodesWithText("THIS DEVICE").assertCountEquals(0)
+        compose.onNodeWithText("PAUSE HOME GARDEN").performClick()
+        assertEquals(listOf("openForSite", "save"), calls)
+
+        // Saved: the core closes the sheet and the Server's answers are drawn.
+        pause = PauseState()
+        lots = LotFixtures.pausedSite(SiteRole.Administrator)
+        compose.waitForIdle()
+        compose.onAllNodesWithText("PAUSE HOME GARDEN").assertCountEquals(0)
+        compose.onNode(isHeading().and(hasText("Paused until Mar 1"))).assertExists()
+    }
+
+    @Test
+    fun `UX-DR70 Resume in the Site menu resumes with one tap and no sheet, and the tiles are live again`() {
+        show(LotFixtures.pausedSite())
+
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+        compose.onAllNodesWithText("Pause Home garden").assertCountEquals(0)
+        compose.onNodeWithText("Resume Home garden").performClick()
+
+        assertEquals(listOf("resumeSite"), calls)
+        compose.onAllNodesWithText("WHOLE SITE").assertCountEquals(0)
+
+        lots = LotFixtures.ready(listOf(LotFixtures.needsWater, LotFixtures.ok))
+        compose.waitForIdle()
+        compose.onNode(isHeading().and(hasText("Tomatoes needs water"))).assertExists()
+        compose.onAllNodesWithText("No Alerts are sent while the Site is paused.").assertCountEquals(0)
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+        compose.onNodeWithText("Pause Home garden").assertExists()
+    }
+
+    @Test
+    fun `UX-DR84 a Member sees the paused Site with the one notice and no Pause or Resume`() {
+        show(LotFixtures.pausedSite(SiteRole.Member), role = SiteRole.Member)
+
+        compose.onNode(isHeading().and(hasText("Paused until Mar 1"))).assertExists()
+        compose.onNodeWithText("No Alerts are sent while the Site is paused.").assertExists()
+        compose.onAllNodesWithText("Only Owners and Administrators can resume it.").assertCountEquals(1)
+
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+        compose.onAllNodesWithText("Resume Home garden").assertCountEquals(0)
+        compose.onAllNodesWithText("Pause Home garden").assertCountEquals(0)
+        compose.onNodeWithText("Site settings").assertExists()
+    }
+
+    @Test
+    fun `UX-DR79 in stale mode a paused Site's Resume needs the Server, and nothing is said about Alerts`() {
+        show(LotFixtures.pausedSite(staleReason = StaleReason.Unreachable))
+
+        compose.onAllNodesWithText("No Alerts are sent while the Site is paused.").assertCountEquals(0)
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+        compose.onNode(hasText("Resume Home garden").and(hasClickAction())).assertIsNotEnabled()
+        compose.onAllNodesWithText("Needs your Server").assertCountEquals(2)
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test
+    fun `UX-DR70 a Resume that did not happen says why above the tiles, with Try again`() {
+        show(LotFixtures.pausedSite())
+        pause =
+            PauseState(
+                failure = PauseFailure(PauseTarget(PauseScope.Site), PauseNotice.Unreachable, "Home garden"),
+            )
+        compose.waitForIdle()
+
+        compose.onNode(hasText("Can't reach your Coldframe Server.", substring = true)).assertExists()
+        compose.onNodeWithText("TRY AGAIN").performClick()
+        assertEquals(listOf("retry"), calls)
+
+        // A Role lost meanwhile: the Site-wide copy, with nothing to try again.
+        pause = PauseState(failure = PauseFailure(PauseTarget(PauseScope.Site), PauseNotice.Forbidden, "Home garden"))
+        compose.waitForIdle()
+        compose.onNodeWithText("You can't change this on Home garden. Ask an Owner or Administrator.").assertExists()
+        compose.onAllNodesWithText("TRY AGAIN").assertCountEquals(0)
     }
 
     @Test

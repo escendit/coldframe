@@ -1171,4 +1171,141 @@ class ColdframeApiTest {
             )
             assertEquals(1, unauthorized)
         }
+
+    @Test
+    fun uxDr83ListSitesReadsThePausedMembersAndASiteWithoutThemIsNotPaused() =
+        runTest {
+            answer = {
+                respond(
+                    """{"sites":[{"id":"a","name":"Home","role":"Owner","paused":true,""" +
+                        """"pausedUntil":"2027-02-28T23:00:00.000Z"},""" +
+                        """{"id":"b","name":"Allotment","role":"Member","paused":false},""" +
+                        """{"id":"c","name":"New","role":"Owner"}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            assertEquals(
+                ApiResult.Ok(
+                    SiteListDto(
+                        listOf(
+                            SiteDto("a", "Home", "Owner", paused = true, pausedUntil = "2027-02-28T23:00:00.000Z"),
+                            SiteDto("b", "Allotment", "Member", paused = false),
+                            SiteDto("c", "New", "Owner"),
+                        ),
+                    ),
+                ),
+                api().listSites(),
+            )
+        }
+
+    @Test
+    fun uxDr70PauseSiteWithADatePutsThePickedCalendarDate() =
+        runTest {
+            answer = {
+                respond("""{"paused":true,"pausedUntil":"2027-02-28T23:00:00.000Z"}""", HttpStatusCode.OK, json)
+            }
+
+            val result = api().pauseSite("a", "2027-03-01")
+
+            assertEquals(ApiResult.Ok(SitePauseDto(true, "2027-02-28T23:00:00.000Z")), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Put, request.method)
+            assertEquals("https://server.example/sites/a/pause", request.url.toString())
+            assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+            assertEquals("""{"until":"2027-03-01"}""", request.text())
+        }
+
+    @Test
+    fun uxDr70PauseSiteWithoutADateSendsAnEmptyObject() =
+        runTest {
+            answer = { respond("""{"paused":true}""", HttpStatusCode.OK, json) }
+
+            assertEquals(ApiResult.Ok(SitePauseDto(true)), api().pauseSite("a", null))
+            assertEquals("{}", requests.single().text())
+        }
+
+    @Test
+    fun uxDr70ResumeSiteIsADeleteThatReadsTheSitesPause() =
+        runTest {
+            answer = { respond("""{"paused":false}""", HttpStatusCode.OK, json) }
+
+            assertEquals(ApiResult.Ok(SitePauseDto(false)), api().resumeSite("a"))
+            val request = requests.single()
+            assertEquals(HttpMethod.Delete, request.method)
+            assertEquals("https://server.example/sites/a/pause", request.url.toString())
+        }
+
+    @Test
+    fun uxDr70PauseAndResumeDeviceUseTheDevicesPauseRoute() =
+        runTest {
+            answer = { respond("""{"pausedBy":["device","site"]}""", HttpStatusCode.OK, json) }
+
+            val paused = api().pauseDevice("a", "7c19aaaaaaaaaaaa", "2026-11-01")
+
+            assertEquals(ApiResult.Ok(DevicePauseDto(listOf("device", "site"))), paused)
+            assertEquals(HttpMethod.Put, requests[0].method)
+            assertEquals("https://server.example/sites/a/devices/7c19aaaaaaaaaaaa/pause", requests[0].url.toString())
+            assertEquals("""{"until":"2026-11-01"}""", requests[0].text())
+
+            assertEquals(ApiResult.Ok(DevicePauseDto(listOf("device", "site"))), api().pauseDevice("a", "7c19", null))
+            assertEquals("{}", requests[1].text())
+
+            answer = { respond("""{"pausedBy":[]}""", HttpStatusCode.OK, json) }
+            assertEquals(ApiResult.Ok(DevicePauseDto(emptyList())), api().resumeDevice("a", "7c19aaaaaaaaaaaa"))
+            assertEquals(HttpMethod.Delete, requests[2].method)
+            assertEquals("https://server.example/sites/a/devices/7c19aaaaaaaaaaaa/pause", requests[2].url.toString())
+        }
+
+    @Test
+    fun uxDr84PauseProblemsMapToTheirFailures() =
+        runTest {
+            answer = { respond(problem("validation"), HttpStatusCode.BadRequest, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.Validation), api().pauseSite("a", "2020-01-01"))
+            assertEquals(ApiResult.Failed(ApiFailure.Validation), api().pauseDevice("a", "7c19", "2020-01-01"))
+
+            answer = { respond(problem("forbidden"), HttpStatusCode.Forbidden, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.Forbidden), api().pauseSite("a", null))
+            assertEquals(ApiResult.Failed(ApiFailure.Forbidden), api().resumeSite("a"))
+
+            answer = { respond(problem("device-not-found"), HttpStatusCode.NotFound, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.NotFound), api().pauseDevice("a", "7c19", null))
+            assertEquals(ApiResult.Failed(ApiFailure.NotFound), api().resumeDevice("a", "7c19"))
+        }
+
+    @Test
+    fun uxDr70ListDevicesReadsThePauseMembersAndADeviceWithoutThemIsNotPaused() =
+        runTest {
+            answer = {
+                respond(
+                    """{"devices":[""" +
+                        """{"id":"3f2a9c0d1e4b5a67","kind":"hub","online":true,"pausedBy":["device"]},""" +
+                        """{"id":"7c19aaaaaaaaaaaa","kind":"node","online":false,"pausedBy":["site"],""" +
+                        """"pausedUntil":"2027-02-28T23:00:00.000Z"},""" +
+                        """{"id":"9c0d1e4b5a673f2a","kind":"node","online":false}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            assertEquals(
+                ApiResult.Ok(
+                    DeviceListDto(
+                        listOf(
+                            DeviceListItemDto("3f2a9c0d1e4b5a67", "hub", online = true, pausedBy = listOf("device")),
+                            DeviceListItemDto(
+                                "7c19aaaaaaaaaaaa",
+                                "node",
+                                online = false,
+                                pausedBy = listOf("site"),
+                                pausedUntil = "2027-02-28T23:00:00.000Z",
+                            ),
+                            DeviceListItemDto("9c0d1e4b5a673f2a", "node", online = false),
+                        ),
+                    ),
+                ),
+                api().listDevices("a"),
+            )
+        }
 }

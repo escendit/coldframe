@@ -476,6 +476,17 @@ public struct LotDetailPresentation: Equatable, Sendable {
   public let picked: SensorQuantityKind?
   public let historyUnavailable: Bool
   public let chart: HistoryChartPresentation?
+  /// The Lot's Node, the Device Pause and Resume are about; nil in stale mode and without a Node.
+  public let pauseDeviceId: String?
+  /// Pause shows (UX-DR70): Administrators and Owners, while the Node has no Pause of its own.
+  /// It stays while only the Site is paused.
+  public let canPause: Bool
+  /// Resume shows: Administrators and Owners, while the Node has its own Pause.
+  public let canResume: Bool
+  /// A Member on a paused Lot, who has neither control: the one Inline notice shows (UX-DR84).
+  public let showsMemberPausedNotice: Bool
+  /// The Pause sheet and Resume of this surface.
+  public let pause: PausePresentation
 
   public init(
     surface: LotDetailSurface, lotId: String? = nil, hero: LotDetailHeroPresentation? = nil,
@@ -487,8 +498,15 @@ public struct LotDetailPresentation: Equatable, Sendable {
     sensors: [SensorCellPresentation]? = nil,
     device: DeviceCellsPresentation? = nil, quantities: [SensorQuantityKind] = [],
     picked: SensorQuantityKind? = nil, historyUnavailable: Bool = false,
-    chart: HistoryChartPresentation? = nil
+    chart: HistoryChartPresentation? = nil, pauseDeviceId: String? = nil, canPause: Bool = false,
+    canResume: Bool = false, showsMemberPausedNotice: Bool = false,
+    pause: PausePresentation = .none
   ) {
+    self.pauseDeviceId = pauseDeviceId
+    self.canPause = canPause
+    self.canResume = canResume
+    self.showsMemberPausedNotice = showsMemberPausedNotice
+    self.pause = pause
     self.surface = surface
     self.lotId = lotId
     self.hero = hero
@@ -526,6 +544,23 @@ public struct LotDetailPresentation: Equatable, Sendable {
     return id
   }
 
+  /// The Device "Pause" opens the sheet for; nil where the core offers none (hidden, never
+  /// disabled, UX-DR84) and where there is no Device to address.
+  public var pauseTargetId: String? { canPause ? pauseDeviceId : nil }
+
+  /// The Device "Resume" resumes with one tap; nil where the core offers none. A Node paused
+  /// only by its Site has none: the hero says "Resume the Site to resume this Node".
+  public var resumeDeviceId: String? { canResume ? pauseDeviceId : nil }
+
+  /// A Pause or Resume of this Lot's Node is on its way: its control waits.
+  public var pauseWorking: Bool { pauseDeviceId.map(pause.workingOn) ?? false }
+
+  /// "Resume", "Resuming…" in place while it runs.
+  public var resumeLabel: L10n { pauseWorking ? .pauseResuming : .pauseResume }
+
+  /// "Only Owners and Administrators can resume it." for a Member on a paused Lot.
+  public var memberPausedNotice: L10n? { showsMemberPausedNotice ? .pauseMemberNotice : nil }
+
   /// The Sensor picker shows with more than one Sensor.
   public var showsPicker: Bool { quantities.count > 1 && picked != nil }
 
@@ -547,7 +582,9 @@ public struct LotDetailPresentation: Equatable, Sendable {
 
   /// Mirrors the flat snapshot field for field. Times are Unix milliseconds in decimal; an
   /// optional number is a decimal string that is empty when absent; an unknown quantity, unit or
-  /// variant is left out or drawn as unknown, never as fine.
+  /// variant is left out or drawn as unknown, never as fine. `pauseDeviceId` (empty in stale
+  /// mode and without a Node), `canPause`, `canResume` and `memberPausedNotice` are the core's
+  /// word on Pause, and `pause` is the Pause sheet and Resume of this surface (Story 8.2).
   public init(
     surface: String, notice: String?, lotId: String?, lotName: String?, stale: Bool,
     refreshing: Bool, fetchedAtEpochMs: Int64, staleAgeDays: Int, staleAgeHours: Int,
@@ -569,7 +606,8 @@ public struct LotDetailPresentation: Equatable, Sendable {
     chartHasBand: Bool = false, chartBandLowPercent: String = "",
     chartBandHighPercent: String = "", chartBandLowFraction: Double = 0,
     chartBandHighFraction: Double = 0, barBelowLow: [Bool] = [], chartBelowLowDays: [String] = [],
-    heroSilentHubName: String = ""
+    heroSilentHubName: String = "", pauseDeviceId: String = "", canPause: Bool = false,
+    canResume: Bool = false, memberPausedNotice: Bool = false, pause: PausePresentation = .none
   ) {
     let name = lotName ?? ""
     switch surface {
@@ -660,7 +698,10 @@ public struct LotDetailPresentation: Equatable, Sendable {
       sensors: sensors, device: device,
       quantities: quantities.compactMap(SensorQuantityKind.init(rawValue:)),
       picked: picked.flatMap(SensorQuantityKind.init(rawValue:)),
-      historyUnavailable: historyUnavailable, chart: chart)
+      historyUnavailable: historyUnavailable, chart: chart,
+      // Pause belongs to a shown Lot: while loading or failed there is no sheet and no control.
+      pauseDeviceId: pauseDeviceId.isEmpty ? nil : pauseDeviceId, canPause: canPause,
+      canResume: canResume, showsMemberPausedNotice: memberPausedNotice, pause: pause)
   }
 
   private static func date(_ epochMs: String) -> Date? {
@@ -685,4 +726,6 @@ public protocol LotDetailService: AnyObject {
   func tick()
   /// Shows the history of a Sensor of the picker.
   func pick(_ quantity: SensorQuantityKind)
+  /// Pause and Resume of the Lot's Node (Story 8.2).
+  var pause: PauseService { get }
 }

@@ -23,6 +23,8 @@
     public var cancelRemove: () -> Void
     public var setReminderCadence: (ReminderCadenceKind) -> Void
     public var retryReminderCadence: () -> Void
+    /// Pause and Resume of the Site, from the Site menu (Story 8.2).
+    public var pause: PauseActions
 
     public init(service: LotsService) {
       load = { service.load() }
@@ -41,6 +43,7 @@
       cancelRemove = { service.cancelRemove() }
       setReminderCadence = { service.setReminderCadence($0) }
       retryReminderCadence = { service.retryReminderCadence() }
+      pause = PauseActions(service: service.pause)
     }
 
     private init() {
@@ -60,6 +63,7 @@
       cancelRemove = {}
       setReminderCadence = { _ in }
       retryReminderCadence = {}
+      pause = .none
     }
 
     public static let none = LotsActions()

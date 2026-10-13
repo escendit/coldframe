@@ -162,12 +162,20 @@ class StringsTest {
         }
     }
 
+    /**
+     * The glossary holds nouns. One string uses a glossary word as a verb, in the copy UX-DR46 gives for the
+     * Pause sheet: "Leave empty to pause until someone resumes." Only that key and that word are let through.
+     */
+    private val verbs = mapOf("pause_until_helper" to "pause")
+
     @Test
     fun `UX-DR131 glossary terms are capitalised wherever they appear`() {
         assertTrue(glossary.contains("Site") && glossary.contains("Notification Window"))
+        assertEquals("Leave empty to pause until someone resumes.", android["pause_until_helper"])
         for ((key, value) in android) {
             for (term in glossary) {
                 Regex("\\b${Regex.escape(term)}s?\\b", RegexOption.IGNORE_CASE).findAll(value).forEach { match ->
+                    if (verbs[key] == match.value) return@forEach
                     val expected = term.split(' ').map { it.first() }
                     val actual = match.value.split(' ').map { it.first() }
                     assertEquals(expected, actual, "$key: \"${match.value}\" must be written \"$term\"")

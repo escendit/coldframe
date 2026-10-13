@@ -316,10 +316,14 @@ test.describe('Lot status on the Site overview', () => {
 
     // Site menu items stay visible, disabled with the reason.
     await page.getByRole('button', { name: 'Site menu for Home garden' }).click();
-    const item = page.getByRole('menuitem');
-    await expect(item).toHaveText(/Site settings\s*Needs your Server/u);
-    await expect(item).toHaveAttribute('aria-disabled', 'true');
+    // Story 8.2: the pause item of an Owner is one of them.
+    const items = page.getByRole('menuitem');
+    await expect(items).toHaveText([/^Pause Home garden\s*Needs your Server$/u, /^Site settings\s*Needs your Server$/u]);
+    for (const item of await items.all()) {
+      await expect(item).toHaveAttribute('aria-disabled', 'true');
+    }
     await expect(page.getByRole('menu').getByRole('link')).toHaveCount(0);
+    await expect(page.getByRole('menu').getByRole('button')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     // Still unreachable: the same stale view, and nothing is announced again.
@@ -364,8 +368,9 @@ test.describe('Lot status on the Site overview', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Garden' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Site menu for Home garden' }).click();
-    await expect(page.getByRole('menuitem')).toHaveText(/Site settings\s*Needs your Server/u);
-    await expect(page.getByRole('menuitem')).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByRole('menuitem')).toHaveText([/^Pause Home garden\s*Needs your Server$/u, /^Site settings\s*Needs your Server$/u]);
+    await expect(page.getByRole('menuitem', { name: /Pause Home garden/u })).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByRole('menuitem', { name: /Site settings/u })).toHaveAttribute('aria-disabled', 'true');
     await page.keyboard.press('Escape');
 
     // Back online: the next look loads again and leaves stale mode.
@@ -392,8 +397,9 @@ test.describe('Lot status on the Site overview', () => {
 
     // The Site menu is disabled when only the Lots are stale, too.
     await page.getByRole('button', { name: 'Site menu for Home garden' }).click();
-    await expect(page.getByRole('menuitem')).toHaveText(/Site settings\s*Needs your Server/u);
-    await expect(page.getByRole('menuitem')).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByRole('menuitem')).toHaveText([/^Pause Home garden\s*Needs your Server$/u, /^Site settings\s*Needs your Server$/u]);
+    await expect(page.getByRole('menuitem', { name: /Pause Home garden/u })).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByRole('menuitem', { name: /Site settings/u })).toHaveAttribute('aria-disabled', 'true');
     await page.keyboard.press('Escape');
 
     // Allotment was never read: no old tiles, no skeleton, the existing notice.

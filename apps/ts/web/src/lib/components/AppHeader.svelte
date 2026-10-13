@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
-  import { siteMenuItems } from '$lib/site-menu';
+  import { siteMenuItems, type SiteMenuAction } from '$lib/site-menu';
   import type { Site } from '$lib/sites';
   import type { DisplayUser } from '$lib/user';
   import SiteMenu from './SiteMenu.svelte';
@@ -16,9 +16,11 @@
     currentPath?: string;
     /** Stale mode: every Site menu item is disabled with "Needs your Server". */
     stale?: boolean;
+    /** Pause or Resume was chosen in the Site menu. */
+    onsitemenu?: (action: SiteMenuAction) => void;
   }
 
-  let { user, menuOpen, onmenu, sites = [], currentSite = null, currentPath = '', stale = false }: Props = $props();
+  let { user, menuOpen, onmenu, sites = [], currentSite = null, currentPath = '', stale = false, onsitemenu }: Props = $props();
 </script>
 
 <header class="cf-app-header">
@@ -30,7 +32,7 @@
     <SiteTabs {sites} {currentSite} {currentPath} />
     {#if currentSite !== null && currentPath !== '/sites/new'}
       <!-- The Site menu belongs to the current Site tab (UX-DR22); a tablist may hold only tabs, so it follows it. -->
-      <SiteMenu siteName={currentSite.name} items={siteMenuItems(currentSite.role, { stale })} />
+      <SiteMenu siteName={currentSite.name} items={siteMenuItems(currentSite.role, { stale, paused: currentSite.paused === true })} onselect={onsitemenu} />
     {/if}
   </div>
   <span class="cf-app-header__spacer"></span>

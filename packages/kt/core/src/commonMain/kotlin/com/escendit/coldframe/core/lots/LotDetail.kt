@@ -6,6 +6,7 @@ import com.escendit.coldframe.core.api.SensorReadingDto
 import com.escendit.coldframe.core.devices.DeviceName
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.sites.DevicePause
 import com.escendit.coldframe.core.sites.SiteRole
 import kotlin.math.abs
 import kotlin.math.floor
@@ -392,6 +393,17 @@ public data class LotDetail(
     val thresholdLowPercent: Int? = null,
     /** The soil Sensor's high Threshold in percent, or `null` without one. */
     val thresholdHighPercent: Int? = null,
+    /**
+     * The Lot's Node, the Device that Pause and Resume here are about (Story 8.2); `null` in stale mode and
+     * for a Lot without a Node.
+     */
+    val pauseDeviceId: String? = null,
+    /** Pause shows: Admin+ on a live Lot whose Node has no Pause of its own; hidden, never disabled (UX-DR84). */
+    val canPause: Boolean = false,
+    /** Resume shows: Admin+ on a live Lot whose Node has its own Pause. A Pause of the Site is resumed from the Site menu. */
+    val canResume: Boolean = false,
+    /** "Only Owners and Administrators can resume it.": a Member on a live paused Lot, who has no Resume. */
+    val memberPausedNotice: Boolean = false,
 ) {
     public companion object {
         public fun of(
@@ -448,6 +460,9 @@ public data class LotDetail(
                 ready.soilThresholds?.lowPercent ?: lot.lowThresholdPercent?.takeUnless { it.isNaN() }?.roundToInt()
             val thresholdHigh = ready.soilThresholds?.highPercent
             val hasSensor = lot.sensors.any { it.sensorId != null }
+            // `pausedBy` is the Server's; a Lot that is not `paused` carries none.
+            val paused = lot.status == LotStatus.Paused
+            val pause = if (paused) DevicePause(lot.pausedBy, lot.pausedUntilEpochMs) else DevicePause.None
             return LotDetail(
                 stale = stale,
                 fetchedAtEpochMs = ready.fetchedAtEpochMs,
@@ -501,6 +516,10 @@ public data class LotDetail(
                 canViewThresholds = !stale && hasSensor,
                 thresholdLowPercent = if (stale) null else thresholdLow,
                 thresholdHighPercent = if (stale) null else thresholdHigh,
+                pauseDeviceId = liveNode?.deviceId,
+                canPause = liveNode != null && pause.canPause(role),
+                canResume = liveNode != null && pause.canResume(role),
+                memberPausedNotice = !stale && paused && role == SiteRole.Member,
             )
         }
 

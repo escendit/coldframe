@@ -2,6 +2,9 @@ package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.sites.NameError
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.PauseTarget
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesNotice
@@ -223,8 +226,41 @@ class LotsSnapshotTest {
         assertNull(snapshot.staleReason)
         assertEquals(NOW - minute, snapshot.fetchedAtEpochMs)
         assertEquals(listOf(0, 0, 0), listOf(snapshot.staleAgeDays, snapshot.staleAgeHours, snapshot.staleAgeMinutes))
-        assertEquals(listOf("siteSettings"), snapshot.menuItems)
+        assertEquals(listOf("pause", "siteSettings"), snapshot.menuItems)
         assertTrue(snapshot.menuEnabled)
+        assertFalse(snapshot.sitePaused)
+        assertFalse(snapshot.sitePausedLine)
+        assertFalse(snapshot.pause.sheetOpen)
+    }
+
+    @Test
+    fun uxDr83APausedSiteCrossesWithItsLineItsEndTheResumeItemAndTheSheet() {
+        val until = NOW + 30 * 24 * hour
+        val paused = overview.copy(site = home.copy(paused = true, pausedUntilEpochMs = until))
+        val sheet = PauseState(resuming = PauseTarget(PauseScope.Site))
+
+        val snapshot = snapshotOf(paused, NOW, sheet)
+
+        assertTrue(snapshot.sitePaused)
+        assertEquals(until.toString(), snapshot.sitePausedUntil)
+        assertTrue(snapshot.sitePausedLine)
+        assertFalse(snapshot.memberPausedNotice)
+        assertEquals(listOf("resume", "siteSettings"), snapshot.menuItems)
+        assertEquals("site", snapshot.pause.resumingScope)
+
+        val member =
+            snapshotOf(overview.copy(site = home.copy(role = SiteRole.Member, paused = true)), NOW)
+        assertTrue(member.sitePausedLine)
+        assertTrue(member.memberPausedNotice)
+        assertEquals("", member.sitePausedUntil)
+        assertEquals(listOf("siteSettings"), member.menuItems)
+
+        // Stale mode says nothing about now; the menu item is disabled with "Needs your Server".
+        val stale = snapshotOf(paused.copy(staleReason = StaleReason.Unreachable), NOW)
+        assertTrue(stale.sitePaused)
+        assertFalse(stale.sitePausedLine)
+        assertEquals(listOf("resume", "siteSettings"), stale.menuItems)
+        assertFalse(stale.menuEnabled)
     }
 
     @Test

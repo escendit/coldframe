@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Net;
+using System.Net.Http.Json;
 using Coldframe.Server.Identity;
 
 namespace Coldframe.Server.IntegrationTests.Edge;
@@ -26,6 +28,10 @@ public sealed class RenameSiteTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
             Assert.Equal(siteId, body.RootElement.GetProperty("id").GetString());
             Assert.Equal("Home garden", body.RootElement.GetProperty("name").GetString());
             Assert.Equal("Owner", body.RootElement.GetProperty("role").GetString());
+
+            // The answer is read from the identity projection, which says the Site is not paused (Story 8.2).
+            Assert.False(body.RootElement.GetProperty("paused").GetBoolean());
+            Assert.False(body.RootElement.TryGetProperty("pausedUntil", out _));
         }
 
         Assert.Equal(["site.created", "site.membership-granted", "site.renamed"], await edge.AliasesAsync($"site/{siteId}", cancellationToken));
@@ -48,6 +54,42 @@ public sealed class RenameSiteTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         Assert.Contains(
             $"{owner.UserId}:{key}",
             org.RootElement.GetProperty("attributes").GetProperty(IPhaseTwoOrganizations.IdempotencyKeyAttribute).EnumerateArray().Select(value => value.GetString()));
+    }
+
+    // Story 8.2: the answer to a rename is a Site read like any other, so it carries the Site's Pause.
+    [Fact]
+    public async Task TheAnswerToRenamingAPausedSiteSaysPausedAndUntilWhen()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var owner = await edge.CreateUserAsync("renamer-paused", cancellationToken);
+        using var server = edge.CreateServerClient(owner.AccessToken);
+        var siteId = await CreateSiteAsync(server, Guid.NewGuid().ToString(), "Home", cancellationToken);
+
+        // The Owner told the Server no time zone: the end is midnight UTC of the date.
+        var until = DateOnly.FromDateTime(TimeProvider.System.GetUtcNow().UtcDateTime).AddDays(140);
+        using var paused = await server.PutAsJsonAsync(
+            new Uri($"/sites/{siteId}/pause", UriKind.Relative),
+            new { until = until.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) },
+            cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, paused.StatusCode);
+
+        using var renamed = await LotsTests.PatchNameAsync(server, $"/sites/{siteId}", "Home garden", cancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(renamed, cancellationToken);
+        Assert.Equal(
+            ["id", "name", "paused", "pausedUntil", "role"],
+            body.RootElement.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal("Home garden", body.RootElement.GetProperty("name").GetString());
+        Assert.True(body.RootElement.GetProperty("paused").GetBoolean());
+        Assert.Equal(
+            until.ToDateTime(TimeOnly.MinValue).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
+            body.RootElement.GetProperty("pausedUntil").GetString());
+
+        // The same name again changes nothing and still says so.
+        using var same = await LotsTests.PatchNameAsync(server, $"/sites/{siteId}", "Home garden", cancellationToken);
+        using var sameBody = await EdgeApiFixture.ReadJsonAsync(same, cancellationToken);
+        Assert.True(sameBody.RootElement.GetProperty("paused").GetBoolean());
     }
 
     [Fact]

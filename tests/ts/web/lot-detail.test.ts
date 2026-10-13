@@ -3,13 +3,13 @@ import { render } from 'svelte/server';
 import { describe, expect, test } from 'vitest';
 import LotDetailPage from '../../../apps/ts/web/src/routes/(app)/garden/[lotId]/+page.svelte';
 import HistoryChartView from '$lib/components/HistoryChart.svelte';
-import { deviceCells, formatValue, heroSpoken, historyChart, lotHero, pickerQuantities, sensorCells, type HeroContext, type LotHistory, type SensorReading } from '$lib/lot-detail';
+import { deviceCells, formatValue, heroSpoken, historyChart, lotHero, lotPause, pickerQuantities, sensorCells, type HeroContext, type LotHistory, type SensorReading } from '$lib/lot-detail';
 import type { Lot } from '$lib/lots';
 import { createLastGoodStore } from '$lib/server/last-good';
 import { getLotHistory, loadLotDetail } from '$lib/server/lot-detail';
 import type { Site } from '$lib/sites';
 import { FakeCookies, fakeServer, fetchFailed, jsonResponse, problemResponse } from './fakes.ts';
-import { read, webSrc } from './helpers.ts';
+import { block, read, webSrc } from './helpers.ts';
 
 const serverUrl = new URL('https://server.example');
 const locals = { session: { identity: { authenticated: true, accessTokenRaw: 'access-token-1', idToken: { sub: 'user-1', name: 'Simon Novak' } } } };
@@ -292,10 +292,12 @@ describe('History chart', () => {
   test('UX-DR33 a Sensor picker switches the quantity and the chart, and the page offers it only with more than one Sensor', () => {
     const temperatureHistory: LotHistory = { quantity: 'air_temperature', unit: '°C', days: [{ day: '2026-10-06', low: 11.6, high: 18.2, readingCount: 40 }] };
     const body = page({ lot: ok }, { histories: { soil_moisture: history, air_temperature: temperatureHistory } });
-    expect(body).toContain('cf-segmented');
+    // The History section alone: the Pause modal of an Owner has a Segmented choice of its own (Story 8.2).
+    const historyOf = (html: string): string => html.slice(html.indexOf('cf-detail-history'));
+    expect(historyOf(body)).toContain('cf-segmented');
     expect(text(body)).toMatch(/Sensor Soil moisture Temperature Humidity Air \(gas\)/u);
-    expect(body).toMatch(/aria-pressed="true"[^>]*>[\s\S]*?Soil moisture/u);
-    expect(page({ lot: lot('ok', { node, sensors: sensors.slice(0, 1), moisturePercent: 40 }) })).not.toContain('cf-segmented');
+    expect(historyOf(body)).toMatch(/aria-pressed="true"[^>]*>[\s\S]*?Soil moisture/u);
+    expect(historyOf(page({ lot: lot('ok', { node, sensors: sensors.slice(0, 1), moisturePercent: 40 }) }))).not.toContain('cf-segmented');
   });
 
   test('UX-DR33 UX-DR98 nothing animates and the chart is read through a text summary, not its bars', () => {
@@ -328,7 +330,6 @@ describe('Lot detail page', () => {
     expect(order.every((position) => position > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(body).toContain('href="/garden"');
-    expect(body).not.toMatch(/<button[^>]*>[^<]*(?:Calibrate|Pause|Resume|Thresholds)/u);
   });
 
   test('UX-DR63 UX-DR19 stale: the stale header is shown and no live value is: not the hero value, the Sensor values, battery or last seen', () => {
@@ -350,6 +351,75 @@ describe('Lot detail page', () => {
     const source = read(`${webSrc}/routes/(app)/garden/[lotId]/+page.svelte`);
     expect(source).toMatch(/@container \(min-width: 400px\)/u);
     expect(source).not.toMatch(/overflow\s*:\s*hidden|text-overflow|white-space\s*:\s*nowrap/u);
+  });
+});
+
+/** Story 8.2: Pause and Resume of the Lot's Node on Lot detail. */
+describe('Pause on Lot detail', () => {
+  const until = '2026-11-01T00:00:00.000Z';
+  const byDevice = lot('paused', { node, sensors, pausedBy: ['device'], pausedUntil: until });
+  const bySite = lot('paused', { node, sensors, pausedBy: ['site'] });
+  const actions = (body: string): string => block(body, 'cf-detail__actions');
+
+  test('UX-DR70 the Node of the Lot, and what the caller may do with it, from the Server fields only', () => {
+    expect(lotPause(ok, live)).toMatchObject({ device: { id: node.deviceId, kind: 'node' }, canPause: true, canResume: false, memberNotice: null });
+    expect(lotPause(byDevice, live)).toMatchObject({ canPause: false, canResume: true, memberNotice: null });
+    expect(lotPause(bySite, live)).toMatchObject({ canPause: true, canResume: false });
+    // No Node, or stale: nothing to pause and nothing to say.
+    expect(lotPause(lot('noNode'), live)).toEqual({ device: null, canPause: false, canResume: false, memberNotice: null });
+    expect(lotPause(byDevice, stale)).toMatchObject({ canPause: false, canResume: false, memberNotice: null });
+  });
+
+  test('UX-DR70 an Administrator gets Pause in the action strip, which opens the Pause modal for the Node', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      const body = page({ lot: ok, role });
+      expect(actions(body)).toMatch(/role="group"[^>]*aria-label="Actions for Node 7c19000000000001"/u);
+      expect(text(actions(body))).toBe('Pause');
+      expect(actions(body)).not.toMatch(/<form/u);
+      // The modal: This Device selected beside Whole Site, the primary naming the Node.
+      const dialog = /<dialog[^>]*aria-labelledby="cf-lot-pause-title"[\s\S]*?<\/dialog>/u.exec(body)?.[0] ?? '';
+      expect(dialog).toContain('action="?/pause"');
+      expect(dialog).toContain(`name="deviceId" value="${node.deviceId}"`);
+      expect(text(dialog)).toBe('Pause Pause scope This Device Whole Site Until Leave empty to pause until someone resumes. Cancel Pause 7C19');
+    }
+  });
+
+  test('UX-DR70 UX-DR78 a Lot paused by its Node says until when and offers Resume in one tap, with no Pause', () => {
+    const body = page({ lot: byDevice });
+    expect(text(body)).toContain('Paused until Nov 1');
+    expect(text(actions(body))).toBe('Resume 7C19');
+    expect(actions(body)).toMatch(/<form[^>]*method="POST"[^>]*action="\?\/resume"/u);
+    expect(actions(body)).toContain('name="scope" value="device"');
+    expect(actions(body)).toContain(`name="deviceId" value="${node.deviceId}"`);
+    expect(body).not.toMatch(/<dialog/u);
+  });
+
+  test('UX-DR70 UX-DR27 paused by the Site only: no Resume for the Node, the line how to resume, and Pause stays', () => {
+    const body = page({ lot: bySite });
+    expect(text(body)).toContain('Paused with the Site Resume the Site to resume this Node');
+    expect(text(actions(body))).toBe('Pause');
+    expect(actions(body)).not.toMatch(/Resume|action="\?\/resume"/u);
+  });
+
+  test('UX-DR84 a Member sees the paused Lot with the one Inline notice and no Pause or Resume', () => {
+    for (const paused of [byDevice, bySite]) {
+      const body = page({ lot: paused, role: 'Member' });
+      expect(text(body)).toContain('Paused');
+      const notice = /<div id="cf-lot-paused-notice" class="cf-inline-notice[^"]*">[\s\S]*?<\/div>/u.exec(body)?.[0] ?? '';
+      expect(text(notice)).toBe('Only Owners and Administrators can resume it.');
+      expect(body).not.toContain('cf-detail__actions');
+      expect(body).not.toMatch(/<(?:form|dialog)\b|action="\?\/(?:pause|resume)"/u);
+      expect(text(body)).not.toMatch(/Resume/u);
+      expect(body).not.toMatch(/disabled/u);
+    }
+    // A Lot that is not paused has no such notice.
+    expect(page({ lot: ok, role: 'Member' })).not.toContain('cf-lot-paused-notice');
+    expect(page({ lot: ok, role: 'Member' })).not.toContain('cf-detail__actions');
+  });
+
+  test('UX-DR70 UX-DR79 stale, or a Lot without a Node: no Pause control', () => {
+    expect(page({ lot: byDevice, staleSince: '2026-10-06T07:02:00.000Z' })).not.toMatch(/cf-detail__actions|<dialog|cf-lot-paused-notice/u);
+    expect(page({ lot: lot('noNode') })).not.toMatch(/cf-detail__actions|<dialog/u);
   });
 });
 

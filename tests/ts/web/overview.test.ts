@@ -6,7 +6,7 @@ import AppShell from '$lib/components/AppShell.svelte';
 import SiteSummaryHeader from '$lib/components/SiteSummaryHeader.svelte';
 import StaleHeader from '$lib/components/StaleHeader.svelte';
 import { createRawSnippet } from 'svelte';
-import { lastGoodLoad, onFocusDecision, siteHeadline, staleTransition, webAppProbePath } from '$lib/garden';
+import { lastGoodLoad, onFocusDecision, siteHeadline, sitePauseNotes, staleTransition, webAppProbePath } from '$lib/garden';
 import { formatDurationSpoken } from '$lib/i18n/format';
 import type { Lot } from '$lib/lots';
 import { createLastGoodStore, isTransportFailure, lotsKey, readThrough, sitesKey, userKeyOf } from '$lib/server/last-good';
@@ -418,6 +418,82 @@ describe('Garden with Lot statuses', () => {
   });
 });
 
+/** Story 8.2: the paused Site on the overview. The line and the Member notice follow `Site.paused`; the headline keeps its Lot rule. */
+describe('Paused Site on the overview', () => {
+  const until = '2027-03-01T00:00:00.000Z';
+  const pausedHome: Site = { ...home, paused: true, pausedUntil: until };
+  const bySite = (name: string, end?: string): Lot => lot(name, 'paused', { pausedBy: ['site'], ...(end === undefined ? {} : { pausedUntil: end }) });
+  const line = 'No Alerts are sent while the Site is paused.';
+  const memberNotice = 'Only Owners and Administrators can resume it.';
+
+  test('UX-DR83 the line and the Member notice come from the Site the Server sent, and from nothing else', () => {
+    expect(sitePauseNotes({ ...pausedHome, role: 'Owner' })).toEqual({ line, memberNotice: null });
+    expect(sitePauseNotes({ ...pausedHome, role: 'Administrator' })).toEqual({ line, memberNotice: null });
+    expect(sitePauseNotes({ ...pausedHome, role: 'Member' })).toEqual({ line, memberNotice });
+    // Not paused, or a Server that sends no `paused`: nothing is said.
+    expect(sitePauseNotes({ ...home, paused: false })).toEqual({ line: null, memberNotice: null });
+    expect(sitePauseNotes(allotment)).toEqual({ line: null, memberNotice: null });
+  });
+
+  test('UX-DR83 a paused Site: the headline in paused ink, the line, and every tile paused by the Site', () => {
+    const body = gardenPage({ site: pausedHome, lots: [bySite('Herbs', until), bySite('Basil', until), potatoes] });
+    expect(body).toMatch(/<h2[^>]*cf-site-summary__headline--paused[^>]*>Paused until Mar 1<\/h2>/u);
+    expect(body).toMatch(/<p class="cf-site-summary__line[^"]*">No Alerts are sent while the Site is paused\.<\/p>/u);
+    expect(body.match(/cf-lot-tile--paused/gu)).toHaveLength(2);
+    expect(text(body)).toContain('Paused by Site');
+    expect(text(body)).not.toMatch(/Paused by \w+ \(/u);
+    expect(text(body)).not.toMatch(/\bOK\b|all good|fine/iu);
+    // An Owner is told nothing about who may resume.
+    expect(text(body)).not.toContain(memberNotice);
+  });
+
+  test('UX-DR83 without an end the headline is Paused; the line is the same', () => {
+    const body = gardenPage({ site: { ...home, paused: true }, lots: [bySite('Herbs')] });
+    expect(body).toMatch(/<h2[^>]*cf-site-summary__headline--paused[^>]*>Paused<\/h2>/u);
+    expect(text(body)).toContain(line);
+  });
+
+  test('UX-DR83 the line follows the Site, the headline the Lots: a paused Site without Nodes still says the line', () => {
+    const body = gardenPage({ site: pausedHome, lots: [potatoes] });
+    expect(body).toMatch(/<h2[^>]*>No Readings yet<\/h2>/u);
+    expect(text(body)).toContain(line);
+    // Lots paused by the Site under a Site the Server does not call paused: the headline alone.
+    const resumed = gardenPage({ site: { ...home, paused: false }, lots: [bySite('Herbs')] });
+    expect(resumed).toMatch(/<h2[^>]*>Paused<\/h2>/u);
+    expect(text(resumed)).not.toContain(line);
+  });
+
+  test('UX-DR84 a Member sees the paused Site with the one Inline notice and no control', () => {
+    const body = gardenPage({ site: { ...pausedHome, role: 'Member' }, lots: [bySite('Herbs', until)] });
+    expect(text(body)).toContain(line);
+    const notice = /<div id="cf-site-paused-notice" class="cf-inline-notice[^"]*">[\s\S]*?<\/div>/u.exec(body)?.[0] ?? '';
+    expect(text(notice)).toBe(memberNotice);
+    expect(body.match(/Only Owners and Administrators can resume it\./gu)).toHaveLength(1);
+    expect(body).not.toMatch(/<(?:form|button|input|dialog)\b/u);
+    expect(body).not.toMatch(/disabled/u);
+    // A Member of a Site that is not paused has no such notice.
+    expect(gardenPage({ site: allotment, lots: [herbs] })).not.toContain('cf-site-paused-notice');
+  });
+
+  test('UX-DR83 UX-DR79 stale mode says neither the line nor the notice: nothing there is live', () => {
+    const body = gardenPage({ site: { ...pausedHome, role: 'Member' }, lots: [bySite('Herbs', until)], staleSince: '2026-10-06T07:02:00.000Z' });
+    expect(text(body)).not.toContain(line);
+    expect(body).not.toContain('cf-site-paused-notice');
+  });
+
+  test('UX-DR83 the overview keeps no pause state of its own and never sorts or recomputes a status', () => {
+    const source = read(`${webSrc}/routes/(app)/garden/+page.svelte`) + read(`${webSrc}/lib/garden.ts`);
+    expect(source).not.toMatch(/localStorage|sessionStorage|\.sort\(|toSorted\(/u);
+    expect(source).toMatch(/sitePauseNotes\(data\.currentSite\)/u);
+  });
+
+  test('UX-DR22 UX-DR70 the shell builds the menu from the Site: Resume while it is paused, Pause otherwise', async () => {
+    const fake = fakeServer((request) => (new URL(request.url).pathname === '/sites' ? jsonResponse(200, { sites: [pausedHome] }) : jsonResponse(200, { window: { from: '07:00', to: '22:00' }, timeZoneConfirmed: true, timeZone: 'UTC' })));
+    const shell = await loadShell(locals, new URL('http://localhost/garden'), new FakeCookies(), { serverUrl, fetch: fake.fetch, lastGood: createLastGoodStore() });
+    expect(shell.currentSite).toMatchObject({ paused: true, pausedUntil: until });
+  });
+});
+
 describe('Stale header', () => {
   const props = { siteName: 'Home garden', staleSince: new Date('2026-10-06T07:02:00.000Z'), now: new Date('2026-10-06T09:14:00.000Z'), timeZone: 'UTC' };
 
@@ -515,7 +591,8 @@ describe('Stale mode announcements and the Site menu', () => {
     const children = createRawSnippet(() => ({ render: () => '<p>content</p>' }));
     const user = { displayName: 'Simon Novak', initials: 'SN' };
     const source = read(`${webSrc}/lib/components/AppHeader.svelte`);
-    expect(source).toMatch(/siteMenuItems\(currentSite\.role, \{ stale \}\)/u);
+    // Stale mode and the Site's own `paused` are all the menu is built from.
+    expect(source).toMatch(/siteMenuItems\(currentSite\.role, \{ stale, paused: currentSite\.paused === true \}\)/u);
     // The menu is closed in a server render; the trigger stays, so the reason can be read.
     const { body } = render(AppShell, { props: { user, currentPath: '/garden', sites: [home], currentSite: home, stale: true, children } });
     expect(body).toContain('aria-label="Site menu for Home garden"');

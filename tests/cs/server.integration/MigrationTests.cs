@@ -211,6 +211,83 @@ public sealed class MigrationTests(AppHostFixture fixture)
             columns);
     }
 
+    // Story 8.2 (DW-112): the Site's Pause and a Device's sources become read-model columns. The devices projector
+    // reads two events it ignored, so its checkpoint is dropped and its rows stay; the identity projection is never
+    // replayed (the access rules read it), so its rows are filled from the newest Pause event of each Site stream.
+    [Fact]
+    public async Task ThePauseMigrationAddsItsColumnsDropsOnlyTheDevicesCheckpointAndFillsTheSitesFromTheJournal()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var database = new JournalDatabase(fixture);
+
+        await database.InitializeAsync(upTo: 20261013090000);
+        await database.ExecuteAsync(
+            """
+            INSERT INTO devices (device_id, site_id, kind, lot_id, enrolled_at, last_seen_at)
+            VALUES ('3f2a9c0d1e4b5a67', 'site-ended', 'hub', NULL, now(), now());
+            INSERT INTO identity_sites (site_id, name, lifecycle, created_at)
+            VALUES ('site-ended', 'Ended', 'Active', now()), ('site-open', 'Open', 'Active', now()),
+                   ('site-resumed', 'Resumed', 'Active', now()), ('site-never', 'Never', 'Active', now());
+            INSERT INTO journal_events (stream_id, version, type_alias, schema_version, payload, recorded_at)
+            VALUES ('site/site-ended', 0, 'site.paused', 1, '{"revision": 1, "pausedAt": "2026-10-20T08:00:00Z"}', now()),
+                   ('site/site-ended', 1, 'site.pause-delivered', 1, '{"deviceId": "3f2a9c0d1e4b5a67", "revision": 1, "deliveredAt": "2026-10-20T08:00:01Z"}', now()),
+                   ('site/site-ended', 2, 'site.paused', 1, '{"endsAt": "2027-02-28T23:00:00Z", "revision": 2, "pausedAt": "2026-10-21T08:00:00Z"}', now()),
+                   ('site/site-ended', 3, 'site.pause-delivered', 1, '{"deviceId": "3f2a9c0d1e4b5a67", "revision": 2, "deliveredAt": "2026-10-21T08:00:01Z"}', now()),
+                   ('site/site-open', 0, 'site.paused', 1, '{"endsAt": "2027-02-28T23:00:00Z", "revision": 1, "pausedAt": "2026-10-20T08:00:00Z"}', now()),
+                   ('site/site-open', 1, 'site.paused', 1, '{"revision": 2, "pausedAt": "2026-10-21T08:00:00Z"}', now()),
+                   ('site/site-resumed', 0, 'site.paused', 1, '{"endsAt": "2027-02-28T23:00:00Z", "revision": 1, "pausedAt": "2026-10-20T08:00:00Z"}', now()),
+                   ('site/site-resumed', 1, 'site.resumed', 1, '{"revision": 2, "resumedAt": "2026-10-22T08:00:00Z"}', now()),
+                   ('site/site-never', 0, 'site.renamed', 1, '{"name": "Never"}', now());
+            INSERT INTO projection_checkpoints (projector, position, updated_at)
+            VALUES ('identity', 42, now()), ('lots', 42, now()), ('devices', 42, now()), ('alerts', 42, now());
+            """);
+
+        Assert.True(JournalDatabase.Migrate(database.ConnectionString), "The pause migration was not pending.");
+
+        Assert.Equal(0L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector = 'devices'"));
+        Assert.Equal(3L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM projection_checkpoints WHERE projector IN ('identity', 'lots', 'alerts') AND position = 42"));
+        Assert.Equal(
+            1L,
+            await database.ScalarAsync<long>(
+                "SELECT COUNT(*) FROM devices WHERE NOT device_paused AND device_paused_until IS NULL AND NOT site_paused AND site_paused_until IS NULL"));
+        Assert.Equal(
+            1L,
+            await database.ScalarAsync<long>("SELECT COUNT(*) FROM identity_sites WHERE site_id = 'site-ended' AND paused AND paused_until = '2027-02-28T23:00:00Z'"));
+        Assert.Equal(1L, await database.ScalarAsync<long>("SELECT COUNT(*) FROM identity_sites WHERE site_id = 'site-open' AND paused AND paused_until IS NULL"));
+        Assert.Equal(
+            2L,
+            await database.ScalarAsync<long>("SELECT COUNT(*) FROM identity_sites WHERE site_id IN ('site-resumed', 'site-never') AND NOT paused AND paused_until IS NULL"));
+
+        var columns = new List<string>();
+        await using (var command = database.DataSource.CreateCommand(
+            """
+            SELECT table_name || '.' || column_name || ' ' || data_type || ' ' || is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name IN ('identity_sites', 'devices')
+              AND column_name IN ('paused', 'paused_until', 'device_paused', 'device_paused_until', 'site_paused', 'site_paused_until')
+            ORDER BY 1
+            """))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                columns.Add(reader.GetString(0));
+            }
+        }
+
+        Assert.Equal(
+            [
+                "devices.device_paused boolean NO",
+                "devices.device_paused_until timestamp with time zone YES",
+                "devices.site_paused boolean NO",
+                "devices.site_paused_until timestamp with time zone YES",
+                "identity_sites.paused boolean NO",
+                "identity_sites.paused_until timestamp with time zone YES",
+            ],
+            columns);
+    }
+
     [Fact]
     public async Task ARerunOnAMigratedDatabaseAppliesNothing()
     {

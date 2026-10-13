@@ -2,6 +2,7 @@ package com.escendit.coldframe.android.ui.sites
 
 import androidx.annotation.StringRes
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.pause.PauseActions
 import com.escendit.coldframe.core.lots.LotDetailEngine
 import com.escendit.coldframe.core.lots.LotDetailNotice
 import com.escendit.coldframe.core.lots.SensorQuantity
@@ -16,6 +17,8 @@ class LotDetailActions(
     /** Pull-to-refresh, the app coming back to the foreground, and Try again. */
     val refresh: () -> Unit = {},
     val pick: (SensorQuantity) -> Unit = {},
+    /** Pause and Resume of the Lot's Node, or of the Site, from Lot detail (Story 8.2). */
+    val pause: PauseActions = PauseActions.None,
 ) {
     companion object {
         val None = LotDetailActions()
@@ -26,6 +29,7 @@ class LotDetailActions(
                 close = engine::close,
                 refresh = engine::refresh,
                 pick = engine::pick,
+                pause = PauseActions.of(engine.pause),
             )
     }
 }

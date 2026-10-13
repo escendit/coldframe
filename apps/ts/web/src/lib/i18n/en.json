@@ -458,5 +458,20 @@
   "alerts.title.otherNoLot": "Health Alert",
   "alerts.title.batteryLevel": "Node battery {percent} %, not charging — Lot '{lotName}'",
   "alerts.title.batteryNodeLevel": "Node {nodeId} battery {percent} %, not charging",
-  "alerts.title.batteryNode": "Node {nodeId} battery low"
+  "alerts.title.batteryNode": "Node {nodeId} battery low",
+  "pause.title": "Pause",
+  "pause.open": "Pause",
+  "pause.scope": "Pause scope",
+  "pause.scope.device": "This Device",
+  "pause.scope.site": "Whole Site",
+  "pause.until": "Until",
+  "pause.untilHelper": "Leave empty to pause until someone resumes.",
+  "pause.untilInvalid": "Choose a date after today.",
+  "pause.action": "Pause {name}",
+  "pause.resume": "Resume {name}",
+  "pause.paused": "{name} paused.",
+  "pause.resumed": "{name} resumed.",
+  "pause.siteLine": "No Alerts are sent while the Site is paused.",
+  "pause.memberNotice": "Only Owners and Administrators can resume it.",
+  "pause.resumeSiteHub": "Resume the Site to resume this Hub"
 }

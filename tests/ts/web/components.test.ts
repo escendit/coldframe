@@ -77,6 +77,18 @@ describe('TextInput', () => {
   });
 });
 
+describe('TextInput as a date field', () => {
+  test('UX-DR35 UX-DR46 a date field is the native picker, labelled, with its helper, and sends YYYY-MM-DD under its name', () => {
+    const { body } = render(TextInput, { props: { id: 'until', label: t('pause.until'), type: 'date', name: 'until', value: '2027-03-01', helper: t('pause.untilHelper') } });
+    expect(body).toMatch(/<label[^>]*for="until"[^>]*>Until<\/label>/u);
+    expect(body).toMatch(/<input[^>]*type="date"/u);
+    expect(body).toMatch(/<input[^>]*name="until"/u);
+    expect(body).toMatch(/<input[^>]*value="2027-03-01"/u);
+    expect(body).toContain('Leave empty to pause until someone resumes.');
+    expect(body).not.toContain('data-icon="view"');
+  });
+});
+
 describe('SegmentedChoice and ThemeSwitcher', () => {
   const options = [
     { value: 'a', label: 'Daily' },
@@ -283,6 +295,8 @@ describe('web platform structure', () => {
       'LotTiles',
       'NotificationWindow',
       'Toggle',
+      'PauseModal',
+      'ResumeControl',
     ]) {
       expect(existsSync(join(webSrc, 'lib/components', `${name}.svelte`)), name).toBe(true);
     }

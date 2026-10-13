@@ -15,6 +15,10 @@ namespace Coldframe.Server.Devices;
 /// <param name="ReportedAt">When a Node's newest device report was taken, or <see langword="null"/> without one.</param>
 /// <param name="SilentSince">When a silent Device was last heard (Story 7.2), or <see langword="null"/> while it has no open <c>silent</c> Alert.</param>
 /// <param name="SilenceWindowOverrideSeconds">The Device's own Silence Window in seconds, or <see langword="null"/> while the default of its kind is in force.</param>
+/// <param name="DevicePaused">Whether the Device is paused by its own source (Story 8.2).</param>
+/// <param name="DevicePausedUntil">When the Device's own Pause ends, or <see langword="null"/> without an end.</param>
+/// <param name="SitePaused">Whether the Device is paused by its Site.</param>
+/// <param name="SitePausedUntil">When the Site's Pause ends, or <see langword="null"/> without an end.</param>
 public sealed record DeviceView(
     string DeviceId,
     string Kind,
@@ -25,7 +29,11 @@ public sealed record DeviceView(
     string? Charging = null,
     DateTimeOffset? ReportedAt = null,
     DateTimeOffset? SilentSince = null,
-    long? SilenceWindowOverrideSeconds = null);
+    long? SilenceWindowOverrideSeconds = null,
+    bool DevicePaused = false,
+    DateTimeOffset? DevicePausedUntil = null,
+    bool SitePaused = false,
+    DateTimeOffset? SitePausedUntil = null);
 
 /// <summary>
 /// Reads the devices projection. Edge API handlers read Devices only from here; grains never read it.
@@ -35,7 +43,8 @@ public sealed class DevicesReadModel(NpgsqlDataSource dataSource)
     private const string ListSql =
         """
         SELECT d.device_id, d.kind, d.lot_id, d.last_seen_at, l.name, r.battery_percent, r.charging, r.measured_at,
-               d.silent_since, d.silence_window_seconds
+               d.silent_since, d.silence_window_seconds,
+               d.device_paused, d.device_paused_until, d.site_paused, d.site_paused_until
         FROM devices d
         LEFT JOIN lots l ON l.site_id = d.site_id AND l.lot_id = d.lot_id
         LEFT JOIN LATERAL (
@@ -96,7 +105,11 @@ public sealed class DevicesReadModel(NpgsqlDataSource dataSource)
                 await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(6),
                 await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(7),
                 await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(8),
-                await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetInt64(9)));
+                await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetInt64(9),
+                reader.GetBoolean(10),
+                await reader.IsDBNullAsync(11, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(11),
+                reader.GetBoolean(12),
+                await reader.IsDBNullAsync(13, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(13)));
         }
 
         return devices;

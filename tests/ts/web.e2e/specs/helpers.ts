@@ -14,6 +14,8 @@ import type {
   FakeLot,
   FakeNotificationsSeed,
   FakeNotificationsState,
+  FakePauseCall,
+  FakePauseFailure,
   FakeSilenceWindowPut,
   FakeSite,
   FakeSitePost,
@@ -94,6 +96,25 @@ export async function setAlerts(alerts: readonly FakeAlert[], alertsStatus: numb
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ alerts, healthAlerts, ...(alertsStatus === null ? {} : { alertsStatus }) }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** Every pause write the fake Server received since the last reset (Story 8.2), with the status it answered (0: no answer). */
+export async function pauseCalls(): Promise<FakePauseCall[]> {
+  const response = await fetch(`${idpOrigin}/control/pause`);
+  return ((await response.json()) as { calls: FakePauseCall[] }).calls;
+}
+
+/**
+ * Makes the fake Server's next pause write answer `failure` instead of pausing, or drop the connection
+ * (`drop`): a Role lost meanwhile (403), a Server that cannot be reached. Null turns it off; so does `resetSites`.
+ */
+export async function failNextPause(failure: FakePauseFailure | null): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/pause`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ failNext: failure }),
   });
   expect(response.ok).toBe(true);
 }

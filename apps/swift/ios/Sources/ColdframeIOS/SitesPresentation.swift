@@ -171,7 +171,18 @@ public struct SiteSwitcherRow: Equatable, Sendable, Identifiable {
   public var traits: Set<ControlTrait> { isSelected ? [.button, .selected] : [.button] }
 }
 
-/// One Site menu item (UX-DR22).
+/// What a tap on a Site menu item does.
+public enum SiteMenuActionKind: Equatable, Sendable {
+  /// Opens the Pause sheet with Whole Site as its only scope (UX-DR46).
+  case openPauseSheet
+  /// Resumes the Site at once: one tap, no sheet (UX-DR70).
+  case resumeSite
+  case openSiteSettings
+}
+
+/// One Site menu item (UX-DR22). The core lists `pause`, or `resume` while the Server says the
+/// Site is paused, before `siteSettings` for an Administrator or Owner, and neither for a
+/// Member: hidden, never disabled.
 public enum SiteMenuItem: String, CaseIterable, Sendable {
   case pause
   case resume
@@ -185,9 +196,21 @@ public enum SiteMenuItem: String, CaseIterable, Sendable {
     }
   }
 
-  /// Site settings opens its own surface (Story 1.9, closes DW-25); Pause and Resume open the
-  /// Pause sheet in a later story.
-  public var opensSiteSettings: Bool { self == .siteSettings }
+  /// "Pause Home garden", "Resume Home garden", "Site settings".
+  public func labelCopy(siteName: String) -> Copy {
+    self == .siteSettings ? Copy(label) : Copy(label, .text(siteName))
+  }
+
+  public var action: SiteMenuActionKind {
+    switch self {
+    case .pause: .openPauseSheet
+    case .resume: .resumeSite
+    case .siteSettings: .openSiteSettings
+    }
+  }
+
+  /// Site settings opens its own surface (Story 1.9, closes DW-25).
+  public var opensSiteSettings: Bool { action == .openSiteSettings }
 }
 
 /// One first-run step (UX-DR54).

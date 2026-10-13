@@ -1,7 +1,8 @@
 # packages/kt/core
 
 The shared Kotlin Multiplatform core (Gradle project `:core`). The overview of the whole module is
-in [`packages/kt`](../README.md); this file covers Lot status and stale mode (Story 4.7). Tests
+in [`packages/kt`](../README.md); this file covers Lot status and stale mode (Story 4.7) and what was built on
+them since, up to Pause and Resume (Story 8.2). Tests
 live in [`tests/kt/core`](../../../tests/kt/core).
 
 ## Lot status
@@ -88,13 +89,15 @@ mode.
   when that read fails they turn `Unreachable`. Without stored Lots the state is `Loading`
   (skeleton tiles, "Loading ‹Site›"), and `Failed` with the load notice when the Server does not
   answer. Without stored Sites the Sites load notice shows, as before.
-- **Back home.** `LotsEngine.refresh()` also reads the Sites again while they are `fromCache`.
+- **Back home.** `LotsEngine.refresh()` also reads the Sites again: as `load` does while they are `fromCache`,
+  else quietly, keeping the shown ones (`SitesEngine.refresh`).
 - **Events.** `LotsEngine.events` sends `EnteredStale(siteId, fetchedAtEpochMs)` once when a read
   and its retry fail, and `LeftStale(siteId)` on the first success after that. Showing stored Lots
   on a cold start, a first load, a refresh that changes nothing and a further failed refresh send
   nothing. Events are not replayed.
 - **In stale mode** every tile is `Stale` (no value, "as of"), a *no Node* tile does not start Add
-  a Node, and `LotsState.siteMenu()` returns every Site menu item disabled ("Needs your Server").
+  a Node, and `LotsState.siteMenu()` returns every Site menu item disabled ("Needs your Server"), Pause or
+  Resume included.
 
 `fromCache` is not a stale mode: the Site switcher and Create Site work on the stored list, the
 Devices list shows its own notice, and Site settings reads `LotsState.stale` if it wants to say
@@ -242,6 +245,39 @@ Administrator; `setReminderCadence` shows the pick at once and puts the Server's
 with `LotsNoticeKind.ReminderCadenceNotSaved` and `retryReminderCadence`, which sends the same pick again. After a
 503 `reminder-cadence-not-delivered` the Site holds the pick, so the control keeps showing it with the same notice,
 and Try again repairs a cadence that reached only some members.
+
+**Pause and Resume (Story 8.2).** Whether anything is paused is the Server's answer and nothing else: the core
+mirrors `Site.paused` / `pausedUntil` (`SiteSummary`), the Lot's `pausedBy` / `pausedUntil` (`LotSummary`) and
+`DeviceListItem.pausedBy` / `pausedUntil` (`HubSummary`, `NodeSummary`). It never computes or keeps "paused".
+
+- **Calls.** `sites/PauseApi`: `pauseSite`, `resumeSite`, `pauseDevice`, `resumeDevice` over `PUT` / `DELETE
+  /sites/{siteId}/pause` and `…/devices/{deviceId}/pause`. `until` is the calendar date the User picked
+  (`yyyy-MM-dd`, `PauseDate`), sent as it is; without one the body is `{}`.
+- **`sites/PauseEngine`**, one per surface: `LotsEngine.pause` (the Site menu), `LotDetailEngine.pause`,
+  `DevicesEngine.pause`. `openForSite()` gives a `PauseForm` with Whole Site as its only scope; `openForDevice(id)`
+  one with This Device selected and Whole Site. `setScope`, `setUntil`, `cancel`, `save`. `PauseForm.target` is what
+  the primary button names (the Device's short name, or the Site). Accepted, the sheet closes; refused, it stays
+  with `PauseForm.notice`: `DateRefused` (400, the date field is marked), `Forbidden` (403), `NotFound` (404),
+  `Unreachable`, `Certificate`, `Unexpected`. `resumeSite()` and `resumeDevice(id)` are one call without a sheet;
+  one that did not happen is `PauseState.failure`, and `retry()` sends it again. One request runs at a time, a
+  Member's calls are ignored, and a change of Site or the end of the session drops everything.
+- **Afterwards.** The Server's answer to a Site call is shown on the Site at once (`SitesEngine.pauseAnswered`),
+  the Sites are read again without leaving the shell (`SitesEngine.refresh`), and the Lots, an open Lot detail
+  and a shown Devices list read again (`SitesEngine.onPauseChanged`). `LotsEngine.refresh()` reads the Sites with
+  the Lots, so a Pause that ended by itself shows on the next refresh.
+- **What a surface offers.** `SiteMenu.items(site, stale)`: `Pause`, or `Resume` while `site.paused`, for an
+  Administrator or Owner; nothing for a Member; disabled in stale mode. `DevicePause` (from `pausedBy`):
+  `canPause` (no Pause of the Device's own), `canResume` (its own Pause), `resumeSiteHint` (paused by the Site
+  alone, so there is no Resume for the Device). `LotDetail.canPause` / `canResume` / `pauseDeviceId` add "live, with a Node";
+  `LotDetail.memberPausedNotice` and `LotsOverview.memberPausedNotice` are the Member's one notice.
+  `LotsOverview.sitePaused` is the line "No Alerts are sent while the Site is paused."; it follows `Site.paused`,
+  while the headline keeps its rule over the Lots. Neither shows in stale mode.
+
+For Swift, `LotsSnapshot`, `LotDetailSnapshot` and `DevicesSnapshot` each carry `pause` (a `PauseSnapshot`: the
+sheet, the Resume under way, the last failure), and `IosLots.pause`, `IosLotDetail.pause` and `IosDevices.pause`
+(`IosPause`) hold the calls; each surface's `watch` also fires when its Pause state changes. `SitesSnapshot` and
+`LotsSnapshot` carry the Site's `paused` members, `LotDetailSnapshot` the gates, and `DevicesSnapshot` the
+parallel `hubPaused…` / `nodePaused…` lists.
 
 For Swift, `IosNotificationSettings` (`IosSignIn.notifications`) observes a flat `NotificationSettingsSnapshot`,
 and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetReminderCadence` and

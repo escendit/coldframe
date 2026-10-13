@@ -10,7 +10,15 @@ namespace Coldframe.Server.Identity;
 /// <param name="Name">The Site name.</param>
 /// <param name="Lifecycle">The Site's lifecycle.</param>
 /// <param name="CallerRole">The caller's Role on the Site, or <see langword="null"/> without a Membership.</param>
-public sealed record SiteAccessView(string SiteId, string Name, SiteLifecycle Lifecycle, SiteRole? CallerRole);
+/// <param name="Paused">Whether the Site is paused (Story 8.2), as its newest <c>site.paused</c> or <c>site.resumed</c> says.</param>
+/// <param name="PausedUntil">When the Site's Pause ends, or <see langword="null"/> without an end or without a Pause.</param>
+public sealed record SiteAccessView(
+    string SiteId,
+    string Name,
+    SiteLifecycle Lifecycle,
+    SiteRole? CallerRole,
+    bool Paused = false,
+    DateTimeOffset? PausedUntil = null);
 
 /// <summary>
 /// A Site the caller holds a Membership on, with the caller's Role.
@@ -18,7 +26,9 @@ public sealed record SiteAccessView(string SiteId, string Name, SiteLifecycle Li
 /// <param name="SiteId">The Site ID.</param>
 /// <param name="Name">The Site name.</param>
 /// <param name="Role">The caller's Role on the Site.</param>
-public sealed record MemberSiteView(string SiteId, string Name, SiteRole Role);
+/// <param name="Paused">Whether the Site is paused (Story 8.2).</param>
+/// <param name="PausedUntil">When the Site's Pause ends, or <see langword="null"/> without an end or without a Pause.</param>
+public sealed record MemberSiteView(string SiteId, string Name, SiteRole Role, bool Paused = false, DateTimeOffset? PausedUntil = null);
 
 /// <summary>
 /// Reads the identity projection. The Edge API's handlers and its authorization policy read Sites and
@@ -28,7 +38,7 @@ public sealed class IdentityReadModel(NpgsqlDataSource dataSource)
 {
     private const string SelectSql =
         """
-        SELECT s.name, s.lifecycle, m.role
+        SELECT s.name, s.lifecycle, m.role, s.paused, s.paused_until
         FROM identity_sites s
         LEFT JOIN identity_memberships m ON m.site_id = s.site_id AND m.user_id = @user_id
         WHERE s.site_id = @site_id
@@ -36,7 +46,7 @@ public sealed class IdentityReadModel(NpgsqlDataSource dataSource)
 
     private const string ListSql =
         """
-        SELECT s.site_id, s.name, m.role
+        SELECT s.site_id, s.name, m.role, s.paused, s.paused_until
         FROM identity_memberships m
         JOIN identity_sites s ON s.site_id = m.site_id
         WHERE m.user_id = @user_id AND s.lifecycle = @lifecycle
@@ -69,7 +79,13 @@ public sealed class IdentityReadModel(NpgsqlDataSource dataSource)
             ? (SiteRole?)null
             : Enum.Parse<SiteRole>(reader.GetString(2));
 
-        return new SiteAccessView(siteId, reader.GetString(0), Enum.Parse<SiteLifecycle>(reader.GetString(1)), role);
+        return new SiteAccessView(
+            siteId,
+            reader.GetString(0),
+            Enum.Parse<SiteLifecycle>(reader.GetString(1)),
+            role,
+            reader.GetBoolean(3),
+            await reader.IsDBNullAsync(4, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(4));
     }
 
     /// <summary>
@@ -92,7 +108,12 @@ public sealed class IdentityReadModel(NpgsqlDataSource dataSource)
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            sites.Add(new MemberSiteView(reader.GetString(0), reader.GetString(1), Enum.Parse<SiteRole>(reader.GetString(2))));
+            sites.Add(new MemberSiteView(
+                reader.GetString(0),
+                reader.GetString(1),
+                Enum.Parse<SiteRole>(reader.GetString(2)),
+                reader.GetBoolean(3),
+                await reader.IsDBNullAsync(4, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(4)));
         }
 
         return sites;

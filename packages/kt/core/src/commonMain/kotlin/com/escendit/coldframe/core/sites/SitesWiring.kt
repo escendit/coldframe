@@ -56,7 +56,8 @@ public object SitesWiring {
     /**
      * The Lots engine, following the current Site of [sites]. It keeps the last good Lots of
      * each Site in [settings] (keys `lots.lastGood.‹siteId›`) and decides stale mode. With
-     * [cadence] its Site settings read and set the Site's Reminder cadence.
+     * [cadence] its Site settings read and set the Site's Reminder cadence; with [pause] its Site menu
+     * pauses and resumes the Site.
      */
     public fun lots(
         api: LotsApi,
@@ -64,7 +65,16 @@ public object SitesWiring {
         settings: Settings,
         scope: CoroutineScope,
         cadence: SiteReminderCadenceApi?,
-    ): LotsEngine = LotsEngine(api = api, sites = sites, settings = settings, scope = scope, cadenceApi = cadence)
+        pause: PauseApi? = null,
+    ): LotsEngine =
+        LotsEngine(
+            api = api,
+            sites = sites,
+            settings = settings,
+            scope = scope,
+            cadenceApi = cadence,
+            pauseApi = pause,
+        )
 
     /**
      * My notifications, following the session of [signIn] and the current Site of [sites]. [settings] are the
@@ -115,13 +125,17 @@ public object SitesWiring {
         return engine
     }
 
-    /** Lot detail, following the current Site of [sites]; keeps the last good detail of each Lot in [settings]. */
+    /**
+     * Lot detail, following the current Site of [sites]; keeps the last good detail of each Lot in [settings].
+     * With [pause] it pauses and resumes the Lot's Node, or the Site.
+     */
     public fun lotDetail(
         api: LotDetailApi,
         sites: SitesEngine,
         settings: Settings,
         scope: CoroutineScope,
-    ): LotDetailEngine = LotDetailEngine(api = api, sites = sites, settings = settings, scope = scope)
+        pause: PauseApi? = null,
+    ): LotDetailEngine = LotDetailEngine(api = api, sites = sites, settings = settings, scope = scope, pauseApi = pause)
 
     /** Calibrate of one Lot's soil Sensor, following the current Site of [sites]. */
     public fun calibrate(
@@ -151,12 +165,13 @@ public object SitesWiring {
             },
         )
 
-    /** The Devices engine, following the current Site of [sites]. */
+    /** The Devices engine, following the current Site of [sites]. With [pause] its rows pause and resume a Device, or the Site. */
     public fun devices(
         api: DevicesApi,
         sites: SitesEngine,
         scope: CoroutineScope,
-    ): DevicesEngine = DevicesEngine(api = api, sites = sites, scope = scope)
+        pause: PauseApi? = null,
+    ): DevicesEngine = DevicesEngine(api = api, sites = sites, scope = scope, pauseApi = pause)
 
     /** The Alerts engine, following the current Site of [sites]: it reads as soon as a Site is current. */
     public fun alerts(

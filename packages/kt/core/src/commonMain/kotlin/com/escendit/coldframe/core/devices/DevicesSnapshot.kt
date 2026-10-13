@@ -1,6 +1,10 @@
 package com.escendit.coldframe.core.devices
 
 import com.escendit.coldframe.core.lots.LotDuration
+import com.escendit.coldframe.core.sites.DevicePause
+import com.escendit.coldframe.core.sites.PauseSnapshot
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.snapshotOf
 
 /**
  * [DevicesState] flattened for Swift. Enum values cross as catalogue key suffixes
@@ -34,6 +38,16 @@ import com.escendit.coldframe.core.lots.LotDuration
  * `notFound`, `outOfRange`, `unreachable`, `certificate` or `unexpected`) the last change that did
  * not happen (both empty when none). [silenceWindowMinSeconds] and [silenceWindowMaxSeconds] are the
  * range, 1 min to 30 days.
+ *
+ * Pause (Story 8.2), per Hub (`hub…`) and per Node (`node…`), parallel to the ID lists: `…Paused`
+ * (the Server lists the Device as paused), `…PausedBySite` (its sources include the Site: the label
+ * reads "Paused by Site", else "Paused"), `…PausedBy` (the sources joined by a comma: `device`,
+ * `site`, `device,site`, or empty), `…PausedUntil` (Unix milliseconds in decimal, empty without an
+ * end), and what the row offers: `…CanPause` (Pause; it stays while only the Site is paused),
+ * `…CanResume` (Resume of the Device's own Pause) and `…ResumeSiteHint` ("Resume the Site to resume
+ * this Node", "… this Hub"). The three are false for a Member, for whom the controls do not exist
+ * ([canPause] is the Role rule). [pause] is the Pause sheet and Resume of this surface:
+ * `IosDevices.openDevicePause`, `resumeDevice` and the sheet's calls.
  *
  * [surface] is `idle`, `loading`, `failed` or `ready`.
  */
@@ -84,6 +98,22 @@ public data class DevicesSnapshot(
     val silenceWindowNotice: String = "",
     val silenceWindowMinSeconds: Int = SilenceWindow.MIN_SECONDS,
     val silenceWindowMaxSeconds: Int = SilenceWindow.MAX_SECONDS,
+    val canPause: Boolean = false,
+    val hubPaused: List<Boolean> = emptyList(),
+    val hubPausedBySite: List<Boolean> = emptyList(),
+    val hubPausedBy: List<String> = emptyList(),
+    val hubPausedUntil: List<String> = emptyList(),
+    val hubCanPause: List<Boolean> = emptyList(),
+    val hubCanResume: List<Boolean> = emptyList(),
+    val hubResumeSiteHint: List<Boolean> = emptyList(),
+    val nodePaused: List<Boolean> = emptyList(),
+    val nodePausedBySite: List<Boolean> = emptyList(),
+    val nodePausedBy: List<String> = emptyList(),
+    val nodePausedUntil: List<String> = emptyList(),
+    val nodeCanPause: List<Boolean> = emptyList(),
+    val nodeCanResume: List<Boolean> = emptyList(),
+    val nodeResumeSiteHint: List<Boolean> = emptyList(),
+    val pause: PauseSnapshot = snapshotOf(PauseState()),
 ) {
     public companion object {
         public const val ONLINE: String = "online"
@@ -100,10 +130,13 @@ private fun LotDuration?.unitText(): String =
         ?.lowercase()
         .orEmpty()
 
-/** The snapshot of [state], with the silence of silent Devices measured at [nowEpochMs]. */
+private fun DevicePause.sources(): String = pausedBy.joinToString(",") { it.key }
+
+/** The snapshot of [state] and of this surface's [pause], with the silence of silent Devices measured at [nowEpochMs]. */
 public fun snapshotOf(
     state: DevicesState,
     nowEpochMs: Long,
+    pause: PauseState = PauseState(),
 ): DevicesSnapshot {
     val surface =
         when (state) {
@@ -118,6 +151,9 @@ public fun snapshotOf(
     val lots = (state as? DevicesState.Ready)?.lots.orEmpty()
     val failure = (state as? DevicesState.Ready)?.failure
     val windowFailure = (state as? DevicesState.Ready)?.silenceWindowFailure
+    val role = state.site?.role
+    val hubPauses = hubs.map { it.pause }
+    val nodePauses = nodes.map { it.pause }
     return DevicesSnapshot(
         surface = surface,
         notice = failed?.notice?.name?.replaceFirstChar { it.lowercase() },
@@ -197,5 +233,21 @@ public fun snapshotOf(
                 ?.name
                 ?.replaceFirstChar { it.lowercase() }
                 .orEmpty(),
+        canPause = state.canPause,
+        hubPaused = hubPauses.map { it.paused },
+        hubPausedBySite = hubPauses.map { it.bySite },
+        hubPausedBy = hubPauses.map { it.sources() },
+        hubPausedUntil = hubPauses.map { it.untilEpochMs?.toString().orEmpty() },
+        hubCanPause = hubPauses.map { role != null && it.canPause(role) },
+        hubCanResume = hubPauses.map { role != null && it.canResume(role) },
+        hubResumeSiteHint = hubPauses.map { role != null && it.resumeSiteHint(role) },
+        nodePaused = nodePauses.map { it.paused },
+        nodePausedBySite = nodePauses.map { it.bySite },
+        nodePausedBy = nodePauses.map { it.sources() },
+        nodePausedUntil = nodePauses.map { it.untilEpochMs?.toString().orEmpty() },
+        nodeCanPause = nodePauses.map { role != null && it.canPause(role) },
+        nodeCanResume = nodePauses.map { role != null && it.canResume(role) },
+        nodeResumeSiteHint = nodePauses.map { role != null && it.resumeSiteHint(role) },
+        pause = snapshotOf(pause),
     )
 }

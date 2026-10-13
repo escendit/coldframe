@@ -53,6 +53,7 @@ import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.thresholds.ThresholdsState
 import com.escendit.coldframe.designtokens.Spacing
@@ -73,7 +74,8 @@ import java.time.Instant
  * the activity: the app resumes its session, reads the Lots and the Alerts again (UX-DR112) and
  * reports the notification permission. [push] is the core's push state: the why-line and the
  * notifications-off notice on the overview and in My notifications, and the route of a tapped
- * notification, which the tab shell shows.
+ * notification, which the tab shell shows. [gardenPause], [lotDetailPause] and [devicesPause] are the core's
+ * Pause state of the overview, Lot detail and Devices (Story 8.2): the sheet and the notice of each surface.
  */
 @Composable
 fun ColdframeRoot(
@@ -109,6 +111,9 @@ fun ColdframeRoot(
     notificationsActions: NotificationSettingsActions = NotificationSettingsActions.None,
     push: PushState = PushState.None,
     pushActions: PushActions = PushActions.None,
+    gardenPause: PauseState = PauseState(),
+    lotDetailPause: PauseState = PauseState(),
+    devicesPause: PauseState = PauseState(),
 ) {
     // Every start of the activity, the first one and each return to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { onForeground() }
@@ -156,6 +161,9 @@ fun ColdframeRoot(
                     notificationsActions,
                     push,
                     pushActions,
+                    gardenPause,
+                    lotDetailPause,
+                    devicesPause,
                 )
             }
         }
@@ -192,6 +200,9 @@ private fun SignedIn(
     notificationsActions: NotificationSettingsActions,
     push: PushState,
     pushActions: PushActions,
+    gardenPause: PauseState,
+    lotDetailPause: PauseState,
+    devicesPause: PauseState,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -268,6 +279,9 @@ private fun SignedIn(
                     notificationsActions = notificationsActions,
                     push = push,
                     pushActions = pushActions,
+                    gardenPause = gardenPause,
+                    lotDetailPause = lotDetailPause,
+                    devicesPause = devicesPause,
                 )
             }
         }

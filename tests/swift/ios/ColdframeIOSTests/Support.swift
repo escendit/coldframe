@@ -218,10 +218,11 @@ enum Overview {
       ("needsCalibration", 1), ("unknown", 3), ("ok", 2), ("paused", 3), ("noNode", 1),
     ],
     menuItems: [String] = ["siteSettings"], menuEnabled: Bool = true,
-    hubNotices: [HubNotice] = []
+    hubNotices: [HubNotice] = [], role: String = "owner", sitePausedLine: Bool = false,
+    memberPausedNotice: Bool = false, pause: PauseFixture = .closed
   ) -> LotsPresentation {
     LotsPresentation(
-      surface: surface, notice: notice, siteId: "a", siteName: siteName, role: "owner",
+      surface: surface, notice: notice, siteId: "a", siteName: siteName, role: role,
       canRenameSite: true, canEditLots: true, readOnlyNotice: false,
       siteNameDraft: siteName ?? "", siteNameError: nil, siteRenameWorking: false,
       lotIds: lots.map(\.id), lotNames: lots.map(\.name), lotStatuses: lots.map(\.status),
@@ -246,8 +247,32 @@ enum Overview {
       hubNoticeIds: hubNotices.map(\.id), hubNoticeNames: hubNotices.map(\.name),
       hubNoticeSilentSince: hubNotices.map(\.silentSince),
       hubNoticeDurationValues: hubNotices.map(\.durationValue),
-      hubNoticeDurationUnits: hubNotices.map(\.durationUnit))
+      hubNoticeDurationUnits: hubNotices.map(\.durationUnit),
+      sitePausedLine: sitePausedLine, memberPausedNotice: memberPausedNotice,
+      pause: pause.build())
   }
+
+  /// The Lots of a Site the Server lists as paused until 1 March 2027 (Story 8.2): every Lot
+  /// with a Node is paused by the Site, the headline is the paused one, and the Site menu offers
+  /// Resume to an Owner and neither Pause nor Resume to a Member.
+  static func pausedSite(
+    role: String = "owner", until: String = String(PauseFixture.marchMs),
+    pause: PauseFixture = .closed
+  ) -> LotsPresentation {
+    let member = role == "member"
+    return lots(
+      [pausedBySite, pausedBySiteUntil, noNode], headline: "paused", headlineCount: 0,
+      headlineLotName: nil, headlinePausedUntil: until, headlinePausedInk: true,
+      counts: [("paused", 2), ("noNode", 1)],
+      menuItems: member ? ["siteSettings"] : ["resume", "siteSettings"], role: role,
+      sitePausedLine: true, memberPausedNotice: member, pause: pause)
+  }
+
+  /// A Lot paused by the Site alone, with the Site's end.
+  static let pausedBySiteUntil = Lot(
+    id: "m", name: "Mint", status: "paused", variant: "paused", label: "pausedBySite",
+    value: "dash", foot: "pausedUntil", spoken: "pausedWithSite", pausedBySite: true,
+    pausedUntil: String(PauseFixture.marchMs))
 
   /// Every Lot in stale mode: the Server was last read at 07:02, 2 h 58 min ago.
   static func staleLots(_ lots: [Lot] = everyLot) -> LotsPresentation {
@@ -323,6 +348,12 @@ struct LotDetailFixture {
   ]
   var chartLowest = "1790"
   var chartLowestDay = ""
+  /// The Lot's Node as Pause and Resume address it; empty in stale mode and without a Node.
+  var pauseDeviceId = ""
+  var canPause = false
+  var canResume = false
+  var memberPausedNotice = false
+  var pause = PauseFixture.closed
 
   /// Midnight UTC of today.
   static let todayMs: Int64 = Overview.nowMs / 86_400_000 * 86_400_000
@@ -370,7 +401,8 @@ struct LotDetailFixture {
       chartBandHighFraction: band?.highFraction ?? 0,
       barBelowLow: order.map { belowLowDays.contains($0) },
       chartBelowLowDays: order.filter { belowLowDays.contains($0) }.map(Self.dayText(back:)),
-      heroSilentHubName: heroSilentHubName)
+      heroSilentHubName: heroSilentHubName, pauseDeviceId: pauseDeviceId, canPause: canPause,
+      canResume: canResume, memberPausedNotice: memberPausedNotice, pause: pause.build())
   }
 
   /// Calibrated soil with a 30 % low and a 70 % high, a day 3 back under the low line.
@@ -469,6 +501,39 @@ struct LotDetailFixture {
     return detail
   }
 
+  /// A live Lot as an Administrator or Owner sees it: Pause is offered for its Node.
+  static var pausable: LotDetailFixture {
+    var detail = ok
+    detail.pauseDeviceId = PauseFixture.nodeId
+    detail.canPause = true
+    return detail
+  }
+
+  /// The Node has its own Pause, until 1 November: Resume is offered, Pause is not.
+  static var resumable: LotDetailFixture {
+    var detail = pausedUntil
+    detail.pauseDeviceId = PauseFixture.nodeId
+    detail.canResume = true
+    return detail
+  }
+
+  /// Paused by the Site alone, for an Administrator or Owner: no Resume for the Node, the hint
+  /// instead, and Pause stays.
+  static var pausedBySiteOnly: LotDetailFixture {
+    var detail = pausedBySite
+    detail.pauseDeviceId = PauseFixture.nodeId
+    detail.canPause = true
+    return detail
+  }
+
+  /// A paused Lot as a Member sees it: the state, one notice, no control.
+  static var pausedForMember: LotDetailFixture {
+    var detail = pausedUntil
+    detail.pauseDeviceId = PauseFixture.nodeId
+    detail.memberPausedNotice = true
+    return detail
+  }
+
   static var noNodeLot: LotDetailFixture {
     var detail = LotDetailFixture()
     detail.lotName = "Zucchini"
@@ -505,6 +570,105 @@ struct LotDetailFixture {
     detail.heroResumeSiteHint = false
     detail.hasSensors = false
     detail.hasDevice = false
+    detail.pauseDeviceId = ""
+    detail.canPause = false
+    detail.canResume = false
+    detail.memberPausedNotice = false
     return detail
+  }
+}
+
+/// Pause as the core flattens it into the `pause` of a Lots, Lot detail or Devices snapshot
+/// (Story 8.2): the Pause sheet, a Resume under way and the last Resume that did not happen.
+/// The default is a surface with nothing open.
+struct PauseFixture {
+  var sheetOpen = false
+  var scopes: [String] = []
+  var scope = ""
+  var target = ""
+  var deviceId = ""
+  var siteName = ""
+  /// The picked date in calendar numbers; all 0 without one.
+  var until: (year: Int, month: Int, day: Int) = (0, 0, 0)
+  var working = false
+  var dateRefused = false
+  var notice = ""
+  var noticeTryAgain = false
+  var resumingScope = ""
+  var resumingDeviceId = ""
+  var failureScope = ""
+  var failureDeviceId = ""
+  var failureNotice = ""
+  var failureTryAgain = false
+  var failureSiteName = ""
+
+  /// The Node of the Peppers, "7C19" on the sheet's primary button.
+  static let nodeId = "7c19aa01bb02cc03"
+  /// A Hub of the Site.
+  static let hubId = "3f2a9c0d1e4b5a67"
+  /// 1 March 2027, 00:00 UTC.
+  static let marchMs: Int64 = 1_803_859_200_000
+
+  func build() -> PausePresentation {
+    PausePresentation(
+      sheetOpen: sheetOpen, sheetScopes: scopes, sheetScope: scope, sheetTarget: target,
+      sheetDeviceId: deviceId, sheetSiteName: siteName, sheetUntilYear: until.year,
+      sheetUntilMonth: until.month, sheetUntilDay: until.day, sheetWorking: working,
+      sheetDateRefused: dateRefused, sheetNotice: notice, sheetNoticeTryAgain: noticeTryAgain,
+      resumingScope: resumingScope, resumingDeviceId: resumingDeviceId,
+      failureScope: failureScope, failureDeviceId: failureDeviceId,
+      failureNotice: failureNotice, failureTryAgain: failureTryAgain,
+      failureSiteName: failureSiteName)
+  }
+
+  /// Nothing open, nothing under way, nothing failed.
+  static let closed = PauseFixture()
+
+  /// Opened from the Site menu: Whole Site is the only scope, no date.
+  static var forSite: PauseFixture {
+    PauseFixture(
+      sheetOpen: true, scopes: ["site"], scope: "site", target: "Home garden",
+      siteName: "Home garden")
+  }
+
+  /// Opened from Lot detail or a Devices row: This Device is selected, Whole Site is offered.
+  static var forDevice: PauseFixture {
+    PauseFixture(
+      sheetOpen: true, scopes: ["device", "site"], scope: "device", target: "7C19",
+      deviceId: nodeId, siteName: "Home garden")
+  }
+
+  /// The same with Whole Site chosen and 1 March 2027 picked.
+  static var forDeviceWholeSite: PauseFixture {
+    var pause = forDevice
+    pause.scope = "site"
+    pause.target = "Home garden"
+    pause.until = (2027, 3, 1)
+    return pause
+  }
+
+  /// The Server refused the date (400): the sheet stays open with what was entered.
+  static var refused: PauseFixture {
+    var pause = forSite
+    pause.until = (2026, 10, 6)
+    pause.dateRefused = true
+    return pause
+  }
+
+  /// The Server did not let the Pause happen for another reason; the sheet stays open.
+  static func notSaved(_ notice: String, tryAgain: Bool = false) -> PauseFixture {
+    var pause = forDeviceWholeSite
+    pause.notice = notice
+    pause.noticeTryAgain = tryAgain
+    return pause
+  }
+
+  /// A Resume of `deviceId` (or of the Site, without one) that did not happen.
+  static func resumeFailed(
+    _ notice: String, deviceId: String = "", tryAgain: Bool = false
+  ) -> PauseFixture {
+    PauseFixture(
+      failureScope: deviceId.isEmpty ? "site" : "device", failureDeviceId: deviceId,
+      failureNotice: notice, failureTryAgain: tryAgain, failureSiteName: "Home garden")
   }
 }

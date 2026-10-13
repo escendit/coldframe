@@ -4,10 +4,12 @@ import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.api.SiteListDto
+import com.escendit.coldframe.core.api.SitePauseDto
 import com.escendit.coldframe.core.signin.SignInState
 import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -15,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -825,5 +828,189 @@ class SitesEngineTest {
             runCurrent()
 
             assertNull(engine.form().timeZone.chosen)
+        }
+
+    // Pause (Story 8.2)
+
+    @Test
+    fun uxDr83ASitesPausedMembersAreTheServersAndASiteWithoutThemIsNotPaused() =
+        runTest {
+            api.sites +=
+                listOf(
+                    home.copy(paused = true, pausedUntil = "2027-03-01T00:00:00.000Z"),
+                    allotment.copy(paused = false),
+                    SiteDto("c", "New", "Owner"),
+                    // An end without a Pause, and an end that is no instant, are dropped.
+                    SiteDto("d", "Odd", "Owner", paused = false, pausedUntil = "2027-03-01T00:00:00.000Z"),
+                    SiteDto("e", "Open", "Owner", paused = true, pausedUntil = "soon"),
+                )
+
+            val ready = assertIs<SitesState.Ready>(signedIn().state.value)
+
+            assertEquals(listOf(true, false, false, false, true), ready.sites.map { it.paused })
+            assertEquals(listOf(1_803_859_200_000L, null, null, null, null), ready.sites.map { it.pausedUntilEpochMs })
+            assertTrue(ready.current.paused)
+        }
+
+    @Test
+    fun uxDr83RefreshReadsTheSitesAgainWithoutLeavingTheShownOnesSoAnEndedPauseShows() =
+        runTest {
+            api.sites += listOf(home.copy(paused = true), allotment)
+            val engine = signedIn()
+            engine.newSite()
+            val states = mutableListOf<SitesState>()
+            val watching = backgroundScope.launch { engine.state.collect { states += it } }
+            runCurrent()
+
+            // The Pause's end date passed and the Site woke: the Server lists it as not paused.
+            api.sites[0] = home.copy(name = "Home garden", paused = false)
+            engine.refresh()
+            runCurrent()
+
+            val ready = assertIs<SitesState.Ready>(engine.state.value)
+            assertFalse(ready.current.paused)
+            assertEquals("Home garden", ready.current.name)
+            assertEquals(2, api.lists)
+            // The shell was never replaced by Loading, and Create Site stayed open.
+            assertTrue(states.none { it is SitesState.Loading })
+            assertNotNull(ready.creating)
+            assertFalse(SitesCache(settings).read()!!.first().paused!!)
+            watching.cancel()
+        }
+
+    // A read that was on its way when the Site was paused lands with the older list: one more read follows.
+    @Test
+    fun uxDr83ARefreshAskedWhileOneIsInFlightReadsOnceMoreSoAnOlderListDoesNotStand() =
+        runTest {
+            api.sites += home
+            val engine = signedIn()
+            val lists = api.lists
+
+            // The first read is answered with the list as it was before the Pause.
+            val older = CompletableDeferred<Unit>()
+            api.listGate = older
+            engine.refresh()
+            runCurrent()
+            assertEquals(lists + 1, api.lists)
+
+            // Meanwhile the Site is paused: the answer shows at once, and the Sites are asked for again.
+            engine.pauseAnswered(home.id, SitePauseDto(paused = true))
+            engine.refresh()
+            runCurrent()
+            assertEquals(lists + 1, api.lists)
+            assertTrue(assertIs<SitesState.Ready>(engine.state.value).current.paused)
+
+            // The older list lands; the read that follows it is answered with the Pause.
+            val newer = CompletableDeferred<Unit>()
+            api.listGate = newer
+            older.complete(Unit)
+            runCurrent()
+            assertEquals(lists + 2, api.lists)
+
+            api.sites[0] = home.copy(paused = true)
+            newer.complete(Unit)
+            runCurrent()
+
+            assertTrue(assertIs<SitesState.Ready>(engine.state.value).current.paused)
+            assertEquals(lists + 2, api.lists)
+
+            // Nothing is left over: the next refresh is one read.
+            api.listGate = null
+            engine.refresh()
+            runCurrent()
+            assertEquals(lists + 3, api.lists)
+        }
+
+    @Test
+    fun aRefreshThatFailsChangesNothingAndA401EndsTheSession() =
+        runTest {
+            api.sites += home.copy(paused = true)
+            val engine = signedIn()
+            val shown = engine.state.value
+
+            api.listFailure = ApiFailure.Unreachable
+            engine.refresh()
+            runCurrent()
+            assertEquals(shown, engine.state.value)
+            api.listFailure = ApiFailure.Forbidden
+            engine.refresh()
+            runCurrent()
+            assertEquals(shown, engine.state.value)
+
+            api.listFailure = ApiFailure.Unauthorized
+            engine.refresh()
+            runCurrent()
+            assertEquals(SitesState.Idle, engine.state.value)
+            assertNull(SitesCache(settings).read())
+        }
+
+    @Test
+    fun refreshKeepsTheCurrentSiteAndFallsBackWhenItIsGone() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            val engine = signedIn()
+            engine.select("b")
+
+            engine.refresh()
+            runCurrent()
+            assertEquals("b", assertIs<SitesState.Ready>(engine.state.value).current.id)
+
+            api.sites.removeAt(1)
+            engine.refresh()
+            runCurrent()
+            assertEquals("a", assertIs<SitesState.Ready>(engine.state.value).current.id)
+            // One read at a time: a second refresh while one runs sends nothing.
+            api.listGate = CompletableDeferred()
+            val before = api.lists
+            engine.refresh()
+            engine.refresh()
+            runCurrent()
+            assertEquals(before + 1, api.lists)
+        }
+
+    @Test
+    fun uxDr80RefreshOfSitesKeptOnTheDeviceReadsThemAsLoadDoes() =
+        runTest {
+            api.sites += home
+            signedIn()
+            signIn.value = SignInState.Restoring
+            runCurrent()
+            api.listFailure = ApiFailure.Unreachable
+            val engine = signedIn()
+            assertTrue(assertIs<SitesState.Ready>(engine.state.value).fromCache)
+
+            api.listFailure = null
+            api.sites[0] = home.copy(paused = true)
+            engine.refresh()
+            runCurrent()
+
+            val ready = assertIs<SitesState.Ready>(engine.state.value)
+            assertFalse(ready.fromCache)
+            assertTrue(ready.current.paused)
+        }
+
+    @Test
+    fun uxDr70TheServersAnswerToAPauseShowsOnTheSiteAtOnce() =
+        runTest {
+            api.sites += listOf(home, allotment)
+            val engine = signedIn()
+            var changes = 0
+            engine.onPauseChanged { changes++ }
+
+            engine.pauseAnswered("a", SitePauseDto(true, "2027-03-01T00:00:00.000Z"))
+
+            val paused = assertIs<SitesState.Ready>(engine.state.value)
+            assertTrue(paused.current.paused)
+            assertEquals(1_803_859_200_000L, paused.current.pausedUntilEpochMs)
+            assertEquals(listOf(true, false), paused.sites.map { it.paused })
+            assertEquals(0, api.lists - 1)
+
+            engine.pauseAnswered("a", SitePauseDto(false, "2027-03-01T00:00:00.000Z"))
+            val resumed = assertIs<SitesState.Ready>(engine.state.value).current
+            assertFalse(resumed.paused)
+            assertNull(resumed.pausedUntilEpochMs)
+
+            engine.pauseChanged()
+            assertEquals(1, changes)
         }
 }

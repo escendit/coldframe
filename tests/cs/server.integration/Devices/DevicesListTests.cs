@@ -207,6 +207,49 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
         Assert.Equal((21600, false), (afterwards.GetProperty("silenceWindowSeconds").GetInt32(), afterwards.GetProperty("silenceWindowOverridden").GetBoolean()));
     }
 
+    // Story 8.2 (DW-112): the list names a Device's Pause sources and their end, also for a Hub, which has no Lot.
+    [Fact]
+    public async Task APausedDeviceCarriesItsPauseSourcesAndTheirEndUntilEachIsLifted()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (siteId, _, member) = await SeedSiteAsync(cancellationToken);
+        var siteEnd = Now().AddDays(140);
+        var ownEnd = Now().AddDays(20);
+        var hub = await SeedDeviceAsync(siteId, DeviceKind.Hub, cancellationToken, new DevicePaused(DevicePauseSource.Device, null, Now()));
+        var node = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken, new DevicePaused(DevicePauseSource.Site, siteEnd, Now(), 1));
+        var both = await SeedDeviceAsync(
+            siteId,
+            DeviceKind.Node,
+            cancellationToken,
+            new DevicePaused(DevicePauseSource.Device, ownEnd, Now()),
+            new DevicePaused(DevicePauseSource.Site, siteEnd, Now(), 1));
+        var live = await SeedDeviceAsync(siteId, DeviceKind.Node, cancellationToken);
+
+        var listed = (await ListNodeFieldsAsync(member, siteId, cancellationToken)).ToDictionary(device => device.GetProperty("id").GetString()!);
+
+        Assert.Equal(["device"], Sources(listed[hub]));
+        Assert.False(listed[hub].TryGetProperty("pausedUntil", out _));
+        Assert.Equal(["site"], Sources(listed[node]));
+        Assert.Equal(Truncate(siteEnd), listed[node].GetProperty("pausedUntil").GetString());
+        Assert.Equal(["device", "site"], Sources(listed[both]));
+        Assert.Equal(Truncate(siteEnd), listed[both].GetProperty("pausedUntil").GetString());
+        Assert.Equal(
+            ["id", "kind", "online", "silenceWindowOverridden", "silenceWindowSeconds"],
+            Property(listed[live]));
+
+        // The Site resumes: the Node is live again, and the other keeps its own source with its own end.
+        await edge.AppendAsync($"device/{node}", 2, [new DeviceResumed(DevicePauseSource.Site, Now(), 2)], cancellationToken);
+        var last = await edge.AppendAsync($"device/{both}", 3, [new DeviceResumed(DevicePauseSource.Site, Now(), 2)], cancellationToken);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        listed = (await ListNodeFieldsAsync(member, siteId, cancellationToken)).ToDictionary(device => device.GetProperty("id").GetString()!);
+
+        Assert.False(listed[node].TryGetProperty("pausedBy", out _));
+        Assert.False(listed[node].TryGetProperty("pausedUntil", out _));
+        Assert.Equal(["device"], Sources(listed[both]));
+        Assert.Equal(Truncate(ownEnd), listed[both].GetProperty("pausedUntil").GetString());
+    }
+
     [Fact]
     public async Task ASiteWithoutEnrolmentsListsNoDevices()
     {
@@ -323,6 +366,9 @@ public sealed class DevicesListTests(EdgeApiFixture edge) : IClassFixture<EdgeAp
             await EdgeApiTests.AssertProblemAsync(missing, HttpStatusCode.NotFound, "urn:coldframe:problem:site-not-found", cancellationToken);
         }
     }
+
+    private static List<string?> Sources(System.Text.Json.JsonElement device) =>
+        [.. device.GetProperty("pausedBy").EnumerateArray().Select(source => source.GetString())];
 
     private static List<string> Property(System.Text.Json.JsonElement device) =>
         [.. device.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];

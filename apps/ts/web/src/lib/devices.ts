@@ -62,11 +62,16 @@ export interface DevicesAccess {
    * silence and last seen, and no control: hidden, never disabled.
    */
   readonly canSetSilenceWindow: boolean;
+  /**
+   * Pause and Resume of a Device are for Owners and Administrators (UX-DR70). A Member sees the paused
+   * rows and no control: hidden, never disabled.
+   */
+  readonly canPause: boolean;
 }
 
 export function devicesAccessOf(role: Role): DevicesAccess {
   const admin = hasRole(role, 'Administrator');
-  return { mobileAppNotice: admin, canManageNodes: admin, canSetSilenceWindow: admin };
+  return { mobileAppNotice: admin, canManageNodes: admin, canSetSilenceWindow: admin, canPause: admin };
 }
 
 /** The id of a Device's row on the Devices page: what a Health Alert row links to (`/devices#device-…`). */

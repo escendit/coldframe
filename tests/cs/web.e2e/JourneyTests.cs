@@ -190,6 +190,23 @@ public abstract class JourneyTests(MorningNudgeFixture stack)
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
+    // Fires the Device's silence evaluation as its reminder does: the journey does not wait a real minute.
+    protected async Task WakeDeviceAsync(JourneyUser user, SimulatedDevice device)
+    {
+        using var server = await Stack.CreateServerClientAsync(user, Ct);
+        using var response = await server.PostAsync(new Uri($"/testing/devices/{device.DeviceId}/wake", UriKind.Relative), content: null, Ct);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    // Wakes the Site for its Pause as its reminder does (Story 8.2): a Site Pause that is past its end date ends,
+    // and when this returns one delivery to the Site's Devices was made.
+    protected async Task WakeSiteAsync(JourneyUser user, string siteId)
+    {
+        using var server = await Stack.CreateServerClientAsync(user, Ct);
+        using var response = await server.PostAsync(new Uri($"/testing/sites/{siteId}/wake", UriKind.Relative), content: null, Ct);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     protected async Task<string> PostAsync(JourneyUser user, string path, object body, bool idempotent)
     {
         using var response = await SendAsync(user, HttpMethod.Post, path, body, idempotent);

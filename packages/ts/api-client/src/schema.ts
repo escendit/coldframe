@@ -491,6 +491,27 @@ export type components = {
             /** @description The Site name. Trimmed; 1 to 100 characters after trimming. */
             name: string;
         };
+        /**
+         * @example {
+         *       "id": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+         *       "name": "Home garden",
+         *       "role": "Owner",
+         *       "paused": false
+         *     }
+         * @example {
+         *       "id": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+         *       "name": "Home garden",
+         *       "role": "Administrator",
+         *       "paused": true,
+         *       "pausedUntil": "2027-02-28T23:00:00.000Z"
+         *     }
+         * @example {
+         *       "id": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+         *       "name": "Home garden",
+         *       "role": "Member",
+         *       "paused": true
+         *     }
+         */
         Site: {
             /**
              * Format: uuid
@@ -500,6 +521,13 @@ export type components = {
             /** @description The Site name. */
             name: string;
             role: components["schemas"]["SiteRole"];
+            /** @description True while the Site is paused (Story 8.2). Sent by GET /sites, GET /sites/{siteId} and PATCH /sites/{siteId}; absent from the answer to POST /sites. A client that does not find it reads the Site as not paused. */
+            paused?: boolean;
+            /**
+             * Format: date-time
+             * @description When the Site's Pause ends, ISO-8601 UTC with Z. Absent when the Site is not paused or its Pause has no end.
+             */
+            pausedUntil?: string;
         };
         SiteList: {
             /** @description In the Server's order: creation time, then Site ID. */
@@ -1024,6 +1052,30 @@ export type components = {
          *       "silenceWindowSeconds": 28800,
          *       "silenceWindowOverridden": true
          *     }
+         * @example {
+         *       "id": "3f2a9c0d1e4b5a67",
+         *       "kind": "hub",
+         *       "lastSeenAt": "2026-10-06T07:02:00.000Z",
+         *       "online": true,
+         *       "silenceWindowSeconds": 300,
+         *       "silenceWindowOverridden": false,
+         *       "pausedBy": [
+         *         "device"
+         *       ]
+         *     }
+         * @example {
+         *       "id": "7c19e4b5a673f2a9",
+         *       "kind": "node",
+         *       "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05",
+         *       "lotName": "Strawberries",
+         *       "online": false,
+         *       "silenceWindowSeconds": 21600,
+         *       "silenceWindowOverridden": false,
+         *       "pausedBy": [
+         *         "site"
+         *       ],
+         *       "pausedUntil": "2027-02-28T23:00:00.000Z"
+         *     }
          */
         DeviceListItem: {
             id: components["schemas"]["DeviceId"];
@@ -1055,6 +1107,13 @@ export type components = {
             silenceWindowSeconds?: number;
             /** @description True when the Device has its own Silence Window; false when it follows the default of its kind. */
             silenceWindowOverridden?: boolean;
+            /** @description The Pause sources of the Device, device before site (Story 8.2). Present exactly while the Device is paused, for a Hub as for a Node; absent otherwise. */
+            pausedBy?: components["schemas"]["LotPauseSource"][];
+            /**
+             * Format: date-time
+             * @description When the Device's Pause ends, ISO-8601 UTC with Z: the latest end of its sources. Absent when the Device is not paused or any source has no end.
+             */
+            pausedUntil?: string;
         };
         DeviceList: {
             /** @description Every enrolled Device of the Site, ordered by Device ID. */

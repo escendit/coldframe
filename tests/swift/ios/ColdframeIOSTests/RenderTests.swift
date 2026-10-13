@@ -593,6 +593,8 @@
       calls.append("setReminderCadence \(cadence.rawValue)")
     }
     func retryReminderCadence() { calls.append("retryReminderCadence") }
+    let pauseSpy = PauseSpy()
+    var pause: PauseService { pauseSpy }
   }
 
   @Test("UX-DR112 pull-to-refresh and the minute tick reach the Lots service")
@@ -770,6 +772,8 @@
     func refresh() { calls.append("refresh") }
     func tick() { calls.append("tick") }
     func pick(_ quantity: SensorQuantityKind) { calls.append("pick \(quantity.rawValue)") }
+    let pauseSpy = PauseSpy()
+    var pause: PauseService { pauseSpy }
   }
 
   @Test("UX-DR63 UX-DR33 opening, refreshing, ticking and picking reach the Lot detail service")
@@ -1495,6 +1499,8 @@
       return accepts
     }
     func useDefaultSilenceWindow(_ deviceId: String) { calls.append("default \(deviceId)") }
+    let pauseSpy = PauseSpy()
+    var pause: PauseService { pauseSpy }
   }
 
   @Test("UX-DR31 the Silence Window actions and the minute tick reach the Devices service")
@@ -1564,5 +1570,237 @@
         "Node battery 14 %, not charging — Lot 'Lettuce'", "Node 9C0D battery 14 %, not charging",
         "Node battery low on Lot 'Lettuce'", "Node 9C0D battery low",
       ])
+  }
+
+  // MARK: - Pause and Resume (Story 8.2)
+
+  /// The Pause sheet's content at the clock of `Overview`, as the native sheet holds it.
+  @MainActor
+  private func pauseSheetView(
+    _ pause: PauseFixture, calendarOpen: Bool = false
+  ) throws -> some View {
+    let form = try #require(pause.build().sheet)
+    return PauseSheet(
+      form: form, now: { Overview.context.now }, timeZone: Overview.context.timeZone,
+      calendarOpen: calendarOpen)
+  }
+
+  @Test(
+    "UX-DR46 the Pause sheet renders from the Site menu, Whole Site only and no date",
+    arguments: [false, true])
+  @MainActor
+  func pauseSheetForSiteRenders(dark: Bool) throws {
+    let sheet = try pauseSheetView(.forSite)
+    #expect(rendersAtDefaultSize(sheet, dark: dark))
+    #expect(renders(sheet, dark: dark))
+    #expect(L10n.pausePrimary.string("Home garden") == "Pause Home garden")
+    #expect(L10n.pauseUntilHelper.string == "Leave empty to pause until someone resumes.")
+  }
+
+  @Test(
+    "UX-DR46 UX-DR70 the Pause sheet renders from a Device, in both scopes and with a date",
+    arguments: [false, true])
+  @MainActor
+  func pauseSheetForDeviceRenders(dark: Bool) throws {
+    var withDate = PauseFixture.forDevice
+    withDate.until = (2026, 11, 1)
+    for pause in [PauseFixture.forDevice, withDate, PauseFixture.forDeviceWholeSite] {
+      let sheet = try pauseSheetView(pause)
+      #expect(rendersAtDefaultSize(sheet, dark: dark), "\(pause.scope)")
+      #expect(renders(sheet, dark: dark), "\(pause.scope)")
+    }
+    // The calendar opens inside the sheet, on the picked day or on today.
+    let onPickedDay = try pauseSheetView(withDate, calendarOpen: true)
+    let onToday = try pauseSheetView(.forDevice, calendarOpen: true)
+    #expect(rendersAtDefaultSize(onPickedDay, dark: dark))
+    #expect(rendersAtDefaultSize(onToday, dark: dark))
+    #expect(L10n.pausePrimary.string("7C19") == "Pause 7C19")
+  }
+
+  @Test(
+    "UX-DR46 the Pause sheet renders a refused date, every other refusal, and the request under way",
+    arguments: [false, true])
+  @MainActor
+  func pauseSheetRefusalsRender(dark: Bool) throws {
+    let refused = try pauseSheetView(.refused)
+    #expect(rendersAtDefaultSize(refused, dark: dark))
+    #expect(renders(refused, dark: dark))
+    for kind in PauseNoticeKind.allCases {
+      let sheet = try pauseSheetView(.notSaved(kind.rawValue, tryAgain: kind == .unreachable))
+      #expect(renders(sheet, dark: dark), "\(kind)")
+    }
+    var working = PauseFixture.forDeviceWholeSite
+    working.working = true
+    let sending = try pauseSheetView(working)
+    #expect(renders(sending, dark: dark))
+    #expect(L10n.pauseUntilRefused.string == "Choose a date after today.")
+    #expect(L10n.pauseWorking.string == "Pausing…")
+  }
+
+  @Test(
+    "UX-DR83 the overview of a paused Site renders the paused headline, the line and paused tiles",
+    arguments: [false, true])
+  @MainActor
+  func pausedOverviewRenders(dark: Bool) {
+    let lots = Overview.pausedSite()
+    #expect(lots.overview?.pausedLine == .gardenSitePaused)
+    #expect(rendersAtDefaultSize(overview(lots), dark: dark))
+    #expect(renders(overview(lots), dark: dark))
+    // Without an end, and with a Resume that did not happen.
+    #expect(renders(overview(Overview.pausedSite(until: "")), dark: dark))
+    let failed = Overview.pausedSite(pause: .resumeFailed("unreachable", tryAgain: true))
+    #expect(renders(overview(failed), dark: dark))
+    #expect(L10n.gardenSitePaused.string == "No Alerts are sent while the Site is paused.")
+  }
+
+  @Test(
+    "UX-DR83 UX-DR84 the overview of a paused Site renders for a Member, with the one notice",
+    arguments: [false, true])
+  @MainActor
+  func pausedOverviewMemberRenders(dark: Bool) {
+    let lots = Overview.pausedSite(role: "member")
+    #expect(lots.overview?.memberPausedNotice == .pauseMemberNotice)
+    #expect(rendersAtDefaultSize(overview(lots), dark: dark))
+    #expect(renders(overview(lots), dark: dark))
+    #expect(L10n.pauseMemberNotice.string == "Only Owners and Administrators can resume it.")
+  }
+
+  @Test("UX-DR22 UX-DR70 the Site menu renders with Pause, with Resume, and disabled in stale mode")
+  @MainActor
+  func siteMenuWithPauseRenders() {
+    for items in [[SiteMenuItem.pause, .siteSettings], [.resume, .siteSettings], [.siteSettings]] {
+      for enabled in [true, false] {
+        #expect(
+          renders(
+            SiteMenu(
+              siteName: "Home garden", items: items, enabled: enabled, onOpenSiteSettings: {})))
+      }
+    }
+    #expect(L10n.siteMenuPause.string("Home garden") == "Pause Home garden")
+    #expect(L10n.siteMenuResume.string("Home garden") == "Resume Home garden")
+  }
+
+  @Test(
+    "UX-DR70 Devices renders paused rows with Pause, Resume and the Resume the Site hint",
+    arguments: [false, true])
+  @MainActor
+  func devicesPausedRender(dark: Bool) {
+    let devices = PausedDevicesFixture.devices()
+    #expect(devices.hubs.map(\.pause.paused) == [true, true])
+    #expect(rendersAtDefaultSize(devicesView(devices), dark: dark))
+    #expect(renders(devicesView(devices), dark: dark))
+    // A Resume under way, and one that did not happen, under its row.
+    let resuming = PausedDevicesFixture.devices(
+      pause: PauseFixture(
+        resumingScope: "device", resumingDeviceId: PausedDevicesFixture.ownHubId))
+    #expect(renders(devicesView(resuming), dark: dark))
+    for kind in PauseNoticeKind.allCases {
+      let failed = PausedDevicesFixture.devices(
+        pause: .resumeFailed(
+          kind.rawValue, deviceId: PausedDevicesFixture.bothNodeId,
+          tryAgain: kind == .unreachable))
+      #expect(renders(devicesView(failed), dark: dark), "\(kind)")
+    }
+    #expect(L10n.devicesResumeSiteHub.string == "Resume the Site to resume this Hub")
+    #expect(L10n.devicesPauseNode.string("7c19") == "Pause Node 7c19")
+  }
+
+  @Test(
+    "UX-DR70 UX-DR84 Devices renders paused rows for a Member, who has no Pause or Resume",
+    arguments: [false, true])
+  @MainActor
+  func devicesPausedMemberRenders(dark: Bool) {
+    let devices = PausedDevicesFixture.devices(admin: false)
+    #expect(!devices.hubs.contains { $0.pause.hasControl })
+    #expect(!devices.nodes.contains { $0.pause.hasControl })
+    #expect(rendersAtDefaultSize(devicesView(devices), dark: dark))
+    #expect(renders(devicesView(devices), dark: dark))
+  }
+
+  @Test(
+    "UX-DR70 Lot detail renders with Pause, with Resume, and paused by the Site only",
+    arguments: [false, true])
+  @MainActor
+  func lotDetailPauseRenders(dark: Bool) {
+    let states: [(name: String, fixture: LotDetailFixture)] = [
+      ("Pause", .pausable), ("Resume", .resumable), ("paused by the Site only", .pausedBySiteOnly),
+    ]
+    for state in states {
+      let detail = lotDetailView(state.fixture.build())
+      #expect(rendersAtDefaultSize(detail, dark: dark), "\(state.name)")
+      #expect(renders(detail, dark: dark), "\(state.name)")
+    }
+    // A Resume under way, and one that did not happen.
+    var resuming = LotDetailFixture.resumable
+    resuming.pause = PauseFixture(resumingScope: "device", resumingDeviceId: PauseFixture.nodeId)
+    #expect(renders(lotDetailView(resuming.build()), dark: dark))
+    var failed = LotDetailFixture.resumable
+    failed.pause = .resumeFailed("forbidden", deviceId: PauseFixture.nodeId)
+    #expect(renders(lotDetailView(failed.build()), dark: dark))
+    #expect(L10n.pauseResume.string == "Resume")
+    #expect(L10n.pauseResuming.string == "Resuming…")
+    #expect(L10n.lotDetailResumeSite.string == "Resume the Site to resume this Node")
+  }
+
+  @Test(
+    "UX-DR70 UX-DR84 Lot detail renders a paused Lot for a Member, with the one notice",
+    arguments: [false, true])
+  @MainActor
+  func lotDetailPausedMemberRenders(dark: Bool) {
+    let detail = LotDetailFixture.pausedForMember.build()
+    #expect(detail.pauseTargetId == nil)
+    #expect(detail.resumeDeviceId == nil)
+    #expect(rendersAtDefaultSize(lotDetailView(detail), dark: dark))
+    #expect(renders(lotDetailView(detail), dark: dark))
+  }
+
+  @MainActor
+  private final class PauseSpy: PauseService {
+    var calls: [String] = []
+    func openForSite() { calls.append("openForSite") }
+    func openForDevice(_ deviceId: String) { calls.append("openForDevice \(deviceId)") }
+    func setScope(_ scope: PauseScopeKind) { calls.append("setScope \(scope.rawValue)") }
+    func setUntil(_ day: PauseDay?) {
+      calls.append(day.map { "setUntil \($0.year)-\($0.month)-\($0.day)" } ?? "clearUntil")
+    }
+    func cancel() { calls.append("cancel") }
+    func save() { calls.append("save") }
+    func resumeSite() { calls.append("resumeSite") }
+    func resumeDevice(_ deviceId: String) { calls.append("resumeDevice \(deviceId)") }
+    func retry() { calls.append("retry") }
+  }
+
+  @Test("UX-DR46 UX-DR70 the Pause actions of each surface reach that surface's Pause service")
+  @MainActor
+  func pauseActionsForward() {
+    let lots = LotsSpy()
+    let site = LotsActions(service: lots).pause
+    site.openForSite()
+    site.setUntil(PauseDay(year: 2027, month: 3, day: 1))
+    site.setUntil(nil)
+    site.save()
+    site.cancel()
+    site.resumeSite()
+    site.retry()
+    #expect(
+      lots.pauseSpy.calls == [
+        "openForSite", "setUntil 2027-3-1", "clearUntil", "save", "cancel", "resumeSite", "retry",
+      ])
+
+    let detail = LotDetailSpy()
+    let node = LotDetailActions(service: detail).pause
+    node.openForDevice("7c19")
+    node.setScope(.site)
+    node.resumeDevice("7c19")
+    #expect(detail.pauseSpy.calls == ["openForDevice 7c19", "setScope site", "resumeDevice 7c19"])
+
+    let devices = DevicesSpy()
+    let row = DevicesActions(service: devices).pause
+    row.openForDevice("3f2a")
+    row.resumeDevice("3f2a")
+    #expect(devices.pauseSpy.calls == ["openForDevice 3f2a", "resumeDevice 3f2a"])
+    // Each surface has its own Pause: a tap on one never reaches another.
+    #expect(lots.pauseSpy.calls.count == 7)
+    #expect(lots.calls.isEmpty)
   }
 #endif

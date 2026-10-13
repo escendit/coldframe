@@ -10,6 +10,9 @@ import com.escendit.coldframe.core.api.SilenceWindowDto
 import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.SensorFormat
+import com.escendit.coldframe.core.sites.DevicePause
+import com.escendit.coldframe.core.sites.PauseApi
+import com.escendit.coldframe.core.sites.PauseEngine
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesState
@@ -60,6 +63,10 @@ public interface DevicesApi {
  * surface is entered; there is no polling. Every load drops the rows first and a failed one
  * leaves [DevicesState.Failed], so a Hub is never shown online from an earlier answer. Answers
  * for an earlier Site, session or load are dropped.
+ *
+ * Pause (Story 8.2): [pause] is the Pause sheet and Resume of a Device row, over [pauseApi]. After a
+ * pause or resume anywhere in the app a shown list is read again without dropping its rows, so every
+ * row shows the Server's `pausedBy`.
  */
 public class DevicesEngine(
     private val api: DevicesApi,
@@ -67,7 +74,11 @@ public class DevicesEngine(
     private val scope: CoroutineScope,
     /** The clock silence durations are told against in the Swift snapshot; injected in tests. */
     internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    pauseApi: PauseApi? = null,
 ) {
+    /** Pause and Resume of a Hub or Node, or of the Site, from a Device row. */
+    public val pause: PauseEngine = PauseEngine(pauseApi, sites, scope)
+
     private val mutableState = MutableStateFlow<DevicesState>(DevicesState.Idle)
 
     /** One observable state for the shells. */
@@ -77,6 +88,8 @@ public class DevicesEngine(
     private var generation = 0
 
     init {
+        // A Pause or a Resume the Server accepted: a shown list reads its rows again.
+        sites.onPauseChanged { (mutableState.value as? DevicesState.Ready)?.let { refresh(it.site) } }
         scope.launch {
             sites.state
                 .map { (it as? SitesState.Ready)?.current }
@@ -337,6 +350,7 @@ public class DevicesEngine(
             filter { it.kind == KIND_HUB }
                 .sortedBy { it.id }
                 .map {
+                    val pause = it.toPause()
                     HubSummary(
                         id = it.id,
                         online = it.online,
@@ -344,8 +358,13 @@ public class DevicesEngine(
                         silentSinceEpochMs = it.silentSince?.let(::epochMsOf),
                         silenceWindowSeconds = it.silenceWindowSeconds,
                         silenceWindowOverridden = it.silenceWindowOverridden == true,
+                        pausedBy = pause.pausedBy,
+                        pausedUntilEpochMs = pause.untilEpochMs,
                     )
                 }
+
+        /** The Server's Pause members of a row; a row without `pausedBy` is not paused. */
+        private fun DeviceListItemDto.toPause(): DevicePause = DevicePause.of(pausedBy, pausedUntil?.let(::epochMsOf))
 
         /** The contract's `DeviceKind` of a Node. */
         public const val KIND_NODE: String = "node"
@@ -354,6 +373,7 @@ public class DevicesEngine(
         internal fun List<DeviceListItemDto>.toNodes(): List<NodeSummary> =
             filter { it.kind == KIND_NODE }
                 .map {
+                    val pause = it.toPause()
                     NodeSummary(
                         id = it.id,
                         lotId = it.lotId,
@@ -365,6 +385,8 @@ public class DevicesEngine(
                         silentSinceEpochMs = it.silentSince?.let(::epochMsOf),
                         silenceWindowSeconds = it.silenceWindowSeconds,
                         silenceWindowOverridden = it.silenceWindowOverridden == true,
+                        pausedBy = pause.pausedBy,
+                        pausedUntilEpochMs = pause.untilEpochMs,
                     )
                 }
 

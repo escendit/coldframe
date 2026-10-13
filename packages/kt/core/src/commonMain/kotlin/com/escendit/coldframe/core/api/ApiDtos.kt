@@ -7,12 +7,44 @@ import kotlinx.serialization.Serializable
  * packages/openapi/README.md). A jvmTest checks every name here against the contract.
  */
 
-/** `Site`: a Site with the caller's Role. */
+/**
+ * `Site`: a Site with the caller's Role. [paused] is true while the Site is paused and [pausedUntil]
+ * (ISO-8601 UTC) the end of that Pause, absent when it has none. The answer to `POST /sites` carries
+ * neither: a Site without [paused] reads as not paused.
+ */
 @Serializable
 public data class SiteDto(
     val id: String,
     val name: String,
     val role: String,
+    val paused: Boolean? = null,
+    val pausedUntil: String? = null,
+)
+
+/**
+ * `SetPauseRequest`: a Pause of a Device or of a Site. [until] is the calendar date the User picked,
+ * `yyyy-MM-dd`; the Server resolves it. Left out, the Pause lasts until someone resumes.
+ */
+@Serializable
+public data class SetPauseRequestDto(
+    val until: String? = null,
+)
+
+/** `SitePause`: the Site's Pause after a pause or resume; [pausedUntil] only while paused with an end. */
+@Serializable
+public data class SitePauseDto(
+    val paused: Boolean,
+    val pausedUntil: String? = null,
+)
+
+/**
+ * `DevicePause`: the Device's Pause after a pause or resume. [pausedBy] holds its sources (`device`
+ * before `site`) and is empty when it is not paused; [pausedUntil] only while paused with an end.
+ */
+@Serializable
+public data class DevicePauseDto(
+    val pausedBy: List<String>,
+    val pausedUntil: String? = null,
 )
 
 /** `SiteList`: the caller's Sites in the Server's order. */
@@ -169,7 +201,9 @@ public data class MoveDeviceRequestDto(
  * `DeviceListItem`: a Device of the Site's Devices list. [online] is computed by the Server when
  * it answers; [lastSeenAt] is ISO-8601 UTC and absent until the first heartbeat. [silentSince] is
  * present exactly while the Device has an open silent Alert; [silenceWindowSeconds] is the Silence
- * Window in force and [silenceWindowOverridden] whether it is the Device's own.
+ * Window in force and [silenceWindowOverridden] whether it is the Device's own. [pausedBy] (`device`
+ * before `site`) is present exactly while the Device is paused, for a Hub as for a Node, and with it
+ * [pausedUntil] when that Pause has an end.
  */
 @Serializable
 public data class DeviceListItemDto(
@@ -184,6 +218,8 @@ public data class DeviceListItemDto(
     val silentSince: String? = null,
     val silenceWindowSeconds: Int? = null,
     val silenceWindowOverridden: Boolean? = null,
+    val pausedBy: List<String>? = null,
+    val pausedUntil: String? = null,
 )
 
 /** `SetSilenceWindowRequest`: the Device's own Silence Window in whole seconds; left out means "use the default". */

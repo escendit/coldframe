@@ -124,11 +124,11 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 
 | Endpoint | Access | What it does |
 | --- | --- | --- |
-| `GET /sites` | any authenticated User | Lists the caller's `Active` Sites with the caller's Role from the identity projection, oldest first then by Site ID: 200 `{sites: [{id, name, role}]}`; `[]` without a Membership |
+| `GET /sites` | any authenticated User | Lists the caller's `Active` Sites with the caller's Role from the identity projection, oldest first then by Site ID: 200 `{sites: [{id, name, role, paused, pausedUntil?}]}`; `[]` without a Membership |
 | `POST /sites` | any authenticated User | `User(sub).CreateSite(key, name)`: 201 `{id, name, role}` with `Location: /sites/{id}` |
-| `GET /sites/{siteId}` | `Member` | Reads the Site and the caller's Role from the identity projection; 404 once the Site is `Deleted` |
+| `GET /sites/{siteId}` | `Member` | Reads the Site, the caller's Role and the Site's Pause (`paused`, `pausedUntil?`, Story 8.2) from the identity projection; 404 once the Site is `Deleted` |
 | `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
-| `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online, silentSince?, silenceWindowSeconds, silenceWindowOverridden}]}`; `online` is computed when the Server answers ([The Devices list](#the-devices-list)) |
+| `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online, silentSince?, silenceWindowSeconds, silenceWindowOverridden, pausedBy?, pausedUntil?}]}`; `online` is computed when the Server answers ([The Devices list](#the-devices-list)) |
 | `PUT /sites/{siteId}/devices/{deviceId}/silence-window` | `Administrator` | Sets a Device's own Silence Window or returns it to the default (Story 7.2, see [The Silence Window endpoint](#the-silence-window-endpoint)): 200 `{windowSeconds, overridden}` |
 | `PUT /sites/{siteId}/devices/{deviceId}/pause` | `Administrator` | Pauses a Device by its own source, with an optional end date (Story 8.1, see [Pause](#pause)): 200 `{pausedBy, pausedUntil?}` |
 | `DELETE /sites/{siteId}/devices/{deviceId}/pause` | `Administrator` | Lifts the Device's own Pause source: 200 `{pausedBy, pausedUntil?}`, still naming `site` while the Site is paused |
@@ -911,8 +911,10 @@ Story 8.1: an Administrator or Owner switches a Device, or the whole Site, off o
 downtime raises no Alert. Pause lives in one place (AD-8): the Device grain, as a set of sources
 `pausedBy ⊆ {device, site}`, each with its own optional end. A Device is paused exactly while it has a source.
 The Site grain holds only the Site's Pause and who has not heard of it yet; no grain and no read model stores
-or derives "is this Device paused?" by itself. The read models project `device.paused` and `device.resumed`
-as before ([Lot status](#lot-status)).
+or derives "is this Device paused?" by itself. The read models only project the journaled events: the lots
+projector `device.paused` and `device.resumed` ([Lot status](#lot-status)), the devices projector the same two
+([The Devices list](#the-devices-list)), and the identity projector `site.paused` and `site.resumed`
+([Reading a Pause back](#reading-a-pause-back), Story 8.2).
 
 **What a paused Device does.** Its frames are acknowledged as ever and nothing of them is kept, evaluated or
 counted (step 5 of [Ingesting Node frames](#ingesting-node-frames-step-by-step)); a Hub's heartbeat is still
@@ -995,9 +997,36 @@ their own clock.
 | a `deviceId` that is no Device ID | 400 `validation` |
 | a Device that is unknown or of another Site | 404 `device-not-found` |
 
-`pausedUntil` is absent, not `null`, when there is no end, like every optional member of this API. The Devices
-list and `GET /sites/{siteId}` carry no pause fields (Story 8.2 decides what its screens need), so a Hub's
-Pause, a Hub having no Lot, shows in no read model yet.
+`pausedUntil` is absent, not `null`, when there is no end, like every optional member of this API.
+
+#### Reading a Pause back
+
+Story 8.2 (DW-112): the clients render what the Server says and never compute or remember "paused", so every
+Pause can be read from where its screen reads.
+
+| Read | Members | From |
+| --- | --- | --- |
+| `GET /sites`, `GET /sites/{siteId}`, the answer to `PATCH /sites/{siteId}` | `paused`, always; `pausedUntil` only while the Site is paused with an end | `identity_sites.paused`, `paused_until`, which `IdentityProjector` sets from `site.paused` and clears on `site.resumed` (`EdgeApi.ToSiteResponse`) |
+| `GET /sites/{siteId}/devices` | `pausedBy` (`device` before `site`) exactly while the Device is paused; `pausedUntil`, the later end, absent when a source has none | `devices.device_paused`, `device_paused_until`, `site_paused`, `site_paused_until`, which `DevicesProjector` sets from `device.paused` and `device.resumed`, one pair per source as in `lot_status_devices` (`EdgeApi.ToDeviceListItem`, `LotStatusRule.PausedUntil`) |
+| `GET /sites/{siteId}/lots`, `…/lots/{lotId}` | `status: paused`, `pausedBy`, `pausedUntil` | [Lot status](#lot-status), as before |
+
+- **A Hub shows too.** A Hub has no Lot, so its Pause is in the Devices list only. A Node paused only by its
+  Site lists `pausedBy: ["site"]` with the Site's end.
+- **The answer to `POST /sites`** carries no `paused`: it comes from the grains, and a client reads a Site
+  without the member as not paused.
+- **Read-your-writes, for the thing addressed.** `ISiteGrain.SetPause` and `LiftPause`, and the wake that ends a
+  Site Pause at its due-at, catch the identity projection up before they return, so the next `GET /sites` and
+  `GET /sites/{siteId}` show the change. Every Pause change of a Device catches the lots and the devices
+  projections up (`DeviceGrain.CatchUpPauseReadModelsAsync`), so the next read of the Devices list and of the
+  Lot shows it. The Devices of a paused Site follow through delivery: a client reads again on the `devices` and
+  `lots` hints ([Live updates](#live-updates)) or at its next refresh. A catch-up that fails changes no answer
+  and is logged (`PauseCatchUpFailed`, `LotsCatchUpFailed`, `CatchUpFailed`); the read follows on the next poll.
+- **The migration** `M20261014090000AddPauseReadColumns` adds the columns, deletes the `devices` checkpoint and
+  keeps its rows (the projector reads the journal again from position 0, as for the silence columns), and fills
+  `identity_sites` from the newest `site.paused` or `site.resumed` of each Site stream in `journal_events`, so a
+  Pause journaled before the change shows too. The identity projection is never replayed from position 0: until
+  it caught up it would show revoked Memberships and deleted Sites as live, and the access rules read that
+  table.
 
 | Event | Journaled when |
 | --- | --- |
@@ -1013,7 +1042,10 @@ Tests: `PauseEndRuleTests`, `SiteStatePauseTests` and the Pause cases of `Device
 `DeviceStateBatteryTests` (`tests/cs/server.tests`); `PauseGrainTests` and `SitePauseGrainTests`
 (`tests/cs/server.integration`), a TestCluster with a fake clock where a test fires the reminders by hand
 (`IdentityCluster.WakeDeviceAsync`, `WakeSiteAsync`; the cluster drops their own ticks) and restarts the silo at
-a given time; and `PauseEndpointTests` on the AppHost.
+a given time; and `PauseEndpointTests` on the AppHost. The read surface (Story 8.2): `SiteResponseTests` and the Pause cases of
+`DeviceLivenessTests` (`tests/cs/server.tests`), the Pause cases of `ListSitesTests`, `DevicesListTests`,
+`PauseEndpointTests` and `MigrationTests` (`tests/cs/server.integration`), and `WinterPauseJourneyTests`
+(`tests/cs/web.e2e`), UJ-4 in a browser.
 
 ### The Alerts list
 
@@ -1435,10 +1467,10 @@ example per message that the tests must equal.
 
   | `resource` | `id` | Reported by | For |
   | --- | --- | --- | --- |
-  | `sites` | Site | `IdentityProjector` | a Site created, renamed or deleted; a Membership granted or revoked (also sent to that User) |
+  | `sites` | Site | `IdentityProjector` | a Site created, renamed, deleted, paused or resumed (Story 8.2); a Membership granted or revoked (also sent to that User) |
   | `lots` | Lot | `LotsProjector` | a Lot created, renamed or removed, and every Lot whose status is evaluated again |
   | `readings` | Lot | `DeviceGrain.Ingest` | new Readings or a new device report of the Lot's Node |
-  | `devices` | Device | `DevicesProjector` | a Device enrolled, assigned, moved or unassigned, or seen later than before; a Device that went silent or recovered, or whose Silence Window changed (Story 7.2). The web overview reads again on it: a silent Hub with no Lot behind it changes no Lot |
+  | `devices` | Device | `DevicesProjector` | a Device enrolled, assigned, moved or unassigned, or seen later than before; a Device that went silent or recovered, or whose Silence Window changed (Story 7.2); a Device whose Pause sources or their ends changed (Story 8.2). The web overview reads again on it: a silent Hub with no Lot behind it changes no Lot |
   | `alerts` | Alert | `AlertsProjector` | an Alert opened or closed |
 
 Tests: `tests/cs/server.tests/Live` (the hub on a loopback listener with the SignalR client, the channel, the
@@ -1512,7 +1544,9 @@ being reached.
 | `device.unassigned` | Sets `lot_id` to `NULL`: the Node lists as unassigned (Story 4.9) |
 | `device.lot-released` | Nothing: it only clears a Lot from the Device's pending releases |
 | `device.seen` | Sets `last_seen_at` to `seenAt`; it never moves backwards |
-| `device.relay-changed`, `device.paused`, `device.resumed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |
+| `device.paused` | Sets the pair of the source it names: `device_paused` and `device_paused_until`, or `site_paused` and `site_paused_until` (Story 8.2, [Reading a Pause back](#reading-a-pause-back)) |
+| `device.resumed` | Clears that pair |
+| `device.relay-changed`, `device.specifications-declared` | Nothing here; the lots projector reads them ([Lot status](#lot-status)) |
 | `device.silence-started` | Sets `silent_since` to the event's `silentSince` (Story 7.2); for an episode journaled before that story, to its `startedAt` |
 | `device.silence-ended` | Sets `silent_since` to `NULL` |
 | `device.silence-window-set` | Sets `silence_window_seconds`, `NULL` for the default of the kind |

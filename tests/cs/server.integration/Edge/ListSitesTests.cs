@@ -101,6 +101,56 @@ public sealed class ListSitesTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         Assert.Equal([(id, "Home", "Owner")], await ReadSitesAsync(response, cancellationToken));
     }
 
+    // Story 8.2 (DW-112): the identity projection follows site.paused and site.resumed, and both Site reads say so.
+    [Fact]
+    public async Task APausedSiteSaysSoWithItsEndInTheListAndWhenReadUntilItIsResumed()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var caller = await edge.CreateUserAsync("list-paused", cancellationToken);
+        var until = new DateTimeOffset(2027, 2, 28, 23, 0, 0, TimeSpan.Zero);
+        var withEnd = Guid.CreateVersion7().ToString();
+        var open = Guid.CreateVersion7().ToString();
+        var live = Guid.CreateVersion7().ToString();
+        var now = TimeProvider.System.GetUtcNow();
+
+        await edge.AppendAsync(
+            $"site/{withEnd}",
+            [new SiteCreated("With end", caller.UserId), new MembershipGranted(caller.UserId, SiteRole.Owner), new SitePaused(until, 1, now)],
+            cancellationToken);
+        await edge.AppendAsync(
+            $"site/{open}",
+            [
+                new SiteCreated("Open", caller.UserId),
+                new MembershipGranted(caller.UserId, SiteRole.Member),
+                new SitePaused(until, 1, now),
+                new SitePaused(null, 2, now),
+            ],
+            cancellationToken);
+        var last = await edge.AppendAsync(
+            $"site/{live}",
+            [new SiteCreated("Live", caller.UserId), new MembershipGranted(caller.UserId, SiteRole.Owner)],
+            cancellationToken);
+        await edge.WaitForIdentityCheckpointAsync(last);
+
+        using var server = edge.CreateServerClient(caller.AccessToken);
+
+        Assert.Equal(
+            [(withEnd, true, "2027-02-28T23:00:00.000Z"), (open, true, null), (live, false, null)],
+            await ReadPausesAsync(server, cancellationToken));
+        Assert.Equal((true, "2027-02-28T23:00:00.000Z"), await ReadPauseAsync(server, withEnd, cancellationToken));
+        Assert.Equal((true, null), await ReadPauseAsync(server, open, cancellationToken));
+        Assert.Equal((false, null), await ReadPauseAsync(server, live, cancellationToken));
+
+        // Resumed: paused is false and the end is gone.
+        last = await edge.AppendAsync($"site/{withEnd}", 3, [new SiteResumed(2, now)], cancellationToken);
+        await edge.WaitForIdentityCheckpointAsync(last);
+
+        Assert.Equal(
+            [(withEnd, false, null), (open, true, null), (live, false, null)],
+            await ReadPausesAsync(server, cancellationToken));
+        Assert.Equal((false, null), await ReadPauseAsync(server, withEnd, cancellationToken));
+    }
+
     [Fact]
     public async Task WithoutATokenTheListIsUnauthorized()
     {
@@ -110,6 +160,29 @@ public sealed class ListSitesTests(EdgeApiFixture edge) : IClassFixture<EdgeApiF
         using var response = await server.GetAsync(new Uri("/sites", UriKind.Relative), cancellationToken);
 
         await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.Unauthorized, "urn:coldframe:problem:unauthorized", cancellationToken);
+    }
+
+    private static (bool Paused, string? PausedUntil) PauseOf(JsonElement site) =>
+        (site.GetProperty("paused").GetBoolean(), site.TryGetProperty("pausedUntil", out var until) ? until.GetString() : null);
+
+    private static async Task<List<(string Id, bool Paused, string? PausedUntil)>> ReadPausesAsync(HttpClient server, CancellationToken cancellationToken)
+    {
+        using var response = await server.GetAsync(new Uri("/sites", UriKind.Relative), cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+
+        return body.RootElement.GetProperty("sites").EnumerateArray()
+            .Select(site => (site.GetProperty("id").GetString()!, PauseOf(site).Paused, PauseOf(site).PausedUntil))
+            .ToList();
+    }
+
+    private static async Task<(bool Paused, string? PausedUntil)> ReadPauseAsync(HttpClient server, string siteId, CancellationToken cancellationToken)
+    {
+        using var response = await server.GetAsync(new Uri($"/sites/{siteId}", UriKind.Relative), cancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+
+        return PauseOf(body.RootElement);
     }
 
     private static async Task<List<(string Id, string Name, string Role)>> ReadSitesAsync(HttpResponseMessage response, CancellationToken cancellationToken)

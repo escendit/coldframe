@@ -65,7 +65,8 @@ public sealed class EdgeApiTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFix
         using var read = await server.GetAsync(new Uri($"/sites/{body.Id}", UriKind.Relative), cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-        Assert.Equal(body, await ReadSiteAsync(read, cancellationToken));
+        // The read comes from the identity projection, which also says that a new Site is not paused (Story 8.2).
+        Assert.Equal(body, await ReadSiteAsync(read, cancellationToken, paused: false));
     }
 
     [Fact]
@@ -228,15 +229,23 @@ public sealed class EdgeApiTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFix
         Assert.Equal((int)status, problem.RootElement.GetProperty("status").GetInt32());
     }
 
-    private static async Task<SiteBody> ReadSiteAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    // The answer to Create Site says nothing about a Pause; a read of the Site says `paused` (Story 8.2).
+    private static async Task<SiteBody> ReadSiteAsync(HttpResponseMessage response, CancellationToken cancellationToken, bool? paused = null)
     {
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
 
         using var document = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
         var root = document.RootElement;
 
-        // camelCase, exactly these three fields.
-        Assert.Equal(["id", "name", "role"], root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        // camelCase, exactly these fields.
+        Assert.Equal(
+            paused is null ? ["id", "name", "role"] : ["id", "name", "paused", "role"],
+            root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+
+        if (paused is { } expected)
+        {
+            Assert.Equal(expected, root.GetProperty("paused").GetBoolean());
+        }
 
         return new SiteBody(root.GetProperty("id").GetString()!, root.GetProperty("name").GetString()!, root.GetProperty("role").GetString()!);
     }

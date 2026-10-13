@@ -30,6 +30,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.android.ui.setup.NodeSetupActions
+import com.escendit.coldframe.android.ui.sites.LotsActions
 import com.escendit.coldframe.android.ui.sites.SitesActions
 import com.escendit.coldframe.core.appearance.ThemePreference
 import com.escendit.coldframe.core.lots.CreateLotForm
@@ -393,31 +394,77 @@ class SitesScreensTest {
 
     // The Site menu
 
-    private fun assertSiteMenuHoldsOnlySiteSettings(role: SiteRole) {
-        show(readySites(homeSite(role)))
+    /** The Garden of [site] without Lots yet, with the Site menu's Pause actions recorded in [calls]. */
+    private fun showGarden(site: SiteSummary) {
+        sites = readySites(site)
+        compose.setContent {
+            ColdframeRoot(
+                state = SignInState.SignedIn("Simon"),
+                sites = sites,
+                theme = ThemePreference.Light,
+                onSignIn = {},
+                onSignOut = {},
+                onSelectTheme = {},
+                sitesActions = actions,
+                lotsActions = LotsActions(pause = PauseFixtures.recording(calls)),
+            )
+        }
+    }
+
+    @Test
+    fun `UX-DR22 UX-DR74 an Owner's Site menu holds Pause and Site settings, which opens Site settings`() {
+        showGarden(homeSite(SiteRole.Owner))
 
         compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
 
-        compose.onNodeWithText("Site settings").assertExists()
-        compose.onAllNodesWithText("Pause Home garden").assertCountEquals(0)
+        compose.onNodeWithText("Pause Home garden").assertExists()
         compose.onAllNodesWithText("Resume Home garden").assertCountEquals(0)
+        compose.onAllNodesWithText("Needs your Server").assertCountEquals(0)
         compose.onNodeWithText("Site settings").performClick()
         compose.onNode(isHeading().and(hasText("Site settings"))).assertExists()
         assertTrue(calls.isEmpty())
     }
 
     @Test
-    fun `UX-DR22 UX-DR74 an Owner's Site menu holds only Site settings, which opens Site settings`() {
-        assertSiteMenuHoldsOnlySiteSettings(SiteRole.Owner)
+    fun `UX-DR22 UX-DR70 an Administrator's Pause item opens the Pause sheet, also before the Lots are read`() {
+        showGarden(homeSite(SiteRole.Administrator))
+
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+        compose.onNodeWithText("Pause Home garden").performClick()
+
+        assertEquals(listOf("openForSite"), calls)
+        // The menu closed with the tap.
+        compose.onAllNodesWithText("Site settings").assertCountEquals(0)
     }
 
     @Test
-    fun `UX-DR22 an Administrator's Site menu holds only Site settings in this story`() {
-        assertSiteMenuHoldsOnlySiteSettings(SiteRole.Administrator)
+    fun `UX-DR22 UX-DR70 a paused Site's menu offers Resume instead of Pause, and one tap resumes`() {
+        showGarden(homeSite(SiteRole.Owner).copy(paused = true))
+
+        compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+
+        compose.onAllNodesWithText("Pause Home garden").assertCountEquals(0)
+        compose.onNodeWithText("Resume Home garden").performClick()
+        assertEquals(listOf("resumeSite"), calls)
     }
 
     @Test
-    fun `UX-DR22 a Member's Site menu has no Pause and holds Site settings`() {
-        assertSiteMenuHoldsOnlySiteSettings(SiteRole.Member)
+    fun `UX-DR22 UX-DR84 a Member's Site menu has no Pause and no Resume, and holds Site settings`() {
+        showGarden(homeSite(SiteRole.Member))
+
+        fun assertOnlySiteSettings() {
+            compose.onNodeWithContentDescription("Site menu for Home garden").performClick()
+            compose.onAllNodesWithText("Pause Home garden").assertCountEquals(0)
+            compose.onAllNodesWithText("Resume Home garden").assertCountEquals(0)
+            compose.onNodeWithText("Site settings").performClick()
+            compose.onNode(isHeading().and(hasText("Site settings"))).assertExists()
+        }
+        assertOnlySiteSettings()
+
+        // Paused by someone else: the Member's menu is the same.
+        sites = readySites(homeSite(SiteRole.Member).copy(paused = true))
+        compose.onNodeWithText("Garden").performClick()
+        assertOnlySiteSettings()
+        assertTrue(calls.isEmpty())
     }
 }

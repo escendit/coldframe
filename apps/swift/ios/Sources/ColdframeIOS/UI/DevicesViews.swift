@@ -15,6 +15,8 @@
     /// The Device, what was typed and its unit; false when the core refused the value.
     public var setSilenceWindow: (String, String, SilenceWindowUnitKind) -> Bool
     public var useDefaultSilenceWindow: (String) -> Void
+    /// Pause and Resume from a Device row (Story 8.2).
+    public var pause: PauseActions
 
     public init(service: DevicesService) {
       load = { service.load() }
@@ -23,6 +25,7 @@
       tick = { service.tick() }
       setSilenceWindow = { service.setSilenceWindow($0, text: $1, unit: $2) }
       useDefaultSilenceWindow = { service.useDefaultSilenceWindow($0) }
+      pause = PauseActions(service: service.pause)
     }
 
     private init() {
@@ -32,6 +35,7 @@
       tick = {}
       setSilenceWindow = { _, _, _ in true }
       useDefaultSilenceWindow = { _ in }
+      pause = .none
     }
 
     public static let none = DevicesActions()
@@ -46,6 +50,13 @@
   /// with its last seen, and every row names its Silence Window. Changing it is a row action for
   /// Administrators and Owners only: for a Member the control does not exist. A one-minute tick
   /// moves the silences; it fetches nothing.
+  ///
+  /// Pause (Story 8.2): a Device the Server lists as paused shows the pause icon and "Paused",
+  /// or "Paused by Site" when its sources include the Site, in paused ink. For Administrators
+  /// and Owners a row has Pause, which opens the Pause sheet with This Device selected, or
+  /// Resume, which lifts the Device's own Pause at once. A Device paused only by its Site has no
+  /// Resume: "Resume the Site to resume this Node" (a Hub row: "… this Hub"), and Pause stays. A
+  /// Member sees the paused state and none of the controls.
   public struct DevicesView: View {
     let presentation: DevicesPresentation
     let actions: DevicesActions
@@ -105,6 +116,11 @@
           },
           onCancel: { window = nil })
       }
+      // One modal level at a time: never over the Move picker or the Silence Window sheet.
+      .pauseSheet(
+        presentation.pause, blocked: moving != nil || window != nil,
+        actions: actions.pause, unreachable: .devicesUnreachable, now: now, timeZone: timeZone
+      )
       .task { [actions] in
         // The only timer of Devices: once a minute the core's snapshot is read again.
         while !Task.isCancelled {
@@ -205,14 +221,17 @@
       Rectangle().fill(palette.borderSubtle).frame(height: 1)
     }
 
-    /// One element per row for VoiceOver: the ID, the status word, the silence, the last-seen
-    /// time and the Silence Window. The action below it is also a custom accessibility action of
-    /// that element.
+    /// One element per row for VoiceOver: the ID, the status word, the paused state, the
+    /// silence, the last-seen time and the Silence Window. The actions below it are also custom
+    /// accessibility actions of that element.
     private func row(_ hub: HubRowPresentation, shownAt: Date) -> some View {
       let context = CopyContext.catalogue(now: shownAt, timeZone: timeZone, locale: locale)
+      let pauseLabel = hub.pauseLabel.string
+      let resumeLabel = hub.resumeLabel.string
       return VStack(alignment: .leading, spacing: Spacing.step2) {
         hubSummary(hub, shownAt: shownAt, context: context)
           .accessibilityElement(children: .combine)
+          .modifier(pauseAccessibility(hub.pause, hub.id, pauseLabel, resumeLabel))
           .modifier(
             SilenceWindowAccessibility(
               enabled: presentation.canSetSilenceWindow,
@@ -220,8 +239,10 @@
               onOpen: { openWindow(hub.id) }
             )
           )
+        pauseButtons(hub.pause, hub.id, pauseLabel, resumeLabel)
         silenceWindowAction(
           hub.silence, label: L10n.devicesSilenceWindowHub.string(hub.id), deviceId: hub.id)
+        pauseFailure(hub.id)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.vertical, Spacing.step4)
@@ -240,6 +261,7 @@
             .accessibilityHidden(true)
           hub.status.text.role(Typography.helper).foregroundStyle(palette.textPrimary)
         }
+        pausedMark(hub.pause)
         silentMark(hub.silence, context)
         Text(
           verbatim: hub.lastSeenCopy(now: shownAt, timeZone: timeZone, locale: locale).string
@@ -248,8 +270,83 @@
         .foregroundStyle(palette.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
         windowSummary(hub.silence, context)
+        resumeSiteHint(hub.resumeSiteHint)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A paused Device (UX-DR70): the pause icon with "Paused", or "Paused by Site" when its
+    /// sources include the Site, in paused ink; in sentence case in the catalogue and upper case
+    /// by style. Purple and the pause icon mean paused, and nothing else.
+    @ViewBuilder
+    private func pausedMark(_ pause: DevicePausePresentation) -> some View {
+      if let label = pause.label {
+        PausedMark {
+          label.text.role(Typography.statusLabel)
+            .foregroundStyle(palette.color(DevicePausePresentation.ink))
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+
+    /// "Resume the Site to resume this Node" (or "… this Hub"): why a Device paused by its Site
+    /// has no Resume.
+    @ViewBuilder
+    private func resumeSiteHint(_ hint: L10n?) -> some View {
+      if let hint {
+        hint.text.role(Typography.helper).foregroundStyle(palette.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+
+    /// Pause, which opens the sheet, or Resume, which acts at once: whichever the core says the
+    /// row has, for Administrators and Owners only (UX-DR84). For a Member neither exists. One
+    /// request at a time: while one runs, no row starts another.
+    @ViewBuilder
+    private func pauseButtons(
+      _ pause: DevicePausePresentation, _ deviceId: String, _ pauseLabel: String,
+      _ resumeLabel: String
+    ) -> some View {
+      if pause.hasControl {
+        HStack(spacing: Spacing.step4) {
+          if pause.canResume {
+            PrimaryButton(.pauseResume, variant: .ghost, isEnabled: !presentation.pause.working) {
+              actions.pause.resumeDevice(deviceId)
+            }
+            .accessibilityLabel(Text(verbatim: resumeLabel))
+          }
+          if pause.canPause {
+            PrimaryButton(.pauseAction, variant: .ghost, isEnabled: !presentation.pause.working) {
+              actions.pause.openForDevice(deviceId)
+            }
+            .accessibilityLabel(Text(verbatim: pauseLabel))
+          }
+        }
+      }
+    }
+
+    /// The same two as custom VoiceOver actions of the row's element; ignored while a request
+    /// runs, as the buttons are.
+    private func pauseAccessibility(
+      _ pause: DevicePausePresentation, _ deviceId: String, _ pauseLabel: String,
+      _ resumeLabel: String
+    ) -> PauseAccessibility {
+      let idle = !presentation.pause.working
+      return PauseAccessibility(
+        pauseLabel: pause.canPause ? pauseLabel : nil,
+        resumeLabel: pause.canResume ? resumeLabel : nil,
+        onPause: { if idle { actions.pause.openForDevice(deviceId) } },
+        onResume: { if idle { actions.pause.resumeDevice(deviceId) } })
+    }
+
+    /// A Resume of this Device that did not happen, under its row: Devices' own "can't reach"
+    /// copy with Try again, or the 403 copy naming the Site.
+    @ViewBuilder
+    private func pauseFailure(_ deviceId: String) -> some View {
+      if let failure = presentation.pauseFailure(for: deviceId) {
+        PauseFailureNotice(
+          failure: failure, actions: actions.pause, unreachable: .devicesUnreachable)
+      }
     }
 
     /// A silent Device (Story 7.2): the `help` icon with "Silent 6 h", in sentence case in the
@@ -309,9 +406,12 @@
     private func nodeRow(_ node: NodeRowPresentation, shownAt: Date) -> some View {
       let unassignLabel = node.canUnassign ? L10n.devicesUnassignDescription.string(node.id) : nil
       let windowLabel = L10n.devicesSilenceWindowNode.string(node.id)
+      let pauseLabel = node.pauseLabel.string
+      let resumeLabel = node.resumeLabel.string
       return VStack(alignment: .leading, spacing: Spacing.step2) {
         nodeSummary(node, shownAt: shownAt)
           .accessibilityElement(children: .combine)
+          .modifier(pauseAccessibility(node.pause, node.id, pauseLabel, resumeLabel))
           .modifier(
             NodeActionsAccessibility(
               enabled: presentation.canManageNodes,
@@ -327,6 +427,7 @@
               onOpen: { openWindow(node.id) }
             )
           )
+        pauseButtons(node.pause, node.id, pauseLabel, resumeLabel)
         // Administrators and Owners only, hidden for a Member (UX-DR31); no Bluetooth is needed.
         if presentation.canManageNodes {
           HStack(spacing: Spacing.step4) {
@@ -347,6 +448,7 @@
           InlineNotice(message: notice.message, announcement: .assertive)
         }
         silenceWindowAction(node.silence, label: windowLabel, deviceId: node.id)
+        pauseFailure(node.id)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.vertical, Spacing.step4)
@@ -371,6 +473,7 @@
         }
         .role(Typography.bodyLg).foregroundStyle(palette.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
+        pausedMark(node.pause)
         silentMark(node.silence, context)
         HStack(spacing: Spacing.step5) {
           Text(
@@ -393,6 +496,7 @@
         }
         .fixedSize(horizontal: false, vertical: true)
         windowSummary(node.silence, context)
+        resumeSiteHint(node.resumeSiteHint)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -449,6 +553,29 @@
         } else {
           content.accessibilityAction(named: Text(verbatim: moveLabel), onMove)
         }
+      } else {
+        content
+      }
+    }
+  }
+
+  /// Marks Pause and Resume of a Device row as custom VoiceOver actions. A label is nil where the
+  /// core offers no such control, and then the action does not exist.
+  private struct PauseAccessibility: ViewModifier {
+    let pauseLabel: String?
+    let resumeLabel: String?
+    let onPause: () -> Void
+    let onResume: () -> Void
+
+    func body(content: Content) -> some View {
+      if let pauseLabel, let resumeLabel {
+        content
+          .accessibilityAction(named: Text(verbatim: pauseLabel), onPause)
+          .accessibilityAction(named: Text(verbatim: resumeLabel), onResume)
+      } else if let pauseLabel {
+        content.accessibilityAction(named: Text(verbatim: pauseLabel), onPause)
+      } else if let resumeLabel {
+        content.accessibilityAction(named: Text(verbatim: resumeLabel), onResume)
       } else {
         content
       }

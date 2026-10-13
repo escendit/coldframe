@@ -389,17 +389,16 @@ describe('Garden and Site menu models', () => {
     expect(firstRunSteps('Member', true).actionable).toBe(false);
   });
 
-  test('UX-DR22 Site settings always; Pause/Resume only once Pause exists, for Administrator and Owner', () => {
-    expect(siteMenuItems('Owner').map((item) => item.action)).toEqual(['settings']);
+  test('UX-DR22 Pause or Resume for Administrator and Owner, hidden for a Member; Site settings always', () => {
+    expect(siteMenuItems('Owner').map((item) => item.action)).toEqual(['pause', 'settings']);
+    expect(siteMenuItems('Administrator', { paused: true }).map((item) => item.action)).toEqual(['resume', 'settings']);
     expect(siteMenuItems('Member').map((item) => item.action)).toEqual(['settings']);
-    expect(siteMenuItems('Owner', { pauseAvailable: true }).map((item) => item.action)).toEqual(['pause', 'settings']);
-    expect(siteMenuItems('Administrator', { pauseAvailable: true, paused: true }).map((item) => item.action)).toEqual(['resume', 'settings']);
-    expect(siteMenuItems('Member', { pauseAvailable: true }).map((item) => item.action)).toEqual(['settings']);
-    expect(siteMenuItems('Owner')[0]).toEqual({ action: 'settings', label: 'siteMenu.settings', disabled: false, href: '/settings/site' });
+    expect(siteMenuItems('Member', { paused: true }).map((item) => item.action)).toEqual(['settings']);
+    expect(siteMenuItems('Owner')[1]).toEqual({ action: 'settings', label: 'siteMenu.settings', disabled: false, href: '/settings/site' });
   });
 
   test('UX-DR22 in stale mode every item is disabled with Needs your Server', () => {
-    const items = siteMenuItems('Owner', { pauseAvailable: true, stale: true });
+    const items = siteMenuItems('Owner', { stale: true });
     expect(items.map((item) => item.disabled)).toEqual([true, true]);
   });
 });

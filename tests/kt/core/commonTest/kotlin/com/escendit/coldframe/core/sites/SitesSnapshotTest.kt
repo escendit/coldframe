@@ -110,4 +110,24 @@ class SitesSnapshotTest {
             assertTrue(snapshotOf(SitesState.Ready(listOf(site), site, creating = null)).stepsActionable, "$role")
         }
     }
+
+    @Test
+    fun uxDr83ThePausedMembersOfTheSitesCrossAndTheMenuFollowsTheCurrentSite() {
+        val home = SiteSummary("a", "Home", SiteRole.Owner, paused = true, pausedUntilEpochMs = 1_803_859_200_000L)
+        val allotment = SiteSummary("b", "Allotment", SiteRole.Administrator)
+
+        val paused = snapshotOf(SitesState.Ready(listOf(home, allotment), home, creating = null))
+
+        assertEquals(listOf(true, false), paused.sitePaused)
+        assertEquals(listOf("1803859200000", ""), paused.sitePausedUntils)
+        assertTrue(paused.currentPaused)
+        assertEquals("1803859200000", paused.currentPausedUntil)
+        assertEquals(listOf("resume", "siteSettings"), paused.menuItems)
+
+        val live = snapshotOf(SitesState.Ready(listOf(home, allotment), allotment, creating = null))
+        assertFalse(live.currentPaused)
+        assertEquals("", live.currentPausedUntil)
+        assertEquals(listOf("pause", "siteSettings"), live.menuItems)
+        assertFalse(snapshotOf(SitesState.Loading).currentPaused)
+    }
 }

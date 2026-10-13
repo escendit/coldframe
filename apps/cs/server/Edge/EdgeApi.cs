@@ -34,7 +34,9 @@ public sealed record CreateSiteRequest(string? Name);
 /// <param name="Id">The Site ID.</param>
 /// <param name="Name">The Site name.</param>
 /// <param name="Role">The caller's Role on the Site.</param>
-public sealed record SiteResponse(string Id, string Name, SiteRole Role);
+/// <param name="Paused">Whether the Site is paused (Story 8.2); sent by every read of the identity projection, omitted by the answer to Create Site.</param>
+/// <param name="PausedUntil">When the Site's Pause ends, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>; omitted without an end and while the Site is not paused.</param>
+public sealed record SiteResponse(string Id, string Name, SiteRole Role, bool? Paused = null, string? PausedUntil = null);
 
 /// <summary>
 /// The body of <c>GET /sites</c>: the caller's Sites in the Server's order.
@@ -362,6 +364,8 @@ public sealed record DeviceResponse(string Id, string Kind, string SiteId, strin
 /// <param name="SilentSince">When a silent Device was last heard, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>; sent exactly while its <c>silent</c> Alert is open (Story 7.2).</param>
 /// <param name="SilenceWindowSeconds">The Silence Window in force in seconds: the Device's own, else the default of its kind.</param>
 /// <param name="SilenceWindowOverridden">Whether the Device has its own Silence Window.</param>
+/// <param name="PausedBy">The Device's Pause sources, <c>device</c> before <c>site</c> (Story 8.2); omitted while it is not paused.</param>
+/// <param name="PausedUntil">When the Pause ends, <c>yyyy-MM-ddTHH:mm:ss.fffZ</c>: the later end of its sources; omitted when any source has no end and while the Device is not paused.</param>
 public sealed record DeviceListItemResponse(
     string Id,
     string Kind,
@@ -373,7 +377,9 @@ public sealed record DeviceListItemResponse(
     string? Charging = null,
     string? SilentSince = null,
     long? SilenceWindowSeconds = null,
-    bool? SilenceWindowOverridden = null);
+    bool? SilenceWindowOverridden = null,
+    IReadOnlyList<string>? PausedBy = null,
+    string? PausedUntil = null);
 
 /// <summary>
 /// The body of <c>PUT /sites/{siteId}/devices/{deviceId}/silence-window</c> (Story 7.2). The member is read as
@@ -766,8 +772,21 @@ public static partial class EdgeApi
     {
         var sites = await readModel.ListSitesAsync(CallerId(httpContext), httpContext.RequestAborted).ConfigureAwait(false);
 
-        return TypedResults.Ok(new SiteListResponse([.. sites.Select(site => new SiteResponse(site.SiteId, site.Name, site.Role))]));
+        return TypedResults.Ok(new SiteListResponse(
+            [.. sites.Select(site => ToSiteResponse(site.SiteId, site.Name, site.Role, site.Paused, site.PausedUntil))]));
     }
+
+    /// <summary>
+    /// A Site as the identity projection holds it (Story 8.2): with <c>paused</c>, always, and
+    /// <c>pausedUntil</c> only while the Site is paused with an end.
+    /// </summary>
+    /// <param name="siteId">The Site ID.</param>
+    /// <param name="name">The Site name.</param>
+    /// <param name="role">The caller's Role on the Site.</param>
+    /// <param name="paused">Whether the Site is paused.</param>
+    /// <param name="pausedUntil">When its Pause ends, if it has an end.</param>
+    internal static SiteResponse ToSiteResponse(string siteId, string name, SiteRole role, bool paused, DateTimeOffset? pausedUntil) =>
+        new(siteId, name, role, paused, paused && pausedUntil is { } until ? ToServerTime(until) : null);
 
     private static async Task<IResult> GetSiteAsync(
         string siteId,
@@ -779,7 +798,7 @@ public static partial class EdgeApi
 
         // The policy has allowed the request; the Site can only have vanished in between.
         return site is { Lifecycle: SiteLifecycle.Active, CallerRole: { } role }
-            ? TypedResults.Ok(new SiteResponse(site.SiteId, site.Name, role))
+            ? TypedResults.Ok(ToSiteResponse(site.SiteId, site.Name, role, site.Paused, site.PausedUntil))
             : SiteNotFound();
     }
 
@@ -811,7 +830,9 @@ public static partial class EdgeApi
 
         return ToHttpResult(
             result.Outcome,
-            site is { Lifecycle: SiteLifecycle.Active, CallerRole: { } role } ? new SiteResponse(site.SiteId, site.Name, role) : null);
+            site is { Lifecycle: SiteLifecycle.Active, CallerRole: { } role }
+                ? ToSiteResponse(site.SiteId, site.Name, role, site.Paused, site.PausedUntil)
+                : null);
     }
 
     /// <summary>
@@ -1891,13 +1912,31 @@ public static partial class EdgeApi
     /// Maps a Device of the read model to the list item: <c>online</c> from the Server clock
     /// (<see cref="DeviceLiveness.IsOnline"/>), <c>lotId</c> and <c>lastSeenAt</c> only when present. Silence
     /// (Story 7.2): <c>silentSince</c> only while the Device is silent, and the Silence Window in force, which is
-    /// the Device's own or the default of its kind (<see cref="SilenceRule"/>).
+    /// the Device's own or the default of its kind (<see cref="SilenceRule"/>). Pause (Story 8.2):
+    /// <c>pausedBy</c> names the sources in force, <c>device</c> before <c>site</c>, and <c>pausedUntil</c> their
+    /// later end (<see cref="LotStatusRule.PausedUntil"/>, the rule of a paused Lot); neither is sent for a Device
+    /// that is not paused.
     /// </summary>
     /// <param name="view">The Device as the devices projection holds it.</param>
     /// <param name="now">The Server clock.</param>
     internal static DeviceListItemResponse ToDeviceListItem(DeviceView view, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(view);
+
+        var sources = new List<string>(2);
+        var ends = new List<DateTimeOffset?>(2);
+
+        if (view.DevicePaused)
+        {
+            sources.Add("device");
+            ends.Add(view.DevicePausedUntil);
+        }
+
+        if (view.SitePaused)
+        {
+            sources.Add("site");
+            ends.Add(view.SitePausedUntil);
+        }
 
         return new DeviceListItemResponse(
             view.DeviceId,
@@ -1910,7 +1949,9 @@ public static partial class EdgeApi
             ToChargeState(view.Charging),
             view.SilentSince is { } silentSince ? ToServerTime(silentSince) : null,
             view.SilenceWindowOverrideSeconds ?? DefaultSilenceWindowSeconds(view.Kind),
-            view.SilenceWindowOverrideSeconds is not null);
+            view.SilenceWindowOverrideSeconds is not null,
+            sources.Count == 0 ? null : sources,
+            LotStatusRule.PausedUntil(ends) is { } pausedUntil ? ToServerTime(pausedUntil) : null);
     }
 
     // The default of the Device's kind, in seconds; null for a kind this Server does not know, which then sends none.

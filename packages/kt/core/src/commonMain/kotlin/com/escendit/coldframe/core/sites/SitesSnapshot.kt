@@ -8,6 +8,11 @@ package com.escendit.coldframe.core.sites
  * [surface] is `idle`, `loading`, `failed`, `needsSite` or `ready`. [formShown] is true on
  * `needsSite`, and on `ready` while Create Site is open from "New Site". The Garden fields
  * ([steps], [menuItems], …) describe [currentId] and are empty unless `ready`.
+ *
+ * Pause (Story 8.2): [sitePaused] says for each Site whether the Server lists it as paused, with
+ * [sitePausedUntils] (Unix milliseconds in decimal, empty without an end); [currentPaused] and
+ * [currentPausedUntil] are the same for the current Site. [menuItems] holds `pause` or `resume`
+ * before `siteSettings` for an Administrator or Owner, and neither for a Member.
  */
 public data class SitesSnapshot(
     val surface: String,
@@ -37,6 +42,10 @@ public data class SitesSnapshot(
     val menuEnabled: Boolean,
     /** The Sites are the last good list kept on this device; the Server has not answered yet. */
     val fromCache: Boolean,
+    val sitePaused: List<Boolean> = emptyList(),
+    val sitePausedUntils: List<String> = emptyList(),
+    val currentPaused: Boolean = false,
+    val currentPausedUntil: String = "",
 )
 
 /** The catalogue key suffix of an enum value: `KeyReused` → `keyReused`. */
@@ -61,7 +70,7 @@ public fun snapshotOf(state: SitesState): SitesSnapshot {
         }
     val notice = (state as? SitesState.Failed)?.notice
     val steps = ready?.let { FirstRunSteps.of(it.current.role) }
-    val menu = ready?.let { SiteMenu.items(it.current.role) }.orEmpty()
+    val menu = ready?.let { SiteMenu.items(it.current) }.orEmpty()
     return SitesSnapshot(
         surface = surface,
         notice = notice?.key(),
@@ -89,5 +98,14 @@ public fun snapshotOf(state: SitesState): SitesSnapshot {
         menuItems = menu.map { it.action.key() },
         menuEnabled = menu.all { it.enabled },
         fromCache = ready?.fromCache == true,
+        sitePaused = ready?.sites?.map { it.paused }.orEmpty(),
+        sitePausedUntils = ready?.sites?.map { it.pausedUntilEpochMs?.toString().orEmpty() }.orEmpty(),
+        currentPaused = ready?.current?.paused == true,
+        currentPausedUntil =
+            ready
+                ?.current
+                ?.pausedUntilEpochMs
+                ?.toString()
+                .orEmpty(),
     )
 }

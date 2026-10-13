@@ -349,6 +349,7 @@ public sealed partial class SiteGrain(
         RaiseEvent(new SitePaused(pause.EndsAt, pause.Revision, now));
         await ConfirmEvents();
         StartPauseDelivery();
+        await CatchUpIdentityAfterPauseAsync();
 
         return new SitePauseResult(SitePauseOutcome.Changed, pause);
     }
@@ -379,6 +380,7 @@ public sealed partial class SiteGrain(
         RaiseEvent(new SiteResumed(pause.Revision, Clock.GetUtcNow()));
         await ConfirmEvents();
         StartPauseDelivery();
+        await CatchUpIdentityAfterPauseAsync();
 
         return new SitePauseResult(SitePauseOutcome.Changed, pause);
     }
@@ -557,6 +559,24 @@ public sealed partial class SiteGrain(
 
         RaiseEvent(new SiteResumed(TentativeState.Pause.Revision + 1, now));
         await ConfirmEvents();
+        await CatchUpIdentityAfterPauseAsync();
+    }
+
+    // Read-your-writes for the Site's Pause (Story 8.2): GET /sites and GET /sites/{siteId} read it from the
+    // identity projection, which the next request must find up to date. The Pause is journaled, so a failure here
+    // changes no answer and only delays the read until the next hint or poll.
+    private async Task CatchUpIdentityAfterPauseAsync()
+    {
+        try
+        {
+            await CatchUpIdentityAsync(CancellationToken.None);
+        }
+#pragma warning disable CA1031 // The Site reads follow on the next poll or hint.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogPauseCatchUpFailed(logger, SiteId, exception);
+        }
     }
 
     // Registered once per activation; RegisterOrUpdateReminder keeps one reminder however often it is called.
@@ -784,6 +804,9 @@ public sealed partial class SiteGrain(
 
     [LoggerMessage(EventId = 7, EventName = "PauseReminderFailed", Level = LogLevel.Warning, Message = "The Pause reminder of Site {SiteId} could not be registered or removed; the next call tries again.")]
     private static partial void LogPauseReminderFailed(ILogger logger, string siteId, Exception exception);
+
+    [LoggerMessage(EventId = 8, EventName = "PauseCatchUpFailed", Level = LogLevel.Warning, Message = "The Site reads could not be brought up to date after the Pause of Site {SiteId} changed; they follow on the next poll.")]
+    private static partial void LogPauseCatchUpFailed(ILogger logger, string siteId, Exception exception);
 
     [LoggerMessage(
         EventId = OwnerlessEditRefusedEventId,

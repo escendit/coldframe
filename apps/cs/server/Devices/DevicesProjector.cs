@@ -12,7 +12,8 @@ namespace Coldframe.Server.Devices;
 /// <c>device.assigned</c> and <c>device.moved</c> set its Lot, <c>device.unassigned</c> clears it and
 /// <c>device.seen</c> sets its last-seen time. Silence (Story 7.2): <c>device.silence-started</c> sets
 /// <c>silent_since</c>, <c>device.silence-ended</c> clears it, and <c>device.silence-window-set</c> stores the
-/// Device's own Silence Window. The Site's roster (<c>site.device-registered</c>) never creates a row, since it can exist without an enrolment.
+/// Device's own Silence Window. Pause (Story 8.2): <c>device.paused</c> and <c>device.resumed</c> set and clear the
+/// Pause source they name, with its end, so the list can say a Hub is paused too. The Site's roster (<c>site.device-registered</c>) never creates a row, since it can exist without an enrolment.
 /// </summary>
 public sealed class DevicesProjector : IProjector
 {
@@ -66,6 +67,22 @@ public sealed class DevicesProjector : IProjector
         """
         UPDATE devices SET silence_window_seconds = @window_seconds
         WHERE device_id = @device_id AND silence_window_seconds IS DISTINCT FROM @window_seconds
+        RETURNING site_id
+        """;
+
+    // One pair of columns per Pause source (AD-8), as lot_status_devices has them. A resume clears the end with
+    // the source. Applied again, the same values change no row, so nothing is reported twice.
+    private const string PauseDeviceSql =
+        """
+        UPDATE devices SET device_paused = @paused, device_paused_until = @until
+        WHERE device_id = @device_id AND (device_paused IS DISTINCT FROM @paused OR device_paused_until IS DISTINCT FROM @until)
+        RETURNING site_id
+        """;
+
+    private const string PauseSiteSql =
+        """
+        UPDATE devices SET site_paused = @paused, site_paused_until = @until
+        WHERE device_id = @device_id AND (site_paused IS DISTINCT FROM @paused OR site_paused_until IS DISTINCT FROM @until)
         RETURNING site_id
         """;
 
@@ -160,8 +177,32 @@ public sealed class DevicesProjector : IProjector
                 cancellationToken,
                 ("device_id", deviceId),
                 ("window_seconds", window.WindowSeconds)),
+            DevicePaused paused => PauseAsync(transaction, deviceId, paused.Source, paused: true, paused.EndsAt, changes, cancellationToken),
+            DeviceResumed resumed => PauseAsync(transaction, deviceId, resumed.Source, paused: false, until: null, changes, cancellationToken),
             _ => Task.CompletedTask,
         };
+    }
+
+    private static async Task PauseAsync(
+        NpgsqlTransaction transaction,
+        string deviceId,
+        DevicePauseSource source,
+        bool paused,
+        DateTimeOffset? until,
+        ReadModelChanges changes,
+        CancellationToken cancellationToken)
+    {
+        var sql = source == DevicePauseSource.Site ? PauseSiteSql : PauseDeviceSql;
+
+        await using var command = new NpgsqlCommand(sql, transaction.Connection, transaction);
+        command.Parameters.AddWithValue("device_id", deviceId);
+        command.Parameters.AddWithValue("paused", paused);
+        command.Parameters.AddWithValue("until", NpgsqlDbType.TimestampTz, until is { } end ? end.ToUniversalTime() : DBNull.Value);
+
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string siteId)
+        {
+            changes.Touch(siteId, ReadModelResources.Devices, deviceId);
+        }
     }
 
     // Every statement returns the Site of the row it changed, and nothing when it changed none: only a row
@@ -178,7 +219,7 @@ public sealed class DevicesProjector : IProjector
 
         foreach (var (name, value) in parameters)
         {
-            // Only the Silence Window can be NULL, and its column is a bigint.
+            // Of these statements only the Silence Window can be NULL, and its column is a bigint.
             if (value is null)
             {
                 command.Parameters.AddWithValue(name, NpgsqlDbType.Bigint, DBNull.Value);

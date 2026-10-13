@@ -4,6 +4,8 @@ import com.escendit.coldframe.core.api.ApiFailure
 import com.escendit.coldframe.core.api.ApiResult
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.api.SiteListDto
+import com.escendit.coldframe.core.api.SitePauseDto
+import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.signin.SignInState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,8 +63,15 @@ public class SitesEngine(
     /** The session a read of the Sites is running for, so a second one does not start. */
     private var loadingSession = NOT_LOADING
 
+    /** The session a quiet re-read of the Sites is running for ([refresh]). */
+    private var refreshingSession = NOT_LOADING
+
+    /** [refresh] was asked while one was in flight: its answer may be older than the ask, so one more read follows. */
+    private var refreshAgain = false
+
     private val cache = SitesCache(choices.settings)
     private val sessionEnded = mutableListOf<() -> Unit>()
+    private val pauseChanged = mutableListOf<() -> Unit>()
 
     /** The zone the User chose, as the Server holds it; Create Site names it instead of asking again. */
     private var serverTimeZone: String? = null
@@ -75,6 +84,7 @@ public class SitesEngine(
             signIn.map { it is SignInState.SignedIn }.distinctUntilChanged().collect { signedIn ->
                 session++
                 loadingSession = NOT_LOADING
+                refreshingSession = NOT_LOADING
                 if (signedIn) {
                     cachedState()?.let { mutableState.value = it }
                     load()
@@ -117,6 +127,83 @@ public class SitesEngine(
                 }
             }
         }
+    }
+
+    /**
+     * Reads the Sites again without leaving the shown ones: pull-to-refresh and every foreground of
+     * the overview, and after the Site was paused or resumed. It is how a Pause that ended by itself,
+     * a new name or a new Role reach this device. Sites that came from this device are read as
+     * [load] reads them. A read that fails changes nothing; a 401 ends the session.
+     */
+    public fun refresh() {
+        val shown = mutableState.value as? SitesState.Ready ?: return
+        if (shown.fromCache) {
+            load()
+            return
+        }
+        if (loadingSession == session) return
+        if (refreshingSession == session) {
+            refreshAgain = true
+            return
+        }
+        val started = session
+        refreshingSession = started
+        refreshAgain = false
+        scope.launch {
+            val result = api.listSites()
+            if (started != session) return@launch
+            refreshingSession = NOT_LOADING
+            val again = refreshAgain
+            refreshAgain = false
+            when (result) {
+                is ApiResult.Ok -> {
+                    cache.store(result.value.sites)
+                    val latest = mutableState.value as? SitesState.Ready ?: return@launch
+                    val next = stateFor(result.value.sites.map { it.toSummary() }, preferred = latest.current.id)
+                    mutableState.value = if (next is SitesState.Ready) next.copy(creating = latest.creating) else next
+                }
+
+                is ApiResult.Failed -> {
+                    if (result.failure == ApiFailure.Unauthorized) {
+                        forget()
+                        mutableState.value = SitesState.Idle
+                    }
+                }
+            }
+            // Asked again while this read was on its way (a pause or a resume answered meanwhile): what just
+            // landed may be the older list, so the Sites are read once more.
+            if (again && started == session) refresh()
+        }
+    }
+
+    /**
+     * Runs [action] after a Pause or a Resume the Server accepted, of the Site or of one Device, and
+     * after a 404 on one. The Lots, Lot detail and Devices engines read their lists again with it, so
+     * every surface shows the Server's answer.
+     */
+    internal fun onPauseChanged(action: () -> Unit) {
+        pauseChanged += action
+    }
+
+    /** A Pause or a Resume changed something on the Server: the lists are read again. */
+    internal fun pauseChanged() {
+        pauseChanged.forEach { it() }
+    }
+
+    /**
+     * The Server's answer to a pause or resume of [siteId]: the Site shows it at once, so the Site
+     * menu and the overview's line do not wait for the next read of the Sites.
+     */
+    internal fun pauseAnswered(
+        siteId: String,
+        answer: SitePauseDto,
+    ) {
+        val ready = mutableState.value as? SitesState.Ready ?: return
+        val until = answer.pausedUntil?.takeIf { answer.paused }?.let(DevicesEngine::epochMsOf)
+
+        fun SiteSummary.answered(): SiteSummary =
+            if (id == siteId) copy(paused = answer.paused, pausedUntilEpochMs = until) else this
+        mutableState.value = ready.copy(sites = ready.sites.map { it.answered() }, current = ready.current.answered())
     }
 
     private fun missed(failure: ApiFailure) {
@@ -177,6 +264,7 @@ public class SitesEngine(
     internal fun forget() {
         session++
         loadingSession = NOT_LOADING
+        refreshingSession = NOT_LOADING
         cache.clear()
         choices.timeZone = null
         serverTimeZone = null
@@ -416,7 +504,17 @@ public class SitesEngine(
                 -> SitesNotice.Unexpected
             }
 
-        private fun SiteDto.toSummary(): SiteSummary = SiteSummary(id, name, SiteRole.fromServer(role))
+        /** Maps the Server's fields one to one; a Site without `paused` is not paused. */
+        private fun SiteDto.toSummary(): SiteSummary {
+            val isPaused = paused == true
+            return SiteSummary(
+                id = id,
+                name = name,
+                role = SiteRole.fromServer(role),
+                paused = isPaused,
+                pausedUntilEpochMs = pausedUntil?.takeIf { isPaused }?.let(DevicesEngine::epochMsOf),
+            )
+        }
 
         /** A new Idempotency-Key: a random UUID. */
         @OptIn(ExperimentalUuidApi::class)

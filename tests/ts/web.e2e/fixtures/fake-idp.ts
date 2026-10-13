@@ -9,6 +9,9 @@
  * be seeded as holding a Node, or with a whole status as the Server would compute it) and Devices
  * (the list can be seeded to fail). `POST /control/reads` makes the Sites and Lots reads fail
  * after they succeeded: the connection is dropped, as from a Server that cannot be reached.
+ * Story 8.2: the four pause endpoints (`PUT`/`DELETE /sites/{id}/pause` and `…/devices/{id}/pause`);
+ * a Site carries `paused`, a Device its `pausedBy`, and a Lot whose Node is paused reads `paused`, as the
+ * Server would compute it. `POST /control/pause` makes the next pause write fail.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -40,7 +43,21 @@ export interface FakeSite {
   readonly id: string;
   readonly name: string;
   readonly role: 'Owner' | 'Administrator' | 'Member';
+  /** Story 8.2: the Site's Pause, seeded or set through `PUT /sites/{id}/pause`; the end is a UTC instant. */
+  readonly paused?: boolean;
+  readonly pausedUntil?: string;
 }
+
+/** One pause write the fake Server received (Story 8.2), with the status it answered. */
+export interface FakePauseCall {
+  readonly method: 'PUT' | 'DELETE';
+  readonly path: string;
+  readonly body: Record<string, unknown>;
+  readonly status: number;
+}
+
+/** What the next pause write does instead of pausing: answer this status, or `drop` the connection. */
+export type FakePauseFailure = number | 'drop';
 
 /** One `POST /sites` the fake Server received. */
 export interface FakeSitePost {
@@ -249,6 +266,12 @@ export interface FakeDevice {
   readonly silentSince?: string;
   /** The Device's own Silence Window in seconds; without it the list gives the default of its kind. */
   readonly silenceWindowSeconds?: number;
+  /**
+   * Story 8.2: the Device's own Pause, seeded or set through `PUT …/devices/{id}/pause`, with its end as a
+   * UTC instant. The list's `pausedBy` adds `site` while the Site is paused.
+   */
+  readonly paused?: boolean;
+  readonly pausedUntil?: string;
 }
 
 /** The Silence Window a Device has without its own (Story 7.2). */
@@ -435,6 +458,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let alerts: FakeAlert[] = [];
   let healthAlerts: FakeHealthAlert[] = [];
   let silenceWindowPuts: FakeSilenceWindowPut[] = [];
+  /** Story 8.2: every pause write received, and what the next one does instead of pausing. */
+  let pauseCalls: FakePauseCall[] = [];
+  let pauseFailNext: FakePauseFailure | null = null;
   /** Set to answer the Alerts list with this status instead (a Server that is down). */
   let alertsStatus: number | null = null;
   /** How many times the Alerts of any Site were asked for since the last reset. */
@@ -535,6 +561,27 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     };
   }
 
+  /**
+   * Story 8.2: a Device's Pause as the Server tells it. The sources are the Device's own Pause and its
+   * Site's, `device` before `site`; the end is the later one, or none while any source has no end. Null
+   * when nothing pauses it.
+   */
+  function pauseOf(device: Pick<FakeDevice, 'paused' | 'pausedUntil'> | undefined, site: FakeSite | undefined): { pausedBy: ('device' | 'site')[]; pausedUntil?: string } | null {
+    const sources: { source: 'device' | 'site'; until: string | undefined }[] = [];
+    if (device?.paused === true) {
+      sources.push({ source: 'device', until: device.pausedUntil });
+    }
+    if (site?.paused === true) {
+      sources.push({ source: 'site', until: site.pausedUntil });
+    }
+    if (sources.length === 0) {
+      return null;
+    }
+    const ends = sources.map((entry) => entry.until);
+    const latest = ends.every((end) => end !== undefined) ? ends.toSorted().at(-1) : undefined;
+    return { pausedBy: sources.map((entry) => entry.source), ...(latest === undefined ? {} : { pausedUntil: latest }) };
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', origin);
     const path = url.pathname;
@@ -570,6 +617,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       alerts = [];
       healthAlerts = [];
       silenceWindowPuts = [];
+      pauseCalls = [];
+      pauseFailNext = null;
       alertsStatus = null;
       alertReads = 0;
       notificationSettings = defaultNotificationSettings;
@@ -588,6 +637,17 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     }
     if (path === '/control/sites') {
       send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts, thresholds, thresholdPuts, silenceWindowPuts });
+      return;
+    }
+    // Story 8.2: what the next pause write does instead of pausing; `POST /control/sites` clears it and the calls.
+    if (path === '/control/pause' && request.method === 'POST') {
+      const requested = (await readJson(request)).failNext;
+      pauseFailNext = typeof requested === 'number' || requested === 'drop' ? requested : null;
+      send(response, 200, { failNext: pauseFailNext });
+      return;
+    }
+    if (path === '/control/pause') {
+      send(response, 200, { calls: pauseCalls });
       return;
     }
     // Story 6.2: seeds the Alerts, or makes their list answer a status; `POST /control/sites` clears both.
@@ -664,7 +724,16 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
           request.socket.destroy();
           return;
         }
-        send(response, 200, { sites });
+        // Story 8.2: `paused` always, `pausedUntil` only while paused with an end.
+        send(response, 200, {
+          sites: sites.map((site) => ({
+            id: site.id,
+            name: site.name,
+            role: site.role,
+            paused: site.paused === true,
+            ...(site.paused === true && site.pausedUntil !== undefined ? { pausedUntil: site.pausedUntil } : {}),
+          })),
+        });
         return;
       }
       const body = await readJson(request);
@@ -689,6 +758,68 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       created.set(key, site);
       sites = [...sites, site];
       send(response, 201, site, { location: `/sites/${site.id}` });
+      return;
+    }
+
+    // Story 8.2: Pause and Resume of a Site or of one Device (Administrator). `until` is a calendar date that must lie
+    // ahead; the fake ends the Pause at 00:00 UTC of it, where the Server uses the caller's time zone.
+    const pauseMatch = /^\/sites\/([^/]+)(?:\/devices\/([^/]+))?\/pause$/u.exec(path);
+    if (pauseMatch !== null && (request.method === 'PUT' || request.method === 'DELETE')) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const method = request.method;
+      const siteId = decodeURIComponent(pauseMatch[1] ?? '');
+      const deviceId = pauseMatch[2] === undefined ? null : decodeURIComponent(pauseMatch[2]);
+      const body = method === 'PUT' ? await readJson(request) : {};
+      const refuse = (status: number, slug: string): void => {
+        pauseCalls.push({ method, path, body, status });
+        problem(response, status, slug);
+      };
+      if (pauseFailNext !== null) {
+        const failure = pauseFailNext;
+        pauseFailNext = null;
+        if (failure === 'drop') {
+          // No answer at all: the web app sees a Server it cannot reach.
+          pauseCalls.push({ method, path, body, status: 0 });
+          request.socket.destroy();
+          return;
+        }
+        refuse(failure, failure === 403 ? 'forbidden' : 'unavailable');
+        return;
+      }
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        refuse(404, 'site-not-found');
+        return;
+      }
+      if (site.role === 'Member') {
+        refuse(403, 'forbidden');
+        return;
+      }
+      const device = deviceId === null ? null : devices.find((candidate) => candidate.id === deviceId && candidate.siteId === siteId);
+      if (device === undefined) {
+        refuse(404, 'device-not-found');
+        return;
+      }
+      const until = body.until;
+      if (until !== undefined && (typeof until !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(until) || until <= new Date().toISOString().slice(0, 10))) {
+        refuse(400, 'validation');
+        return;
+      }
+      const pause = method === 'PUT' ? { paused: true, ...(typeof until === 'string' ? { pausedUntil: `${until}T00:00:00.000Z` } : {}) } : {};
+      pauseCalls.push({ method, path, body, status: 200 });
+      if (device === null) {
+        const changed: FakeSite = { id: site.id, name: site.name, role: site.role, ...pause };
+        sites = sites.map((candidate) => (candidate === site ? changed : candidate));
+        send(response, 200, { paused: changed.paused === true, ...(changed.pausedUntil === undefined ? {} : { pausedUntil: changed.pausedUntil }) });
+        return;
+      }
+      const rest = Object.fromEntries(Object.entries(device).filter(([key]) => key !== 'paused' && key !== 'pausedUntil')) as unknown as FakeDevice;
+      const changed: FakeDevice = { ...rest, ...pause };
+      devices = devices.map((candidate) => (candidate === device ? changed : candidate));
+      send(response, 200, pauseOf(changed, sites.find((candidate) => candidate.id === siteId)) ?? { pausedBy: [] });
       return;
     }
 
@@ -867,6 +998,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         problem(response, devicesStatus, 'unavailable');
         return;
       }
+      const listedSite = sites.find((candidate) => candidate.id === siteId);
       const listed = devices
         .filter((device) => device.siteId === siteId)
         // The Server's order: Hubs by Device ID, then Nodes by Lot name (unassigned last), then Device ID.
@@ -895,6 +1027,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
           ...(device.silentSince === undefined ? {} : { silentSince: device.silentSince }),
           silenceWindowSeconds: device.silenceWindowSeconds ?? defaultSilenceWindowSeconds[device.kind],
           silenceWindowOverridden: device.silenceWindowSeconds !== undefined,
+          // Story 8.2: both members only while the Device is paused.
+          ...(pauseOf(device, listedSite) ?? {}),
         }));
       send(response, 200, { devices: listed });
       return;
@@ -1200,7 +1334,19 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       }
       const roleRank = { Member: 1, Administrator: 2, Owner: 3 } as const;
       const allowed = (minimum: keyof typeof roleRank): boolean => roleRank[site.role] >= roleRank[minimum];
-      const statusOf = (lot: FakeLot): string => lot.status ?? (lot.claimed === true ? 'unknown' : 'noNode');
+      const seededStatus = (lot: FakeLot): string => lot.status ?? (lot.claimed === true ? 'unknown' : 'noNode');
+      /**
+       * Story 8.2: the Pause of the Lot's Node, set through the pause endpoints or seeded on the Site or the
+       * Device (not on the Lot: a Lot seeded as paused is returned as seeded). A Lot without a Node has none.
+       */
+      const lotPause = (lot: FakeLot): ReturnType<typeof pauseOf> => {
+        if (seededStatus(lot) === 'noNode') {
+          return null;
+        }
+        const node = devices.find((device) => device.siteId === siteId && device.kind === 'node' && (device.lotId === lot.id || device.id === lot.node?.deviceId));
+        return pauseOf(node, site);
+      };
+      const statusOf = (lot: FakeLot): string => (lotPause(lot) === null ? seededStatus(lot) : 'paused');
       const lotView = (lot: FakeLot, detail = false): Record<string, unknown> => ({
         id: lot.id,
         name: lot.name,
@@ -1210,8 +1356,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         ...(lot.unknownCause !== undefined ? { unknownCause: lot.unknownCause } : statusOf(lot) === 'unknown' ? { unknownCause: 'node' } : {}),
         ...(lot.silentHubId === undefined ? {} : { silentHubId: lot.silentHubId }),
         ...(lot.silentSince === undefined ? {} : { silentSince: lot.silentSince }),
-        ...(lot.pausedBy === undefined ? {} : { pausedBy: lot.pausedBy }),
-        ...(lot.pausedUntil === undefined ? {} : { pausedUntil: lot.pausedUntil }),
+        ...(lotPause(lot) ?? { ...(lot.pausedBy === undefined ? {} : { pausedBy: lot.pausedBy }), ...(lot.pausedUntil === undefined ? {} : { pausedUntil: lot.pausedUntil }) }),
         ...(lot.moisturePercent === undefined ? {} : { moisturePercent: lot.moisturePercent }),
         ...(lot.lowThresholdPercent === undefined ? {} : { lowThresholdPercent: lot.lowThresholdPercent }),
         ...(detail && lot.node !== undefined ? { node: lot.node, sensors: lot.sensors ?? [] } : {}),

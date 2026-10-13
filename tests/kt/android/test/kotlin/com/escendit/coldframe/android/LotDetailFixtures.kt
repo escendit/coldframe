@@ -103,6 +103,13 @@ object LotDetailFixtures {
     val paused =
         lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device), pausedUntil = at("2026-11-01T00:00:00Z"))
     val pausedBySite = lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device, LotPauseSource.Site))
+
+    /** Paused with its Site and not by itself: there is nothing of the Node's own to resume. */
+    val pausedBySiteOnly =
+        lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Site), pausedUntil = at("2027-03-01T00:00:00Z"))
+
+    /** The Lot's Node, as Pause names it: "7C19". */
+    const val NODE_ID = "7c19a1b2c3d4e5f6"
     val noNode = lot(LotStatus.NoNode, name = "Carrots", node = null, sensors = emptyList())
 
     /** A Node with a flat battery and no report of charging. */

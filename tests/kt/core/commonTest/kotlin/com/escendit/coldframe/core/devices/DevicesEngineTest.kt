@@ -11,14 +11,22 @@ import com.escendit.coldframe.core.api.SilenceWindowDto
 import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.lots.LotDuration
 import com.escendit.coldframe.core.lots.LotDurationUnit
+import com.escendit.coldframe.core.lots.LotPauseSource
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
+import com.escendit.coldframe.core.sites.DevicePause
+import com.escendit.coldframe.core.sites.FakePauseApi
 import com.escendit.coldframe.core.sites.FakeSitesApi
+import com.escendit.coldframe.core.sites.PauseForm
+import com.escendit.coldframe.core.sites.PauseNotice
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -129,6 +137,7 @@ class FakeDevicesApi : DevicesApi {
 class DevicesEngineTest {
     private val sitesApi = FakeSitesApi()
     private val api = FakeDevicesApi()
+    private val pauseApi = FakePauseApi(sitesApi)
     private val signIn = MutableStateFlow<SignInState>(SignInState.Restoring)
 
     private val seenAt = "2026-10-06T07:02:00.000Z"
@@ -152,7 +161,7 @@ class DevicesEngineTest {
                 newKey = { "site-key" },
                 zones = { emptyList() },
             )
-        val devices = DevicesEngine(api, sitesEngine, backgroundScope, now = { NOW_MS })
+        val devices = DevicesEngine(api, sitesEngine, backgroundScope, now = { NOW_MS }, pauseApi = pauseApi)
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
         return sitesEngine to devices
@@ -510,6 +519,14 @@ class DevicesEngineTest {
                     canSetSilenceWindow = true,
                     silenceWindowMinSeconds = 60,
                     silenceWindowMaxSeconds = 2_592_000,
+                    canPause = true,
+                    hubPaused = listOf(false, false),
+                    hubPausedBySite = listOf(false, false),
+                    hubPausedBy = listOf("", ""),
+                    hubPausedUntil = listOf("", ""),
+                    hubCanPause = listOf(true, true),
+                    hubCanResume = listOf(false, false),
+                    hubResumeSiteHint = listOf(false, false),
                 ),
                 snapshot,
             )
@@ -1079,5 +1096,285 @@ class DevicesEngineTest {
             val later = snapshotOf(devices.state.value, NOW_MS + 48 * 60_000L)
             assertEquals(listOf("1"), later.hubSilenceValues)
             assertEquals(listOf("hours"), later.hubSilenceUnits)
+        }
+
+    // Pause and Resume on Device rows (Story 8.2)
+
+    private val until = "2027-03-01T00:00:00.000Z"
+    private val untilMs = 1_803_859_200_000L
+
+    /** A Hub paused by itself, a Node paused by its Site with an end, a Node paused by both, and a live Node. */
+    private fun seedPauses() {
+        api.devices["a"] =
+            listOf(
+                hub("3f2a9c0d1e4b5a67", online = true).copy(pausedBy = listOf("device")),
+                node("7c19aaaaaaaaaaaa", "beans", "Beans").copy(pausedBy = listOf("site"), pausedUntil = until),
+                node("8d2a000000000002", "herbs", "Herbs").copy(pausedBy = listOf("device", "site")),
+                node("9c0d1e4b5a673f2a", null, null),
+            )
+        // The Server's bookkeeping of a Device pause: the row gains or loses its own source.
+        pauseApi.onDevice = { deviceId, paused ->
+            api.devices["a"] =
+                api.devices["a"].orEmpty().map { row ->
+                    if (row.id != deviceId) {
+                        row
+                    } else {
+                        val rest = row.pausedBy.orEmpty().filter { it != "device" }
+                        val sources = if (paused) listOf("device") + rest else rest
+                        row.copy(pausedBy = sources.ifEmpty { null })
+                    }
+                }
+        }
+    }
+
+    @Test
+    fun uxDr70HubAndNodeRowsCarryTheServersPauseSourcesAndEnd() =
+        runTest {
+            seedPauses()
+
+            val ready = devicesFor("Administrator").ready()
+
+            assertEquals(listOf(LotPauseSource.Device), ready.hubs.single().pausedBy)
+            assertNull(ready.hubs.single().pausedUntilEpochMs)
+            assertEquals(
+                listOf(
+                    listOf(LotPauseSource.Site),
+                    listOf(LotPauseSource.Device, LotPauseSource.Site),
+                    emptyList(),
+                ),
+                ready.nodes.map { it.pausedBy },
+            )
+            assertEquals(listOf(untilMs, null, null), ready.nodes.map { it.pausedUntilEpochMs })
+            // An unpaused Device has neither member; a Node on no Lot can be paused too.
+            assertEquals(DevicePause.None, ready.nodes.last().pause)
+            assertTrue(
+                ready.nodes
+                    .first()
+                    .pause.bySite,
+            )
+            assertTrue(
+                ready.hubs
+                    .single()
+                    .pause.paused,
+            )
+        }
+
+    @Test
+    fun uxDr84OnlyAdministratorsAndOwnersGetPauseAndResumeOnDeviceRows() =
+        runTest {
+            assertTrue(DevicesState.canPause(SiteRole.Owner))
+            assertTrue(DevicesState.canPause(SiteRole.Administrator))
+            assertFalse(DevicesState.canPause(SiteRole.Member))
+            assertFalse(DevicesState.Idle.canPause)
+            seedPauses()
+
+            val member = devicesFor("Member")
+
+            assertFalse(member.state.value.canPause)
+            // The paused state is there for anyone; the controls are not.
+            val snapshot = snapshotOf(member.state.value)
+            assertEquals(listOf(true, true, false), snapshot.nodePaused)
+            assertEquals(listOf(false, false, false), snapshot.nodeCanPause)
+            assertEquals(listOf(false, false, false), snapshot.nodeCanResume)
+            assertEquals(listOf(false, false, false), snapshot.nodeResumeSiteHint)
+            assertEquals(listOf(false), snapshot.hubCanResume)
+            member.pause.openForDevice("9c0d1e4b5a673f2a")
+            member.pause.resumeDevice("3f2a9c0d1e4b5a67")
+            runCurrent()
+            assertEquals(PauseState(), member.pause.state.value)
+            assertTrue(pauseApi.calls.isEmpty())
+        }
+
+    @Test
+    fun uxDr70PausingADeviceFromItsRowReadsTheListAgainWithoutDroppingTheRows() =
+        runTest {
+            seedPauses()
+            val devices = devicesFor("Administrator")
+            val states = mutableListOf<DevicesState>()
+            val watching = backgroundScope.launch { devices.state.collect { states += it } }
+            runCurrent()
+            val lists = api.calls.count { it == "list a" }
+
+            devices.pause.openForDevice("9c0d1e4b5a673f2a")
+            assertEquals(
+                "9C0D",
+                devices.pause.state.value.sheet!!
+                    .target,
+            )
+            devices.pause.save()
+            runCurrent()
+
+            assertEquals(listOf("pauseDevice a 9c0d1e4b5a673f2a open"), pauseApi.calls)
+            assertEquals(PauseState(), devices.pause.state.value)
+            assertEquals(lists + 1, api.calls.count { it == "list a" })
+            assertEquals(
+                listOf(LotPauseSource.Device),
+                devices
+                    .ready()
+                    .nodes
+                    .last()
+                    .pausedBy,
+            )
+            // The rows stayed while the list was read again.
+            assertTrue(states.none { it is DevicesState.Loading })
+            watching.cancel()
+        }
+
+    @Test
+    fun uxDr70ResumingADevicePausedByBothLeavesItPausedByTheSite() =
+        runTest {
+            seedPauses()
+            val devices = devicesFor("Owner")
+
+            devices.pause.resumeDevice("8d2a000000000002")
+            runCurrent()
+
+            assertEquals(listOf("resumeDevice a 8d2a000000000002"), pauseApi.calls)
+            val node = devices.ready().nodes[1]
+            assertEquals(listOf(LotPauseSource.Site), node.pausedBy)
+            assertFalse(node.pause.canResume(SiteRole.Owner))
+            assertTrue(node.pause.resumeSiteHint(SiteRole.Owner))
+            assertTrue(node.pause.canPause(SiteRole.Owner))
+
+            devices.pause.resumeDevice("3f2a9c0d1e4b5a67")
+            runCurrent()
+            assertFalse(
+                devices
+                    .ready()
+                    .hubs
+                    .single()
+                    .pause.paused,
+            )
+        }
+
+    @Test
+    fun uxDr84ARefusedPauseOrResumeChangesNoRow() =
+        runTest {
+            seedPauses()
+            val devices = devicesFor("Administrator")
+            val before = devices.ready()
+            val lists = api.calls.count { it == "list a" }
+
+            pauseApi.failure = ApiFailure.Forbidden
+            devices.pause.resumeDevice("3f2a9c0d1e4b5a67")
+            runCurrent()
+
+            assertEquals(
+                PauseNotice.Forbidden,
+                devices.pause.state.value.failure!!
+                    .notice,
+            )
+            assertEquals(
+                "Home",
+                devices.pause.state.value.failure!!
+                    .siteName,
+            )
+            assertEquals(before, devices.ready())
+            assertEquals(lists, api.calls.count { it == "list a" })
+
+            pauseApi.failure = ApiFailure.Validation
+            devices.pause.openForDevice("9c0d1e4b5a673f2a")
+            devices.pause.setUntil("2020-01-01")
+            devices.pause.save()
+            runCurrent()
+            assertTrue(
+                devices.pause.state.value.sheet!!
+                    .dateRefused,
+            )
+            assertEquals(before, devices.ready())
+        }
+
+    @Test
+    fun uxDr70ADeviceThatIsGoneSaysSoAndTheListIsReadAgain() =
+        runTest {
+            seedPauses()
+            val devices = devicesFor("Administrator")
+            val lists = api.calls.count { it == "list a" }
+            pauseApi.failure = ApiFailure.NotFound
+            api.devices["a"] = api.devices["a"].orEmpty().dropLast(1)
+
+            devices.pause.openForDevice("9c0d1e4b5a673f2a")
+            devices.pause.save()
+            runCurrent()
+
+            assertEquals(
+                PauseNotice.NotFound,
+                devices.pause.state.value.sheet!!
+                    .notice,
+            )
+            assertEquals(lists + 1, api.calls.count { it == "list a" })
+            assertEquals(2, devices.ready().nodes.size)
+        }
+
+    @Test
+    fun uxDr70WholeSiteFromADeviceRowPausesTheSite() =
+        runTest {
+            seedPauses()
+            val (sites, devices) = engines(SiteDto("a", "Home", "Owner"))
+
+            devices.pause.openForDevice("9c0d1e4b5a673f2a")
+            devices.pause.setScope(PauseScope.Site)
+            assertEquals(
+                "Home",
+                devices.pause.state.value.sheet!!
+                    .target,
+            )
+            devices.pause.save()
+            runCurrent()
+
+            assertEquals(listOf("pauseSite a open"), pauseApi.calls)
+            assertTrue(assertIs<com.escendit.coldframe.core.sites.SitesState.Ready>(sites.state.value).current.paused)
+            // The Site's new Pause member leaves the rows in place: only the Role's actions follow the Site.
+            assertIs<DevicesState.Ready>(devices.state.value)
+        }
+
+    @Test
+    fun aPauseElsewhereReadsAShownListAgainAndAListThatIsNotShownNotAtAll() =
+        runTest {
+            api.failure = ApiFailure.Unreachable
+            val (sites, devices) = engines(SiteDto("a", "Home", "Owner"))
+            assertIs<DevicesState.Failed>(devices.state.value)
+            val lists = api.calls.size
+
+            sites.pauseChanged()
+            runCurrent()
+            assertEquals(lists, api.calls.size)
+
+            api.failure = null
+            devices.load()
+            runCurrent()
+            sites.pauseChanged()
+            runCurrent()
+            assertEquals(lists + 2, api.calls.size)
+        }
+
+    @Test
+    fun uxDr70TheSnapshotCarriesThePausedRowsTheirControlsAndTheSheetForSwift() =
+        runTest {
+            seedPauses()
+            val devices = devicesFor("Administrator")
+            val sheet = PauseState(sheet = PauseForm("Home", "9c0d1e4b5a673f2a", PauseScope.Device))
+
+            val snapshot = snapshotOf(devices.state.value, NOW_MS, sheet)
+
+            assertTrue(snapshot.canPause)
+            assertEquals(listOf(true), snapshot.hubPaused)
+            assertEquals(listOf(false), snapshot.hubPausedBySite)
+            assertEquals(listOf("device"), snapshot.hubPausedBy)
+            assertEquals(listOf(""), snapshot.hubPausedUntil)
+            assertEquals(listOf(false), snapshot.hubCanPause)
+            assertEquals(listOf(true), snapshot.hubCanResume)
+            assertEquals(listOf(false), snapshot.hubResumeSiteHint)
+            assertEquals(listOf(true, true, false), snapshot.nodePaused)
+            assertEquals(listOf(true, true, false), snapshot.nodePausedBySite)
+            assertEquals(listOf("site", "device,site", ""), snapshot.nodePausedBy)
+            assertEquals(listOf(untilMs.toString(), "", ""), snapshot.nodePausedUntil)
+            // Paused by the Site only: no Resume, the hint, and Pause stays available.
+            assertEquals(listOf(true, false, true), snapshot.nodeCanPause)
+            assertEquals(listOf(false, true, false), snapshot.nodeCanResume)
+            assertEquals(listOf(true, false, false), snapshot.nodeResumeSiteHint)
+            assertTrue(snapshot.pause.sheetOpen)
+            assertEquals("9C0D", snapshot.pause.sheetTarget)
+            assertFalse(snapshotOf(devices.state.value).pause.sheetOpen)
         }
 }

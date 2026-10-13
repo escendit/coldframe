@@ -268,6 +268,50 @@ public struct SilenceWindowPresentation: Equatable, Sendable, Identifiable {
   public static let rangeError: L10n = .devicesSilenceWindowRange
 }
 
+/// What a Device row says and offers about Pause (UX-DR70, Story 8.2), as the core sent it from
+/// the Server's `pausedBy` and the Role. Nothing here decides that a Device is paused or who may
+/// pause it. The three controls are false for a Member, for whom they do not exist.
+public struct DevicePausePresentation: Equatable, Sendable {
+  /// The Server lists the Device as paused.
+  public let paused: Bool
+  /// Its sources include the Site: the label reads "Paused by Site", else "Paused".
+  public let bySite: Bool
+  /// Pause shows: the Device has no Pause of its own. It stays while only the Site is paused.
+  public let canPause: Bool
+  /// Resume shows: only the Device's own Pause can be lifted from its row.
+  public let canResume: Bool
+  /// "Resume the Site to resume this Node" (or "… this Hub") shows.
+  public let resumeSiteHint: Bool
+
+  public init(
+    paused: Bool = false, bySite: Bool = false, canPause: Bool = false, canResume: Bool = false,
+    resumeSiteHint: Bool = false
+  ) {
+    self.paused = paused
+    self.bySite = bySite
+    self.canPause = canPause
+    self.canResume = canResume
+    self.resumeSiteHint = resumeSiteHint
+  }
+
+  /// Not paused, and nothing offered: the row as before.
+  public static let none = DevicePausePresentation()
+
+  /// "Paused" or "Paused by Site", in sentence case (upper case comes from the style); nil
+  /// unless paused.
+  public var label: L10n? {
+    guard paused else { return nil }
+    return bySite ? .lotTileLabelPausedBySite : .lotTileLabelPaused
+  }
+
+  /// The shape beside the label. Purple and the pause icon mean paused, and nothing else.
+  public var icon: CarbonIcon? { paused ? .pauseOutline : nil }
+  public static let ink: ThemedColor = ColorTokens.statusPausedInk
+
+  /// The row has a Pause or a Resume control.
+  public var hasControl: Bool { canPause || canResume }
+}
+
 /// One Hub row of the Devices list (UX-DR30): the full Device ID in `meta-mono`, the status as a
 /// word with its own icon, and when the Hub was last seen. `isOnline` is the Server's answer;
 /// nothing here computes it. A silent Hub adds the help icon and "Silent 12 min" (Story 7.2).
@@ -279,15 +323,28 @@ public struct HubRowPresentation: Equatable, Sendable, Identifiable {
   public let lastSeen: Date?
   /// Its silence and its Silence Window, as the core sent them.
   public let silence: DeviceSilencePresentation
+  /// What the row says and offers about Pause, as the core sent it.
+  public let pause: DevicePausePresentation
 
   public init(
-    id: String, isOnline: Bool, lastSeen: Date?, silence: DeviceSilencePresentation = .none
+    id: String, isOnline: Bool, lastSeen: Date?, silence: DeviceSilencePresentation = .none,
+    pause: DevicePausePresentation = .none
   ) {
     self.id = id
     self.isOnline = isOnline
     self.lastSeen = lastSeen
     self.silence = silence
+    self.pause = pause
   }
+
+  /// "Pause Hub 3f2a9c0d1e4b5a67": the spoken label of the row's Pause.
+  public var pauseLabel: Copy { Copy(.devicesPauseHub, .text(id)) }
+
+  /// "Resume Hub 3f2a9c0d1e4b5a67".
+  public var resumeLabel: Copy { Copy(.devicesResumeHub, .text(id)) }
+
+  /// "Resume the Site to resume this Hub": why a Hub paused by its Site has no Resume.
+  public var resumeSiteHint: L10n? { pause.resumeSiteHint ? .devicesResumeSiteHub : nil }
 
   /// The status word; never colour alone.
   public var status: L10n { isOnline ? .devicesOnline : .devicesOffline }
@@ -325,12 +382,16 @@ public struct NodeRowPresentation: Equatable, Sendable, Identifiable {
   public let actionNotice: NodeActionNoticeKind?
   /// Its silence and its Silence Window, as the core sent them.
   public let silence: DeviceSilencePresentation
+  /// What the row says and offers about Pause, as the core sent it.
+  public let pause: DevicePausePresentation
 
   public init(
     id: String, lotName: String?, battery: Int?, batteryLow: Bool, charging: ChargeKind?,
     lastSeen: Date?, lotId: String? = nil, isWorking: Bool = false,
-    actionNotice: NodeActionNoticeKind? = nil, silence: DeviceSilencePresentation = .none
+    actionNotice: NodeActionNoticeKind? = nil, silence: DeviceSilencePresentation = .none,
+    pause: DevicePausePresentation = .none
   ) {
+    self.pause = pause
     self.silence = silence
     self.id = id
     self.lotName = lotName
@@ -362,6 +423,15 @@ public struct NodeRowPresentation: Equatable, Sendable, Identifiable {
   }
 
   public var chargingLabel: L10n? { charging?.label }
+
+  /// "Pause Node 7c19aa01bb02cc03": the spoken label of the row's Pause.
+  public var pauseLabel: Copy { Copy(.devicesPauseNode, .text(id)) }
+
+  /// "Resume Node 7c19aa01bb02cc03".
+  public var resumeLabel: Copy { Copy(.devicesResumeNode, .text(id)) }
+
+  /// "Resume the Site to resume this Node": why a Node paused by its Site has no Resume.
+  public var resumeSiteHint: L10n? { pause.resumeSiteHint ? .lotDetailResumeSite : nil }
 }
 
 /// What the Devices tab shows.
@@ -394,11 +464,14 @@ public struct DevicesPresentation: Equatable, Sendable {
   public let canSetSilenceWindow: Bool
   /// The current Site's name, for "You can't change this on ‹Site›…"; empty unless ready.
   public let siteName: String
+  /// Pause and Resume from a Device row (Story 8.2): the Pause sheet, a Resume under way and the
+  /// last Resume that did not happen. Nothing unless ready: they belong to the shown rows.
+  public let pause: PausePresentation
 
   public init(
     surface: DevicesSurface, canAddHub: Bool, canAddNode: Bool = false,
     nodes: [NodeRowPresentation] = [], canManageNodes: Bool = false, lots: [MoveLotOption] = [],
-    canSetSilenceWindow: Bool = false, siteName: String = ""
+    canSetSilenceWindow: Bool = false, siteName: String = "", pause: PausePresentation = .none
   ) {
     self.surface = surface
     self.canAddHub = canAddHub
@@ -409,13 +482,20 @@ public struct DevicesPresentation: Equatable, Sendable {
       self.lots = lots
       self.canSetSilenceWindow = canSetSilenceWindow
       self.siteName = siteName
+      self.pause = pause
     } else {
       self.nodes = []
       self.canManageNodes = false
       self.lots = []
       self.canSetSilenceWindow = false
       self.siteName = ""
+      self.pause = .none
     }
+  }
+
+  /// The Resume of the Hub or Node `deviceId` that did not happen, shown under that row only.
+  public func pauseFailure(for deviceId: String) -> PauseFailurePresentation? {
+    pause.failure(for: deviceId)
   }
 
   /// The Silence Window sheet of the Hub or Node `deviceId`; nil for a Role that may not change
@@ -508,12 +588,49 @@ public struct DevicesPresentation: Equatable, Sendable {
     }
   }
 
+  /// The pause lists of one kind of Device as the core flattens them (Story 8.2), parallel to
+  /// its ID list: whether the Server lists the Device as paused, whether its sources include the
+  /// Site, and what the row offers this Role. An entry that is missing reads as not paused and
+  /// as nothing offered.
+  public struct PauseLists: Equatable, Sendable {
+    public var paused: [Bool]
+    public var pausedBySite: [Bool]
+    public var canPause: [Bool]
+    public var canResume: [Bool]
+    public var resumeSiteHint: [Bool]
+
+    public init(
+      paused: [Bool] = [], pausedBySite: [Bool] = [], canPause: [Bool] = [],
+      canResume: [Bool] = [], resumeSiteHint: [Bool] = []
+    ) {
+      self.paused = paused
+      self.pausedBySite = pausedBySite
+      self.canPause = canPause
+      self.canResume = canResume
+      self.resumeSiteHint = resumeSiteHint
+    }
+
+    private static func entry(_ list: [Bool], _ index: Int) -> Bool {
+      index < list.count && list[index]
+    }
+
+    /// What the row of the Device at `index` says and offers about Pause.
+    func presentation(at index: Int) -> DevicePausePresentation {
+      DevicePausePresentation(
+        paused: Self.entry(paused, index), bySite: Self.entry(pausedBySite, index),
+        canPause: Self.entry(canPause, index), canResume: Self.entry(canResume, index),
+        resumeSiteHint: Self.entry(resumeSiteHint, index))
+    }
+  }
+
   /// Mirrors the flat snapshot. `hubStatuses` holds `online` or `offline` as the Server said:
   /// anything but `online` reads as offline. `hubLastSeen` holds Unix milliseconds in decimal,
   /// or an empty string for a Hub that never sent a heartbeat. `hubSilence` and `nodeSilence`
   /// are the silence lists of the Hubs and the Nodes; `silenceWindowWorkingId` is the Device
   /// whose Silence Window is being saved, `silenceWindowFailedId` with `silenceWindowNotice` the
-  /// last change that did not happen (all empty when none).
+  /// last change that did not happen (all empty when none). `hubPause` and `nodePause` are the
+  /// pause lists of the Hubs and the Nodes, and `pause` is the Pause sheet and Resume of this
+  /// surface (Story 8.2).
   public init(
     surface: String, notice: String?, siteId: String?, canAddHub: Bool, canAddNode: Bool = false,
     hubIds: [String], hubStatuses: [String], hubLastSeen: [String], nodeIds: [String] = [],
@@ -524,7 +641,8 @@ public struct DevicesPresentation: Equatable, Sendable {
     actionNotice: String = "", siteName: String? = nil, hubSilence: SilenceLists = SilenceLists(),
     nodeSilence: SilenceLists = SilenceLists(), canSetSilenceWindow: Bool = false,
     silenceWindowWorkingId: String = "", silenceWindowFailedId: String = "",
-    silenceWindowNotice: String = ""
+    silenceWindowNotice: String = "", hubPause: PauseLists = PauseLists(),
+    nodePause: PauseLists = PauseLists(), pause: PausePresentation = .none
   ) {
     self.canAddHub = siteId != nil && canAddHub
     self.canAddNode = siteId != nil && canAddNode
@@ -535,6 +653,7 @@ public struct DevicesPresentation: Equatable, Sendable {
       self.lots = []
       self.canSetSilenceWindow = false
       self.siteName = ""
+      self.pause = .none
       self.surface = .failed(notice.flatMap(DevicesNoticeKind.init(rawValue:)) ?? .unreachable)
     case "ready":
       guard siteId != nil else {
@@ -543,12 +662,14 @@ public struct DevicesPresentation: Equatable, Sendable {
         self.lots = []
         self.canSetSilenceWindow = false
         self.siteName = ""
+        self.pause = .none
         self.surface = .waiting
         return
       }
       self.canManageNodes = canManageNodes
       self.canSetSilenceWindow = canSetSilenceWindow
       self.siteName = siteName ?? ""
+      self.pause = pause
       // A notice this client does not know still says that nothing changed.
       let windowNotice =
         silenceWindowNotice.isEmpty
@@ -577,7 +698,7 @@ public struct DevicesPresentation: Equatable, Sendable {
           isWorking: nodeIds[$0] == workingNodeId,
           actionNotice: nodeIds[$0] == failedNodeId
             ? NodeActionNoticeKind(rawValue: actionNotice) : nil,
-          silence: silence(nodeSilence, $0, nodeIds[$0]))
+          silence: silence(nodeSilence, $0, nodeIds[$0]), pause: nodePause.presentation(at: $0))
       }
       let count = min(hubIds.count, hubStatuses.count, hubLastSeen.count)
       self.surface = .ready(
@@ -586,7 +707,8 @@ public struct DevicesPresentation: Equatable, Sendable {
             id: hubIds[$0], isOnline: hubStatuses[$0] == "online",
             lastSeen: Int64(hubLastSeen[$0]).map {
               Date(timeIntervalSince1970: Double($0) / 1000)
-            }, silence: silence(hubSilence, $0, hubIds[$0]))
+            }, silence: silence(hubSilence, $0, hubIds[$0]),
+            pause: hubPause.presentation(at: $0))
         })
     default:
       self.nodes = []
@@ -594,6 +716,7 @@ public struct DevicesPresentation: Equatable, Sendable {
       self.lots = []
       self.canSetSilenceWindow = false
       self.siteName = ""
+      self.pause = .none
       self.surface = .waiting
     }
   }
@@ -640,4 +763,6 @@ public protocol DevicesService: AnyObject {
   func setSilenceWindow(_ deviceId: String, text: String, unit: SilenceWindowUnitKind) -> Bool
   /// "Use default": returns the Device to the Silence Window of its kind.
   func useDefaultSilenceWindow(_ deviceId: String)
+  /// Pause and Resume from a Device row (Story 8.2).
+  var pause: PauseService { get }
 }

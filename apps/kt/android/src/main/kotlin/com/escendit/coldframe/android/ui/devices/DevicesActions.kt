@@ -2,6 +2,7 @@ package com.escendit.coldframe.android.ui.devices
 
 import androidx.annotation.StringRes
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.pause.PauseActions
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.devices.DevicesNotice
 import com.escendit.coldframe.core.devices.NodeActionNotice
@@ -17,6 +18,8 @@ class DevicesActions(
     val unassignNode: (nodeId: String) -> Unit = {},
     /** The Silence Window of a Hub or Node in whole seconds; `null` is "Use default" (Story 7.2). */
     val setSilenceWindow: (deviceId: String, windowSeconds: Int?) -> Unit = { _, _ -> },
+    /** Pause and Resume of a Hub or Node, or of the Site, from a Device row (Story 8.2). */
+    val pause: PauseActions = PauseActions.None,
 ) {
     companion object {
         val None = DevicesActions()
@@ -27,6 +30,7 @@ class DevicesActions(
                 moveNode = engine::moveNode,
                 unassignNode = engine::unassignNode,
                 setSilenceWindow = engine::setSilenceWindow,
+                pause = PauseActions.of(engine.pause),
             )
     }
 }

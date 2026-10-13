@@ -2,8 +2,9 @@ package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.Watch
 import com.escendit.coldframe.core.notifications.ReminderCadence
-import com.escendit.coldframe.core.watch
+import com.escendit.coldframe.core.sites.IosPause
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /** The Lots engine and Site settings for Swift, which observes flat [LotsSnapshot]s and calls the actions. */
@@ -12,14 +13,26 @@ public class IosLots internal constructor(
     private val scope: CoroutineScope,
 ) {
     /**
-     * Calls [onEach] on the main thread with the current snapshot and every change. Ages and
-     * durations in it are measured when it is taken; [current] takes a new one for the minute tick.
+     * Pause and Resume of the Site, from the Site menu (Story 8.2): `openForSite` for the `pause` item,
+     * `resumeSite` for `resume`. Its state is [LotsSnapshot.pause].
+     */
+    public val pause: IosPause = IosPause(engine.pause)
+
+    /**
+     * Calls [onEach] on the main thread with the current snapshot and every change, of the Lots and of
+     * [pause]. Ages and durations in it are measured when it is taken; [current] takes a new one for
+     * the minute tick.
      */
     public fun watch(onEach: (LotsSnapshot) -> Unit): Watch =
-        engine.state.watch(scope) { onEach(snapshotOf(it, engine.now())) }
+        Watch(
+            scope.launch {
+                combine(engine.state, engine.pause.state) { lots, pause -> snapshotOf(lots, engine.now(), pause) }
+                    .collect { onEach(it) }
+            },
+        )
 
     /** The snapshot as of now: the stale age and the tiles' durations move, nothing else does. */
-    public fun current(): LotsSnapshot = snapshotOf(engine.state.value, engine.now())
+    public fun current(): LotsSnapshot = snapshotOf(engine.state.value, engine.now(), engine.pause.state.value)
 
     /**
      * Calls [onEach] on the main thread when stale mode is entered or left, for a polite

@@ -10,6 +10,7 @@ import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.push.PushApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
+import com.escendit.coldframe.core.sites.PauseApi
 import com.escendit.coldframe.core.sites.SitesApi
 import com.escendit.coldframe.core.thresholds.ThresholdsApi
 import io.ktor.client.HttpClient
@@ -64,6 +65,7 @@ public class ColdframeApi(
     NotificationSettingsApi,
     SiteReminderCadenceApi,
     PushApi,
+    PauseApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
@@ -233,6 +235,53 @@ public class ColdframeApi(
             }
         }) { it.body<SilenceWindowDto>() }
 
+    /**
+     * `PUT /sites/{siteId}/pause` (`pauseSite`, Admin+): [until] is the picked calendar date, `yyyy-MM-dd`; `null`
+     * leaves it out of the body, a Pause until someone resumes. A date the Server refuses is 400 `validation`.
+     */
+    override suspend fun pauseSite(
+        siteId: String,
+        until: String?,
+    ): ApiResult<SitePauseDto> =
+        call({
+            http.put(sitePause(siteId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(SetPauseRequestDto(until))
+            }
+        }) { it.body<SitePauseDto>() }
+
+    /** `DELETE /sites/{siteId}/pause` (`resumeSite`, Admin+): the Site's Pause afterwards. */
+    override suspend fun resumeSite(siteId: String): ApiResult<SitePauseDto> =
+        call({ http.delete(sitePause(siteId)) { it() } }) { it.body<SitePauseDto>() }
+
+    /**
+     * `PUT /sites/{siteId}/devices/{deviceId}/pause` (`pauseDevice`, Admin+): the Device's own Pause, with
+     * [until] as for [pauseSite]. An unknown Device is 404.
+     */
+    override suspend fun pauseDevice(
+        siteId: String,
+        deviceId: String,
+        until: String?,
+    ): ApiResult<DevicePauseDto> =
+        call({
+            http.put(devicePause(siteId, deviceId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(SetPauseRequestDto(until))
+            }
+        }) { it.body<DevicePauseDto>() }
+
+    /**
+     * `DELETE /sites/{siteId}/devices/{deviceId}/pause` (`resumeDevice`, Admin+): lifts the Device's own Pause;
+     * the answer still names `site` while its Site is paused.
+     */
+    override suspend fun resumeDevice(
+        siteId: String,
+        deviceId: String,
+    ): ApiResult<DevicePauseDto> =
+        call({ http.delete(devicePause(siteId, deviceId)) { it() } }) { it.body<DevicePauseDto>() }
+
     /** `GET /sites/{siteId}/sensors/{sensorId}/calibration` (`getSensorCalibration`, Admin+). */
     override suspend fun getSensorCalibration(
         siteId: String,
@@ -350,6 +399,13 @@ public class ColdframeApi(
     /** `DELETE /me/push-registrations/{installationId}` (`removePushDevice`): 204 also when there was none. */
     override suspend fun removePushDevice(installationId: String): ApiResult<Unit> =
         call({ http.delete(pushRegistration(installationId)) { it() } }) { }
+
+    private fun sitePause(siteId: String): String = "$base/sites/${siteId.encoded()}/pause"
+
+    private fun devicePause(
+        siteId: String,
+        deviceId: String,
+    ): String = "$base/sites/${siteId.encoded()}/devices/${deviceId.encoded()}/pause"
 
     private fun pushRegistration(installationId: String): String =
         "$base/me/push-registrations/${installationId.encoded()}"

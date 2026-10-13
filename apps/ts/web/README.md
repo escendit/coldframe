@@ -5,7 +5,7 @@ Authorization Code + PKCE on the server through
 [`@escendit/sveltekit-auth-keycloak`](https://github.com/escendit/sveltekit-extensions). The
 browser holds only the package's httpOnly session cookie; access, refresh and ID tokens never reach
 page data, HTML or browser storage. Layout data carries only the display name and initials and
-the caller's Sites (ID, name, Role).
+the caller's Sites (ID, name, Role, and whether the Site is paused and until when).
 
 How to run it against the local stack is in [`docs/quickstart.md`](../../../docs/quickstart.md#run-the-web-app).
 
@@ -83,9 +83,10 @@ every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachabl
   [Time zone](#time-zone).
 - **Garden** shows the Site summary header, the four first-run step tiles without actions with the
   note that adding a Hub or Node needs the mobile app (Members see the read-only note instead), and
-  below them the Site's Lots as tiles. The Site menu sits after the Site tabs and holds only Site
-  settings until the Pause story turns Pause/Resume on (`siteMenuItems` in
-  [`src/lib/site-menu.ts`](src/lib/site-menu.ts)). See [Lot status](#lot-status) and
+  below them the Site's Lots as tiles. The Site menu sits after the Site tabs on every page and holds
+  "Pause ‹Site›", or "Resume ‹Site›" while the Server calls the Site paused, for Owners and
+  Administrators, then Site settings (`siteMenuItems` in [`src/lib/site-menu.ts`](src/lib/site-menu.ts)).
+  See [Lot status](#lot-status), [Pause and Resume](#pause-and-resume-story-82) and
   [Stale mode](#stale-mode).
 - **Site settings** (`/settings/site`, the row after My notifications in the Settings index, and the
   Site menu item). [`src/lib/server/site-settings.ts`](src/lib/server/site-settings.ts) loads the
@@ -225,7 +226,7 @@ key picks a day, the text summary is the label of the image, and nothing animate
 soil-moisture History the Server sent in `%` (calibrated Readings), the chart also draws the band
 (`chart-band`), a 2 px low line, a dashed 1 px high line (`chart-high-line`) and a solid
 `chart-bar-below-low` bar for each day whose low is under the low, with the legend "solid bar = below N %"
-and the below-low days in the text summary; a raw History has none of it. There is no admin strip before Epic 8. A Lot behind a silent Hub
+and the below-low days in the text summary; a raw History has none of it. Under the hero, Owners and Administrators have the action strip with Pause or Resume of the Lot's Node ([Pause and Resume](#pause-and-resume-story-82)). A Lot behind a silent Hub
 names it from the Lot's `silentHubId` ("Hub 3F2A is silent; Lots behind it can't be read."); without one the copy has no ID. The Devices list is not
 read for it.
 
@@ -270,6 +271,48 @@ d, Save, and "Use default" while the Device has its own window (`silenceWindowOv
 | No answer, an untrusted certificate, any other status | the notices of move and unassign |
 
 The page holds what is typed and which forms are open, so a refetch or a refusal never replaces it.
+
+### Pause and Resume (Story 8.2)
+
+Whether a Site or a Device is paused is the Server's: `Site.paused` / `pausedUntil`, `DeviceListItem.pausedBy` /
+`pausedUntil`, and `Lot.status` / `pausedBy` / `pausedUntil`. The web app renders those members and neither computes
+nor remembers a Pause ([`src/lib/pause.ts`](src/lib/pause.ts)). Pause and Resume are for Owners and Administrators;
+a Member has no such control anywhere (hidden, never disabled).
+
+| Surface | Paused state | Controls (Owner, Administrator) |
+| --- | --- | --- |
+| Site menu, every page | "Resume ‹Site›" in place of "Pause ‹Site›" while `Site.paused` | Pause opens the Pause modal with Whole Site; Resume is sent at once. Disabled with "Needs your Server" in stale mode |
+| Overview | The headline keeps its Lot rule ("Paused until 1 Mar" or "Paused" in paused ink when every Lot with a Node is paused by the Site); the line "No Alerts are sent while the Site is paused." follows `Site.paused`, so a Site without Nodes says it too; tiles read "Paused by Site" | the Site menu |
+| Lot detail | the hero ("Paused until ‹date›", "Paused with the Site") | the action strip under the hero: "Resume 7C19" while `pausedBy` has `device`, else "Pause". Paused by the Site only: the hero says "Resume the Site to resume this Node", and Pause stays |
+| Devices rows | the pause icon with "Paused" or "Paused by Site" in paused ink, and "until ‹date›"; `data-paused` lists the sources | the same pair per row; paused by the Site only, the row says "Resume the Site to resume this Node" ("… this Hub") |
+
+- **The Pause modal** ([`PauseModal.svelte`](src/lib/components/PauseModal.svelte)) is a native `<dialog>` named "Pause"
+  that takes the one modal level: the scope as a Segmented choice (This Device, selected, and Whole Site from a Device;
+  Whole Site alone from the Site menu), the optional "Until" date (the browser's date field) with "Leave empty to pause
+  until someone resumes.", Cancel, and a primary button that names the result and follows the scope ("Pause 7C19",
+  "Pause Home garden"). Whole Site chosen from a Device pauses the Site and leaves the Device's own Pause alone.
+- **Form actions.** The browser never calls the Server: the modal and the Resume form
+  ([`ResumeControl.svelte`](src/lib/components/ResumeControl.svelte)) post `siteId`, `scope`, `deviceId` and `until` to
+  `?/pause` and `?/resume`, which the overview, Lot detail and Devices all carry (`pauseActions` in
+  [`src/lib/server/pause.ts`](src/lib/server/pause.ts)); the Site menu posts to the overview's from any page. They call
+  `PUT` / `DELETE /sites/{siteId}/pause` and `…/devices/{deviceId}/pause`. `until` goes out as the calendar date that was
+  picked (`YYYY-MM-DD`); the Server resolves it in the User's time zone, and the pages format `pausedUntil` with the day
+  formatter in the zone they show times in, so where the two zones differ the shown day can be one off.
+- **After a save** the page reads its data again and shows what the Server says; a Site Pause reaches the Lots and
+  Devices through delivery, and the live hints refetch them.
+
+| Answer | What shows |
+| --- | --- |
+| 400 for the date (or a date that is no calendar date, refused before it is sent) | the modal stays open, the date field is marked: "Choose a date after today." |
+| 403: the caller lost the Role after the page loaded | "You can't change this on ‹Site›. Ask an Owner or Administrator." |
+| 404 | "That Device is gone. Reload the page." (a Site that is gone: "‹Site› is no longer one of your Sites. Nothing was changed.") |
+| No answer, any other status | the notice of the Devices actions with Try again, which sends the same again; an untrusted certificate has no Try again |
+
+A refused Pause keeps the modal and what was entered, with the notice inside it. A Resume that did not happen leaves its
+notice beside its button, or above the page when it came from the Site menu. A Member on a paused Site and on a paused
+Lot gets one Inline notice, "Only Owners and Administrators can resume it." Stale mode shows no Pause control on Lot
+detail and neither the line nor that notice on the overview. Who paused the Site is not shown: the Server stores no
+attribution. The Add a Hub and Add a Node outcome screens are mobile only, and Calibrate has no Resume.
 
 ### Alerts (Story 6.2)
 
@@ -469,6 +512,11 @@ against a fake SignalR hub in the fake Server (negotiate, a Server-Sent Events s
 connection, drops them, or makes the hub answer 401, and `GET /control/live` lists what the hub was asked): the hub is reached on the web origin only and with the
 session's token, a hint refetches the page that shows it without a reload, a lost connection comes back and refetches once, a 401 ends the retries until a navigation,
 and the browser toggle, the blocked notice and a delivered notification are checked with a stand-in for the browser's Notification API, with screenshots of
-My notifications with the toggle on and with the blocked notice in light and dark. Run the e2e tests with
+My notifications with the toggle on and with the blocked notice in light and dark. `specs/pause.spec.ts` (Story 8.2) pauses and resumes the Site from the Site menu and a
+Device from its Devices row and from Lot detail, checks the refused date, the 403, the 404 and a Server that does not answer, and what a Member sees, and compares
+screenshots in light and dark of the Pause modal (Whole Site, a Device, a refused date), the paused overview, the paused Devices rows, Lot detail with Resume and with
+"Resume the Site to resume this Node", and the Member's overview and Lot detail. The fake Server has the four pause endpoints (403 for a Member, 400 for an end that
+is no date or has passed, 404 for an unknown Device), sends `paused` on a Site and `pausedBy` on a Device, reads a Lot whose Node is paused as `paused`, lists every
+pause write as `GET /control/pause`, and `POST /control/pause` (`failNextPause`) makes the next one answer a status or drop the connection. Run the e2e tests with
 `pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots
 with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test --update-snapshots`.

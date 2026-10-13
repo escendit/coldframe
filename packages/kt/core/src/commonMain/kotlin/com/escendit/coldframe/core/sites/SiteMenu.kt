@@ -15,14 +15,14 @@ public data class SiteMenuItem(
 
 /**
  * The Site menu (UX-DR22): Pause or Resume the Site (Admin+, hidden for Members), then Site
- * settings. In stale mode every item is disabled with "Needs your Server". Story 1.8 renders it
- * with [pauseAvailable] false, because the Pause sheet arrives later and a Pause item that does
- * nothing would break "controls you cannot use are hidden".
+ * settings. [paused] is the Server's `Site.paused`: a paused Site offers Resume, any other Pause,
+ * which opens the Pause sheet. In stale mode every item is disabled with "Needs your Server".
+ * [pauseAvailable] is false only for a surface that cannot pause.
  */
 public object SiteMenu {
     public fun items(
         role: SiteRole,
-        pauseAvailable: Boolean = false,
+        pauseAvailable: Boolean = true,
         stale: Boolean = false,
         paused: Boolean = false,
     ): List<SiteMenuItem> =
@@ -32,4 +32,10 @@ public object SiteMenu {
             }
             add(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = !stale))
         }
+
+    /** The menu of [site], with Pause or Resume as the Server says the Site is. */
+    public fun items(
+        site: SiteSummary,
+        stale: Boolean = false,
+    ): List<SiteMenuItem> = items(site.role, stale = stale, paused = site.paused)
 }

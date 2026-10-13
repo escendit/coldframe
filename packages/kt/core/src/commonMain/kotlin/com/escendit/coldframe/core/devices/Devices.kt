@@ -2,6 +2,8 @@ package com.escendit.coldframe.core.devices
 
 import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.lots.LotDuration
+import com.escendit.coldframe.core.lots.LotPauseSource
+import com.escendit.coldframe.core.sites.DevicePause
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SiteSummary
 
@@ -101,6 +103,9 @@ public object SilenceWindow {
  * Silence (Story 7.2): [silentSinceEpochMs] is set exactly while the Hub has an open silent Alert
  * (when it was last heard); [silenceWindowSeconds] is the Silence Window in force, `null` when the
  * Server sent none, and [silenceWindowOverridden] whether it is the Hub's own.
+ *
+ * Pause (Story 8.2): [pausedBy] are the Server's sources (`device`, `site`), empty when the Hub is
+ * not paused, and [pausedUntilEpochMs] the end of that Pause when it has one.
  */
 public data class HubSummary(
     val id: String,
@@ -109,7 +114,12 @@ public data class HubSummary(
     val silentSinceEpochMs: Long? = null,
     val silenceWindowSeconds: Int? = null,
     val silenceWindowOverridden: Boolean = false,
+    val pausedBy: List<LotPauseSource> = emptyList(),
+    val pausedUntilEpochMs: Long? = null,
 ) {
+    /** What the row says and offers about Pause. */
+    val pause: DevicePause get() = DevicePause(pausedBy, pausedUntilEpochMs)
+
     /** "3F2A": the name in "Hub 3F2A". */
     val shortName: String get() = DeviceName.short(id)
 
@@ -130,7 +140,8 @@ public data class HubSummary(
  *
  * Silence (Story 7.2), as on [HubSummary]: [silentSinceEpochMs] exactly while the Node has an open
  * silent Alert, [silenceWindowSeconds] the Silence Window in force and [silenceWindowOverridden]
- * whether it is the Node's own.
+ * whether it is the Node's own. Pause (Story 8.2), as on [HubSummary]: [pausedBy] and
+ * [pausedUntilEpochMs], for a Node on a Lot and for one on none.
  */
 public data class NodeSummary(
     val id: String,
@@ -143,7 +154,12 @@ public data class NodeSummary(
     val silentSinceEpochMs: Long? = null,
     val silenceWindowSeconds: Int? = null,
     val silenceWindowOverridden: Boolean = false,
+    val pausedBy: List<LotPauseSource> = emptyList(),
+    val pausedUntilEpochMs: Long? = null,
 ) {
+    /** What the row says and offers about Pause. */
+    val pause: DevicePause get() = DevicePause(pausedBy, pausedUntilEpochMs)
+
     /** "9C0D": the name in "Node 9C0D". */
     val shortName: String get() = DeviceName.short(id)
 
@@ -303,6 +319,12 @@ public sealed interface DevicesState {
          * the control does not exist for a Member, it is never merely disabled.
          */
         public fun canSetSilenceWindow(role: SiteRole): Boolean = role >= SiteRole.Administrator
+
+        /**
+         * Pause and Resume of a Hub or Node are for Owners and Administrators (Story 8.2): the controls
+         * do not exist for a Member. Which of them a row has is [DevicePause]'s answer.
+         */
+        public fun canPause(role: SiteRole): Boolean = DevicePause.allowed(role)
     }
 }
 
@@ -338,3 +360,7 @@ public val DevicesState.canManageNodes: Boolean
 /** Whether the Silence Window action shows on Device rows: a current Site on which the Role is Administrator or Owner. */
 public val DevicesState.canSetSilenceWindow: Boolean
     get() = site?.let { DevicesState.canSetSilenceWindow(it.role) } == true
+
+/** Whether Pause and Resume show on Device rows: a current Site on which the Role is Administrator or Owner. */
+public val DevicesState.canPause: Boolean
+    get() = site?.let { DevicesState.canPause(it.role) } == true

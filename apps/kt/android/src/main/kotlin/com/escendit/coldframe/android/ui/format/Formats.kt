@@ -9,6 +9,7 @@ import com.escendit.coldframe.core.lots.LotDuration
 import com.escendit.coldframe.core.lots.LotDurationUnit
 import java.text.NumberFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -132,6 +133,12 @@ object Formats {
             .ofPattern(DateFormat.getBestDateTimePattern(locale, if (long) "dMMMM" else "dMMM"), locale)
             .withZone(zone)
             .format(instant)
+
+    /** A calendar date with its year, as the User picked it: "1 Mar 2027". No time zone is involved. */
+    fun date(
+        date: LocalDate,
+        locale: Locale,
+    ): String = DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "dMMMy"), locale).format(date)
 
     /** A whole number in the locale's format. */
     fun number(

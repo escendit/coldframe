@@ -180,6 +180,8 @@ class OpenApiContractTest {
                 "silentSince",
                 "silenceWindowSeconds",
                 "silenceWindowOverridden",
+                "pausedBy",
+                "pausedUntil",
             ),
             item["properties"]!!.jsonObject.keys,
         )
@@ -615,6 +617,76 @@ class OpenApiContractTest {
         }
         // "Use the default" is a body without windowSeconds.
         assertTrue(SetSilenceWindowRequestDto.serializer().descriptor.isElementOptional(0))
+    }
+
+    @Test
+    fun uxDr70ThePauseOperationsArePutAndDeleteForAdministratorsWithTheirProblems() {
+        val operations =
+            listOf(
+                Triple("/sites/{siteId}/pause", "put", "pauseSite"),
+                Triple("/sites/{siteId}/pause", "delete", "resumeSite"),
+                Triple("/sites/{siteId}/devices/{deviceId}/pause", "put", "pauseDevice"),
+                Triple("/sites/{siteId}/devices/{deviceId}/pause", "delete", "resumeDevice"),
+            )
+        for ((path, method, id) in operations) {
+            val operation = operation(path, method)
+            assertEquals(id, operation["operationId"]!!.jsonPrimitive.content)
+            assertEquals("Administrator", operation["x-coldframe-minimum-role"]!!.jsonPrimitive.content, id)
+            val device = path.contains("{deviceId}")
+            assertEquals(if (device) listOf("siteId", "deviceId") else listOf("siteId"), parameterNames(operation))
+            val responses = operation["responses"]!!.jsonObject
+            for (status in listOf("200", "401", "403", "404")) assertNotNull(responses[status], "$id $status")
+            val answer =
+                responses["200"]!!
+                    .jsonObject["content"]!!
+                    .jsonObject["application/json"]!!
+                    .jsonObject["schema"]!!
+                    .jsonObject["\$ref"]!!
+                    .jsonPrimitive.content
+            assertEquals("#/components/schemas/${if (device) "DevicePause" else "SitePause"}", answer, id)
+            if (method == "put") {
+                // A date that is refused is 400 `validation`.
+                assertNotNull(responses["400"], "$id 400")
+                val body =
+                    operation["requestBody"]!!
+                        .jsonObject["content"]!!
+                        .jsonObject["application/json"]!!
+                        .jsonObject["schema"]!!
+                        .jsonObject["\$ref"]!!
+                        .jsonPrimitive.content
+                assertEquals("#/components/schemas/SetPauseRequest", body, id)
+            }
+        }
+    }
+
+    @Test
+    fun uxDr70ThePauseDtosMirrorTheContractAndCarryEveryProperty() {
+        val mirrors =
+            listOf(
+                "SetPauseRequest" to SetPauseRequestDto.serializer().descriptor,
+                "SitePause" to SitePauseDto.serializer().descriptor,
+                "DevicePause" to DevicePauseDto.serializer().descriptor,
+                "Site" to SiteDto.serializer().descriptor,
+            )
+        for ((name, descriptor) in mirrors) {
+            assertMirrors(name, descriptor)
+            assertEquals(
+                schema(name)["properties"]!!.jsonObject.keys,
+                (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet(),
+                name,
+            )
+        }
+        // A Pause without an end is a body without `until`.
+        assertTrue(SetPauseRequestDto.serializer().descriptor.isElementOptional(0))
+        // The answer to `POST /sites` has no `paused`: a Site without it reads as not paused.
+        val site = SiteDto.serializer().descriptor
+        assertTrue(site.isElementOptional(site.getElementIndex("paused")))
+        assertTrue(site.isElementOptional(site.getElementIndex("pausedUntil")))
+        // The Pause sources are the Lot's: `device`, `site`.
+        assertEquals(
+            listOf("device", "site"),
+            schema("LotPauseSource")["enum"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
     }
 
     @Test

@@ -8,6 +8,7 @@ import type { Lot, LotHistory, NodeStatus, SensorQuantity, SensorReading } from 
 import { t, type MessageKey } from '$lib/i18n';
 import { formatDay, formatNumber, formatPercent, formatWhen, shortDeviceId } from '$lib/i18n/format';
 import { formatSoil, lotTile, statusOf, type TileContext, type TileIcon, type TileVariant } from '$lib/lot-tiles';
+import { devicePauseOf, type PauseDevice } from '$lib/pause';
 
 export type { LotHistory, NodeStatus, SensorQuantity, SensorReading } from '@coldframe/api-client';
 
@@ -207,6 +208,35 @@ export function lotHero(lot: Lot, context: HeroContext): LotHero {
     notes: notesOf(lot, context),
     asOf: null,
   };
+}
+
+/** Pause and Resume of the Lot's Node on Lot detail (UX-DR70, UX-DR84). */
+export interface LotPause {
+  /** The Lot's Node, which the Pause modal is opened for; none without a Node. */
+  readonly device: PauseDevice | null;
+  /** Pause: while the Node is not paused by itself, also when the Site pauses it. */
+  readonly canPause: boolean;
+  /** Resume in one tap: only the Node's own Pause. Paused by the Site only, the hero says to resume the Site. */
+  readonly canResume: boolean;
+  /** A Member on a paused Lot: "Only Owners and Administrators can resume it." */
+  readonly memberNotice: string | null;
+}
+
+/**
+ * What Lot detail offers for the Pause of the Lot's Node, from the Lot's `status`, `pausedBy` and
+ * `pausedUntil` as the Server sent them. Stale mode offers nothing: nothing shown there is live, and a
+ * change needs the Server. Controls a Member cannot use are hidden; the notice stands in for Resume.
+ */
+export function lotPause(lot: Lot, context: HeroContext): LotPause {
+  if (lot.node === undefined) {
+    return { device: null, canPause: false, canResume: false, memberNotice: null };
+  }
+  const device: PauseDevice = { id: lot.node.deviceId, kind: 'node' };
+  if (context.staleSince !== null) {
+    return { device, canPause: false, canResume: false, memberNotice: null };
+  }
+  const view = devicePauseOf({ kind: 'node', pausedBy: lot.pausedBy, pausedUntil: lot.pausedUntil }, context);
+  return { device, canPause: view.canPause, canResume: view.canResume, memberNotice: !context.admin && statusOf(lot) === 'paused' ? t('pause.memberNotice') : null };
 }
 
 /** The one label a screen reader speaks for the hero (UX-DR98): the tile's spoken label. */

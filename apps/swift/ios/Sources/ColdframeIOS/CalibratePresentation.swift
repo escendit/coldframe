@@ -340,8 +340,8 @@ public struct CalibratePresentation: Equatable, Sendable {
     bySite ? .calibratePausedSite : .calibratePaused
   }
 
-  /// Resume is offered only when the core says so: Admin+ and the Device's own Pause. The core
-  /// has no Resume call before Epic 8, so the shell draws no control for it yet.
+  /// Whether the core would offer Resume: Admin+ and the Device's own Pause. Calibrate draws no
+  /// control for it: Resume is on Lot detail, the Devices row and the Site menu (Story 8.2).
   public var offersResume: Bool {
     if case .paused(_, _, let offers) = surface { return offers }
     return false

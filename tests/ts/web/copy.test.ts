@@ -90,7 +90,8 @@ describe('voice and glossary', () => {
   test('UX-DR131 glossary terms are capitalised wherever they appear', () => {
     for (const [key, text] of strings()) {
       // UX-DR89 gives this notice verbatim: "this site's browser settings" is the web site, not a Site.
-      const value = key === 'notifications.browser.blocked' ? text.replace("this site's browser settings", '') : text;
+      // UX-DR46 gives the Pause helper verbatim: "to pause" there is the verb, not the term.
+      const value = key === 'notifications.browser.blocked' ? text.replace("this site's browser settings", '') : key === 'pause.untilHelper' ? text.replace('to pause until', '') : text;
       for (const term of glossary.terms) {
         const pattern = new RegExp(`\\b${escape(term)}s?\\b`, 'giu');
         for (const match of value.matchAll(pattern)) {
@@ -100,6 +101,28 @@ describe('voice and glossary', () => {
           expect(actual, `${key}: "${found}" must be written "${term}"`).toEqual(expected);
         }
       }
+    }
+  });
+});
+
+describe('Pause copy (Story 8.2)', () => {
+  const catalogue = messages() as Readonly<Record<string, string>>;
+
+  test('UX-DR46 UX-DR83 UX-DR84 the Pause strings are the UX copy verbatim', () => {
+    expect(catalogue['pause.untilHelper']).toBe('Leave empty to pause until someone resumes.');
+    expect(catalogue['pause.untilInvalid']).toBe('Choose a date after today.');
+    expect(catalogue['pause.siteLine']).toBe('No Alerts are sent while the Site is paused.');
+    expect(catalogue['pause.memberNotice']).toBe('Only Owners and Administrators can resume it.');
+    expect(catalogue['lotDetail.resumeSite']).toBe('Resume the Site to resume this Node');
+    expect(catalogue['pause.resumeSiteHub']).toBe('Resume the Site to resume this Hub');
+    expect(catalogue['siteSettings.forbidden']).toBe("You can't change this on {siteName}. Ask an Owner or Administrator.");
+    expect(catalogue['pause.scope.device']).toBe('This Device');
+    expect(catalogue['pause.scope.site']).toBe('Whole Site');
+  });
+
+  test('UX-DR83 no string names who paused the Site: the Server stores no attribution', () => {
+    for (const [key, value] of strings()) {
+      expect(value, key).not.toMatch(/Paused by \{|\(\{role\}\)/u);
     }
   });
 });
