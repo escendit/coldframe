@@ -8,6 +8,7 @@ using Coldframe.Crypto;
 using Coldframe.Protocol.Device.V1;
 using Coldframe.Server.Alerts;
 using Coldframe.Server.Journal;
+using Coldframe.Server.Lots;
 using Google.Protobuf;
 
 namespace Coldframe.Server.Devices;
@@ -37,6 +38,16 @@ namespace Coldframe.Server.Devices;
 /// expired asks its last relay Hub first and opens nothing while that Hub is silent. A paused Device opens nothing.
 /// </para>
 /// <para>
+/// Pause (Story 8.1, AD-8): the Device grain is the one gate. Its sources are its own (<see cref="SetPause"/>,
+/// <see cref="LiftPause"/>) and its Site's, which the Site grain tells it (<see cref="SetSitePause"/>, and the join
+/// reply in <see cref="Enrol"/>); it is paused while it has either. A command that changes nothing journals nothing,
+/// because every Pause event is a new evaluation epoch and a resume moves the silence clock. On becoming paused it
+/// closes its own open <c>silent</c> and <c>battery</c> Alerts as <c>paused</c> in the same write, and after every
+/// change it delivers those closes and sends its Sensors the new context before it answers. The end date of its own
+/// source is a due-at in its state, lifted by the first wake, activation, heartbeat, frame or read of its silence
+/// at or after it (AD-6); the Site's end is kept for display only and is the Site grain's to lift.
+/// </para>
+/// <para>
 /// Battery (Story 7.3): every device report a frame stores is counted once, at the <c>measured_at</c> its key got
 /// at first delivery and only when that is newer than the last one counted (<see cref="BatteryRule"/>). The third
 /// consecutive low report journals the next episode before the Alert grain is called, the third consecutive
@@ -46,7 +57,7 @@ namespace Coldframe.Server.Devices;
 /// <para>
 /// Evaluation context (Story 7.4, AD-8): a Node tells each of its Sensor grains where it is (Site, Lot or none,
 /// paused, epoch) through <see cref="ISensorGrain.SetContext"/>: after an assignment at enrolment, a move, an
-/// unassignment and a declared Specification set, and for a Pause change with the next wake. Which Sensor
+/// unassignment, a declared Specification set and every Pause change. Which Sensor
 /// confirmed which epoch is kept in memory only: a context that did not reach a Sensor is sent again with the
 /// next report or wake, and every activation sends it to every Sensor once, which a Sensor that holds it ignores.
 /// A failed send never fails the call it follows. The Sensor grain never calls back into a call of this grain
@@ -122,6 +133,10 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     // The replay window of a Node's frames, or null until it is loaded from device_replay.
     private ReplayWindow? _replay;
 
+    // The highest revision of the Site's Pause this activation was told (Story 8.1), also by a delivery that
+    // changed nothing and so journaled nothing; State.SitePauseRevision is the journaled one.
+    private long _sitePauseRevisionSeen;
+
     private string DeviceId => this.GetPrimaryKeyString();
 
     /// <inheritdoc />
@@ -196,7 +211,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
         // 4. Only after the Site registered it and the Lot granted the claim, in one write. Enrolling again on
         // the same Site and Lot journals nothing.
-        if (State.SiteId is null)
+        var enrolled = State.SiteId is null;
+
+        if (enrolled)
         {
             RaiseEvent(new DeviceEnrolled(request.SiteId, request.Kind, request.WrappedKey, Clock.GetUtcNow()));
         }
@@ -206,9 +223,14 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             RaiseEvent(new DeviceAssigned(request.SiteId, request.LotId!, Clock.GetUtcNow()));
         }
 
+        // 4a. The join reply carries the Site's Pause (AD-8, Story 8.1): a Device enrolled into a paused Site
+        // starts paused, in the write of its enrolment. A Device that is enrolled again makes its site source
+        // match the reply, which journals nothing when it already does.
+        var pauseChanged = RaiseSitePause(registration.Pause ?? SitePause.NotPaused, Clock.GetUtcNow()) == DeviceSitePauseOutcome.Applied;
+
         // 5. No compensating release: Orleans' log-consistency adaptor retries a failed or conflicting write
         // until it lands, so a claim the Lot granted is always recorded while this activation lives.
-        if (State.SiteId is null || claimed)
+        if (enrolled || claimed || pauseChanged)
         {
             await ConfirmEvents();
         }
@@ -217,8 +239,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         await EnsureSilenceReminderAsync();
 
         // 7. A Node that was enrolled before and is given its Lot now has Sensors to tell (Story 7.4); a new Node
-        // has none yet. It never changes the answer.
-        if (claimed)
+        // has none yet. A Pause the join reply changed is told the same way. It never changes the answer.
+        if (pauseChanged)
+        {
+            await AfterPauseChangeAsync();
+        }
+        else if (claimed)
         {
             await PushContextsAsync();
         }
@@ -240,9 +266,17 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             await StartReleasingAsync();
         }
 
-        // Every activation processes what is overdue (AD-6), and applies the Server start to the silence clock.
-        // It never throws, so a grain that cannot be reached never fails the activation.
+        // Every activation processes what is overdue (AD-6): the end date of the Device's own Pause first
+        // (Story 8.1), so that a Pause that ended while the Server was down is lifted before its silence is looked
+        // at, then the Silence Window, with the Server start applied to its clock. Neither throws, so a grain that
+        // cannot be reached never fails the activation.
+        var resumed = await EndOwnPauseWhenDueAsync();
         await EvaluateSilenceAsync(reported: false);
+
+        if (resumed)
+        {
+            await CatchUpLotsAsync();
+        }
 
         // Which Sensor holds the current evaluation context is not journaled (Story 7.4): every activation sends
         // it again. Not inline: a Sensor may be waiting for this Device to acknowledge a Calibration, and that
@@ -365,10 +399,18 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 return;
             }
 
+            // The wake of every deadline the Device owns (AD-6): the end date of its own Pause (Story 8.1), then
+            // its Silence Window, which a resume has just restarted.
+            var resumed = await EndOwnPauseWhenDueAsync();
             await EvaluateSilenceAsync(reported: false);
 
             // A wake also sends the evaluation context to the Sensors that have not confirmed it (Story 7.4).
             await PushContextsAsync();
+
+            if (resumed)
+            {
+                await CatchUpLotsAsync();
+            }
         }
     }
 
@@ -533,8 +575,16 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         // Only once the heartbeat is journaled: a failed write accepted nothing.
         _nonces[nonce] = request.TimestampMs;
 
-        // The heartbeat moved the silence clock: a silent Hub has recovered (Story 7.1). Never throws.
+        // A Pause of the Hub's own that is past its end is lifted first (Story 8.1): the heartbeat must not be
+        // read as that of a paused Hub because no wake came since the due-at. Then the heartbeat moved the silence
+        // clock: a silent Hub has recovered (Story 7.1). Neither throws.
+        var resumed = await EndOwnPauseWhenDueAsync();
         await EvaluateSilenceAsync(reported: true);
+
+        if (resumed)
+        {
+            await AfterOwnPauseEndedAsync();
+        }
 
         return new DeviceHeartbeatResult(DeviceHeartbeatOutcome.Accepted);
     }
@@ -656,7 +706,15 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                     frame.Verdict == NodeFrameVerdict.FutureTime ? DeviceIngestStatus.RejectedTime : DeviceIngestStatus.RejectedAuth);
             }
 
-            // 5. The Pause gate (AD-8): a paused Device's Readings are acknowledged and discarded.
+            // 5. The Pause gate (AD-8): a paused Device's Readings are acknowledged and discarded. A Pause of the
+            // Node's own that is past its end is lifted first (Story 8.1), so a frame that arrives after the
+            // due-at and before the next wake, or as the first call after a restart, is kept; the Sensors and the
+            // lots projection are told as on a wake.
+            if (await EndOwnPauseWhenDueAsync())
+            {
+                await AfterOwnPauseEndedAsync();
+            }
+
             var paused = State.IsPaused;
 
             // 6. One transaction: Reading keys, Reading rows, the device report, the replay window and the
@@ -865,7 +923,13 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         }
 
         // First what is overdue: the answer must not depend on whose reminder fired first.
+        var resumed = await EndOwnPauseWhenDueAsync();
         await EvaluateSilenceAsync(reported: false);
+
+        if (resumed)
+        {
+            await AfterOwnPauseEndedAsync();
+        }
 
         return new DeviceSilence(
             State.Kind,
@@ -877,6 +941,214 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             State.OpenSilentAlert,
             State.LastRecoveredAt,
             State.OpenBatteryAlert);
+    }
+
+    /// <inheritdoc />
+    public async Task<DevicePauseResult> SetPause(string siteId, DateTimeOffset? endsAt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        // A Device of another Site is not disclosed.
+        if (State.SiteId is not { } current || !string.Equals(current, siteId, StringComparison.Ordinal))
+        {
+            return new DevicePauseResult(DevicePauseOutcome.NotFound, []);
+        }
+
+        var now = Clock.GetUtcNow();
+
+        // A Pause never ends in the past, nor at the instant it is set (AD-6: the grain's own clock decides).
+        if (endsAt is { } end && end <= now)
+        {
+            return PauseResult(DevicePauseOutcome.InvalidEnd);
+        }
+
+        // The same Pause again: nothing is journaled, so the epoch and the silence clock stay where they are.
+        if (State.PausedBy.TryGetValue(DevicePauseSource.Device, out var held) && held == endsAt)
+        {
+            return PauseResult(DevicePauseOutcome.Unchanged);
+        }
+
+        RaisePaused(DevicePauseSource.Device, endsAt, now, siteRevision: null);
+        await ConfirmEvents();
+        await AfterPauseChangeAsync();
+
+        return PauseResult(DevicePauseOutcome.Changed);
+    }
+
+    /// <inheritdoc />
+    public async Task<DevicePauseResult> LiftPause(string siteId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+
+        if (State.SiteId is not { } current || !string.Equals(current, siteId, StringComparison.Ordinal))
+        {
+            return new DevicePauseResult(DevicePauseOutcome.NotFound, []);
+        }
+
+        if (!State.PausedBy.ContainsKey(DevicePauseSource.Device))
+        {
+            return PauseResult(DevicePauseOutcome.Unchanged);
+        }
+
+        RaiseEvent(new DeviceResumed(DevicePauseSource.Device, Clock.GetUtcNow()));
+        await ConfirmEvents();
+        await AfterPauseChangeAsync();
+
+        return PauseResult(DevicePauseOutcome.Changed);
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceSitePauseOutcome> SetSitePause(string siteId, SitePause pause, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
+        ArgumentNullException.ThrowIfNull(pause);
+
+        // A Device that is on the Site's roster and not enrolled yet (or enrolled elsewhere) has nothing to pause:
+        // its enrolment reads the Site's Pause in the join reply.
+        if (State.SiteId is not { } current || !string.Equals(current, siteId, StringComparison.Ordinal))
+        {
+            return DeviceSitePauseOutcome.NotEnrolled;
+        }
+
+        var outcome = RaiseSitePause(pause, Clock.GetUtcNow());
+
+        if (outcome == DeviceSitePauseOutcome.Applied)
+        {
+            await ConfirmEvents();
+            await AfterPauseChangeAsync();
+        }
+
+        return outcome;
+    }
+
+    private DevicePauseResult PauseResult(DevicePauseOutcome outcome) =>
+        new(outcome, State.PauseSources, LotStatusRule.PausedUntil([.. State.PausedBy.Values]));
+
+    // Makes the Device's site source match the Site's Pause (Story 8.1), and raises nothing when it already does:
+    // the Site grain delivers its Pause until the Device answers, and a redelivery must not raise the epoch or
+    // move the silence clock. A revision older than one the Device was told arrived late and is not applied. The
+    // caller confirms what was raised.
+    private DeviceSitePauseOutcome RaiseSitePause(SitePause pause, DateTimeOffset now)
+    {
+        if (pause.Revision < Math.Max(State.SitePauseRevision, _sitePauseRevisionSeen))
+        {
+            return DeviceSitePauseOutcome.Stale;
+        }
+
+        _sitePauseRevisionSeen = pause.Revision;
+        var held = State.PausedBy.TryGetValue(DevicePauseSource.Site, out var end);
+
+        if (pause.Paused)
+        {
+            if (held && end == pause.EndsAt)
+            {
+                return DeviceSitePauseOutcome.Unchanged;
+            }
+
+            RaisePaused(DevicePauseSource.Site, pause.EndsAt, now, pause.Revision);
+            return DeviceSitePauseOutcome.Applied;
+        }
+
+        if (!held)
+        {
+            return DeviceSitePauseOutcome.Unchanged;
+        }
+
+        RaiseEvent(new DeviceResumed(DevicePauseSource.Site, now, pause.Revision));
+        return DeviceSitePauseOutcome.Applied;
+    }
+
+    // Raises a Pause source, or its changed end. A Device that was not paused becomes paused: in the same write it
+    // ends its own open episodes as `paused` (DW-104), because only the grain that opened an Alert closes it. Its
+    // Sensors close theirs when they are sent the paused context. The battery streaks are cleared by the event.
+    private void RaisePaused(DevicePauseSource source, DateTimeOffset? endsAt, DateTimeOffset now, long? siteRevision)
+    {
+        var silent = State.IsPaused ? null : State.OpenSilentAlert;
+        var battery = State.IsPaused ? null : State.OpenBatteryAlert;
+
+        RaiseEvent(new DevicePaused(source, endsAt, now, siteRevision));
+
+        if (silent is not null)
+        {
+            RaiseEvent(new DeviceSilenceEnded(silent.Episode, silent.AlertId, AlertCloseReason.Paused, now));
+        }
+
+        if (battery is not null)
+        {
+            RaiseEvent(new DeviceBatteryLowEnded(battery.Episode, battery.AlertId, AlertCloseReason.Paused, MeasuredAt: null, now));
+        }
+    }
+
+    // What follows every journaled Pause change, before the command answers: the closes of the Device's own
+    // Alerts are delivered (and a resume finds its window restarted), every Sensor is sent the new evaluation
+    // context, which closes or reopens its Alerts, and the lots projection is brought up to date so that the next
+    // read of the Lot shows the change. None of it throws or changes the answer: whatever did not arrive is
+    // delivered again by the next wake or report.
+    private async Task AfterPauseChangeAsync()
+    {
+        await EvaluateSilenceAsync(reported: false);
+        await PushContextsAsync();
+        await CatchUpLotsAsync();
+    }
+
+    // Lifts the Device's own Pause source once its due-at has passed (AD-6, Story 8.1): the end date is journaled
+    // state, and every wake and every activation looks at it. The resume is stamped with the clock, not with the
+    // due-at, so a Device whose Pause ended while the Server was down gets a full Silence Window from here. The
+    // site source is never lifted here: the Site grain owns its end. True when the Device's own source was lifted;
+    // the caller then tells the Sensors. Never throws.
+    private async Task<bool> EndOwnPauseWhenDueAsync()
+    {
+        if (State.SiteId is null
+            || !State.PausedBy.TryGetValue(DevicePauseSource.Device, out var end)
+            || end is not { } dueAt)
+        {
+            return false;
+        }
+
+        var now = Clock.GetUtcNow();
+
+        if (now < dueAt)
+        {
+            return false;
+        }
+
+        try
+        {
+            RaiseEvent(new DeviceResumed(DevicePauseSource.Device, now));
+            await ConfirmEvents();
+            return true;
+        }
+#pragma warning disable CA1031 // Whatever failed the write, the due-at stands and the next wake lifts the Pause.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogPauseEndFailed(Logger, DeviceId, exception);
+            return false;
+        }
+    }
+
+    // What follows a Pause of the Device's own that was lifted at its due-at outside a wake: the Sensors are sent
+    // the live context and the lots projection is brought up to date. Neither throws.
+    private async Task AfterOwnPauseEndedAsync()
+    {
+        await PushContextsAsync();
+        await CatchUpLotsAsync();
+    }
+
+    // Read-your-writes for the Lot's status after a Pause change. The events are journaled, so a failure here only
+    // delays the Lots list.
+    private async Task CatchUpLotsAsync()
+    {
+        try
+        {
+            await ServiceProvider.GetProjectionRunner<LotsProjector>().CatchUpAsync(CancellationToken.None);
+        }
+#pragma warning disable CA1031 // The Lots list follows on the next poll or hint.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            LogLotsCatchUpFailed(Logger, DeviceId, exception);
+        }
     }
 
     private ILogger Logger => ServiceProvider.GetRequiredService<ILogger<DeviceGrain>>();
@@ -1329,6 +1601,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     [LoggerMessage(EventId = 10, EventName = "ContextNotDelivered", Level = LogLevel.Warning, Message = "The evaluation context of Device {DeviceId} did not reach Sensor {SensorId}; it is sent again with the next report or wake.")]
     private static partial void LogContextNotDelivered(ILogger logger, string deviceId, Guid sensorId, Exception exception);
+
+    [LoggerMessage(EventId = 11, EventName = "PauseEndFailed", Level = LogLevel.Warning, Message = "The Pause of Device {DeviceId} is past its end and could not be lifted; the next wake tries again.")]
+    private static partial void LogPauseEndFailed(ILogger logger, string deviceId, Exception exception);
+
+    [LoggerMessage(EventId = 12, EventName = "LotsCatchUpFailed", Level = LogLevel.Warning, Message = "The Lots list could not be brought up to date after the Pause of Device {DeviceId} changed; it follows on the next poll.")]
+    private static partial void LogLotsCatchUpFailed(ILogger logger, string deviceId, Exception exception);
 
     // Unwraps K_dev, derives the hub-auth/v1 key, verifies, and zeroes both keys on every path.
     private bool Verify(WrappedDeviceKey wrapped, string method, string path, byte[] body, long timestampMs, byte[] nonce, byte[] signature)

@@ -390,6 +390,27 @@ public sealed record SetSilenceWindowRequest(JsonElement? WindowSeconds = null);
 public sealed record SilenceWindowResponse(long WindowSeconds, bool Overridden);
 
 /// <summary>
+/// The body of <c>PUT /sites/{siteId}/pause</c> and <c>PUT /sites/{siteId}/devices/{deviceId}/pause</c>
+/// (Story 8.1). The member is read as raw JSON, so that anything that is not a date is told from a missing value.
+/// </summary>
+/// <param name="Until">The end date, <c>YYYY-MM-DD</c>; omitted for a Pause that lasts until someone resumes.</param>
+public sealed record SetPauseRequest(JsonElement? Until = null);
+
+/// <summary>
+/// A Device's Pause after a pause or resume request (Story 8.1).
+/// </summary>
+/// <param name="PausedBy"><c>device</c> and/or <c>site</c>, in that order; empty when the Device is not paused.</param>
+/// <param name="PausedUntil">When the Pause ends, ISO-8601 UTC: the latest end of its sources; omitted when the Device is not paused or any source has no end.</param>
+public sealed record DevicePauseResponse(IReadOnlyList<string> PausedBy, string? PausedUntil = null);
+
+/// <summary>
+/// A Site's Pause after a pause or resume request (Story 8.1).
+/// </summary>
+/// <param name="Paused">Whether the Site is paused.</param>
+/// <param name="PausedUntil">When the Site's Pause ends, ISO-8601 UTC; omitted when the Site is not paused or its Pause has no end.</param>
+public sealed record SitePauseResponse(bool Paused, string? PausedUntil = null);
+
+/// <summary>
 /// The body of <c>GET /sites/{siteId}/devices</c>: every enrolled Device of the Site.
 /// </summary>
 /// <param name="Devices">The Devices: Hubs by Device ID, then Nodes by Lot name (unassigned last) and Device ID.</param>
@@ -573,6 +594,14 @@ public static partial class EdgeApi
             .WithName("renameSite")
             .RequireSiteRole(SiteRole.Owner);
 
+        endpoints.MapPut("/sites/{siteId}/pause", PauseSiteAsync)
+            .WithName("pauseSite")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapDelete("/sites/{siteId}/pause", ResumeSiteAsync)
+            .WithName("resumeSite")
+            .RequireSiteRole(SiteRole.Administrator);
+
         endpoints.MapGet("/sites/{siteId}/devices", ListDevicesAsync)
             .WithName("listDevices")
             .RequireSiteRole(SiteRole.Member);
@@ -591,6 +620,14 @@ public static partial class EdgeApi
 
         endpoints.MapPut("/sites/{siteId}/devices/{deviceId}/silence-window", SetDeviceSilenceWindowAsync)
             .WithName("setDeviceSilenceWindow")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapPut("/sites/{siteId}/devices/{deviceId}/pause", PauseDeviceAsync)
+            .WithName("pauseDevice")
+            .RequireSiteRole(SiteRole.Administrator);
+
+        endpoints.MapDelete("/sites/{siteId}/devices/{deviceId}/pause", ResumeDeviceAsync)
+            .WithName("resumeDevice")
             .RequireSiteRole(SiteRole.Administrator);
 
         endpoints.MapPost("/sites/{siteId}/sensors/{sensorId}/calibration", CalibrateSensorAsync)
@@ -2147,6 +2184,205 @@ public static partial class EdgeApi
             EdgeProblems.Validation,
             "The Silence Window is not valid.",
             "Send a JSON body with windowSeconds, a whole number from 60 (1 min) to 2592000 (30 days), or without it to use the default. Nothing changed.");
+
+    private static async Task<IResult> PauseDeviceAsync(
+        string siteId,
+        string deviceId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions,
+        [FromServices] TimeProvider time)
+    {
+        var (valid, endsAt) = await ReadPauseEndAsync(httpContext, grains, jsonOptions.Value, time).ConfigureAwait(false);
+
+        if (!valid)
+        {
+            return InvalidPauseEnd();
+        }
+
+        if (EdgeValidation.NormalizeDeviceId(deviceId) is not { } id)
+        {
+            return InvalidDeviceId();
+        }
+
+        var result = await grains
+            .GetGrain<IDeviceGrain>(id.ToString())
+            .SetPause(SiteAccessHandler.Canonicalize(siteId)!, endsAt, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    private static async Task<IResult> ResumeDeviceAsync(
+        string siteId,
+        string deviceId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        if (EdgeValidation.NormalizeDeviceId(deviceId) is not { } id)
+        {
+            return InvalidDeviceId();
+        }
+
+        var result = await grains
+            .GetGrain<IDeviceGrain>(id.ToString())
+            .LiftPause(SiteAccessHandler.Canonicalize(siteId)!, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    private static async Task<IResult> PauseSiteAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions,
+        [FromServices] TimeProvider time)
+    {
+        var (valid, endsAt) = await ReadPauseEndAsync(httpContext, grains, jsonOptions.Value, time).ConfigureAwait(false);
+
+        if (!valid)
+        {
+            return InvalidPauseEnd();
+        }
+
+        // The Site grain answers once it has journaled the Pause; it delivers it to its Devices from there.
+        var result = await grains
+            .GetGrain<ISiteGrain>(SiteAccessHandler.Canonicalize(siteId)!)
+            .SetPause(endsAt, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    private static async Task<IResult> ResumeSiteAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains)
+    {
+        var result = await grains
+            .GetGrain<ISiteGrain>(SiteAccessHandler.Canonicalize(siteId)!)
+            .LiftPause(httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return ToHttpResult(result);
+    }
+
+    // Reads the body of a pause request and resolves its end date (Story 8.1): 00:00 on that date in the time
+    // zone of the caller, read from the caller's User grain (chosen, else detected, else UTC). Not valid: a body
+    // that is no JSON object, an `until` that is no date, and a date whose midnight is not after the clock. No
+    // end date reads as valid without an end, and asks no grain.
+    private static async Task<(bool Valid, DateTimeOffset? EndsAt)> ReadPauseEndAsync(
+        HttpContext httpContext,
+        IGrainFactory grains,
+        HttpJsonOptions jsonOptions,
+        TimeProvider time)
+    {
+        var request = await ReadJsonAsync<SetPauseRequest>(httpContext, jsonOptions).ConfigureAwait(false);
+
+        if (request is null || !TryReadPauseDate(request.Until, out var date))
+        {
+            return (false, null);
+        }
+
+        if (date is not { } until)
+        {
+            return (true, null);
+        }
+
+        var settings = await grains.GetGrain<IUserGrain>(CallerId(httpContext))
+            .GetNotificationSettings(httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return PauseEndRule.TryResolve(until, settings.TimeZone, time.GetUtcNow(), out var dueAt) ? (true, dueAt) : (false, null);
+    }
+
+    /// <summary>
+    /// Reads <c>until</c> of a pause request (Story 8.1): absent (or JSON null) is a Pause without an end; a
+    /// string that is a date as <see cref="PauseEndRule.DateFormat"/> writes it is its end date. Anything else is
+    /// refused.
+    /// </summary>
+    /// <param name="value">The raw member.</param>
+    /// <param name="date">The end date, or <see langword="null"/> without one.</param>
+    internal static bool TryReadPauseDate(JsonElement? value, out DateOnly? date)
+    {
+        date = null;
+
+        if (value is not { } element || element.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.String || !PauseEndRule.TryParseDate(element.GetString(), out var parsed))
+        {
+            return false;
+        }
+
+        date = parsed;
+        return true;
+    }
+
+    /// <summary>
+    /// Maps the Device grain's answer to a pause or a resume to the HTTP response (Story 8.1): 200 with the
+    /// Device's Pause sources and their end, also when nothing changed; 404 <c>device-not-found</c>; 400
+    /// <c>validation</c> for an end that is not ahead of the grain's clock.
+    /// </summary>
+    internal static IResult ToHttpResult(DevicePauseResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Outcome switch
+        {
+            DevicePauseOutcome.Changed or DevicePauseOutcome.Unchanged => TypedResults.Ok(new DevicePauseResponse(
+                [.. result.PausedBy.Select(PauseSourceName)],
+                result.PausedUntil is { } until ? ToServerTime(until) : null)),
+            DevicePauseOutcome.NotFound => DeviceNotFound("Device"),
+            DevicePauseOutcome.InvalidEnd => InvalidPauseEnd(),
+            _ => throw new InvalidOperationException($"Unexpected Device Pause result {result.Outcome}."),
+        };
+    }
+
+    /// <summary>
+    /// Maps the Site grain's answer to a pause or a resume to the HTTP response (Story 8.1): 200 with the Site's
+    /// Pause, also when nothing changed; 404 <c>site-not-found</c> for a Site that is not active; 400
+    /// <c>validation</c> for an end that is not ahead of the grain's clock.
+    /// </summary>
+    internal static IResult ToHttpResult(SitePauseResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Outcome switch
+        {
+            SitePauseOutcome.Changed or SitePauseOutcome.Unchanged => TypedResults.Ok(new SitePauseResponse(
+                result.Pause.Paused,
+                result.Pause is { Paused: true, EndsAt: { } until } ? ToServerTime(until) : null)),
+            SitePauseOutcome.NotFound => SiteNotFound(),
+            SitePauseOutcome.InvalidEnd => InvalidPauseEnd(),
+            _ => throw new InvalidOperationException($"Unexpected Site Pause result {result.Outcome}."),
+        };
+    }
+
+    // The contract's LotPauseSource names.
+    private static string PauseSourceName(DevicePauseSource source) => source switch
+    {
+        DevicePauseSource.Device => "device",
+        DevicePauseSource.Site => "site",
+        _ => throw new InvalidOperationException($"Unexpected Pause source {source}."),
+    };
+
+    private static IResult InvalidPauseEnd() =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The Pause is not valid.",
+            "Send a JSON body with until, a date (YYYY-MM-DD) that has not begun yet in your time zone, or without it to pause until someone resumes. Nothing changed.");
+
+    private static IResult InvalidDeviceId() =>
+        EdgeProblems.Result(
+            StatusCodes.Status400BadRequest,
+            EdgeProblems.Validation,
+            "The Device ID is not valid.",
+            "deviceId is 16 lowercase hex digits. Nothing changed.");
 
     /// <summary>
     /// Maps the Device grain's answer to a move or unassign to the HTTP response: 200 with the Node, 404

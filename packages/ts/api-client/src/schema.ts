@@ -194,6 +194,30 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/devices/{deviceId}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pause a Device
+         * @description Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Pauses one Hub or Node on purpose, for maintenance: while it is paused its Readings are acknowledged and not kept, no Alert of any kind opens for it, and its open Alerts close with reason paused. A paused Hub does not pause the Nodes it relays. until is an end date: the Pause lifts by itself at 00:00 on that date in the caller's time zone (the zone of the caller's notification settings, UTC without one; a midnight the clocks skip is the first instant of that date). Without until the Pause lasts until someone resumes. The request sets the Device's own Pause only; a Device is also paused while its Site is, and the answer names every source in force. Sending it again changes the end date, or removes it. The same Pause again answers 200 and saves nothing. A refusal changes nothing.
+         */
+        put: operations["pauseDevice"];
+        post?: never;
+        /**
+         * Resume a Device
+         * @description Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Lifts the Device's own Pause. A Device whose Site is paused stays paused, and the answer says so (pausedBy is site): resume the Site to resume it. When the last source is lifted the Device reports and alerts again, and its Silence Window counts from that moment, so a Device that was quiet during the Pause is not reported silent at once. A Device that is not paused by itself answers 200 and saves nothing.
+         */
+        delete: operations["resumeDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sites/{siteId}/sensors/{sensorId}/calibration": {
         parameters: {
             query?: never;
@@ -425,6 +449,30 @@ export type paths = {
         put: operations["setSiteReminderCadence"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sites/{siteId}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pause the Site
+         * @description Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Pauses every Device of the Site, for the winter: no Readings are kept, no Alert opens and the open Alerts close with reason paused. A Device added while the Site is paused starts paused. until is an end date: the Site resumes by itself at 00:00 on that date in the caller's time zone (the zone of the caller's notification settings, UTC without one; a midnight the clocks skip is the first instant of that date). Without until the Site stays paused until someone resumes it. Sending it again changes the end date, or removes it; the same Pause again answers 200 and saves nothing. The answer is given once the Site holds the Pause: the Server then tells every Device and repeats it until each has it, so a Lot may read its old status for a moment. A Device that is also paused by itself stays paused when the Site resumes.
+         */
+        put: operations["pauseSite"];
+        post?: never;
+        /**
+         * Resume the Site
+         * @description Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Ends the Site's Pause for every Device of the Site. The answer is given once the Site holds the resume; the Server then tells every Device and repeats it until each has it. A Device that is also paused by itself stays paused. Each resumed Device's Silence Window counts from the moment it resumes. A Site that is not paused answers 200 and saves nothing.
+         */
+        delete: operations["resumeSite"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1233,6 +1281,69 @@ export type components = {
             overridden: boolean;
         };
         /**
+         * @description A Pause of a Device or of a Site. Without until it lasts until someone resumes.
+         * @example {
+         *       "until": "2026-11-01"
+         *     }
+         * @example {}
+         */
+        SetPauseRequest: {
+            /**
+             * Format: date
+             * @description The end date, YYYY-MM-DD. The Pause lifts by itself at 00:00 on that date in the caller's time zone; that instant must still lie ahead. Omitted: no end.
+             */
+            until?: string;
+        };
+        /**
+         * @description A Device's Pause. The Device is paused exactly when pausedBy is not empty.
+         * @example {
+         *       "pausedBy": [
+         *         "device"
+         *       ],
+         *       "pausedUntil": "2026-10-31T23:00:00.000Z"
+         *     }
+         * @example {
+         *       "pausedBy": [
+         *         "device",
+         *         "site"
+         *       ]
+         *     }
+         * @example {
+         *       "pausedBy": []
+         *     }
+         */
+        DevicePause: {
+            /** @description The Pause sources of the Device, device before site; empty when it is not paused. */
+            pausedBy: components["schemas"]["LotPauseSource"][];
+            /**
+             * Format: date-time
+             * @description When the Pause ends, ISO-8601 UTC with Z: the latest end of its sources. Absent when the Device is not paused or any source has no end.
+             */
+            pausedUntil?: string;
+        };
+        /**
+         * @description A Site's Pause.
+         * @example {
+         *       "paused": true,
+         *       "pausedUntil": "2027-02-28T23:00:00.000Z"
+         *     }
+         * @example {
+         *       "paused": true
+         *     }
+         * @example {
+         *       "paused": false
+         *     }
+         */
+        SitePause: {
+            /** @description True while the Site is paused. */
+            paused: boolean;
+            /**
+             * Format: date-time
+             * @description When the Site resumes by itself, ISO-8601 UTC with Z. Absent when the Site is not paused or its Pause has no end.
+             */
+            pausedUntil?: string;
+        };
+        /**
          * @description How often a Reminder repeats while a Threshold Alert stays open: once per day or every 2 days. There is no never.
          * @enum {string}
          */
@@ -1881,6 +1992,68 @@ export interface operations {
             404: components["responses"]["DeviceNotFound"];
         };
     };
+    pauseDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Device ID, 16 lowercase hex digits. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPauseRequest"];
+            };
+        };
+        responses: {
+            /** @description The Device's Pause after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicePause"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeviceNotFound"];
+        };
+    };
+    resumeDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The Device ID, 16 lowercase hex digits. */
+                deviceId: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Device's Pause after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicePause"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeviceNotFound"];
+        };
+    };
     getSensorCalibration: {
         parameters: {
             query?: never;
@@ -2437,6 +2610,63 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SiteNotFound"];
             503: components["responses"]["ReminderCadenceNotDelivered"];
+        };
+    };
+    pauseSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPauseRequest"];
+            };
+        };
+        responses: {
+            /** @description The Site's Pause after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SitePause"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+        };
+    };
+    resumeSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Site's Pause after the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SitePause"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
         };
     };
 }

@@ -2,6 +2,7 @@ using Coldframe.Contracts.Alerts;
 using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Lots;
 using Coldframe.Contracts.Notifications;
+using Orleans.Concurrency;
 
 namespace Coldframe.Contracts.Sites;
 
@@ -303,7 +304,99 @@ public interface ISiteGrain : IGrainWithStringKey
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("set-reminder-cadence")]
     Task<SiteReminderCadenceResult> SetReminderCadence(ReminderCadence cadence, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pauses the Site (Story 8.1, AD-8), or changes the end of its Pause. The Site journals the Pause with its
+    /// next revision and answers; from then on it delivers the Pause to every Device on its roster, from
+    /// persisted pending state, until each has acknowledged. The same Pause again journals nothing. An end that
+    /// is not after the grain's clock is refused.
+    /// </summary>
+    /// <param name="endsAt">When the Pause lifts by itself (UTC), or <see langword="null"/> for a Pause that lasts until someone resumes.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-pause")]
+    Task<SitePauseResult> SetPause(DateTimeOffset? endsAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resumes the Site (Story 8.1): the Site journals the resume with its next revision and delivers it like a
+    /// Pause. A Site that is not paused journals nothing.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("lift-pause")]
+    Task<SitePauseResult> LiftPause(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the Site's Pause and the Devices that have not acknowledged it yet. Read only.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("get-pause")]
+    Task<SitePauseStatus> GetPause(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ends a Pause whose end date has passed and delivers the Site's Pause to every Device that has not
+    /// acknowledged it, as the Site grain's own timer does, and returns once that attempt is over. A Device that
+    /// could not be reached stays pending.
+    /// </summary>
+    /// <remarks>
+    /// It interleaves with the Site grain's other calls, as every delivery does: a Device that is told the Site's
+    /// Pause may at that moment be waiting for this Site (<see cref="RegisterDevice"/> while it enrols, or an
+    /// Alert report it started), and a Site grain that waited for the Device in a turn of its own would stop both
+    /// until a call times out.
+    /// </remarks>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("deliver-pause")]
+    [AlwaysInterleave]
+    Task<SitePauseStatus> DeliverPause(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// How <see cref="ISiteGrain.SetPause"/> or <see cref="ISiteGrain.LiftPause"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.site-pause-outcome")]
+public enum SitePauseOutcome
+{
+    /// <summary>
+    /// The Site's Pause changed; the event was journaled and delivery to the roster started.
+    /// </summary>
+    Changed = 0,
+
+    /// <summary>
+    /// Nothing needed to change. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>. Nothing was journaled.
+    /// </summary>
+    NotFound = 2,
+
+    /// <summary>
+    /// The end is not after the grain's clock. Nothing was journaled.
+    /// </summary>
+    InvalidEnd = 3,
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.SetPause"/> or <see cref="ISiteGrain.LiftPause"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+/// <param name="Pause">The Site's Pause afterwards.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-pause-result")]
+public sealed record SitePauseResult(
+    [property: Id(0)] SitePauseOutcome Outcome,
+    [property: Id(1)] SitePause Pause);
+
+/// <summary>
+/// The Site's Pause and how far its delivery is (Story 8.1).
+/// </summary>
+/// <param name="Pause">The Site's Pause.</param>
+/// <param name="PendingDevices">The Device IDs on the roster that have not acknowledged <paramref name="Pause"/> yet, in ordinal order.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-pause-status")]
+public sealed record SitePauseStatus(
+    [property: Id(0)] SitePause Pause,
+    [property: Id(1)] IReadOnlyList<string> PendingDevices);
 
 /// <summary>
 /// How often a Reminder repeats while a Threshold Alert stays open (Story 6.3). There is no "never".
@@ -746,14 +839,21 @@ public enum DeviceRegistrationOutcome
 }
 
 /// <summary>
-/// The Site's Pause as a joining Device receives it (AD-8). Site Pause arrives in Epic 8; until then a Site
-/// is never paused.
+/// The Site's Pause (AD-8, Story 8.1) as the Site grain holds it, as a joining Device receives it in the join
+/// reply and as the Site grain delivers it to every Device on its roster.
 /// </summary>
 /// <param name="Paused">Whether the Site is paused.</param>
-/// <param name="EndsAt">When the Pause ends, if it has an end.</param>
+/// <param name="EndsAt">When the Pause ends by itself (UTC), if it has an end. The Site grain ends it; a Device never does.</param>
+/// <param name="Revision">
+/// How often the Site's Pause changed: 0 for a Site that was never paused, one more with every pause, changed end
+/// and resume. A Device does not apply a revision older than one it applied.
+/// </param>
 [GenerateSerializer]
 [Alias("coldframe.site-pause")]
-public sealed record SitePause([property: Id(0)] bool Paused, [property: Id(1)] DateTimeOffset? EndsAt = null)
+public sealed record SitePause(
+    [property: Id(0)] bool Paused,
+    [property: Id(1)] DateTimeOffset? EndsAt = null,
+    [property: Id(2)] long Revision = 0)
 {
     /// <summary>
     /// A Site that is not paused.

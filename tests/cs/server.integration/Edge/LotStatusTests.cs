@@ -19,8 +19,9 @@ namespace Coldframe.Server.IntegrationTests.Edge;
 /// story's matrix, from "No Node" to "List order", and one through the Device simulator.
 /// </summary>
 /// <remarks>
-/// Device and Sensor events are seeded on fresh streams exactly as the grains journal them, because nothing
-/// pauses a Device before Epic 8. <c>needsWater</c> comes from Alert events (Story 6.1), seeded the same way.
+/// Device and Sensor events are seeded on fresh streams exactly as the grains journal them; the Pause commands
+/// that journal <c>device.paused</c> and <c>device.resumed</c> are pinned in <c>PauseEndpointTests</c>
+/// (Story 8.1). <c>needsWater</c> comes from Alert events (Story 6.1), seeded the same way.
 /// <c>unknown</c> with cause <c>hub</c> has no producer before Epic 7, so the list-order test writes that row
 /// into <c>lots</c> itself.
 /// </remarks>

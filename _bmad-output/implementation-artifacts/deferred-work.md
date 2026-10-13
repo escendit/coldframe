@@ -807,7 +807,8 @@ location: apps/cs/server/Devices/DeviceGrain.cs (CountBattery), apps/cs/server/D
 source_spec: `spec-7-3-low-battery-alert.md`
 severity: medium
 reason: DeviceGrain.Ingest counts no report while paused and nothing journals an end of the episode or a streak reset on device.paused / device.resumed. No grain method raises a Pause yet (only tests append the events), so it cannot happen in the product before Epic 8.
-status: open
+status: resolved
+resolution: Story 8.1 (`spec-8-1-pause-and-resume-on-the-server.md`): a Device that becomes paused journals `device.battery-low-ended` (and `device.silence-ended`) with reason `paused` in the write of `device.paused` (`DeviceGrain.RaisePaused`), delivers the closes before the command answers, and `DeviceState.Apply(DevicePaused)` clears both battery streaks. Pinned by `PauseGrainTests` (the Alerts closing, the count starting over after the resume) and `DeviceStateBatteryTests`.
 
 ### DW-105: The iOS adapter that hands the core's alertBatteryPercents to AlertsPresentation is executed by no test.
 origin: spec-deferred d006c4bd5063
@@ -854,4 +855,35 @@ origin: spec-deferred 875a4be654d8
 location: tests/cs/server.integration/Identity/IdentityCluster.cs (ReminderTableReadyAsync)
 source_spec: `spec-7-4-uncalibrated-sensor-alert.md`
 reason: IdentityCluster.RestartSiloAsync reads the reminder table once after a restart (ReminderTableReadyAsync): without it a pause test timed out in 3 of 11 class runs, with "Grain placement operation timed out" and "ReminderService failed initial load of reminders" in the silo log. A User grain registers a reminder in the turn that tells it of an Alert, which a Device's wake or frame awaits. The TestCluster uses the in-memory table; reading the production silo's reminder configuration and a restart under load would settle it. Probably the cause of the known NodeMoveTests flake.
+status: open
+
+### DW-111: A Hub paused by itself does not excuse the Nodes it relays: when a paused Hub is switched off, each Node behind it opens its own silent Alert once its Silence Window passes.
+origin: spec-deferred 6b98e531f85c
+location: apps/cs/server/Devices/DeviceGrain.cs (RelayHubAllowsAsync)
+source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
+reason: Pause is a state of one Device (PRD glossary; FR-18 cascades only from a Site), and the spec's Never list follows that. DeviceGrain.RelayHubAllowsAsync holds a Node back only while its Hub has an open silent Alert; a paused Hub has none (its Alert closed as paused, and LastRecoveredAt no longer moves for that close). PauseGrainTests.APausedHubsClosedAlertIsNoRecoveryForTheNodesItRelays pins it. Whether "maintenance never raises false Alerts" should also cover Nodes behind a Hub paused for maintenance is a product decision the story text does not make; a yes would be one more condition in RelayHubAllowsAsync (hub.Paused) and a Lot status question (unknown with cause hub, or paused).
+status: open
+
+### DW-112: Pause can be read back only through a Lot: the Site's Pause has no GET, the Devices list carries no pause fields, and a paused Hub (no Lot) shows in no read model.
+origin: spec-deferred 036ee9aa30b2
+location: apps/cs/server/Devices/DevicesReadModel.cs, apps/cs/server/Edge/EdgeApi.cs (GetSiteAsync, ListDevicesAsync)
+source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
+severity: medium
+reason: Story 8.1 asks only for the LotStatus projection, which shows paused with pausedBy and pausedUntil. The four pause endpoints answer with the state in force, and ISiteGrain.GetPause is grain-only. DevicesProjector ignores device.paused and device.resumed, and GET /sites/{siteId} has no pause member. Story 8.2 needs a Site headline ("Paused until 1 Mar"), "PAUSED BY SITE" Device rows and a paused Hub row, so it has to add these to the contract and the read models.
+status: open
+
+### DW-113: The test-only POST /testing/sites/{siteId}/wake has no caller yet.
+origin: spec-deferred 9e172f2b22fc
+location: apps/cs/server/Testing/TestingHostingExtensions.cs
+source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
+severity: low
+reason: It was added for Story 8.2's end-to-end run of the winter journey, which must pass a Site end date on the manual clock. Nothing in this change requests the route (IdentityCluster.WakeSiteAsync calls the grain), so a mistyped route or a wake that does not wait for delivery would go unnoticed until that journey is written; the Device and User wakes are exercised by the web.e2e journeys in the same way.
+status: open
+
+### DW-114: Enrolling an already-enrolled Device again while it is still pending for its Site's Pause is not tested.
+origin: spec-deferred 39f577954fd0
+location: apps/cs/server/Devices/DeviceGrain.cs (Enrol, step 4a)
+source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
+severity: low
+reason: DeviceGrain.Enrol applies the join reply's Pause also for a Device that is enrolled already and confirms and tells the Sensors when that changed something; every test that enrols into a paused Site uses a new Device. The window is narrow (a re-enrolment during a pending delivery) and the Site's own redelivery reaches the same state.
 status: open
