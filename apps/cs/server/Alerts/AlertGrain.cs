@@ -10,14 +10,15 @@ namespace Coldframe.Server.Alerts;
 /// <see cref="AlertOpened"/> and <see cref="AlertClosed"/> once each, whatever is retried, and records the
 /// side, Site, Lot, Sensor, Device and quantity it was opened with. A Device's Health Alert (Story 7.1) has no
 /// side, Sensor or quantity, and a Lot only when its Node was on one; a Node's battery Alert (Story 7.3) also
-/// records the battery level it was opened with.
+/// records the battery level it was opened with. A Sensor's Health Alert (Story 7.4, kind <c>uncalibrated</c>)
+/// records its Sensor, quantity and Lot like a Threshold Alert, no side, and the Device kind <c>Node</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Who may close: only the grain that opened the Alert, the Sensor grain of a Threshold Alert and the Device
-/// grain of a Device's Alert. The grain reads the caller of every call from the call itself (it is its own
-/// incoming call filter), so a close from a client, from another grain, from another Sensor or from another
-/// Device is refused and the Alert stays open.
+/// Who may close: only the grain that opened the Alert, the Sensor grain of a Threshold Alert and of a Sensor's
+/// Health Alert, and the Device grain of a Device's Alert. The grain reads the caller of every call from the
+/// call itself (it is its own incoming call filter), so a close from a client, from another grain, from another
+/// Sensor or from another Device is refused and the Alert stays open.
 /// </para>
 /// <para>
 /// Fan-out (AD-5: grain calls and the journal only): every open and close is reported to the Site grain of the
@@ -158,6 +159,47 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
                 request.DeviceKind,
                 request.Kind == AlertKind.Silent ? request.SilentSince : null,
                 request.Kind == AlertKind.Battery ? request.BatteryPercent : null));
+            await ConfirmEvents();
+        }
+
+        var reported = await ReportAsync();
+
+        return new AlertResult(State.Lifecycle == AlertLifecycle.Closed ? AlertOutcome.Closed : AlertOutcome.Open, reported);
+    }
+
+    /// <inheritdoc />
+    public async Task<AlertResult> OpenForSensor(OpenSensorAlert request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.SiteId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.LotId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.DeviceId);
+        ArgumentException.ThrowIfNullOrEmpty(request.Quantity);
+
+        // The Alert ID is its Sensor, kind and episode: a request for another Alert, or of a kind no Sensor opens
+        // this way (a Threshold Alert has its own call), is refused.
+        if (request.Kind != AlertKind.Uncalibrated
+            || request.Episode < 1
+            || !string.Equals(AlertIds.Uncalibrated(request.SensorId, request.Episode).ToString("D"), AlertId, StringComparison.Ordinal))
+        {
+            return new AlertResult(AlertOutcome.Refused);
+        }
+
+        if (State.Lifecycle == AlertLifecycle.None)
+        {
+            // The Sensor ID is journaled: only that Sensor's grain closes the Alert. A Sensor belongs to a Node,
+            // which the Alerts list needs to describe a Health Alert.
+            RaiseEvent(new AlertOpened(
+                request.Kind,
+                Side: null,
+                request.SiteId,
+                request.LotId,
+                request.SensorId,
+                request.DeviceId,
+                request.Quantity,
+                request.Episode,
+                request.OpenedAt,
+                DeviceKind.Node));
             await ConfirmEvents();
         }
 

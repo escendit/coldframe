@@ -276,7 +276,11 @@ and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetRem
 
 For Swift, `IosPush` (`IosSignIn.push`) observes a flat `PushSnapshot`; Android reads `AndroidSignIn.push`.
 
-Absent until later stories: uncalibrated Alerts have no producer on the Server (Story 7.4),
+The Server produces the uncalibrated kind from Story 7.4 on, in `healthAlerts`: `AlertCondition.Uncalibrated`,
+`AlertTitleKind.Uncalibrated` with the Lot's name, `AlertIcon.Tools` and `AlertTarget.Lot`, open and closed; a
+tapped notification of one carries the Lot and routes to Lot detail like a Threshold Alert's.
+
+Absent until later stories:
 a silent or low-battery row or a tapped notification of one opens the Devices surface, not the Device's row (the push route
 carries no Device ID), and there is no live update: the shells read again on entry, on pull-to-refresh and on
 every foreground.

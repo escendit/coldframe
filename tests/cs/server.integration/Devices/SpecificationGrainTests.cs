@@ -33,6 +33,8 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
     private static readonly SensorSpecification Humidity = new(CryptoSpec.SensorQuantityRelativeHumidity, SensorUnit.MilliPercent, 0, 100_000, false);
     private static readonly SensorSpecification Gas = new(CryptoSpec.SensorQuantityGasResistance, SensorUnit.Ohm, 0, 100_000_000, false);
 
+    private const string ContextChanged = "sensor.context-changed";
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private DateTimeOffset Now => identity.Time.GetUtcNow();
@@ -88,8 +90,11 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         SensorSpecification[] specifications = [Soil, Air, Humidity, Gas];
         foreach (var (id, slot) in ids.Select((id, slot) => (id, slot)))
         {
-            var only = Assert.Single(await identity.Store.ReadStreamAsync($"sensor/{id}", Ct));
-            Assert.Equal(new SensorDeclared(node.DeviceId.ToString(), slot, specifications[slot], declaredAt), only.Data);
+            // Declared, and then told where its Node is (Story 7.4): on its Site and on no Lot.
+            var events = await identity.Store.ReadStreamAsync($"sensor/{id}", Ct);
+            Assert.Equal(2, events.Count);
+            Assert.Equal(new SensorDeclared(node.DeviceId.ToString(), slot, specifications[slot], declaredAt), events[0].Data);
+            Assert.Equal(new SensorContextChanged(SiteId, null, false, 0, declaredAt), events[1].Data);
         }
 
         Assert.Equal([Enrolled, RelayChanged, SpecificationsDeclared], await DeviceAliasesAsync(node));
@@ -175,8 +180,8 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
 
         var air = Air with { RangeMax = 60_000, DefaultHigh = 45_000 };
         var events = await identity.Store.ReadStreamAsync($"sensor/{ids[1]}", Ct);
-        Assert.Equal(["sensor.declared", "sensor.specification-changed"], await identity.AliasesAsync($"sensor/{ids[1]}"));
-        Assert.Equal(new SensorSpecificationChanged(air, changedAt), events[1].Data);
+        Assert.Equal(["sensor.declared", ContextChanged, "sensor.specification-changed"], await identity.AliasesAsync($"sensor/{ids[1]}"));
+        Assert.Equal(new SensorSpecificationChanged(air, changedAt), events[2].Data);
         await AssertOnlyDeclaredAsync([ids[0], ids[2], ids[3]]);
 
         // The side follows the new default.
@@ -230,7 +235,8 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.True((await ReportAsync(node, node.Wake(Now))).SpecificationsUnknown);
         Assert.False((await ReportAsync(node, node.Wake(Now))).SpecificationsUnknown);
 
-        string[] redeclared = ["sensor.declared", "sensor.thresholds-changed", "sensor.specification-changed"];
+        // Redeclared, and then told where the Node is, as every Sensor of an accepted set is (Story 7.4).
+        string[] redeclared = ["sensor.declared", "sensor.thresholds-changed", "sensor.specification-changed", ContextChanged];
         Assert.Equal(redeclared, await identity.AliasesAsync($"sensor/{soilId}"));
         Assert.Equal(redeclared, await identity.AliasesAsync($"sensor/{airId}"));
 
@@ -271,8 +277,9 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.True((await ReportAsync(node, node.Wake(Now))).SpecificationsUnknown);
         Assert.False((await ReportAsync(node, node.Wake(Now))).SpecificationsUnknown);
 
-        var declared = Assert.Single(await identity.Store.ReadStreamAsync($"sensor/{humidityId}", Ct));
-        Assert.Equal(new SensorDeclared(node.DeviceId.ToString(), 1, Humidity, Now), declared.Data);
+        var declared = await identity.Store.ReadStreamAsync($"sensor/{humidityId}", Ct);
+        Assert.Equal(["sensor.declared", ContextChanged], await identity.AliasesAsync($"sensor/{humidityId}"));
+        Assert.Equal(new SensorDeclared(node.DeviceId.ToString(), 1, Humidity, Now), declared[0].Data);
         await AssertOnlyDeclaredAsync(old);
 
         // The Device's Sensor list holds only the new set.
@@ -422,7 +429,12 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         Assert.Equal(8L, await CountAsync("readings", node));
 
         // The Sensor grains come first: the ones that could be declared were, before the Device journaled anything.
-        await AssertOnlyDeclaredAsync(healthy);
+        // None was told where the Node is: the context follows an accepted set only (Story 7.4).
+        foreach (var id in healthy)
+        {
+            Assert.Equal(["sensor.declared"], await identity.AliasesAsync($"sensor/{id}"));
+        }
+
         await AssertNoSensorAsync([ids[2]]);
 
         // The hash stays unknown: the next frame is asked again.
@@ -536,11 +548,13 @@ public sealed class SpecificationGrainTests(IdentityCluster identity) : IClassFi
         }
     }
 
+    // Declared once, and told once where its Node is (Story 7.4): the Device grain sends every Sensor of an
+    // accepted set its evaluation context, and never again while the epoch stays.
     private async Task AssertOnlyDeclaredAsync(IEnumerable<Guid> sensorIds)
     {
         foreach (var id in sensorIds)
         {
-            Assert.Equal(["sensor.declared"], await identity.AliasesAsync($"sensor/{id}"));
+            Assert.Equal(["sensor.declared", ContextChanged], await identity.AliasesAsync($"sensor/{id}"));
         }
     }
 

@@ -34,7 +34,8 @@ public static class ReminderIntervalRule
 
     /// <summary>
     /// Whether <paramref name="kind"/> is a Health Alert: every kind that is not a Threshold Alert, such as
-    /// <see cref="AlertKind.Silent"/> (Story 7.1).
+    /// <see cref="AlertKind.Silent"/> (Story 7.1), <see cref="AlertKind.Battery"/> (Story 7.3) and
+    /// <see cref="AlertKind.Uncalibrated"/> (Story 7.4).
     /// </summary>
     public static bool IsHealth(AlertKind kind) => kind != AlertKind.Threshold;
 

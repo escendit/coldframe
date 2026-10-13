@@ -31,8 +31,8 @@ public sealed record AlertView(
     string? Reason);
 
 /// <summary>
-/// A Health Alert as the Alerts list returns it (Story 7.2): an Alert about a Device. The names are the
-/// contract's.
+/// A Health Alert as the Alerts list returns it (Story 7.2): an Alert about a Device, or (Story 7.4, kind
+/// <c>uncalibrated</c>) about a Sensor of a Node, which is then the Device. The names are the contract's.
 /// </summary>
 /// <param name="AlertId">The Alert ID.</param>
 /// <param name="Kind">The kind, such as <c>silent</c>; never <c>threshold</c>.</param>
@@ -80,7 +80,8 @@ public sealed record AlertPage(IReadOnlyList<AlertView> Alerts, AlertCursor? Nex
 /// Reads the alerts projection (Story 6.2). Edge API handlers read Alerts only from here; grains never read it.
 /// The table also holds Health Alerts (<c>silent</c> from Story 7.1, <c>battery</c> from Story 7.3), which have
 /// no Sensor, no quantity and maybe no Lot. The contract's <c>Alert</c> requires all three, so the Threshold list
-/// selects Threshold Alerts only and Health Alerts are listed on their own (Story 7.2).
+/// selects Threshold Alerts only and Health Alerts are listed on their own (Story 7.2). An <c>uncalibrated</c>
+/// Alert (Story 7.4) has a Sensor, a quantity and a Lot, and is a Health Alert all the same: it has no side.
 /// </summary>
 public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 {
@@ -94,8 +95,9 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
     private const long TicksPerMicrosecond = 10;
 
     /// <summary>
-    /// The most Health Alerts one answer lists (Story 7.2). A Device has at most one open Alert per kind, and a
-    /// closed one stays for <see cref="ClosedRetention"/>; the list is not paged.
+    /// The most Health Alerts one answer lists (Story 7.2). A Device has at most one open Alert per kind, a Sensor
+    /// at most one open <c>uncalibrated</c> Alert (Story 7.4), and a closed one stays for
+    /// <see cref="ClosedRetention"/>; the list is not paged.
     /// </summary>
     public const int HealthLimit = 200;
 

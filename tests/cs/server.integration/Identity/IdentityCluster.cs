@@ -133,6 +133,7 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
         ClockStarts.TryRemove(Database.ConnectionString, out _);
         await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
         await Cluster.WaitForLivenessToStabilizeAsync();
+        await ReminderTableReadyAsync();
     }
 
     /// <summary>
@@ -145,6 +146,35 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
         ClockStarts[Database.ConnectionString] = startAt;
         await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
         await Cluster.WaitForLivenessToStabilizeAsync();
+        await ReminderTableReadyAsync();
+    }
+
+    // The in-memory reminder table is a grain of the silo. Right after a restart its placement can time out for
+    // 30 s at a time (Orleans' own timeout: "Grain placement operation timed out", then "ReminderService failed
+    // initial load of reminders"), and every grain that registers or reads a reminder meanwhile waits that long:
+    // a User grain does so in the turn that tells it of an Alert, which a Device's wake or frame awaits, so the
+    // test's own call times out. The restart therefore reads the table before it hands back: a stall is spent
+    // here. The wait never fails a test by itself: on CI four reads in a row timed out (DW-110), in a test that
+    // needs no reminder, so after a few reads the restart is over as it was before this wait existed, and a test
+    // that does need the table fails on its own call.
+    private async Task ReminderTableReadyAsync()
+    {
+        var table = SiloServices.GetRequiredService<IReminderTable>();
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                await table.ReadRows(GrainId.Create("device", "0000000000000000"));
+                return;
+            }
+#pragma warning disable CA1031 // Whatever kept the table from answering, it is asked again, a few times.
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+                // Asked again, and then left alone.
+            }
+        }
     }
 
     /// <summary>
@@ -451,13 +481,33 @@ public sealed class FaultyIngestionStore(NpgsqlDataSource dataSource) : DeviceIn
 
 /// <summary>
 /// Passes every grain call on, except that a test can make <see cref="ISensorGrain.Declare"/> throw for chosen
-/// Sensors and the next <see cref="ISensorGrain.Evaluate"/> calls throw, the way a Sensor grain that cannot be
-/// reached or cannot write its journal does. Nothing reaches the grain then.
+/// Sensors and the next <see cref="ISensorGrain.Evaluate"/> or <see cref="ISensorGrain.SetContext"/> calls throw,
+/// the way a Sensor grain that cannot be reached or cannot write its journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class SensorFaults : IIncomingGrainCallFilter
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
     private int _evaluationFailures;
+    private int _contextFailures;
+
+    /// <summary>
+    /// How many evaluation contexts were failed (Story 7.4).
+    /// </summary>
+    public int FailedContexts => _failedContexts;
+
+    /// <summary>
+    /// How many evaluation contexts reached a Sensor grain (Story 7.4): what the Device sent and nothing failed.
+    /// </summary>
+    public int PassedContexts => _passedContexts;
+
+    private int _failedContexts;
+    private int _passedContexts;
+
+    /// <summary>
+    /// Makes the next <paramref name="calls"/> evaluation contexts fail, whichever Sensor they are for (Story 7.4);
+    /// 0 lets them through again.
+    /// </summary>
+    public void FailNextContexts(int calls) => Interlocked.Exchange(ref _contextFailures, calls);
 
     /// <summary>
     /// Makes the next <paramref name="calls"/> evaluations fail, whichever Sensor they are for.
@@ -483,6 +533,21 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
             && _failing.ContainsKey(context.TargetId.Key.ToString()!))
         {
             throw new InvalidOperationException("The test failed this declaration.");
+        }
+
+        if (context.Grain is ISensorGrain && string.Equals(context.MethodName, nameof(ISensorGrain.SetContext), StringComparison.Ordinal))
+        {
+            int left;
+            while ((left = Volatile.Read(ref _contextFailures)) > 0)
+            {
+                if (Interlocked.CompareExchange(ref _contextFailures, left - 1, left) == left)
+                {
+                    Interlocked.Increment(ref _failedContexts);
+                    throw new InvalidOperationException("The test failed this evaluation context.");
+                }
+            }
+
+            Interlocked.Increment(ref _passedContexts);
         }
 
         if (context.Grain is ISensorGrain && string.Equals(context.MethodName, nameof(ISensorGrain.Evaluate), StringComparison.Ordinal))
@@ -625,7 +690,7 @@ public sealed class DeviceFaults : IIncomingGrainCallFilter
 
 /// <summary>
 /// Passes every grain call on, except that a test can make the next <see cref="IAlertGrain.Open"/>,
-/// <see cref="IAlertGrain.OpenForDevice"/> and <see cref="IAlertGrain.Close"/> calls throw, the way an Alert grain that cannot be reached or cannot write its
+/// <see cref="IAlertGrain.OpenForDevice"/>, <see cref="IAlertGrain.OpenForSensor"/> and <see cref="IAlertGrain.Close"/> calls throw, the way an Alert grain that cannot be reached or cannot write its
 /// journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class AlertFaults : IIncomingGrainCallFilter
@@ -641,7 +706,7 @@ public sealed class AlertFaults : IIncomingGrainCallFilter
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (context.Grain is IAlertGrain && context.MethodName is nameof(IAlertGrain.Open) or nameof(IAlertGrain.OpenForDevice) or nameof(IAlertGrain.Close))
+        if (context.Grain is IAlertGrain && context.MethodName is nameof(IAlertGrain.Open) or nameof(IAlertGrain.OpenForDevice) or nameof(IAlertGrain.OpenForSensor) or nameof(IAlertGrain.Close))
         {
             if (Interlocked.Decrement(ref _failures) >= 0)
             {

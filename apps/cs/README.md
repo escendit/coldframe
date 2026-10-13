@@ -332,7 +332,10 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
       a frame measured inside the Silence Window ends an open silence, and an open or a close of the
       Node's Alerts is delivered. That never changes the frame's status.
    8. The Specification set, when the frame's `spec_hash` is not the known one and a set is
-      attached (see [Sensor Specifications](#sensor-specifications)).
+      attached (see [Sensor Specifications](#sensor-specifications)). Then every Sensor of the accepted
+      set that has not confirmed the Node's current evaluation context is sent it
+      ([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert)); once all have, nothing is sent.
+      That never changes the frame's status.
    9. Evaluation ([Alerts](#alerts)): every declared Sensor of an assigned Node is handed its Reading
       (`ISensorGrain.Evaluate`), on a first delivery and on a resend alike, with the
       `measured_at` its key holds, or the frame's own when the key holds none; a paused Node stored
@@ -402,7 +405,8 @@ and the Sensor grain (`server/Sensors/SensorGrain.cs`, `sensor/{sensorId}`).
    frame's status.
 5. A known hash needs nothing, with or without a set attached: no event on any stream.
 
-A paused or unassigned Node declares too; only Readings pass the Pause gate.
+A paused or unassigned Node declares too; only Readings pass the Pause gate. Its Sensors are told so in their
+evaluation context, and open no Alert.
 
 | Event on `sensor/{id}` | Journaled when |
 | --- | --- |
@@ -414,8 +418,11 @@ A paused or unassigned Node declares too; only Readings pass the Pause gate.
 | `sensor.calibration-delivered` `{calibrationId, deliveredAt}` | The Device grain acknowledged the Calibration as in force |
 | `sensor.streak-changed` `{position, count, epoch, measuredAt}` | A Reading changed the evaluation streak ([Alerts](#alerts)); never for a steady Reading |
 | `sensor.threshold-episode-opened` `{episode, alertId, side, siteId, lotId, value, threshold, epoch, measuredAt, openedAt}` | The third consecutive Reading beyond a Threshold: the Sensor's next episode, journaled before its Alert is opened |
-| `sensor.threshold-episode-closed` `{episode, alertId, reason, epoch, measuredAt?, closedAt}` | The third consecutive Reading back within (or on the other side): the episode ended |
+| `sensor.threshold-episode-closed` `{episode, alertId, reason, epoch, measuredAt?, closedAt}` | The third consecutive Reading back within (or on the other side): the episode ended. Also, without a `measuredAt`, a context that says the Node is on no Lot (`unassigned`) or paused (`paused`), Story 7.4 |
 | `sensor.alert-delivered` `{alertId, change, deliveredAt}` | The Alert grain holds the open or the close and its Site knows it |
+| `sensor.context-changed` `{siteId, lotId?, paused, epoch, changedAt}` | The Device grain told the Sensor where its Node is, or a Reading carried a newer epoch ([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert), Story 7.4); never for an epoch that is not newer than the one held |
+| `sensor.uncalibrated-episode-opened` `{episode, alertId, siteId, lotId, epoch, openedAt}` | The Sensor needs calibration, on a Lot and not paused: its next uncalibrated episode, journaled before its Alert is opened |
+| `sensor.uncalibrated-episode-closed` `{episode, alertId, reason, closedAt}` | The episode ended: `calibrated`, `unassigned`, `paused` or `removed` |
 
 A `specification` is `{quantity, unit, rangeMin, rangeMax, calibration, defaultLow?, defaultHigh?}`;
 the defaults are in percent for a calibrating Sensor, otherwise in `unit`.
@@ -457,7 +464,11 @@ only writer of a Calibration (AD-9); the Device grain only caches which Calibrat
    and the points may come in either order, also across a silo restart.
 4. Two points (in the request, or one kept) journal `sensor.calibrated` with a new Calibration ID (UUIDv7 from the
    `TimeProvider`) and both raw values, clear the kept points, and catch the lots projector up: the
-   `calibrations` table has its points and the Lot leaves *needs calibration* before the call returns.
+   `calibrations` table has its points and the Lot leaves *needs calibration* before the call returns. The same
+   write ends the Sensor's open uncalibrated episode (`sensor.uncalibrated-episode-closed`, reason `calibrated`),
+   and its Alert is closed after the Device call of step 5
+   ([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert)); a close the Alert grain did not take never
+   changes the answer and is delivered again.
 5. Only then the Sensor grain calls `IDeviceGrain.SetCalibration` (Sensor ID, Calibration ID, revision), which
    journals `device.calibration-set` and returns once it is persisted; the Sensor then journals
    `sensor.calibration-delivered` and the call answers 200 `{calibrated: true, calibrationId, dry, wet}`. The
@@ -515,9 +526,11 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 ### Alerts
 
 A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). A Health
-Alert of kind `silent` opens when a Device stops reporting ([Silent Devices](#silent-devices), Story 7.1), and one
+Alert of kind `silent` opens when a Device stops reporting ([Silent Devices](#silent-devices), Story 7.1), one
 of kind `battery` when a Node's battery runs low while it is not charging ([Low battery](#low-battery), Story
-7.3); both use the same Alert grain and the same fan-out from step 6 on. Clients
+7.3), and one of kind `uncalibrated` while a Sensor that requires Calibration is on a Lot without one
+([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert), Story 7.4); all use the same Alert grain and
+the same fan-out from step 6 on. Clients
 read both from [the Alerts list](#the-alerts-list) (Stories 6.2 and 7.2); when a User may be notified is set in
 [Notification settings](#notification-settings) (Story 6.3), each member's User grain decides when to notify
 ([Delivery timing](#delivery-timing), Story 6.4), and the channels are [Push notifications](#push-notifications)
@@ -535,7 +548,10 @@ open and close an Alert, through grain calls and the journal only (AD-5):
    existed has no time; a frame that carries its Reading again is evaluated with its own.
    An unassigned Node (AD-8) and an undeclared slot are stored and not evaluated. The **epoch** is
    `DeviceState.EvaluationEpoch`, the count of the Device's `device.assigned`, `device.moved`,
-   `device.unassigned`, `device.paused` and `device.resumed` events, so it needs no event of its own. A resent
+   `device.unassigned`, `device.paused` and `device.resumed` events, so it needs no event of its own. It also
+   orders the evaluation contexts the Device sends its Sensors outside a Reading
+   ([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert)): a Reading whose epoch is newer than the
+   context the Sensor holds is taken as that context first, the Node being on the Reading's Lot and not paused. A resent
    frame, a `duplicate`, is evaluated again, which finishes an evaluation that failed and otherwise changes
    nothing, because its Readings are not newer; when a Sensor answers that something is still undelivered, or the
    call fails, the frame answers `retry`.
@@ -570,11 +586,15 @@ open and close an Alert, through grain calls and the journal only (AD-5):
    its own Alert ID. `OpenForDevice` opens a Device's Health Alert the same way; its `alert.opened` has no `side`,
    `sensorId` or `quantity`, a `lotId` only for a Node on a Lot, and from Story 7.2 on `deviceKind` and
    `silentSince` ([Silent since](#silent-since)). It accepts `silent` for any Device and `battery` for a Node
-   only, whose `alert.opened` carries `batteryPercent` instead of `silentSince`; any other kind is refused. `Close` is accepted only from the grain that
-   opened the Alert, the Sensor grain of a Threshold Alert and the Device grain of a Device's Alert: the grain
+   only, whose `alert.opened` carries `batteryPercent` instead of `silentSince`; any other kind is refused.
+   `OpenForSensor` (Story 7.4) opens a Sensor's Health Alert, of kind `uncalibrated` only: its `alert.opened`
+   has the `sensorId`, `quantity` and `lotId` of a Threshold Alert, no `side`, and `deviceKind` `node`. `Close`
+   is accepted only from the grain that opened the Alert, the Sensor grain of a Threshold or uncalibrated Alert
+   and the Device grain of a Device's Alert: the grain
    reads the caller of the call itself, so a client, another grain, another Sensor or another Device is refused and
-   the Alert stays open. The reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`; only
-   `recovered` is produced before Epic 8.
+   the Alert stays open. The reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`. A
+   Device's Alert closes only as `recovered` before Epic 8; a Sensor's Alerts also close as `unassigned`,
+   `paused`, `calibrated` and `removed` (Story 7.4).
 7. **The Site's open Alerts and its members.** The Alert grain reports each open and close to its Site grain
    (`ISiteGrain.AlertOpened`, `AlertClosed`), the open before the close. The Site grain journals
    `site.alert-opened` and `site.alert-closed`, once per Alert, and answers with its current members
@@ -589,13 +609,17 @@ open and close an Alert, through grain calls and the journal only (AD-5):
    `Active` keeps no Alerts and names no members.
 
 Streak, side, episode, the open Alert and every pending delivery are journaled state, so a silo restart loses
-none of them. A moved Node's open Alert follows its Device to the new Lot until three Readings recover; closing on
-Pause, unassign, recalibration and removal arrives with Epics 7 and 8. The lots projector derives *needs water*
-from the Alert events ([Lot status](#lot-status)).
+none of them. A moved Node's open Threshold Alert follows its Device to the new Lot until three Readings recover
+(DW-85). An unassigned or paused Node gets no Reading evaluated, so the Sensor closes its open Threshold Alert
+when its context says so, as `unassigned` or `paused`, and its streak starts over
+([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert), Story 7.4); nothing raises a Pause before
+Epic 8. Closing on recalibration and removal is not built. The lots projector derives *needs water* from the
+Alert events ([Lot status](#lot-status)).
 
-`SetCalibration` on the Device grain is `[AlwaysInterleave]`: the Device grain awaits a Sensor's evaluation while
-that Sensor may be awaiting the Device to acknowledge a Calibration, and without interleaving the two calls would
-wait for each other until one times out.
+`SetCalibration` on the Device grain is `[AlwaysInterleave]`: the Device grain awaits a Sensor's evaluation, or
+its `SetContext`, while that Sensor may be awaiting the Device to acknowledge a Calibration, and without
+interleaving the two calls would wait for each other until one times out. The Sensor grain calls nothing else on
+the Device grain.
 
 ### Silent Devices
 
@@ -803,6 +827,78 @@ Health Alert it reminds at most once per day ([Delivery timing](#delivery-timing
 Tests: `BatteryRuleTests` and `DeviceStateBatteryTests` (`tests/cs/server.tests`) and `BatteryAlertGrainTests`
 (`tests/cs/server.integration`), a TestCluster with a fake clock and frames from the Device simulator.
 
+### The uncalibrated Sensor Alert
+
+Story 7.4: a Node assigned to a Lot whose soil Sensor was never calibrated shows the Lot as *needs calibration*;
+the Health Alert of kind `uncalibrated` tells the Site's members, and its row and its notification lead to Lot
+detail, where an Owner or an Administrator calibrates. The Sensor grain (`server/Sensors/SensorGrain.cs`) opens
+and closes it; `UncalibratedRule` (`server/Sensors/`) is pure and the only place that decides.
+
+**The rule.** A Sensor **needs calibration** when its Specification says `calibration: true` and it has no
+Calibration in force. The Alert is open exactly while the Sensor needs calibration and its newest context says
+that its Node is on a Lot and not paused, and it names that Lot. Such a Sensor is never evaluated against its
+Thresholds ([Alerts](#alerts), step 2), so it has no Threshold Alert beside it. Only soil-moisture Specifications
+require calibration; a Node's other Sensors hold the context and open nothing.
+
+**The evaluation context (AD-8).** The Sensor grain knows only its Device and never asks it, because the Device
+grain awaits its Sensors while it ingests (DW-86). So the Device grain tells: `ISensorGrain.SetContext` takes
+`{siteId, lotId?, paused, epoch}`, the epoch being `DeviceState.EvaluationEpoch`, which changes with every
+assignment and Pause event.
+
+| The Device grain sends the context | Where |
+| --- | --- |
+| after an assignment at enrolment | `Enrol`, when a Node that was enrolled before is given its Lot (a new Node has no Sensors yet) |
+| after a move and after an unassignment | `Move`, `Unassign`, last, after the old Lot is released |
+| after a frame declared a Specification set | step 8 of `Ingest`: the Sensors first exist here |
+| after a Pause change | with the next wake or report; no grain method raises a Pause before Epic 8 |
+
+Which Sensor confirmed which epoch is kept in the Device grain's memory only, and nothing is journaled on the
+Device stream for it. A context that did not reach a Sensor is sent again with the Device's next report
+(step 8 of `Ingest`) and with every wake of its `silence-window` reminder, and every activation sends it to every
+Sensor once, a second after it activated, in a turn of its own. So after a Server start every Node tells every
+one of its Sensors once; a Sensor that holds that epoch ignores it. `Enrol`, `Move` and `Unassign` answer as
+before when the send fails (`ContextNotDelivered`, EventId 10). Readings carry the epoch as a second path: a
+Reading of a newer epoch is taken as an assigned, unpaused context for its Lot, so a lost send after a move
+heals with the next Reading. An unassignment has no Reading after it, hence the resend.
+
+**What the Sensor does with it.** A context whose epoch is not newer than the one held is ignored and journals
+nothing. Otherwise the Sensor journals `sensor.context-changed` and, in the same write, what follows from it:
+
+| State | Journaled | The Alert |
+| --- | --- | --- |
+| Needs calibration, the context names a Lot, not paused, no Alert open | `sensor.uncalibrated-episode-opened` | opens, naming that Lot |
+| A Calibration is saved (`Calibrate`) | `sensor.uncalibrated-episode-closed` with `calibrated`, in the write of `sensor.calibrated` | closes; a single point leaves it open, and the same pair again changes nothing |
+| The context has no Lot | closed with `unassigned` | closes; none opens while the Node is on no Lot |
+| The context names another Lot (a move) | closed with `unassigned`, then the next episode opened | the old one closes and a new one names the new Lot: the Alert leads to the Lot where Calibrate is offered |
+| The context is paused | closed with `paused` | closes; the next episode opens with the context that resumes |
+| A declaration changes the Specification to `calibration: true` on an assigned Sensor | opened, in the write of `sensor.specification-changed` | opens |
+| A declaration changes it to `calibration: false` | closed with `removed` | closes: such a Sensor refuses a Calibration, so nothing else could close it |
+
+A context without a Lot, or paused, also closes the Sensor's open **Threshold** Alert, as `unassigned` or
+`paused` (`sensor.threshold-episode-closed` without a `measuredAt`), and resets its streak. A move leaves a
+Threshold Alert open (DW-85).
+
+**Episode before Alert.** The uncalibrated episodes count apart from the Threshold episodes
+(`SensorState.UncalibratedEpisode`). `sensor.uncalibrated-episode-opened` carries the next one and the Alert ID
+`UUIDv5(AlertIds.Namespace, "sensor:{sensorId}:uncalibrated:{episode}")`; only then `IAlertGrain.OpenForSensor`
+is called, through the delivery of the Threshold Alert (`SensorState.PendingAlertDeliveries`,
+`DeliverAlertsAsync`): oldest first, again by the next evaluation, on the 5 s grain timer, by the `deliver-alerts`
+reminder and on activation, ended by `sensor.alert-delivered`. A Sensor has at most one open `uncalibrated`
+Alert, and only its own grain closes it. The context, the episode counter and the open Alert are journaled
+state; a stream journaled before this story has none of them, and its Sensor opens nothing until a context
+arrives, which the Device's first activation after the upgrade sends.
+
+**What it never changes.** The Lot status: *needs calibration* is computed from the Sensor's state
+([Lot status](#lot-status)), not from the Alert, which the lots projector stores under its kind and never reads.
+From the Alert grain on it takes the path of every Alert (steps 6 and 7 of [Alerts](#alerts)): the Site lists it,
+every member's User grain is told, and the windows, summaries and mute of [Delivery timing](#delivery-timing)
+apply. As a Health Alert it reminds at most once per day.
+
+Tests: `SensorStateContextTests` (`tests/cs/server.tests`, the state and the rule), `UncalibratedAlertGrainTests`
+(`tests/cs/server.integration`, a TestCluster with a fake clock and frames from the Device simulator; a Pause is
+journaled by the test and read by a new silo), and `UncalibratedSensorJourneyTests` (`tests/cs/web.e2e`), the
+real Server and the web app in a browser.
+
 ### The Alerts list
 
 `GET /sites/{siteId}/alerts?cursor&limit` (`listAlerts`, Stories 6.2 and 7.2, Member and up) reads the `alerts` table, which
@@ -818,13 +914,15 @@ writer of that table (AD-21):
 A closed Alert keeps its row, so an event applied again changes nothing: neither an open after its close nor a
 second close. To rebuild, delete the rows of `alerts` and the `alerts` checkpoint; the projector starts again
 from position 0 and writes the same rows. `kind`, `side` and `reason` are stored under the contract's lowercase
-names, mapped by hand in `AlertNames` (`threshold`, `silent`, `battery`; `low`, `high`; `recovered`, `paused`, `unassigned`,
+names, mapped by hand in `AlertNames` (`threshold`, `silent`, `battery`, `uncalibrated`; `low`, `high`; `recovered`, `paused`, `unassigned`,
 `calibrated`, `removed`). A value added to one of those enums must be named there first: the projector refuses
-an event it cannot name. The contract's `AlertKind` is an extensible enum that already names `silent`, `battery`
-and `uncalibrated`; the Server produces `threshold`, `silent` (Story 7.1) and `battery` (Story 7.3).
+an event it cannot name. The contract's `AlertKind` is an extensible enum; the Server produces all four kinds it
+names: `threshold`, `silent` (Story 7.1), `battery` (Story 7.3) and `uncalibrated` (Story 7.4).
 
 **Health Alerts travel beside the Threshold Alerts (Story 7.2).** A `silent` or `battery` Alert has its row like any other,
-with `sensor_id` and `quantity` null and `lot_id` null for a Hub or an unassigned Node. The contract's `Alert`
+with `sensor_id` and `quantity` null and `lot_id` null for a Hub or an unassigned Node. An `uncalibrated` Alert
+(Story 7.4) has all three and `device_kind` `node`; it is a Health Alert all the same, listed as an Alert of its
+Node with its Lot, and its Sensor and quantity are not sent: `HealthAlert` gained no property. The contract's `Alert`
 requires `quantity`, `lotId` and `lotName`, and making them optional is a breaking change for existing clients
 (`oasdiff`: `response-property-became-optional`), so `alerts` stays Threshold-only (`ListSql` selects
 `kind = 'threshold'`) and the answer carries a second, optional list:
@@ -838,7 +936,8 @@ requires `quantity`, `lotId` and `lotName`, and making them optional is a breaki
   kind of the enrolled Device in `devices`; a row whose kind cannot be told either way is left out, because the
   contract cannot describe it.
 - **Not paged.** The list holds at most `AlertsReadModel.HealthLimit` (200) Health Alerts. A Device has at most
-  one open Alert per kind (a Node can hold a `silent` and a `battery` Alert at once), and every closed episode
+  one open Alert per kind (a Node can hold a `silent` and a `battery` Alert at once), a Sensor at most one open
+  `uncalibrated` Alert, and every closed episode
   keeps its row for 7 days, so a Site with many flapping Nodes can have more than the list shows. They are sent with the first page only: a
   request with `cursor` carries no `healthAlerts`.
 - **`openCount`** counts every open Alert of the Site, Threshold and Health.
@@ -980,8 +1079,8 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
   reads as UTC). The opening stays at its local time across daylight-saving changes; a start the clocks skip
   opens at the first valid instant after it, a start that occurs twice at its first occurrence.
 - **Reminders** are `ReminderIntervalRule`, pure: `Daily` is 24 h, `Every2Days` 48 h, the cadence is the User's
-  own, else the Site's as the grain holds it, else daily. A Health Alert (any kind that is not `Threshold`,
-  such as `silent` and `battery`) uses `max(resolved, 24 h)`: it reminds at most once per day.
+  own, else the Site's as the grain holds it, else daily. A Health Alert (any kind that is not `Threshold`:
+  `silent`, `battery` and `uncalibrated`) uses `max(resolved, 24 h)`: it reminds at most once per day.
 - **Mute.** A muted Site has nothing due and nothing held: its deliveries are discarded, also the ones held
   when it is muted, without an event. `user.site-mute-changed` to unmuted moves every deadline that passed
   meanwhile to the last `due-at + n × interval` not after the unmute, so the Reminder advanced all the while
@@ -993,8 +1092,8 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
 **The Notifier seam** (`server/Notifications/`, registered by `AddNotifications()`):
 `INotifier.SendAsync(Notification)` takes `{userId, siteId, kind: Alert | Reminder | Summary, dueAt, heldFrom?,
 entries, registrations, timeZone?, window}`, each entry `{alertId, kind, side?, lotId?, sensorId?, deviceId,
-quantity?, openedAt, deviceKind?, silentSince?, batteryPercent?}` (`packages/cs/contracts/Notifications/`; a Health Alert has no
-Sensor and no quantity, and no Lot when it is a Hub's; `deviceKind` and `silentSince` are a Device Alert's from Story 7.2 on,
+quantity?, openedAt, deviceKind?, silentSince?, batteryPercent?}` (`packages/cs/contracts/Notifications/`; a Device's Health Alert has no
+Sensor and no quantity, and no Lot when it is a Hub's, while an `uncalibrated` Alert, Story 7.4, has its Sensor, quantity and Lot and `deviceKind` `Node`; `deviceKind` and `silentSince` are a Device Alert's from Story 7.2 on,
 [Silent since](#silent-since), `batteryPercent` a `battery` Alert's from Story 7.3 on, [Low battery](#low-battery)). It carries identifiers and the facts the grains
 hold; names, values and wording belong to the channels. `registrations`, `timeZone` and `window` are what only
 the User grain knows and a channel needs ([Push notifications](#push-notifications)). The one implementation,
@@ -1057,7 +1156,8 @@ before `user.notification-sent`. The next notification is not sent to it.
    (`IdentityReadModel`), each Lot's name (`LotsReadModel`; a removed Lot has none), the newest Reading of the
    Alert's Sensor of the last 2 days with the Calibration it was stored with (`readings`, `calibrations`,
    `SensorConversion`), and the Threshold of the side that was crossed (`ISensorGrain.GetThresholds`). The
-   Reading and the Threshold are looked up for a Threshold Alert only: a Health Alert has no Sensor. For a silent
+   Reading and the Threshold are looked up for a Threshold Alert only: a Device's Health Alert has no Sensor, and
+   an uncalibrated Sensor's text needs only the name of its Lot. For a silent
    Node (not in a summary) `readings` is asked whether the Server ever stored a Reading of it: a Node without one
    is silent since its enrolment, and its text names no time. All of it within `Push:LookupBudget` (2 s); what was not found is left out of the text and never fails the push. A Lot
    name that could not be read (a failure, the budget) is no removed Lot: its Alert keeps its line as "A Lot …".
@@ -1095,7 +1195,10 @@ grain a channel calls.
 | Low battery of a Node on no Lot | "Node 9C0D battery 14 %, not charging" | none |
 | Reminder of a low battery | the title | "Still low. Lot 'Lettuce'."; without a Lot "Still low." |
 | Summary line of a low battery | | "Lettuce: Node battery 14 %, not charging", "Node 9C0D battery 14 %, not charging"; counted under "to check" |
-| A Health Alert that says neither its Device kind nor its silent-since (tracked before Story 7.2), a `battery` Alert without a level, or a kind without copy yet | "Tomatoes needs attention"; without a Lot "A device needs attention" | none; a Reminder says "Still open." |
+| Uncalibrated Sensor (Story 7.4) | "Soil sensor on Lot 'Peppers' needs calibration" | "An Owner or Administrator can calibrate it." |
+| Reminder of an uncalibrated Sensor | the title | "Still not calibrated. An Owner or Administrator can calibrate it." |
+| Summary line of an uncalibrated Sensor | | "Peppers: soil sensor needs calibration"; counted under "to check" |
+| A Health Alert that says neither its Device kind nor its silent-since (tracked before Story 7.2), a `battery` Alert without a level, an `uncalibrated` Alert whose Lot name was not found in time, or a kind without copy yet | "Tomatoes needs attention" ("A Lot needs attention" without the name); without a Lot "A device needs attention" | none; a Reminder says "Still open." |
 
 A Hub, and a Node without a Lot, is named by the first four hex digits of its Device ID in upper case
 (`PushText.ShortName`), as the firmware advertises it. A silence duration is the time the notification is sent
@@ -1104,8 +1207,13 @@ A silent Node whose Lot is gone, or whose Lot name was not found in time, keeps 
 so does a low battery: its title then names the Node, and its body names no Lot. The level in a low-battery text
 is the one the Alert opened with (`NotificationEntry.BatteryPercent`); nothing is looked up for it but the Lot's
 name.
+"Soil sensor" in the uncalibrated text is fixed copy: only soil-moisture Specifications require calibration. The
+push wording follows the UX table in sentence case, while the Alert rows of the clients keep the glossary's
+capitals ("Soil Sensor on Lot '…' needs Calibration"). An uncalibrated Alert is about its Lot, like a Threshold
+Alert: in a summary the line of a Lot that is gone is left out.
 What a tapped push opens is unchanged: a silent or low-battery notification opens the overview (routing to a Device row needs a
-`deviceId` in the AsyncAPI `PushRoute`).
+`deviceId` in the AsyncAPI `PushRoute`), and an uncalibrated one, which carries its Lot, opens Lot detail like a
+Threshold Alert's, where Calibrate is offered to an Owner and an Administrator.
 
 Soil moisture is the percentage `CalibrationMath.Percent` gives, rounded to 5, with `~`. Without the value or
 the Threshold an Alert is its title only, and a Reminder says "Still open."; a quantity whose Threshold was not
@@ -1265,8 +1373,12 @@ the release still frees the old Lot. Moving back to a Lot that is still pending 
 list. Moving to the current Lot, or unassigning an unassigned Node, answers 200 and journals nothing; a Move
 of a Node on no Lot journals `device.assigned`. Readings stay keyed by the Node: nothing deletes them, and an
 unassigned Node's frames are stored and not evaluated, since no Lot claims it. A move, an assignment and an
-unassignment each start a new evaluation epoch ([Alerts](#alerts)): a Sensor's streak starts over, and an open
-Alert stays open.
+unassignment each start a new evaluation epoch ([Alerts](#alerts)) and send every Sensor of the Node its new
+evaluation context ([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert), Story 7.4): a Sensor's
+streak starts over. An unassignment closes the Sensor's open Threshold Alert and its uncalibrated Alert as
+`unassigned`; a move leaves an open Threshold Alert open (DW-85), and closes the uncalibrated Alert of the Lot
+the Node left and opens one for the new Lot. The answer of `Move` and `Unassign` does not depend on the Sensors
+being reached.
 
 ### The Devices list
 
@@ -1343,7 +1455,7 @@ the Lots it touches through the rule again:
 | `device.relay-changed` | The Node's last relay Hub in `lot_status_devices.relay_hub_id`; its Lot is evaluated |
 | `sensor.declared`, `sensor.specification-changed` | The Sensor's Device, quantity and `calibration` flag in `lot_status_sensors`; the Lot of its Device is evaluated |
 | `sensor.calibrated` | The Calibration's points in `calibrations` (by Calibration ID) and `lot_status_sensors.calibrated`; the Lot of its Device is evaluated |
-| `alert.opened`, `alert.closed` | The Alert's Device, Sensor, quantity, kind and side in `lot_status_alerts` (no Sensor and no quantity for a `silent` or `battery` Alert), and its `closed_at`; the Lot of its Node is evaluated, and for a Hub's Alert every Lot whose Node it relays. A `battery` Alert (Story 7.3) is stored and changes no status: the rule reads `threshold` and `silent` only |
+| `alert.opened`, `alert.closed` | The Alert's Device, Sensor, quantity, kind and side in `lot_status_alerts` (no Sensor and no quantity for a `silent` or `battery` Alert), and its `closed_at`; the Lot of its Node is evaluated, and for a Hub's Alert every Lot whose Node it relays. A `battery` Alert (Story 7.3) and an `uncalibrated` Alert (Story 7.4) are stored and change no status: the rule reads `threshold` and `silent` only, and *needs calibration* comes from the Sensor's rows |
 
 `status_since` moves only when the status changes, to the time of the event that changed it: the
 journal's `recorded_at` for a Lot event (Lot events carry no time), the event's own time otherwise.
@@ -1385,7 +1497,8 @@ client read the list again. Clients name a Hub by the first four hex digits of i
 sources (journaled only by tests until Epic 8 adds the commands), silence, the uncalibrated soil Sensor, and the
 open low-side Alert (Story 6.1).
 A declared `calibration: true` soil-moisture Sensor counts as uncalibrated until its `sensor.calibrated` is
-projected (Story 5.1).
+projected (Story 5.1). That is the Sensor's state, not its `uncalibrated` Alert (Story 7.4): an unassigned or
+paused Node has no such Alert, and a Lot's status never waits for one.
 
 **`lastReadingAt` is read, not projected.** Both queries of `LotsReadModel` take the newest
 `measured_at` of the Readings of the Lot's Node with `measured_at >= claimed_at`, through

@@ -57,7 +57,33 @@ object AlertFixtures {
 
     val silent = alert("silent", "Beans", "2026-10-09T01:05:00Z", kind = AlertSummary.KIND_SILENT)
     val battery = alert("battery", "Salad", "2026-10-08T12:00:00Z", kind = AlertSummary.KIND_BATTERY)
-    val uncalibrated = alert("uncal", "Carrots", "2026-10-07T08:00:00Z", kind = AlertSummary.KIND_UNCALIBRATED)
+
+    // Story 7.4: an uncalibrated soil Sensor as `healthAlerts` lists it: about a Node, naming the Lot it is on,
+    // with neither a side nor a quantity.
+    private fun uncalibratedOf(
+        id: String,
+        lotName: String,
+        openedAt: String,
+        closedAt: String? = null,
+    ) = AlertSummary(
+        id = id,
+        kind = AlertSummary.KIND_UNCALIBRATED,
+        side = null,
+        quantity = null,
+        lotId = "lot-$id",
+        lotName = lotName,
+        deviceId = "7e1f2a3b4c5d6e70",
+        openedAtEpochMs = at(openedAt),
+        closedAtEpochMs = closedAt?.let(::at),
+        deviceKind = AlertDeviceKind.Node,
+    )
+
+    /** The soil Sensor of the Node on Carrots was never calibrated. */
+    val uncalibrated = uncalibratedOf("uncal", "Carrots", "2026-10-07T08:00:00Z")
+
+    /** One that was calibrated: the Closed row keeps its title. */
+    val closedUncalibrated =
+        uncalibratedOf("was-uncal", "Peppers", "2026-10-08T09:00:00Z", closedAt = "2026-10-08T10:15:00Z")
 
     /** A kind this app does not know: a Health row with `help`. */
     val unknownKind = alert("flood", "Leeks", "2026-10-06T08:00:00Z", kind = "flooded")

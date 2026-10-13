@@ -125,6 +125,48 @@ public abstract class JourneyTests(MorningNudgeFixture stack)
         return (int)(long)(await command.ExecuteScalarAsync(Ct))!;
     }
 
+    // How many deliveries of one Alert the User's grain held for the Notification Window.
+    protected async Task<int> HeldCountAsync(JourneyUser user, string alertId)
+    {
+        await using var command = Stack.Database.CreateCommand(
+            "SELECT COUNT(*) FROM journal_events WHERE stream_id = @stream_id AND type_alias = 'user.delivery-held' AND payload->>'alertId' = @alert_id");
+        command.Parameters.AddWithValue("stream_id", $"user/{user.UserId}");
+        command.Parameters.AddWithValue("alert_id", alertId);
+
+        return (int)(long)(await command.ExecuteScalarAsync(Ct))!;
+    }
+
+    // The Site's Health Alerts as the Edge API lists them: the alerts projection follows the journal.
+    protected async Task<IReadOnlyList<JsonElement>> HealthAlertsAsync(JourneyUser user, string siteId)
+    {
+        using var server = await Stack.CreateServerClientAsync(user, Ct);
+        using var response = await server.GetAsync(new Uri($"/sites/{siteId}/alerts", UriKind.Relative), Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+
+        return body.RootElement.TryGetProperty("healthAlerts", out var health)
+            ? [.. health.EnumerateArray().Select(element => element.Clone())]
+            : [];
+    }
+
+    // The ID of the open uncalibrated Sensor Alert of a Lot (Story 7.4), once the Alerts list holds it: every Node
+    // on a Lot has one from the frame that declares its soil Sensor until that Sensor is calibrated.
+    protected async Task<string> UncalibratedAlertIdAsync(JourneyUser user, string siteId, string lotId)
+    {
+        JsonElement? found = null;
+        await UntilAsync(
+            user,
+            async () => found = (await HealthAlertsAsync(user, siteId)).Cast<JsonElement?>().FirstOrDefault(alert =>
+                alert!.Value.GetProperty("kind").GetString() == "uncalibrated"
+                && alert.Value.TryGetProperty("lotId", out var lot)
+                && lot.GetString() == lotId
+                && !alert.Value.TryGetProperty("closedAt", out _)),
+            alert => alert is not null,
+            "the uncalibrated Sensor Alert is listed");
+
+        return found!.Value.GetProperty("id").GetString()!;
+    }
+
     protected async Task<DateTimeOffset> ServerNowAsync(JourneyUser user)
     {
         using var server = await Stack.CreateServerClientAsync(user, Ct);

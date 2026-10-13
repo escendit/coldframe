@@ -949,6 +949,75 @@ class AlertsEngineTest {
             assertEquals(listOf("", "", "", "6", "", ""), snapshot.alertDurationValues)
         }
 
+    // Story 7.4: the Server produces the uncalibrated kind, for a soil Sensor of a Node on a Lot.
+
+    @Test
+    fun uxDr25AnUncalibratedSensorNamesItsLotWithTheToolsIconAndOpensLotDetail() =
+        runTest {
+            api.alerts["a"] = listOf(alert("t"))
+            api.health["a"] =
+                listOf(
+                    health("unc", kind = "uncalibrated", lotName = "Peppers"),
+                    health("was", kind = "uncalibrated", lotName = "Herbs", closedAt = closed),
+                )
+
+            val ready = alertsFor().ready()
+
+            // Open under Health after the Threshold Alerts, closed under Closed.
+            assertEquals(listOf("t"), ready.threshold.map { it.id })
+            assertEquals(listOf("unc"), ready.health.map { it.id })
+            assertEquals(listOf("was"), ready.closed.map { it.id })
+            val open = ready.health.single()
+            // "Soil Sensor on Lot 'Peppers' needs Calibration".
+            assertEquals(AlertTitle(AlertTitleKind.Uncalibrated, lotName = "Peppers"), open.titleNow())
+            assertEquals(AlertCondition.Uncalibrated, open.condition)
+            assertEquals(AlertGroup.Health, open.group)
+            assertEquals(AlertVariant.Health, open.variant)
+            assertEquals(AlertIcon.Tools, open.icon)
+            assertEquals(AlertEyebrow.Health, open.eyebrow)
+            // It leads to Lot detail of its Lot, where Calibrate is offered: never to Devices.
+            assertEquals(AlertTarget.Lot, open.target)
+            assertEquals("lot-unc", open.lotId)
+            assertEquals(AlertDeviceKind.Node, open.deviceKind)
+            assertNull(open.silentSinceEpochMs)
+            assertNull(open.batteryPercent)
+            // The closed row keeps its title, icon and target.
+            val was = ready.closed.single()
+            assertEquals(AlertTitle(AlertTitleKind.Uncalibrated, lotName = "Herbs"), was.titleNow())
+            assertEquals(AlertCondition.Uncalibrated, was.condition)
+            assertEquals(AlertGroup.Closed, was.group)
+            assertEquals(AlertVariant.Closed, was.variant)
+            assertEquals(AlertIcon.Tools, was.icon)
+            assertEquals(AlertTarget.Lot, was.target)
+        }
+
+    @Test
+    fun uxDr26TheSnapshotCarriesAnUncalibratedSensorForSwift() =
+        runTest {
+            api.health["a"] =
+                listOf(
+                    health("unc", kind = "uncalibrated", lotName = "Peppers"),
+                    silentNode,
+                    health("was", kind = "uncalibrated", lotName = "Herbs", closedAt = closed),
+                )
+
+            val snapshot = snapshotOf(alertsFor().state.value)
+
+            assertEquals(listOf("unc", "n", "was"), snapshot.alertIds)
+            assertEquals(listOf("health", "health", "closed"), snapshot.alertGroups)
+            assertEquals(listOf("uncalibrated", "nodeOnLotSilent", "uncalibrated"), snapshot.alertTitles)
+            assertEquals(listOf("uncalibrated", "silent", "uncalibrated"), snapshot.alertConditions)
+            assertEquals(listOf("tools", "help", "tools"), snapshot.alertIcons)
+            assertEquals(listOf("lot", "devices", "lot"), snapshot.alertTargets)
+            assertEquals(listOf("lot-unc", "lot-n", "lot-was"), snapshot.alertLotIds)
+            assertEquals(listOf("Peppers", "Beans", "Herbs"), snapshot.alertLotNames)
+            assertEquals(listOf("node", "node", "node"), snapshot.alertDeviceKinds)
+            // It has neither a duration nor a level.
+            assertEquals(listOf("", "6", ""), snapshot.alertDurationValues)
+            assertEquals(listOf("", "", ""), snapshot.alertBatteryPercents)
+            assertEquals(2, snapshot.openCount)
+        }
+
     @Test
     fun uxDr117TheSnapshotCarriesTheTitleInputsOfHealthAlertsForSwift() =
         runTest {

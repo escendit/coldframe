@@ -65,7 +65,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         await identity.WakeDeviceAsync(nodeId);
 
         Assert.Equal(journaled, await identity.AliasesAsync($"device/{nodeId}"));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // At the window: episode 1, journaled before the Alert it opens.
         identity.Time.Advance(Second);
@@ -87,9 +87,9 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal(["alert.opened", "alert.site-notified"], await identity.AliasesAsync($"alert/{alertId}"));
 
         // The Site lists it and its member was told.
-        var listed = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        var listed = Assert.Single(await OpenAlertsAsync(site.SiteId));
         Assert.Equal(new SiteAlert(alertId, AlertKind.Silent, null, lotId, null, nodeId, null, Now, DeviceKind.Node, lastReport), listed);
-        Assert.Equal(listed, Assert.Single((await identity.UserStateAsync(site.OwnerId)).TrackedAlerts.Values).Alert);
+        Assert.Equal(listed, Assert.Single(await TrackedAlertsAsync(site.OwnerId)).Alert);
 
         // The Lot cannot be read: unknown, because of its Node.
         Assert.NotEqual("unknown", before.Status);
@@ -122,9 +122,9 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal(
             new AlertSnapshot(alertId, AlertKind.Silent, AlertLifecycle.Open, null, site.SiteId, null, null, hubId, null, opened, DeviceKind: DeviceKind.Hub, SilentSince: lastHeard),
             await identity.Alert(alertId).Describe(Ct));
-        var listed = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        var listed = Assert.Single(await OpenAlertsAsync(site.SiteId));
         Assert.Equal(((DeviceKind?)DeviceKind.Hub, (DateTimeOffset?)lastHeard), (listed.DeviceKind, listed.SilentSince));
-        Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(alertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
 
         // Delivered through the same fan-out as a Threshold Alert, and nothing throws for an Alert without a Lot.
         await identity.WakeUserAsync(site.OwnerId);
@@ -163,11 +163,11 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
 
         identity.Time.Advance(HubWindow - Second);
         await identity.WakeDeviceAsync(hubId);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         identity.Time.Advance(Second);
         await identity.WakeDeviceAsync(hubId);
-        Assert.Equal(AlertIds.Silent(hubId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Silent(hubId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
     }
 
     [Fact]
@@ -203,23 +203,23 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         identity.Time.Advance(NodeWindow);
         await identity.WakeDeviceAsync(nodeId);
         await identity.WakeDeviceAsync(otherId);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // Clearing the override returns to 6 h, which has passed: the next wake opens the Alert.
         Assert.Equal(new DeviceSilenceWindowResult(DeviceSilenceWindowOutcome.Set, NodeWindow), await identity.Device(otherId).SetSilenceWindow(site.SiteId, null, Ct));
         await identity.WakeDeviceAsync(otherId);
-        Assert.Equal(AlertIds.Silent(otherId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Silent(otherId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
 
         // With the override: not a second before 8 h, and at 8 h.
         identity.Time.Advance(eightHours - NodeWindow - Second);
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Single(await OpenAlertsAsync(site.SiteId));
 
         identity.Time.Advance(Second);
         await identity.WakeDeviceAsync(nodeId);
         Assert.Equal(
             new[] { AlertIds.Silent(nodeId, 1), AlertIds.Silent(otherId, 1) }.Order(),
-            (await identity.Site(site.SiteId).OpenAlerts(Ct)).Select(alert => alert.AlertId).Order());
+            (await OpenAlertsAsync(site.SiteId)).Select(alert => alert.AlertId).Order());
     }
 
     [Fact]
@@ -239,8 +239,8 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         var closed = await identity.Alert(first).Describe(Ct);
         Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Recovered, (DateTimeOffset?)Now), (closed!.Lifecycle, closed.Reason, closed.ClosedAt));
         Assert.Equal(["alert.opened", "alert.site-notified", "alert.closed", "alert.site-notified"], await identity.AliasesAsync($"alert/{first}"));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
-        Assert.Empty((await identity.UserStateAsync(site.OwnerId)).TrackedAlerts);
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
+        Assert.Empty(await TrackedAlertsAsync(site.OwnerId));
 
         var state = await identity.DeviceStateAsync(nodeId);
         Assert.Equal((1, (DeviceSilentAlert?)null, (DateTimeOffset?)Now), (state.SilenceEpisode, state.OpenSilentAlert, state.LastRecoveredAt));
@@ -254,7 +254,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal(AlertIds.Silent(nodeId, 2), second);
         Assert.NotEqual(first, second);
         Assert.Equal([Started, Ended, Started], (await identity.AliasesAsync($"device/{nodeId}")).Where(alias => alias is Started or Ended));
-        Assert.Equal(second, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(second, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         await HeartbeatAsync(hub);
 
         Assert.Equal(AlertLifecycle.Closed, (await identity.Alert(alertId).Describe(Ct))?.Lifecycle);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
         Assert.Equal(Now, (await identity.Device(hubId).Silence(Ct))?.LastRecoveredAt);
     }
 
@@ -293,7 +293,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal(["device.reported"], (await identity.AliasesAsync($"device/{nodeId}")).Skip(journaled.Count));
         Assert.Equal(lastReport.AddMinutes(10), (await identity.DeviceStateAsync(nodeId)).LastReportedAt);
         Assert.Equal(AlertLifecycle.Open, (await identity.Alert(alertId).Describe(Ct))?.Lifecycle);
-        Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(alertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
     }
 
     [Fact]
@@ -318,7 +318,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         identity.Time.Advance(TimeSpan.FromMinutes(1));
         await identity.WakeDeviceAsync(nodeId);
 
-        Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(alertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         Assert.Single(await identity.AliasesAsync($"device/{nodeId}"), alias => alias == Started);
         Assert.Empty(await identity.AliasesAsync($"alert/{AlertIds.Silent(nodeId, 2)}"));
 
@@ -335,7 +335,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         await identity.WakeDeviceAsync(nodeId);
 
         Assert.Equal(AlertLifecycle.Closed, (await identity.Alert(alertId).Describe(Ct))?.Lifecycle);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
         Assert.Empty((await identity.DeviceStateAsync(nodeId)).PendingAlertDeliveries);
         Assert.Equal([Started, Delivered, Ended, Delivered], (await identity.AliasesAsync($"device/{nodeId}")).Where(alias => alias is Started or Ended or Delivered));
     }
@@ -384,7 +384,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal(lastReport.AddHours(7), Now);
         await identity.WakeDeviceAsync(nodeId);
 
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
         var restarted = Assert.IsType<DeviceSilenceClockRestarted>((await identity.Store.ReadStreamAsync($"device/{nodeId}", Ct))[^1].Data);
         Assert.Equal(
             (lastReport.AddHours(7), SilenceClockRestartCause.ServerStarted, (string?)null),
@@ -398,11 +398,11 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         // Only at T + 13 h, 6 h after the start.
         identity.Time.SetUtcNow(lastReport.AddHours(13) - Second);
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         identity.Time.Advance(Second);
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
     }
 
     [Fact]
@@ -435,7 +435,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         }
 
         var hubAlert = AlertIds.Silent(hubId, 1);
-        Assert.Equal(hubAlert, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(hubAlert, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         foreach (var (node, lotId) in nodes)
         {
             Assert.DoesNotContain(Started, await identity.AliasesAsync($"device/{node.DeviceId}"));
@@ -450,14 +450,14 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
             await identity.WakeDeviceAsync(node.DeviceId.ToString());
         }
 
-        Assert.Equal(hubAlert, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(hubAlert, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
 
         // The Hub heartbeats again at R: its Alert closes and the Lots behind it are what they were.
         identity.Time.Advance(TimeSpan.FromHours(1));
         await HeartbeatAsync(hub);
         var recoveredAt = Now;
 
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
         for (var index = 0; index < nodes.Count; index++)
         {
             Assert.Equal(before[index], await LotAsync(nodes[index].LotId));
@@ -475,7 +475,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
             Assert.Equal((recoveredAt, recoveredAt + NodeWindow), await ClockAsync(nodeId));
         }
 
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // One Node reports again; the Hub keeps heartbeating; the others stay quiet.
         identity.Time.Advance(TimeSpan.FromHours(1));
@@ -489,7 +489,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
             await identity.WakeDeviceAsync(node.DeviceId.ToString());
         }
 
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // At R + 6 h every Node that is still quiet opens its own Alert, and its Lot names the Node as the cause.
         identity.Time.Advance(Second);
@@ -501,7 +501,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
 
         Assert.Equal(
             nodes.Skip(1).Select(entry => AlertIds.Silent(entry.Node.DeviceId.ToString(), 1)).Order(),
-            (await identity.Site(site.SiteId).OpenAlerts(Ct)).Select(alert => alert.AlertId).Order());
+            (await OpenAlertsAsync(site.SiteId)).Select(alert => alert.AlertId).Order());
         Assert.Equal(before[0], await LotAsync(nodes[0].LotId));
         foreach (var (_, lotId) in nodes.Skip(1))
         {
@@ -523,7 +523,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         identity.Time.Advance(NodeWindow);
         await HeartbeatAsync(hub);
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
 
         identity.Time.Advance(HubWindow);
         await identity.WakeDeviceAsync(hubId);
@@ -531,7 +531,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
 
         Assert.Equal(
             new[] { AlertIds.Silent(nodeId, 1), AlertIds.Silent(hubId, 1) }.Order(),
-            (await identity.Site(site.SiteId).OpenAlerts(Ct)).Select(alert => alert.AlertId).Order());
+            (await OpenAlertsAsync(site.SiteId)).Select(alert => alert.AlertId).Order());
         Assert.Equal(("unknown", "node"), await LotAsync(lotId));
     }
 
@@ -555,7 +555,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
             await identity.WakeDeviceAsync(nodeId);
 
             Assert.Equal(journaled, await identity.AliasesAsync($"device/{nodeId}"));
-            Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+            Assert.Empty(await OpenAlertsAsync(site.SiteId));
         }
         finally
         {
@@ -564,7 +564,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
 
         // It answers again: the Hub is not silent, so the Node's own Alert opens.
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
     }
 
     [Fact]
@@ -586,7 +586,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         await identity.WakeDeviceAsync(nodeId);
         Assert.True((await identity.Device(nodeId).Silence(Ct))!.Paused);
         Assert.DoesNotContain(Started, await identity.AliasesAsync(stream));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // Resumed at P = T + 9 h: the window restarts there.
         var resumedAt = lastReport.AddHours(9);
@@ -596,11 +596,11 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
 
         identity.Time.SetUtcNow(resumedAt + NodeWindow - Second);
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         identity.Time.Advance(Second);
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Silent(nodeId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         Assert.DoesNotContain(ClockRestarted, await identity.AliasesAsync(stream));
     }
 
@@ -628,7 +628,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         await identity.WakeDeviceAsync(lettuceId);
         var beansAlert = AlertIds.Silent(beansId, 1);
         var beansOpened = Now;
-        Assert.Equal(2, (await identity.Site(site.SiteId).OpenAlerts(Ct)).Count);
+        Assert.Equal(2, (await OpenAlertsAsync(site.SiteId)).Count);
         Assert.Equal(
             ((DeviceKind?)DeviceKind.Node, (DateTimeOffset?)lastHeard),
             ((await identity.Alert(beansAlert).Describe(Ct))!.DeviceKind, (await identity.Alert(beansAlert).Describe(Ct))!.SilentSince));
@@ -639,13 +639,14 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         var alerts = identity.SiloServices.GetRequiredService<AlertsReadModel>();
         var closedSince = Now - AlertsReadModel.ClosedRetention;
         Assert.Empty((await alerts.ListAlertsAsync(site.SiteId, closedSince, null, 50, Ct)).Alerts);
-        Assert.Equal(2, await alerts.CountOpenAsync(site.SiteId, Ct));
+        // Counted with the uncalibrated Alerts of the two Nodes on Lots (Story 7.4), which are Health Alerts too.
+        Assert.Equal(2 + 2, await alerts.CountOpenAsync(site.SiteId, Ct));
         Assert.Equal(
             [
                 new HealthAlertView(beansAlert, "silent", beansId, "node", beans, "Beans", lastHeard, beansOpened, null, null),
                 new HealthAlertView(hubAlert, "silent", hubId, "hub", null, null, lastHeard, hubOpened, null, null),
             ],
-            await alerts.ListHealthAlertsAsync(site.SiteId, closedSince, Ct));
+            await DeviceHealthAlertsAsync(alerts, site.SiteId, closedSince));
 
         // The Lots: Beans is unknown by its Node, Lettuce by the Hub that relays it, each since that Device was
         // last heard; the Hub is listed for the Site.
@@ -673,7 +674,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         // The notification text, written from what the Alert carries and the real read models: the Node by its
         // Lot with the time of its last Reading (UTC for a User without a zone), the Hub by its short ID.
         var push = identity.SiloServices.GetRequiredService<PushContentBuilder>();
-        var open = (await identity.Site(site.SiteId).OpenAlerts(Ct)).ToDictionary(alert => alert.AlertId);
+        var open = (await OpenAlertsAsync(site.SiteId)).ToDictionary(alert => alert.AlertId);
         NotificationEntry Entry(Guid alertId) => new(
             alertId, AlertKind.Silent, null, open[alertId].LotId, null, open[alertId].DeviceId, null, open[alertId].OpenedAt, open[alertId].DeviceKind, open[alertId].SilentSince);
         var ofNode = await push.BuildAsync(new Notification(site.OwnerId, site.SiteId, NotificationKind.Alert, Now, null, [Entry(beansAlert)]), Now);
@@ -703,13 +704,13 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
             (afterwards[lettuce].Status, afterwards[lettuce].UnknownCause, afterwards[lettuce].SilentHubId, afterwards[lettuce].SilentSince));
         Assert.Equal(("unknown", (DateTimeOffset?)lastHeard), (afterwards[beans].Status, afterwards[beans].SilentSince));
         Assert.Null((await devices.ListDevicesAsync(site.SiteId, Ct)).Single(device => device.DeviceId == hubId).SilentSince);
-        Assert.Equal(1, await alerts.CountOpenAsync(site.SiteId, Ct));
+        Assert.Equal(1 + 2, await alerts.CountOpenAsync(site.SiteId, Ct));
         Assert.Equal(
             [
                 new HealthAlertView(beansAlert, "silent", beansId, "node", beans, "Beans", lastHeard, beansOpened, null, null),
                 new HealthAlertView(hubAlert, "silent", hubId, "hub", null, null, lastHeard, hubOpened, Now, "recovered"),
             ],
-            await alerts.ListHealthAlertsAsync(site.SiteId, Now - AlertsReadModel.ClosedRetention, Ct));
+            await DeviceHealthAlertsAsync(alerts, site.SiteId, Now - AlertsReadModel.ClosedRetention));
     }
 
     // A Node that never reported is silent since its enrolment (Story 7.2).
@@ -831,6 +832,20 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         var target = new DateTimeOffset(Now.UtcDateTime.Date, TimeSpan.Zero).AddHours(hour).AddMinutes(minute);
         identity.Time.SetUtcNow(target > Now ? target : target.AddDays(1));
     }
+
+    // The Site's open Alerts without the uncalibrated Alert every Node on a Lot has for its soil Sensor from its
+    // first declaration on (Story 7.4). UncalibratedAlertGrainTests pins that Alert; this suite is about the
+    // Alerts a Device opens for itself, and counts those.
+    private async Task<List<SiteAlert>> OpenAlertsAsync(string siteId) =>
+        [.. (await identity.Site(siteId).OpenAlerts(Ct)).Where(alert => alert.Kind != AlertKind.Uncalibrated)];
+
+    // The Health Alerts the Alerts list holds, without those uncalibrated Alerts.
+    private static async Task<List<HealthAlertView>> DeviceHealthAlertsAsync(AlertsReadModel alerts, string siteId, DateTimeOffset closedSince) =>
+        [.. (await alerts.ListHealthAlertsAsync(siteId, closedSince, Ct)).Where(alert => alert.Kind != "uncalibrated")];
+
+    // What the User grain tracks, without those uncalibrated Alerts.
+    private async Task<List<Coldframe.Server.Identity.TrackedAlert>> TrackedAlertsAsync(string userId) =>
+        [.. (await identity.UserStateAsync(userId)).TrackedAlerts.Values.Where(tracked => tracked.Alert.Kind != AlertKind.Uncalibrated)];
 
     private async Task<long> PositionAsync(string streamId, string alias) =>
         await identity.Database.ScalarAsync<long>(

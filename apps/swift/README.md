@@ -94,7 +94,8 @@ Swift runtimes.
     the Alert opened with (`alertBatteryPercents` of the core's snapshot). A closed row, and one
     without a level, reads "Node battery low on Lot 'Lettuce'" or "Node 9C0D battery low". They
     open Devices, which shows the Node's newest level and charger status, as before.
-  Uncalibrated rows have no producer before Story 7.4; they are built and tested from fixtures.
+  An uncalibrated Sensor (Story 7.4, produced by the Server for a soil Sensor of a Node on a Lot) reads
+  "Soil Sensor on Lot 'Carrots' needs Calibration" with the tools icon and opens Lot detail of that Lot.
   `NotificationSettingsService` (Story 6.3) carries My notifications as a
   `NotificationSettingsPresentation` built from the core's flat `NotificationSettingsSnapshot`.
   Settings lists My notifications first, above Site settings; the screen calls `load` on every

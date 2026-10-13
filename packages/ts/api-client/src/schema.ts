@@ -320,7 +320,7 @@ export type paths = {
         };
         /**
          * List the Site's Alerts
-         * @description alerts is one ordered list of the Site's Threshold Alerts: every open one, newest openedAt first, then those closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. healthAlerts lists the Health Alerts (silent Devices, Story 7.2; low batteries, Story 7.3) in the same order, at most 200 and not paged: it is sent with the first page and absent when cursor is given. Clients show both in this order and never re-sort within a group. openCount is the number of open Alerts of the Site, Threshold and Health, and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.
+         * @description alerts is one ordered list of the Site's Threshold Alerts: every open one, newest openedAt first, then those closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. healthAlerts lists the Health Alerts (silent Devices, Story 7.2; low batteries, Story 7.3; uncalibrated Sensors, Story 7.4) in the same order, at most 200 and not paged: it is sent with the first page and absent when cursor is given. Clients show both in this order and never re-sort within a group. openCount is the number of open Alerts of the Site, Threshold and Health, and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.
          */
         get: operations["listAlerts"];
         put?: never;
@@ -1012,7 +1012,7 @@ export type components = {
             /** @description Every enrolled Device of the Site, ordered by Device ID. */
             devices: components["schemas"]["DeviceListItem"][];
         };
-        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server opens threshold, silent and battery Alerts (a Node whose battery is below 20 % while it is not charging, Story 7.3); uncalibrated arrives later in Epic 7. A Threshold Alert is listed in AlertList.alerts, a Health Alert in AlertList.healthAlerts (Story 7.2). */
+        /** @description What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server opens threshold, silent, battery (a Node whose battery is below 20 % while it is not charging, Story 7.3) and uncalibrated Alerts (a Sensor that requires Calibration and has none while its Node is on a Lot and not paused, Story 7.4). A Threshold Alert is listed in AlertList.alerts, a Health Alert in AlertList.healthAlerts (Story 7.2). */
         AlertKind: string;
         /**
          * @description The Threshold a Threshold Alert crossed: below the low or above the high.
@@ -1118,7 +1118,7 @@ export type components = {
             nextCursor?: string;
         };
         /**
-         * @description A Health Alert of the Site (Story 7.2): an Alert about a Device, not about a Reading. It has no side and no quantity, and no Lot when it is a Hub's or the Alert of a Node on no Lot. A silent Alert says since when (silentSince), a battery Alert the level it opened with (batteryPercent, Story 7.3).
+         * @description A Health Alert of the Site (Story 7.2): an Alert about a Device, or about a Sensor of a Node (Story 7.4), not about a Reading. It has no side and no quantity, and no Lot when it is a Hub's or the Alert of a Node on no Lot. A silent Alert says since when (silentSince), a battery Alert the level it opened with (batteryPercent, Story 7.3). An uncalibrated Alert concerns a soil Sensor of the Node deviceId names that requires Calibration and has none: it names the Lot the Node was on when it opened (lotId and lotName are absent only while that Lot cannot be read), where an Administrator or Owner calibrates it, and it closes with reason calibrated once the Calibration is saved, unassigned when the Node leaves that Lot (a Node that moved gets a new Alert naming the new Lot), paused when the Node is paused, or removed when the Sensor stops requiring Calibration.
          * @example {
          *       "id": "7c1d2e3f-4a5b-5c6d-8e7f-9a0b1c2d3e4f",
          *       "kind": "silent",
@@ -1149,6 +1149,26 @@ export type components = {
          *       "batteryPercent": 14,
          *       "openedAt": "2026-10-13T08:30:02.000Z"
          *     }
+         * @example {
+         *       "id": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236",
+         *       "kind": "uncalibrated",
+         *       "deviceId": "7e1f2a3b4c5d6e70",
+         *       "deviceKind": "node",
+         *       "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06",
+         *       "lotName": "Peppers",
+         *       "openedAt": "2026-10-13T09:00:02.000Z"
+         *     }
+         * @example {
+         *       "id": "4d7a1c9e-2b3f-5a68-9c0d-1e2f3a4b5c6d",
+         *       "kind": "uncalibrated",
+         *       "deviceId": "5a4b3c2d1e0f7c21",
+         *       "deviceKind": "node",
+         *       "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e07",
+         *       "lotName": "Herbs",
+         *       "openedAt": "2026-10-12T16:40:00.000Z",
+         *       "closedAt": "2026-10-13T10:15:00.000Z",
+         *       "reason": "calibrated"
+         *     }
          */
         HealthAlert: {
             /** Format: uuid */
@@ -1159,7 +1179,7 @@ export type components = {
             deviceKind: components["schemas"]["DeviceKind"];
             /**
              * Format: uuid
-             * @description The Lot the Alert was opened for: the Lot a Node was on. Absent for a Hub and for a Node on no Lot, and while the Lot cannot be read.
+             * @description The Lot the Alert was opened for: the Lot a Node was on. Absent for a Hub and for a Node on no Lot, and while the Lot cannot be read. An uncalibrated Alert is opened only for a Node on a Lot.
              */
             lotId?: string;
             /** @description The current name of that Lot. Present exactly when lotId is. */
