@@ -149,25 +149,35 @@ public sealed record DeviceRelayChanged(
 /// <param name="Source">Where the Pause comes from.</param>
 /// <param name="EndsAt">When this source's Pause ends, if it has an end.</param>
 /// <param name="PausedAt">When the Pause was set.</param>
+/// <param name="SiteRevision">
+/// For the <see cref="DevicePauseSource.Site"/> source, the revision of the Site's Pause the Device applied
+/// (Story 8.1); <see langword="null"/> for the Device's own source and for an event journaled before that story.
+/// </param>
 [EventType("device.paused")]
 [GenerateSerializer]
 [Alias("coldframe.device-paused")]
 public sealed record DevicePaused(
     [property: Id(0)] DevicePauseSource Source,
     [property: Id(1)] DateTimeOffset? EndsAt,
-    [property: Id(2)] DateTimeOffset PausedAt);
+    [property: Id(2)] DateTimeOffset PausedAt,
+    [property: Id(3)] long? SiteRevision = null);
 
 /// <summary>
 /// One Pause source of the Device cleared (AD-8). The Device resumes only when its last source clears.
 /// </summary>
 /// <param name="Source">The source that cleared.</param>
 /// <param name="ResumedAt">When it cleared.</param>
+/// <param name="SiteRevision">
+/// For the <see cref="DevicePauseSource.Site"/> source, the revision of the Site's Pause the Device applied
+/// (Story 8.1); <see langword="null"/> for the Device's own source and for an event journaled before that story.
+/// </param>
 [EventType("device.resumed")]
 [GenerateSerializer]
 [Alias("coldframe.device-resumed")]
 public sealed record DeviceResumed(
     [property: Id(0)] DevicePauseSource Source,
-    [property: Id(1)] DateTimeOffset ResumedAt);
+    [property: Id(1)] DateTimeOffset ResumedAt,
+    [property: Id(2)] long? SiteRevision = null);
 
 /// <summary>
 /// One Sensor of a Node's accepted Specification set (AD-19).

@@ -346,6 +346,64 @@
         }
       }
     },
+    "/sites/{siteId}/devices/{deviceId}/pause": {
+      "put": {
+        "operationId": "pauseDevice",
+        "summary": "Pause a Device",
+        "description": "Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Pauses one Hub or Node on purpose, for maintenance: while it is paused its Readings are acknowledged and not kept, no Alert of any kind opens for it, and its open Alerts close with reason paused. A paused Hub does not pause the Nodes it relays. until is an end date: the Pause lifts by itself at 00:00 on that date in the caller's time zone (the zone of the caller's notification settings, UTC without one; a midnight the clocks skip is the first instant of that date). Without until the Pause lasts until someone resumes. The request sets the Device's own Pause only; a Device is also paused while its Site is, and the answer names every source in force. Sending it again changes the end date, or removes it. The same Pause again answers 200 and saves nothing. A refusal changes nothing.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/DeviceId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SetPauseRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Device's Pause after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DevicePause" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/DeviceNotFound" }
+        }
+      },
+      "delete": {
+        "operationId": "resumeDevice",
+        "summary": "Resume a Device",
+        "description": "Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Lifts the Device's own Pause. A Device whose Site is paused stays paused, and the answer says so (pausedBy is site): resume the Site to resume it. When the last source is lifted the Device reports and alerts again, and its Silence Window counts from that moment, so a Device that was quiet during the Pause is not reported silent at once. A Device that is not paused by itself answers 200 and saves nothing.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [
+          { "$ref": "#/components/parameters/SiteId" },
+          { "$ref": "#/components/parameters/DeviceId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Device's Pause after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DevicePause" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/DeviceNotFound" }
+        }
+      }
+    },
     "/sites/{siteId}/sensors/{sensorId}/calibration": {
       "post": {
         "operationId": "calibrateSensor",
@@ -873,6 +931,57 @@
           "403": { "$ref": "#/components/responses/Forbidden" },
           "404": { "$ref": "#/components/responses/SiteNotFound" },
           "503": { "$ref": "#/components/responses/ReminderCadenceNotDelivered" }
+        }
+      }
+    },
+    "/sites/{siteId}/pause": {
+      "put": {
+        "operationId": "pauseSite",
+        "summary": "Pause the Site",
+        "description": "Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Pauses every Device of the Site, for the winter: no Readings are kept, no Alert opens and the open Alerts close with reason paused. A Device added while the Site is paused starts paused. until is an end date: the Site resumes by itself at 00:00 on that date in the caller's time zone (the zone of the caller's notification settings, UTC without one; a midnight the clocks skip is the first instant of that date). Without until the Site stays paused until someone resumes it. Sending it again changes the end date, or removes it; the same Pause again answers 200 and saves nothing. The answer is given once the Site holds the Pause: the Server then tells every Device and repeats it until each has it, so a Lot may read its old status for a moment. A Device that is also paused by itself stays paused when the Site resumes.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SetPauseRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Site's Pause after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SitePause" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
+        }
+      },
+      "delete": {
+        "operationId": "resumeSite",
+        "summary": "Resume the Site",
+        "description": "Administrator or Owner only (Story 8.1); a Member gets 403 and nothing changes. Ends the Site's Pause for every Device of the Site. The answer is given once the Site holds the resume; the Server then tells every Device and repeats it until each has it. A Device that is also paused by itself stays paused. Each resumed Device's Silence Window counts from the moment it resumes. A Site that is not paused answers 200 and saves nothing.",
+        "x-coldframe-minimum-role": "Administrator",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The Site's Pause after the request.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SitePause" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" }
         }
       }
     }
@@ -1725,6 +1834,55 @@
           "overridden": { "type": "boolean", "description": "True when the Device has its own Silence Window." }
         },
         "examples": [{ "windowSeconds": 28800, "overridden": true }, { "windowSeconds": 21600, "overridden": false }]
+      },
+      "SetPauseRequest": {
+        "type": "object",
+        "description": "A Pause of a Device or of a Site. Without until it lasts until someone resumes.",
+        "properties": {
+          "until": {
+            "type": "string",
+            "format": "date",
+            "description": "The end date, YYYY-MM-DD. The Pause lifts by itself at 00:00 on that date in the caller's time zone; that instant must still lie ahead. Omitted: no end."
+          }
+        },
+        "examples": [{ "until": "2026-11-01" }, {}]
+      },
+      "DevicePause": {
+        "type": "object",
+        "description": "A Device's Pause. The Device is paused exactly when pausedBy is not empty.",
+        "required": ["pausedBy"],
+        "properties": {
+          "pausedBy": {
+            "type": "array",
+            "description": "The Pause sources of the Device, device before site; empty when it is not paused.",
+            "uniqueItems": true,
+            "items": { "$ref": "#/components/schemas/LotPauseSource" }
+          },
+          "pausedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the Pause ends, ISO-8601 UTC with Z: the latest end of its sources. Absent when the Device is not paused or any source has no end."
+          }
+        },
+        "examples": [
+          { "pausedBy": ["device"], "pausedUntil": "2026-10-31T23:00:00.000Z" },
+          { "pausedBy": ["device", "site"] },
+          { "pausedBy": [] }
+        ]
+      },
+      "SitePause": {
+        "type": "object",
+        "description": "A Site's Pause.",
+        "required": ["paused"],
+        "properties": {
+          "paused": { "type": "boolean", "description": "True while the Site is paused." },
+          "pausedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the Site resumes by itself, ISO-8601 UTC with Z. Absent when the Site is not paused or its Pause has no end."
+          }
+        },
+        "examples": [{ "paused": true, "pausedUntil": "2027-02-28T23:00:00.000Z" }, { "paused": true }, { "paused": false }]
       },
       "ReminderCadence": {
         "type": "string",

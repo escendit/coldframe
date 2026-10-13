@@ -32,7 +32,8 @@ public sealed record DeviceRegistration(
 
 /// <summary>
 /// The state of the Site grain: lifecycle, name, Memberships, former members, whether an ownerless
-/// edit is being refused, the Site's open Alerts (Story 6.1) and its Reminder cadence (Story 6.3).
+/// edit is being refused, the Site's open Alerts (Story 6.1), its Reminder cadence (Story 6.3), and the Site's
+/// Pause with its end date and the Devices that have not acknowledged it yet (Story 8.1).
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.site-state")]
@@ -55,6 +56,12 @@ public sealed class SiteState
 
     [Id(8)]
     private readonly Dictionary<Guid, SiteAlert> _openAlerts = [];
+
+    [Id(10)]
+    private SitePause? _pause;
+
+    [Id(11)]
+    private readonly HashSet<string> _pendingPauseDeliveries = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Where the Site is in its lifecycle.
@@ -137,6 +144,25 @@ public sealed class SiteState
     /// </summary>
     [Id(9)]
     public ReminderCadence ReminderCadence { get; private set; }
+
+    /// <summary>
+    /// The Site's Pause (Story 8.1, AD-8): whether it is paused, its end date as a UTC due-at the Site grain
+    /// processes on every wake and activation (AD-6), and its revision. Whether a Device is paused is never read
+    /// from here: that is the Device grain's state alone.
+    /// </summary>
+    public SitePause Pause => _pause ?? SitePause.NotPaused;
+
+    /// <summary>
+    /// The Devices on the roster that have not acknowledged <see cref="Pause"/> yet. Journaled state: the Site
+    /// grain delivers its Pause to each of them until it answers, across failures and restarts. A Device
+    /// registered later is not among them: it reads the Pause in the join reply.
+    /// </summary>
+    public IReadOnlySet<string> PendingPauseDeliveries => _pendingPauseDeliveries;
+
+    /// <summary>
+    /// Whether <see cref="Pause"/> has an end date that has passed at <paramref name="now"/>.
+    /// </summary>
+    public bool PauseIsOverdue(DateTimeOffset now) => Pause is { Paused: true, EndsAt: { } dueAt } && now >= dueAt;
 
     public void Apply(SiteCreated @event)
     {
@@ -227,5 +253,37 @@ public sealed class SiteState
     {
         ArgumentNullException.ThrowIfNull(@event);
         ReminderCadence = @event.Cadence;
+    }
+
+    public void Apply(SitePaused @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pause = new SitePause(true, @event.EndsAt, @event.Revision);
+        OweEveryDevice();
+    }
+
+    public void Apply(SiteResumed @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        _pause = new SitePause(false, null, @event.Revision);
+        OweEveryDevice();
+    }
+
+    public void Apply(SitePauseDelivered @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // An acknowledgement of a Pause that has changed since is not one of the Pause in force.
+        if (@event.Revision == Pause.Revision)
+        {
+            _pendingPauseDeliveries.Remove(@event.DeviceId);
+        }
+    }
+
+    // Every Device on the roster is owed the Pause in force: what was pending for an older revision is replaced.
+    private void OweEveryDevice()
+    {
+        _pendingPauseDeliveries.Clear();
+        _pendingPauseDeliveries.UnionWith(_devices.Keys);
     }
 }

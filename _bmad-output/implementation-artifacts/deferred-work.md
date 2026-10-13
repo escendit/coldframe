@@ -807,7 +807,8 @@ location: apps/cs/server/Devices/DeviceGrain.cs (CountBattery), apps/cs/server/D
 source_spec: `spec-7-3-low-battery-alert.md`
 severity: medium
 reason: DeviceGrain.Ingest counts no report while paused and nothing journals an end of the episode or a streak reset on device.paused / device.resumed. No grain method raises a Pause yet (only tests append the events), so it cannot happen in the product before Epic 8.
-status: open
+status: resolved
+resolution: Story 8.1 (`spec-8-1-pause-and-resume-on-the-server.md`): a Device that becomes paused journals `device.battery-low-ended` (and `device.silence-ended`) with reason `paused` in the write of `device.paused` (`DeviceGrain.RaisePaused`), delivers the closes before the command answers, and `DeviceState.Apply(DevicePaused)` clears both battery streaks. Pinned by `PauseGrainTests` (the Alerts closing, the count starting over after the resume) and `DeviceStateBatteryTests`.
 
 ### DW-105: The iOS adapter that hands the core's alertBatteryPercents to AlertsPresentation is executed by no test.
 origin: spec-deferred d006c4bd5063

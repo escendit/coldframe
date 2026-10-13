@@ -79,6 +79,27 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(DeviceKind.Hub, site.Devices["92064422c012f481"]);
         Assert.Equal("92064422c012f481", site.DeviceRegistrations["5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31:dk1"].DeviceId);
 
+        // Site Pause (Story 8.1): paused with an end, paused again without one, resumed, and the one Device on
+        // the roster acknowledged the resume. SiteStatePauseTests pins the pending set.
+        Assert.Equal(new SitePause(false, null, 3), site.Pause);
+        Assert.Empty(site.PendingPauseDeliveries);
+
+        // Story 8.1 on a Device stream: a Node with an open battery and an open silent Alert was told the Site's
+        // Pause of revision 1, which ended both episodes as paused (the battery one without a report to stamp
+        // it), was paused by itself as well, and was told the Site's resume of revision 3. It is still paused, by
+        // itself; a Pause is no recovery and restarts no silence clock; both closes are still to be delivered.
+        var pausedNode = Assert.IsType<DeviceState>(states["device/4b5c6d7e8f901a22"]);
+        Assert.Equal([DevicePauseSource.Device], pausedNode.PauseSources);
+        Assert.Null(pausedNode.PausedBy[DevicePauseSource.Device]);
+        Assert.Equal((3L, 3L), (pausedNode.SitePauseRevision, pausedNode.EvaluationEpoch));
+        Assert.Equal(((DeviceSilentAlert?)null, (DeviceBatteryAlert?)null, (DateTimeOffset?)null), (pausedNode.OpenSilentAlert, pausedNode.OpenBatteryAlert, pausedNode.LastRecoveredAt));
+        Assert.Equal(pausedNode.EnrolledAt, pausedNode.SilenceFrom);
+        Assert.Equal(new DateTimeOffset(2026, 10, 19, 9, 0, 0, TimeSpan.Zero), pausedNode.BatteryCountedAt);
+        var pausedAt = new DateTimeOffset(2026, 10, 20, 8, 0, 1, TimeSpan.Zero);
+        Assert.Equal(
+            [(AlertKind.Silent, (AlertCloseReason?)AlertCloseReason.Paused, pausedAt), (AlertKind.Battery, AlertCloseReason.Paused, pausedAt)],
+            pausedNode.PendingAlertDeliveries.Where(delivery => delivery.Change == AlertLifecycle.Closed).Select(delivery => (delivery.Kind, delivery.Reason, delivery.At)));
+
         var device = Assert.IsType<DeviceState>(states["device/92064422c012f481"]);
         Assert.Equal(("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", DeviceKind.Hub), (device.SiteId, device.Kind));
         Assert.Equal("0123456789abcdef", device.WrappedKey?.KekId);

@@ -27,7 +27,8 @@ namespace Coldframe.Server.IntegrationTests.Identity;
 /// interval is 10 minutes of fake time, so only read-your-writes can bring the projection up to date. A Device's
 /// <c>silence-window</c> reminder (Story 7.1) ticks on the real clock, as every reminder does; the cluster drops
 /// those ticks (<see cref="SilenceWakes"/>), so only <see cref="WakeDeviceAsync"/> wakes a Device and the fake
-/// clock alone decides what is overdue.
+/// clock alone decides what is overdue. The same holds for a Site's <c>site-pause</c> reminder (Story 8.1) and
+/// <see cref="WakeSiteAsync"/>.
 /// </summary>
 public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
 {
@@ -193,6 +194,37 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
         {
             RequestContext.Remove(SilenceWakes.ByHandKey);
         }
+    }
+
+    /// <summary>
+    /// Wakes the Site grain the way its <c>site-pause</c> reminder does (Story 8.1), and returns once the Site has
+    /// ended a Pause that is past its end date and tried every pending delivery once. The reminder's own ticks are
+    /// dropped in this cluster. The reminder only starts the delivery, which runs in turns of its own, so the wake
+    /// waits for one attempt through <see cref="ISiteGrain.DeliverPause"/>.
+    /// </summary>
+    public async Task WakeSiteAsync(string siteId)
+    {
+        RequestContext.Set(SilenceWakes.ByHandKey, true);
+
+        try
+        {
+            await Site(siteId).AsReference<IRemindable>().ReceiveReminder(SiteGrain.PauseReminderName, default);
+        }
+        finally
+        {
+            RequestContext.Remove(SilenceWakes.ByHandKey);
+        }
+
+        await Site(siteId).DeliverPause(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Whether the Site grain has its Pause reminder registered.
+    /// </summary>
+    public async Task<bool> HasSitePauseReminderAsync(string siteId)
+    {
+        var rows = await SiloServices.GetRequiredService<IReminderTable>().ReadRows(GrainId.Create("site", siteId));
+        return rows.Reminders.Any(reminder => string.Equals(reminder.ReminderName, SiteGrain.PauseReminderName, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -569,9 +601,11 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
 
 /// <summary>
 /// Passes every grain call on, except the ticks of a Device's <c>silence-window</c> reminder that no test sent
-/// (Story 7.1). Reminders tick on the real clock, a minute after they were registered, while the tests move a fake
-/// clock by hours: a tick at an arbitrary moment would open Alerts in the middle of another test. A wake a test
-/// sends through <see cref="IdentityCluster.WakeDeviceAsync"/> carries <see cref="ByHandKey"/> and passes.
+/// (Story 7.1), and those of a Site's <c>site-pause</c> reminder (Story 8.1). Reminders tick on the real clock, a
+/// minute after they were registered, while the tests move a fake clock by hours: a tick at an arbitrary moment
+/// would open Alerts, or end a Pause, in the middle of another test. A wake a test sends through
+/// <see cref="IdentityCluster.WakeDeviceAsync"/> or <see cref="IdentityCluster.WakeSiteAsync"/> carries
+/// <see cref="ByHandKey"/> and passes.
 /// </summary>
 public sealed class SilenceWakes : IIncomingGrainCallFilter
 {
@@ -584,9 +618,9 @@ public sealed class SilenceWakes : IIncomingGrainCallFilter
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (context.Grain is IDeviceGrain
-            && string.Equals(context.MethodName, nameof(IRemindable.ReceiveReminder), StringComparison.Ordinal)
-            && context.Request.GetArgument(0) is DeviceGrain.SilenceReminderName
+        if (string.Equals(context.MethodName, nameof(IRemindable.ReceiveReminder), StringComparison.Ordinal)
+            && ((context.Grain is IDeviceGrain && context.Request.GetArgument(0) is DeviceGrain.SilenceReminderName)
+                || (context.Grain is ISiteGrain && context.Request.GetArgument(0) is SiteGrain.PauseReminderName))
             && RequestContext.Get(ByHandKey) is not true)
         {
             return Task.CompletedTask;
@@ -630,14 +664,26 @@ public sealed class LotFaults : IIncomingGrainCallFilter
 }
 
 /// <summary>
-/// Passes every grain call on, except that a test can make <see cref="IDeviceGrain.SetCalibration"/>, or
-/// <see cref="IDeviceGrain.Silence"/>, throw for chosen Devices, the way a Device grain that cannot be reached or
-/// cannot write its journal does. Nothing reaches the grain then.
+/// Passes every grain call on, except that a test can make <see cref="IDeviceGrain.SetCalibration"/>,
+/// <see cref="IDeviceGrain.Silence"/> or <see cref="IDeviceGrain.SetSitePause"/> throw for chosen Devices, the way
+/// a Device grain that cannot be reached or cannot write its journal does. Nothing reaches the grain then.
 /// </summary>
 public sealed class DeviceFaults : IIncomingGrainCallFilter
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failingSilence = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failingSitePause = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Makes every delivery of its Site's Pause to <paramref name="deviceId"/> fail until
+    /// <see cref="RestoreSitePause"/>: a Device the Site grain cannot reach (Story 8.1).
+    /// </summary>
+    public void FailSitePause(string deviceId) => _failingSitePause[deviceId] = true;
+
+    /// <summary>
+    /// Lets its Site's Pause through to <paramref name="deviceId"/> again.
+    /// </summary>
+    public void RestoreSitePause(string deviceId) => _failingSitePause.TryRemove(deviceId, out _);
 
     /// <summary>
     /// How many calls were failed.
@@ -682,6 +728,13 @@ public sealed class DeviceFaults : IIncomingGrainCallFilter
             && _failingSilence.ContainsKey(context.TargetId.Key.ToString()!))
         {
             throw new InvalidOperationException("The test failed this read of a Device's silence.");
+        }
+
+        if (context.Grain is IDeviceGrain
+            && string.Equals(context.MethodName, nameof(IDeviceGrain.SetSitePause), StringComparison.Ordinal)
+            && _failingSitePause.ContainsKey(context.TargetId.Key.ToString()!))
+        {
+            throw new InvalidOperationException("The test failed this delivery of a Site's Pause.");
         }
 
         return context.Invoke();

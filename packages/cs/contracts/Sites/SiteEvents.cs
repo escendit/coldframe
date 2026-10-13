@@ -146,3 +146,46 @@ public sealed record SiteAlertClosed(
 [GenerateSerializer]
 [Alias("coldframe.site-reminder-cadence-changed")]
 public sealed record SiteReminderCadenceChanged([property: Id(0)] ReminderCadence Cadence, [property: Id(1)] DateTimeOffset ChangedAt);
+
+/// <summary>
+/// An Administrator or Owner paused the Site, or changed the end of its Pause (Story 8.1, AD-8). From this
+/// event on every Device on the roster is owed the Pause until <see cref="SitePauseDelivered"/> names it.
+/// </summary>
+/// <param name="EndsAt">When the Pause lifts by itself (UTC), if it has an end: the Site grain's due-at.</param>
+/// <param name="Revision">The revision of the Site's Pause from now on.</param>
+/// <param name="PausedAt">When the Pause was set.</param>
+[EventType("site.paused")]
+[GenerateSerializer]
+[Alias("coldframe.site-paused")]
+public sealed record SitePaused(
+    [property: Id(0)] DateTimeOffset? EndsAt,
+    [property: Id(1)] long Revision,
+    [property: Id(2)] DateTimeOffset PausedAt);
+
+/// <summary>
+/// The Site's Pause ended (Story 8.1): someone resumed it, or its end date passed. From this event on every
+/// Device on the roster is owed the resume until <see cref="SitePauseDelivered"/> names it.
+/// </summary>
+/// <param name="Revision">The revision of the Site's Pause from now on.</param>
+/// <param name="ResumedAt">When the Site grain ended the Pause.</param>
+[EventType("site.resumed")]
+[GenerateSerializer]
+[Alias("coldframe.site-resumed")]
+public sealed record SiteResumed(
+    [property: Id(0)] long Revision,
+    [property: Id(1)] DateTimeOffset ResumedAt);
+
+/// <summary>
+/// A Device acknowledged the Site's Pause of <paramref name="Revision"/> (Story 8.1): the Site grain stops
+/// delivering it to that Device. An acknowledgement of another revision than the current one changes nothing.
+/// </summary>
+/// <param name="DeviceId">The Device that answered.</param>
+/// <param name="Revision">The revision it was told.</param>
+/// <param name="DeliveredAt">When it answered.</param>
+[EventType("site.pause-delivered")]
+[GenerateSerializer]
+[Alias("coldframe.site-pause-delivered")]
+public sealed record SitePauseDelivered(
+    [property: Id(0)] string DeviceId,
+    [property: Id(1)] long Revision,
+    [property: Id(2)] DateTimeOffset DeliveredAt);

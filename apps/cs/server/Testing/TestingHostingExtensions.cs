@@ -75,9 +75,11 @@ public static class TestingHostingExtensions
     /// <summary>
     /// Maps the test-only endpoints when <see cref="UsesManualClock"/> holds, otherwise nothing:
     /// <c>GET /testing/clock</c>, <c>POST /testing/clock</c> (<c>{"now": "…"}</c>, forward only) and
-    /// <c>POST /testing/users/{userId}/wake</c>, which wakes that User's grain as its reminder does, and
-    /// <c>POST /testing/devices/{deviceId}/wake</c>, which fires that Device's silence evaluation (Story 7.2). They need an
-    /// access token like every other endpoint.
+    /// <c>POST /testing/users/{userId}/wake</c>, which wakes that User's grain as its reminder does,
+    /// <c>POST /testing/devices/{deviceId}/wake</c>, which fires that Device's silence evaluation (Story 7.2) and the
+    /// end date of its own Pause (Story 8.1), and <c>POST /testing/sites/{siteId}/wake</c>, which ends a Site Pause
+    /// that is past its end date and delivers it to the Site's Devices (Story 8.1). They need an access token like
+    /// every other endpoint.
     /// </summary>
     public static WebApplication MapTestingClock(this WebApplication app)
     {
@@ -132,6 +134,23 @@ public static class TestingHostingExtensions
                 .AsReference<IRemindable>()
                 .ReceiveReminder(DeviceGrain.SilenceReminderName, default)
                 .ConfigureAwait(false);
+
+            return Results.NoContent();
+        });
+
+        // Wakes the Site for its Pause as its reminder does (Story 8.1), and waits for one delivery attempt: a
+        // journey that moved the clock past a Site Pause's end date need not wait a real minute for the next tick,
+        // and finds every reachable Device resumed when this returns.
+        app.MapPost("/testing/sites/{siteId}/wake", async (string siteId, IGrainFactory grains) =>
+        {
+            if (SiteAccessHandler.Canonicalize(siteId) is not { } id)
+            {
+                return EdgeProblems.Result(StatusCodes.Status400BadRequest, EdgeProblems.Validation, "The Site was not woken.", "siteId is a UUID.");
+            }
+
+            var site = grains.GetGrain<ISiteGrain>(id);
+            await site.AsReference<IRemindable>().ReceiveReminder(SiteGrain.PauseReminderName, default).ConfigureAwait(false);
+            await site.DeliverPause().ConfigureAwait(false);
 
             return Results.NoContent();
         });

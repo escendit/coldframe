@@ -364,6 +364,14 @@ public sealed class DeviceIngestRequestTests
             throw new NotSupportedException();
 
         public Task<DeviceSilence?> Silence(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<DevicePauseResult> SetPause(string siteId, DateTimeOffset? endsAt, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DevicePauseResult> LiftPause(string siteId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<DeviceSitePauseOutcome> SetSitePause(string siteId, Coldframe.Contracts.Sites.SitePause pause, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     // Only what the ingest handler uses: a Device grain by its string key.

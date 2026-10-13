@@ -101,7 +101,8 @@ one of `Enrolled`, `SiteNotFound`, `OnAnotherSite` and `IdempotencyKeyReused`. `
 the wrapped `K_dev` (`WrappedDeviceKey(KekId, Nonce, Sealed)`), never the plaintext. The Device grain calls
 `ISiteGrain.RegisterDevice(deviceId, kind, idempotencyKey)`, which returns
 `DeviceRegistrationResult(Outcome, Pause)` with `Outcome` one of `Registered`, `NotFound` and
-`IdempotencyKeyReused`, and `SitePause` not paused until Epic 8. `DeviceKind` is `Hub` or `Node`.
+`IdempotencyKeyReused`, and the Site's Pause as `SitePause(Paused, EndsAt?, Revision)` (Story 8.1, below).
+`DeviceKind` is `Hub` or `Node`.
 
 `IDeviceGrain.Heartbeat(DeviceHeartbeat)` (Story 3.5) takes a Hub's heartbeat as the Edge API parsed
 it (`Method`, `Path`, the raw `Body`, `TimestampMs`, `Nonce`, `Signature`, `UptimeMs?`), verifies it
@@ -117,11 +118,11 @@ inside the grain and returns `DeviceHeartbeatResult(Outcome)` with `Outcome` one
 | `DeviceSilenceWindowSet(WindowSeconds?, SetAt)` | `device.silence-window-set` | The Device's own Silence Window was set; `null` returns to the default of its kind |
 | `DeviceSilenceClockRestarted(From, Cause, HubId?, RestartedAt)` | `device.silence-clock-restarted` | A Server start (`ServerStarted`) or the recovery of the Node's relay Hub (`RelayHubRecovered`) moved the start of the Silence Window to `From` |
 | `DeviceSilenceStarted(Episode, AlertId, SiteId, LotId?, DueAt, StartedAt, SilentSince?)` | `device.silence-started` | The Silence Window expired: the Device's next silence episode, journaled before its Alert is opened. `SilentSince` (Story 7.2) is when the Device was last heard; absent in an older event |
-| `DeviceSilenceEnded(Episode, AlertId, Reason, EndedAt)` | `device.silence-ended` | The Device reported again inside its window: the episode's Alert closes |
+| `DeviceSilenceEnded(Episode, AlertId, Reason, EndedAt)` | `device.silence-ended` | The Device reported again inside its window (`Recovered`), or became paused (`Paused`, Story 8.1): the episode's Alert closes |
 | `DeviceAlertDelivered(AlertId, Change, DeliveredAt)` | `device.alert-delivered` | The Alert grain acknowledged the open or the close of one of the Device's Alerts |
 | `DeviceBatteryStreakChanged(Low, Recovered, MeasuredAt)` | `device.battery-streak-changed` | A counted device report of the Node moved a battery streak (Story 7.3); never journaled for a report that leaves both as they are |
 | `DeviceBatteryLowStarted(Episode, AlertId, SiteId, LotId?, BatteryPercent, MeasuredAt, StartedAt)` | `device.battery-low-started` | The third consecutive low report: the Node's next low-battery episode, journaled before its Alert is opened, with the level of that report |
-| `DeviceBatteryLowEnded(Episode, AlertId, Reason, MeasuredAt?, EndedAt)` | `device.battery-low-ended` | The third consecutive recovered report: the episode's Alert closes |
+| `DeviceBatteryLowEnded(Episode, AlertId, Reason, MeasuredAt?, EndedAt)` | `device.battery-low-ended` | The third consecutive recovered report (`Recovered`), or the Node became paused (`Paused`, no `MeasuredAt`, Story 8.1): the episode's Alert closes |
 
 Silence (Story 7.1) adds `IDeviceGrain.SetSilenceWindow(siteId, window?)`, which returns
 `DeviceSilenceWindowResult(Outcome, Window)` with `Outcome` one of `Set`, `Unchanged`, `NotFound` and `OutOfRange`
@@ -141,6 +142,21 @@ Alert, on `OpenDeviceAlert`, `AlertOpened`, `AlertSnapshot`, `SiteAlert` and `No
 travels: a `battery` Alert opens only from a report that is not charging, so the kind states the charger status.
 `DeviceSilence` gains `OpenBatteryAlert` (`DeviceBatteryAlert(AlertId, Episode, OpenedAt, BatteryPercent)`), the
 Node's open `battery` Alert. See [`apps/cs/README.md`](../../apps/cs/README.md#low-battery).
+
+Pause (Story 8.1) adds the commands for the events `DevicePaused(Source, EndsAt?, PausedAt, SiteRevision?)`
+(`device.paused`) and `DeviceResumed(Source, ResumedAt, SiteRevision?)` (`device.resumed`), which existed before;
+`SiteRevision` is a new nullable member, so an older event reads without it. `IDeviceGrain.SetPause(siteId,
+endsAt?)` and `LiftPause(siteId)` set and lift the Device's own source and return `DevicePauseResult(Outcome,
+PausedBy, PausedUntil?)` with `Outcome` one of `Changed`, `Unchanged`, `NotFound` and `InvalidEnd`.
+`IDeviceGrain.SetSitePause(siteId, SitePause)` is how the Site grain tells a Device its Pause; it returns
+`DeviceSitePauseOutcome` (`Applied`, `Unchanged`, `NotEnrolled`, `Stale`), each of which acknowledges.
+`ISiteGrain.SetPause(endsAt?)` and `LiftPause()` return `SitePauseResult(Outcome, Pause)` with the same four
+outcomes, `GetPause()` returns `SitePauseStatus(Pause, PendingDevices)`, and `DeliverPause()`
+(`[AlwaysInterleave]`) runs one delivery attempt. `SitePause` gains `Revision`. The Site journals
+`SitePaused(EndsAt?, Revision, PausedAt)` (`site.paused`), `SiteResumed(Revision, ResumedAt)` (`site.resumed`)
+and `SitePauseDelivered(DeviceId, Revision, DeliveredAt)` (`site.pause-delivered`). The commands are named
+`SetPause` and `LiftPause` because `Resume` is a reserved word for interface members (CA1716). See
+[`apps/cs/README.md`](../../apps/cs/README.md#pause).
 
 The uncalibrated Sensor Alert (Story 7.4) adds `AlertKind.Uncalibrated` and
 `IAlertGrain.OpenForSensor(OpenSensorAlert(Kind, SensorId, Episode, SiteId, LotId, DeviceId, Quantity, OpenedAt))`,
