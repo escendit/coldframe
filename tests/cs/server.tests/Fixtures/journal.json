@@ -832,5 +832,129 @@
     "alias": "user.alert-tracked",
     "schemaVersion": 1,
     "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "2cf5a632-8d4e-54a8-a58c-cb4e24408eb6", "kind": "Silent", "deviceId": "3f2a9c0d1e4b5a67", "openedAt": "2026-10-15T07:00:40Z", "deviceKind": "Hub", "silentSince": "2026-10-15T06:55:00Z" }, "told": true, "remindFrom": "2026-10-15T07:00:40+00:00", "trackedAt": "2026-10-15T07:00:41+00:00" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 1,
+    "alias": "device.enrolled",
+    "schemaVersion": 1,
+    "payload": {
+      "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+      "kind": "Node",
+      "wrappedKey": { "kekId": "0123456789abcdef", "nonce": "AAECAwQFBgcICQoL", "sealed": "ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKT" },
+      "enrolledAt": "2026-10-16T07:00:00Z"
+    }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 2,
+    "alias": "device.battery-streak-changed",
+    "schemaVersion": 1,
+    "payload": { "low": 1, "recovered": 0, "measuredAt": "2026-10-16T08:00:00Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 3,
+    "alias": "device.battery-streak-changed",
+    "schemaVersion": 1,
+    "payload": { "low": 2, "recovered": 0, "measuredAt": "2026-10-16T08:15:00Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 4,
+    "alias": "device.battery-low-started",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "batteryPercent": 14, "measuredAt": "2026-10-16T08:30:00Z", "startedAt": "2026-10-16T08:30:02Z" }
+  },
+  {
+    "streamId": "alert/ae0cf71d-0fe1-50b9-b548-f4b9e57572b7",
+    "version": 1,
+    "alias": "alert.opened",
+    "schemaVersion": 1,
+    "payload": { "kind": "Battery", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "deviceId": "9c0d1e2f3a4b5c68", "episode": 1, "openedAt": "2026-10-16T08:30:02Z", "deviceKind": "Node", "batteryPercent": 14 }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 14,
+    "alias": "site.alert-opened",
+    "schemaVersion": 1,
+    "payload": { "alert": { "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "kind": "Battery", "deviceId": "9c0d1e2f3a4b5c68", "openedAt": "2026-10-16T08:30:02Z", "deviceKind": "Node", "batteryPercent": 14 } }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 24,
+    "alias": "user.alert-tracked",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "kind": "Battery", "deviceId": "9c0d1e2f3a4b5c68", "openedAt": "2026-10-16T08:30:02Z", "deviceKind": "Node", "batteryPercent": 14 }, "told": true, "remindFrom": "2026-10-16T08:30:02+00:00", "trackedAt": "2026-10-16T08:30:03+00:00" }
+  },
+  {
+    "streamId": "alert/ae0cf71d-0fe1-50b9-b548-f4b9e57572b7",
+    "version": 2,
+    "alias": "alert.site-notified",
+    "schemaVersion": 1,
+    "payload": { "change": "Open", "notifiedAt": "2026-10-16T08:30:03Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 5,
+    "alias": "device.alert-delivered",
+    "schemaVersion": 1,
+    "payload": { "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "change": "Open", "deliveredAt": "2026-10-16T08:30:03Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 6,
+    "alias": "device.battery-streak-changed",
+    "schemaVersion": 1,
+    "payload": { "low": 0, "recovered": 1, "measuredAt": "2026-10-16T09:00:00Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 7,
+    "alias": "device.battery-streak-changed",
+    "schemaVersion": 1,
+    "payload": { "low": 0, "recovered": 2, "measuredAt": "2026-10-16T09:15:00Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 8,
+    "alias": "device.battery-low-ended",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "reason": "Recovered", "measuredAt": "2026-10-16T09:30:00Z", "endedAt": "2026-10-16T09:30:02Z" }
+  },
+  {
+    "streamId": "alert/ae0cf71d-0fe1-50b9-b548-f4b9e57572b7",
+    "version": 3,
+    "alias": "alert.closed",
+    "schemaVersion": 1,
+    "payload": { "reason": "Recovered", "closedAt": "2026-10-16T09:30:02Z" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 15,
+    "alias": "site.alert-closed",
+    "schemaVersion": 1,
+    "payload": { "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "reason": "Recovered", "closedAt": "2026-10-16T09:30:02Z" }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 25,
+    "alias": "user.alert-dropped",
+    "schemaVersion": 1,
+    "payload": { "alertId": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "droppedAt": "2026-10-16T09:30:03+00:00" }
+  },
+  {
+    "streamId": "alert/ae0cf71d-0fe1-50b9-b548-f4b9e57572b7",
+    "version": 4,
+    "alias": "alert.site-notified",
+    "schemaVersion": 1,
+    "payload": { "change": "Closed", "notifiedAt": "2026-10-16T09:30:03Z" }
+  },
+  {
+    "streamId": "device/9c0d1e2f3a4b5c68",
+    "version": 9,
+    "alias": "device.battery-streak-changed",
+    "schemaVersion": 1,
+    "payload": { "low": 1, "recovered": 0, "measuredAt": "2026-10-16T12:00:00Z" }
   }
 ]

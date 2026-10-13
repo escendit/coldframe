@@ -210,12 +210,19 @@ public abstract class JourneyTests(MorningNudgeFixture stack)
 
     // One wake of the Node, relayed by the Hub and stamped from the Server's clock. The Node follows the
     // downlink, so it attaches its Specification set when the Server asks. Returns the soil Reading's reading_seq.
-    protected async Task<ulong> WakeAsync(JourneyUser user, SimulatedDevice hub, SimulatedDevice node, long soilRaw, DateTimeOffset measuredAt)
+    protected async Task<ulong> WakeAsync(
+        JourneyUser user,
+        SimulatedDevice hub,
+        SimulatedDevice node,
+        long soilRaw,
+        DateTimeOffset measuredAt,
+        uint? batteryPercent = 87,
+        ChargeStatus charging = ChargeStatus.Charging)
     {
         var readings = SimulatedDevice.DefaultReadings
             .Select(reading => reading.Quantity == Quantity.SoilMoisture ? reading with { Value = soilRaw } : reading)
             .ToList();
-        var frame = node.Wake(measuredAt, readings: readings);
+        var frame = node.Wake(measuredAt, batteryPercent, charging, readings);
 
         using var server = Stack.CreateDeviceClient();
         using var request = hub.IngestRequest(await ServerNowAsync(user), SimulatedDevice.IngestBody(node.SealFrame(frame)));

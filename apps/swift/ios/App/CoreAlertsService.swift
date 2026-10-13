@@ -41,7 +41,8 @@ final class CoreAlertsService: AlertsService {
       titles: snapshot.alertTitles, deviceKinds: snapshot.alertDeviceKinds,
       deviceNames: snapshot.alertDeviceNames, silentSinces: snapshot.alertSilentSince,
       durationValues: snapshot.alertDurationValues,
-      durationUnits: snapshot.alertDurationUnits)
+      durationUnits: snapshot.alertDurationUnits,
+      batteryPercents: snapshot.alertBatteryPercents)
   }
 
   func load() { core.load() }

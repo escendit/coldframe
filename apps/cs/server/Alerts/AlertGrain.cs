@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Journal;
 
@@ -8,7 +9,8 @@ namespace Coldframe.Server.Alerts;
 /// An Alert, keyed by its Alert ID (Story 6.1). The only writer of the Alert's state: it journals
 /// <see cref="AlertOpened"/> and <see cref="AlertClosed"/> once each, whatever is retried, and records the
 /// side, Site, Lot, Sensor, Device and quantity it was opened with. A Device's Health Alert (Story 7.1) has no
-/// side, Sensor or quantity, and a Lot only when its Node was on one.
+/// side, Sensor or quantity, and a Lot only when its Node was on one; a Node's battery Alert (Story 7.3) also
+/// records the battery level it was opened with.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -126,10 +128,17 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
         ArgumentException.ThrowIfNullOrWhiteSpace(request.DeviceId);
 
         // The Alert ID is its Device, kind and episode: a request for another Alert, or of a kind no Device
-        // opens, is refused.
+        // opens, is refused. Any Device opens a silent Alert; only a Node has a battery to report (Story 7.3).
+        Guid? derived = request.Kind switch
+        {
+            AlertKind.Silent => AlertIds.Silent(request.DeviceId, request.Episode),
+            AlertKind.Battery when request.DeviceKind == DeviceKind.Node => AlertIds.Battery(request.DeviceId, request.Episode),
+            _ => null,
+        };
+
         if (request.Episode < 1
-            || request.Kind != AlertKind.Silent
-            || !string.Equals(AlertIds.Silent(request.DeviceId, request.Episode).ToString("D"), AlertId, StringComparison.Ordinal))
+            || derived is not { } alertId
+            || !string.Equals(alertId.ToString("D"), AlertId, StringComparison.Ordinal))
         {
             return new AlertResult(AlertOutcome.Refused);
         }
@@ -147,7 +156,8 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
                 request.Episode,
                 request.OpenedAt,
                 request.DeviceKind,
-                request.SilentSince));
+                request.Kind == AlertKind.Silent ? request.SilentSince : null,
+                request.Kind == AlertKind.Battery ? request.BatteryPercent : null));
             await ConfirmEvents();
         }
 
@@ -208,7 +218,8 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
                     State.Reason,
                     State.ClosedAt,
                     State.DeviceKind,
-                    State.SilentSince));
+                    State.SilentSince,
+                    State.BatteryPercent));
 
     /// <inheritdoc />
     public async Task ReceiveReminder(string reminderName, TickStatus status)
@@ -243,7 +254,7 @@ public sealed partial class AlertGrain : JournaledStreamGrain<AlertState>, IAler
 
             if (!State.OpenReported)
             {
-                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId, State.SensorId, State.DeviceId!, State.Quantity, State.OpenedAt, State.DeviceKind, State.SilentSince);
+                var alert = new SiteAlert(alertId, State.Kind, State.Side, State.LotId, State.SensorId, State.DeviceId!, State.Quantity, State.OpenedAt, State.DeviceKind, State.SilentSince, State.BatteryPercent);
 
                 // Not cancelled by the caller: the journaled Alert is reported until the Site holds it.
                 var acknowledged = await site.AlertOpened(alert, CancellationToken.None);

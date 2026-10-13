@@ -10,9 +10,6 @@ namespace Coldframe.Server.Tests.Notifications;
 /// </summary>
 public sealed class ReminderIntervalRuleTests
 {
-    // Any kind that is not a Threshold Alert is a Health Alert; a Silent Device Alert is the first (Story 7.1).
-    private const AlertKind Health = AlertKind.Silent;
-
     private static readonly DateTimeOffset OpenedAt = new(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
 
     private static readonly TimeSpan Day = TimeSpan.FromHours(24);
@@ -38,17 +35,21 @@ public sealed class ReminderIntervalRuleTests
         Assert.Equal(TimeSpan.FromHours(48), ReminderIntervalRule.Interval(AlertKind.Threshold, null, ReminderCadence.Every2Days));
     }
 
-    [Fact]
-    public void AHealthAlertNeverRemindsMoreOftenThanEvery24Hours()
+    // Any kind that is not a Threshold Alert is a Health Alert: a silent Device (Story 7.1), a low battery
+    // (Story 7.3).
+    [Theory]
+    [InlineData(AlertKind.Silent)]
+    [InlineData(AlertKind.Battery)]
+    public void AHealthAlertNeverRemindsMoreOftenThanEvery24Hours(AlertKind health)
     {
-        Assert.True(ReminderIntervalRule.IsHealth(Health));
+        Assert.True(ReminderIntervalRule.IsHealth(health));
         Assert.False(ReminderIntervalRule.IsHealth(AlertKind.Threshold));
 
         // A resolved interval below the floor is raised to it; one at or above it is kept.
-        Assert.Equal(TimeSpan.FromHours(24), ReminderIntervalRule.Interval(Health, TimeSpan.FromHours(6)));
-        Assert.Equal(TimeSpan.FromHours(24), ReminderIntervalRule.Interval(Health, TimeSpan.FromHours(24)));
-        Assert.Equal(TimeSpan.FromHours(48), ReminderIntervalRule.Interval(Health, TimeSpan.FromHours(48)));
-        Assert.Equal(TimeSpan.FromHours(48), ReminderIntervalRule.Interval(Health, ReminderCadence.Every2Days, null));
+        Assert.Equal(TimeSpan.FromHours(24), ReminderIntervalRule.Interval(health, TimeSpan.FromHours(6)));
+        Assert.Equal(TimeSpan.FromHours(24), ReminderIntervalRule.Interval(health, TimeSpan.FromHours(24)));
+        Assert.Equal(TimeSpan.FromHours(48), ReminderIntervalRule.Interval(health, TimeSpan.FromHours(48)));
+        Assert.Equal(TimeSpan.FromHours(48), ReminderIntervalRule.Interval(health, ReminderCadence.Every2Days, null));
 
         // A Threshold Alert has no floor.
         Assert.Equal(TimeSpan.FromHours(6), ReminderIntervalRule.Interval(AlertKind.Threshold, TimeSpan.FromHours(6)));

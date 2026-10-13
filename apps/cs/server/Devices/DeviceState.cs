@@ -9,7 +9,9 @@ namespace Coldframe.Server.Devices;
 /// the last Specification set the Server accepted from a Node (AD-19), and the Calibration in force per Sensor
 /// as the Sensor grain set it (Story 5.1), and the evaluation epoch (Story 6.1). For silence (Story 7.1) it holds
 /// the clock start, the Device's own Silence Window, the episode counter, the open <c>silent</c> Alert, the last
-/// recovery and the deliveries the Alert grain has not acknowledged; the expiry is derived from them. The replay
+/// recovery and the deliveries the Alert grain has not acknowledged; the expiry is derived from them. For a
+/// Node's battery (Story 7.3) it holds the two streaks, the last report counted, the episode counter and the open
+/// <c>battery</c> Alert. The replay
 /// window and the downlink counter are not journaled: they live in <c>device_replay</c> and commit with the
 /// Readings (AD-9).
 /// </summary>
@@ -126,6 +128,46 @@ public sealed class DeviceState
     /// </summary>
     [Id(19)]
     public DateTimeOffset? LastRecoveredAt { get; private set; }
+
+    /// <summary>
+    /// How many consecutive low device reports the Node has sent (Story 7.3); counted only while no battery Alert
+    /// is open, and 0 otherwise.
+    /// </summary>
+    [Id(21)]
+    public int BatteryLowStreak { get; private set; }
+
+    /// <summary>
+    /// How many consecutive recovered device reports the Node has sent; counted only while a battery Alert is
+    /// open, and 0 otherwise.
+    /// </summary>
+    [Id(22)]
+    public int BatteryRecoveredStreak { get; private set; }
+
+    /// <summary>
+    /// The stored <c>measured_at</c> of the last device report that changed the battery state, or
+    /// <see langword="null"/> before the first. A report that is not newer is never counted. A report that
+    /// changes nothing is not journaled, so the Device grain keeps the newest counted time beside it in memory.
+    /// </summary>
+    [Id(23)]
+    public DateTimeOffset? BatteryCountedAt { get; private set; }
+
+    /// <summary>
+    /// The Node's low-battery episode counter: 0 before its first. Journaled before the Alert grain is called, so
+    /// the Alert ID it derives never repeats and never changes on a retry.
+    /// </summary>
+    [Id(24)]
+    public int BatteryEpisode { get; private set; }
+
+    /// <summary>
+    /// The Node's open <c>battery</c> Alert, or <see langword="null"/>. At most one at a time.
+    /// </summary>
+    [Id(25)]
+    public DeviceBatteryAlert? OpenBatteryAlert { get; private set; }
+
+    /// <summary>
+    /// The battery streaks as <see cref="BatteryRule"/> reads them.
+    /// </summary>
+    public BatteryStreaks BatteryStreaks => new(OpenBatteryAlert is not null, BatteryLowStreak, BatteryRecoveredStreak);
 
     /// <summary>
     /// When the Device was last heard (Story 7.2), or <see langword="null"/> before enrolment: a Node's newest
@@ -380,6 +422,77 @@ public sealed class DeviceState
         LastRecoveredAt = @event.EndedAt;
     }
 
+    public void Apply(DeviceBatteryStreakChanged @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // A report is counted once and in order: one that is not newer changes nothing.
+        if (BatteryCountedAt is { } counted && @event.MeasuredAt <= counted)
+        {
+            return;
+        }
+
+        BatteryLowStreak = @event.Low;
+        BatteryRecoveredStreak = @event.Recovered;
+        BatteryCountedAt = @event.MeasuredAt;
+    }
+
+    public void Apply(DeviceBatteryLowStarted @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // At most one open battery Alert: an episode that is not the next one is not a new one.
+        if (OpenBatteryAlert is not null || @event.Episode <= BatteryEpisode)
+        {
+            return;
+        }
+
+        BatteryEpisode = @event.Episode;
+        BatteryLowStreak = 0;
+        BatteryRecoveredStreak = 0;
+        BatteryCountedAt = SilenceRule.Latest(BatteryCountedAt, @event.MeasuredAt);
+        OpenBatteryAlert = new DeviceBatteryAlert(@event.AlertId, @event.Episode, @event.StartedAt, @event.BatteryPercent);
+        _pendingAlertDeliveries.Add(new PendingDeviceAlertDelivery(
+            @event.AlertId,
+            AlertLifecycle.Open,
+            AlertKind.Battery,
+            @event.Episode,
+            @event.SiteId,
+            @event.LotId,
+            Reason: null,
+            @event.StartedAt,
+            SilentSince: null,
+            @event.BatteryPercent));
+    }
+
+    public void Apply(DeviceBatteryLowEnded @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        if (OpenBatteryAlert is not { } open || open.AlertId != @event.AlertId)
+        {
+            return;
+        }
+
+        _pendingAlertDeliveries.Add(new PendingDeviceAlertDelivery(
+            open.AlertId,
+            AlertLifecycle.Closed,
+            AlertKind.Battery,
+            open.Episode,
+            SiteId: null,
+            LotId: null,
+            @event.Reason,
+            @event.EndedAt));
+        OpenBatteryAlert = null;
+        BatteryLowStreak = 0;
+        BatteryRecoveredStreak = 0;
+
+        if (@event.MeasuredAt is { } measuredAt)
+        {
+            BatteryCountedAt = SilenceRule.Latest(BatteryCountedAt, measuredAt);
+        }
+    }
+
     public void Apply(DeviceAlertDelivered @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -419,6 +532,7 @@ public sealed record CalibrationInForce(
 /// <param name="Reason">Why the Alert closes; <see langword="null"/> for an open.</param>
 /// <param name="At">When the Alert opened or closed.</param>
 /// <param name="SilentSince">For an open of a silent Alert, when the Device was last heard (Story 7.2); <see langword="null"/> otherwise and for an episode journaled before that story.</param>
+/// <param name="BatteryPercent">For an open of a battery Alert, the battery level of the report that opened it (Story 7.3); <see langword="null"/> otherwise.</param>
 [GenerateSerializer]
 [Alias("coldframe.device-pending-alert-delivery")]
 public sealed record PendingDeviceAlertDelivery(
@@ -430,4 +544,5 @@ public sealed record PendingDeviceAlertDelivery(
     [property: Id(5)] string? LotId,
     [property: Id(6)] AlertCloseReason? Reason,
     [property: Id(7)] DateTimeOffset At,
-    [property: Id(8)] DateTimeOffset? SilentSince = null);
+    [property: Id(8)] DateTimeOffset? SilentSince = null,
+    [property: Id(9)] int? BatteryPercent = null);

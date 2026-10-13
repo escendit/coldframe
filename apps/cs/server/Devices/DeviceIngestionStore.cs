@@ -65,7 +65,8 @@ public sealed record FrameCommit(string DeviceId, StoredReplay Replay, bool Rese
 /// <param name="StoredMeasuredAt">
 /// The time <c>reading_keys</c> keeps with each Reading of the frame, by Sensor and <c>reading_seq</c>: the
 /// frame's own for a key that was new, the one of the first delivery for a duplicate. A key stored before the
-/// table kept the time has no entry.
+/// table kept the time has no entry. The frame's device report is in it too (Story 7.3), under
+/// <see cref="Coldframe.Crypto.SensorIds.DeviceReport"/> and its <c>report_seq</c>.
 /// </param>
 public sealed record FrameCommitted(
     int NewKeys,
@@ -124,8 +125,8 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
         JOIN fresh USING (sensor_id, reading_seq)
         """;
 
-    // The time each Reading of the frame is stored with, read in the frame's transaction after its keys were
-    // written: the one just written for a new key (read back, so a first delivery and a resend see the same
+    // The time each Reading of the frame, and its device report (Story 7.3), is stored with, read in the frame's
+    // transaction after its keys were written: the one just written for a new key (read back, so a first delivery and a resend see the same
     // value at the database's precision), the one of the first delivery for a duplicate; a key stored before
     // reading_keys kept the time has none and is left out.
     private const string StoredMeasuredAtSql =
@@ -217,26 +218,33 @@ public class DeviceIngestionStore(NpgsqlDataSource dataSource)
                     Value = rows.Readings.Select(reading => reading.CalibrationId).ToArray(),
                 });
                 newKeys += await readings.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-                await using var stored = new NpgsqlCommand(StoredMeasuredAtSql, connection, transaction);
-                stored.Parameters.AddWithValue("device_id", commit.DeviceId);
-                stored.Parameters.AddWithValue("sensor_ids", rows.Readings.Select(reading => reading.SensorId).ToArray());
-                stored.Parameters.AddWithValue("reading_seqs", rows.Readings.Select(reading => (decimal)reading.ReadingSeq).ToArray());
-                await using var reader = await stored.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    storedMeasuredAt[(reader.GetGuid(0), (ulong)reader.GetDecimal(1))] =
-                        await reader.GetFieldValueAsync<DateTimeOffset>(2, cancellationToken).ConfigureAwait(false);
-                }
             }
 
-            await using var report = new NpgsqlCommand(InsertReportSql, connection, transaction);
-            AddShared(report, commit.DeviceId, rows);
-            report.Parameters.AddWithValue("sensor_id", Coldframe.Crypto.SensorIds.DeviceReport);
-            report.Parameters.AddWithValue("reading_seq", (decimal)rows.Report.ReportSeq);
-            report.Parameters.Add(new NpgsqlParameter("battery_percent", NpgsqlDbType.Smallint) { Value = (object?)rows.Report.BatteryPercent ?? DBNull.Value });
-            report.Parameters.AddWithValue("charging", rows.Report.Charging);
-            newKeys += await report.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await using (var report = new NpgsqlCommand(InsertReportSql, connection, transaction))
+            {
+                AddShared(report, commit.DeviceId, rows);
+                report.Parameters.AddWithValue("sensor_id", Coldframe.Crypto.SensorIds.DeviceReport);
+                report.Parameters.AddWithValue("reading_seq", (decimal)rows.Report.ReportSeq);
+                report.Parameters.Add(new NpgsqlParameter("battery_percent", NpgsqlDbType.Smallint) { Value = (object?)rows.Report.BatteryPercent ?? DBNull.Value });
+                report.Parameters.AddWithValue("charging", rows.Report.Charging);
+                newKeys += await report.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // After both inserts: the keys of the Readings and the key of the device report.
+            await using var stored = new NpgsqlCommand(StoredMeasuredAtSql, connection, transaction);
+            stored.Parameters.AddWithValue("device_id", commit.DeviceId);
+            stored.Parameters.AddWithValue(
+                "sensor_ids",
+                rows.Readings.Select(reading => reading.SensorId).Append(Coldframe.Crypto.SensorIds.DeviceReport).ToArray());
+            stored.Parameters.AddWithValue(
+                "reading_seqs",
+                rows.Readings.Select(reading => (decimal)reading.ReadingSeq).Append((decimal)rows.Report.ReportSeq).ToArray());
+            await using var reader = await stored.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                storedMeasuredAt[(reader.GetGuid(0), (ulong)reader.GetDecimal(1))] =
+                    await reader.GetFieldValueAsync<DateTimeOffset>(2, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await CommitTransactionAsync(transaction, cancellationToken).ConfigureAwait(false);

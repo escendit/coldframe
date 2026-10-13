@@ -660,7 +660,7 @@
       "get": {
         "operationId": "listAlerts",
         "summary": "List the Site's Alerts",
-        "description": "alerts is one ordered list of the Site's Threshold Alerts: every open one, newest openedAt first, then those closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. healthAlerts lists the Health Alerts (silent Devices, Story 7.2) in the same order, at most 200 and not paged: it is sent with the first page and absent when cursor is given. Clients show both in this order and never re-sort within a group. openCount is the number of open Alerts of the Site, Threshold and Health, and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.",
+        "description": "alerts is one ordered list of the Site's Threshold Alerts: every open one, newest openedAt first, then those closed within the last 7 days of the Server clock, newest closedAt first; ties by Alert ID. healthAlerts lists the Health Alerts (silent Devices, Story 7.2; low batteries, Story 7.3) in the same order, at most 200 and not paged: it is sent with the first page and absent when cursor is given. Clients show both in this order and never re-sort within a group. openCount is the number of open Alerts of the Site, Threshold and Health, and is the same on every page. The page holds at most limit Alerts (default 50, at most 200); nextCursor, when present, is passed unchanged as cursor to read the next page. A bad cursor or limit answers 400 validation.",
         "x-coldframe-minimum-role": "Member",
         "parameters": [
           { "$ref": "#/components/parameters/SiteId" },
@@ -1593,7 +1593,7 @@
       },
       "AlertKind": {
         "type": "string",
-        "description": "What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server opens threshold and silent Alerts; battery and uncalibrated arrive later in Epic 7. A Threshold Alert is listed in AlertList.alerts, a Health Alert in AlertList.healthAlerts (Story 7.2).",
+        "description": "What the Alert is about. threshold is a Threshold Alert; every other kind is a Health Alert. The set grows, so it is an x-extensible-enum: a client shows a kind it does not know as a Health Alert. The Server opens threshold, silent and battery Alerts (a Node whose battery is below 20 % while it is not charging, Story 7.3); uncalibrated arrives later in Epic 7. A Threshold Alert is listed in AlertList.alerts, a Health Alert in AlertList.healthAlerts (Story 7.2).",
         "x-extensible-enum": ["threshold", "silent", "battery", "uncalibrated"]
       },
       "AlertSide": {
@@ -1665,7 +1665,7 @@
       },
       "HealthAlert": {
         "type": "object",
-        "description": "A Health Alert of the Site (Story 7.2): an Alert about a Device, not about a Reading. It has no side and no quantity, and no Lot when it is a Hub's or the Alert of a Node on no Lot.",
+        "description": "A Health Alert of the Site (Story 7.2): an Alert about a Device, not about a Reading. It has no side and no quantity, and no Lot when it is a Hub's or the Alert of a Node on no Lot. A silent Alert says since when (silentSince), a battery Alert the level it opened with (batteryPercent, Story 7.3).",
         "required": ["id", "kind", "deviceId", "deviceKind", "openedAt"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
@@ -1682,6 +1682,12 @@
             "format": "date-time",
             "description": "For a silent Alert: when the Device was last heard, or when it was enrolled if it never reported, ISO-8601 UTC with Z. Absent for another kind and for an Alert opened before the Server recorded it."
           },
+          "batteryPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "For a battery Alert (Story 7.3): the Node's battery charge in the device report that opened the Alert, while it was not charging. It is the level at opening and never changes: it is still sent once the Alert is closed, when it is no longer current, so a client states it only for an open Alert and words a closed one without a level. The Devices list and Lot detail show the newest level. Absent for another kind and for an Alert that did not record it: a client then words the Alert without a level."
+          },
           "openedAt": { "type": "string", "format": "date-time", "description": "When the Alert opened, ISO-8601 UTC with Z." },
           "closedAt": { "type": "string", "format": "date-time", "description": "When the Alert closed, ISO-8601 UTC with Z; absent while it is open." },
           "reason": {
@@ -1691,7 +1697,8 @@
         },
         "examples": [
           { "id": "7c1d2e3f-4a5b-5c6d-8e7f-9a0b1c2d3e4f", "kind": "silent", "deviceId": "9c0d1e4b5a673f2a", "deviceKind": "node", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e04", "lotName": "Beans", "silentSince": "2026-10-06T01:05:00.000Z", "openedAt": "2026-10-06T07:05:00.000Z" },
-          { "id": "2e3f7c1d-5b4a-5d6c-9f8e-0b9a2d1c4f3e", "kind": "silent", "deviceId": "3f2a9c0d1e4b5a67", "deviceKind": "hub", "silentSince": "2026-10-06T06:55:00.000Z", "openedAt": "2026-10-06T07:00:00.000Z", "closedAt": "2026-10-06T07:20:00.000Z", "reason": "recovered" }
+          { "id": "2e3f7c1d-5b4a-5d6c-9f8e-0b9a2d1c4f3e", "kind": "silent", "deviceId": "3f2a9c0d1e4b5a67", "deviceKind": "hub", "silentSince": "2026-10-06T06:55:00.000Z", "openedAt": "2026-10-06T07:00:00.000Z", "closedAt": "2026-10-06T07:20:00.000Z", "reason": "recovered" },
+          { "id": "ae0cf71d-0fe1-50b9-b548-f4b9e57572b7", "kind": "battery", "deviceId": "9c0d1e2f3a4b5c68", "deviceKind": "node", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", "lotName": "Lettuce", "batteryPercent": 14, "openedAt": "2026-10-13T08:30:02.000Z" }
         ]
       },
       "SetSilenceWindowRequest": {

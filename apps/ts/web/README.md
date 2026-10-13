@@ -291,7 +291,7 @@ Each row is one link with one spoken label ("Tomatoes needs water, since 5:45 AM
 uncalibrated Alert opens Lot detail; a silent Device, a low battery and a kind this client does not know
 open Devices at the row of the Device (`/devices#device-{deviceId}`). Rows have no other action.
 
-Health rows (`healthAlertRow`) are titled from the Alert's Device, Lot and `silentSince`:
+Health rows (`healthAlertRow`) are titled from the Alert's Device, Lot, `silentSince` and `batteryPercent`:
 
 | Alert | Title |
 | --- | --- |
@@ -299,10 +299,14 @@ Health rows (`healthAlertRow`) are titled from the Alert's Device, Lot and `sile
 | `silent`, a Hub | "Hub 3F2A silent for 5 min" |
 | `silent`, a Node on no Lot | "Node 9C0D silent for 6 h" |
 | closed, or open without `silentSince` | the same without "for …" ("Hub 3F2A silent") |
+| `battery`, a Node on a Lot (Story 7.3) | "Node battery 14 %, not charging — Lot 'Lettuce'" |
+| `battery`, a Node on no Lot | "Node 9C0D battery 14 %, not charging" |
+| `battery`, closed, or without a `batteryPercent` from 0 to 100 | "Node battery low on Lot 'Lettuce'" / "Node 9C0D battery low" |
 | a kind this client does not know | the neutral row: "Health Alert on Lot 'Basil'", or "Health Alert" without a Lot |
 
-The Server opens `silent` Alerts (Story 7.1); `battery` and `uncalibrated` keep their titles and icons for
-Stories 7.3 and 7.4. A non-Threshold entry in `alerts`, which the Server no longer sends, still renders as
+The Server opens `silent` (Story 7.1) and `battery` Alerts (Story 7.3). The level in a low-battery title is the
+one the Alert opened with, so a closed row names none; Devices and Lot detail show the Node's newest level and
+charger status, as before. `uncalibrated` keeps its title and icon for Story 7.4. A non-Threshold entry in `alerts`, which the Server no longer sends, still renders as
 the Health row it was (it opens Devices without a row).
 
 There is no Open Alerts rail, no count in the side nav and no stale mode: a failed read shows the notice

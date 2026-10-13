@@ -9,8 +9,8 @@ import com.escendit.coldframe.core.sites.SiteRole
 import java.time.Instant
 
 /**
- * Alerts of every row variant as the Server would list them (Story 6.2), told against [now]. Health
- * Alerts have no producer before Epic 7, so they exist only here. The shell tests only render them.
+ * Alerts of every row variant as the Server would list them (Story 6.2), told against [now]. The
+ * shell tests only render them.
  */
 object AlertFixtures {
     val now: Instant = Instant.parse("2026-10-09T07:04:00Z")
@@ -137,6 +137,53 @@ object AlertFixtures {
 
     /** The Alerts surface with Node and Hub Health rows: a Threshold Alert, the open silent Devices, a closed one. */
     val silentDevices: List<AlertSummary> = listOf(needsWater, silentHub, silentNode, silentSpareNode, closedSilentHub)
+
+    // Story 7.3: low batteries as `healthAlerts` lists them, with the level the Alert opened with.
+
+    private fun lowBatteryOf(
+        id: String,
+        deviceId: String,
+        openedAt: String,
+        batteryPercent: Int?,
+        lotName: String? = null,
+        closedAt: String? = null,
+    ) = AlertSummary(
+        id = id,
+        kind = AlertSummary.KIND_BATTERY,
+        side = null,
+        quantity = null,
+        lotId = lotName?.let { "lot-$id" },
+        lotName = lotName,
+        deviceId = deviceId,
+        openedAtEpochMs = at(openedAt),
+        closedAtEpochMs = closedAt?.let(::at),
+        deviceKind = AlertDeviceKind.Node,
+        batteryPercent = batteryPercent,
+    )
+
+    /** A Node on Lettuce whose Alert opened at 14 %, not charging. */
+    val lowBattery = lowBatteryOf("low", "9c0d1e2f3a4b5c68", "2026-10-09T06:45:00Z", 14, lotName = "Lettuce")
+
+    /** A low Node on no Lot, named by its short name. */
+    val lowBatterySpareNode = lowBatteryOf("low-spare", "7c19000000000004", "2026-10-09T06:15:00Z", 9)
+
+    /** A low battery whose Alert states no level. */
+    val lowBatteryNoLevel = lowBatteryOf("low-old", "4a5b6c7d8e9f0a1b", "2026-10-09T05:55:00Z", null, lotName = "Herbs")
+
+    /** A low battery that recovered: the row names no level. */
+    val closedLowBattery =
+        lowBatteryOf(
+            "was-low",
+            "9c0d1e2f3a4b5c68",
+            "2026-10-08T18:00:00Z",
+            12,
+            lotName = "Lettuce",
+            closedAt = "2026-10-08T21:00:00Z",
+        )
+
+    /** The Alerts surface with low-battery Health rows: a Threshold Alert, the open ones, a closed one. */
+    val lowBatteries: List<AlertSummary> =
+        listOf(needsWater, lowBattery, lowBatterySpareNode, lowBatteryNoLevel, closedLowBattery)
 
     val threshold = listOf(needsWater, tooWet, tooCold, tooHumid)
     val health = listOf(silent, battery, uncalibrated, unknownKind)

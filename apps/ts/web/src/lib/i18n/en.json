@@ -455,5 +455,8 @@
   "alerts.title.silentHubFor": "Hub {hubId} silent for {duration}",
   "alerts.title.silentNode": "Node {nodeId} silent",
   "alerts.title.silentNodeFor": "Node {nodeId} silent for {duration}",
-  "alerts.title.otherNoLot": "Health Alert"
+  "alerts.title.otherNoLot": "Health Alert",
+  "alerts.title.batteryLevel": "Node battery {percent} %, not charging — Lot '{lotName}'",
+  "alerts.title.batteryNodeLevel": "Node {nodeId} battery {percent} %, not charging",
+  "alerts.title.batteryNode": "Node {nodeId} battery low"
 }

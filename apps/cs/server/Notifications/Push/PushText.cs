@@ -85,7 +85,9 @@ public sealed class PushText
     /// The title of an Alert: the condition, such as "Tomatoes needs water", or for a silent Device (Story 7.2)
     /// what is silent and for how long at <paramref name="now"/>: "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A
     /// silent for 5 min", "Node 9C0D silent for 6 h" for a Node on no Lot. A silent Alert that does not say its
-    /// Device kind and silent-since (tracked before Story 7.2) keeps the neutral text.
+    /// Device kind and silent-since (tracked before Story 7.2) keeps the neutral text. A low battery (Story 7.3)
+    /// reads "Node battery 14 %, not charging", with the Node's short ID ("Node 9C0D battery …") when the Node is
+    /// on no Lot or its Lot's name is not known; one that does not say its level keeps the neutral text.
     /// </summary>
     /// <param name="facts">The Alert.</param>
     /// <param name="now">When the notification is sent; a silence duration counts up to it.</param>
@@ -100,8 +102,14 @@ public sealed class PushText
             return silent;
         }
 
-        // An Alert without a Lot that is no silent Device with its kind and time (one tracked before Story 7.2,
-        // or a Health kind this Server writes no copy for yet) names none: the neutral text.
+        if (BatteryTitle(facts, summary: false) is { } battery)
+        {
+            return battery;
+        }
+
+        // An Alert without a Lot that is no silent Device with its kind and time and no low battery with its
+        // level (one tracked before Story 7.2, or a Health kind this Server writes no copy for yet) names none:
+        // the neutral text.
         if (entry.LotId is null)
         {
             return _templates["title.noLot"];
@@ -135,6 +143,8 @@ public sealed class PushText
     /// The body of an Alert or of its Reminder: value and context, or <see langword="null"/> when the value or
     /// the Threshold was not found (the title stands alone then; a Reminder still says "Still open."). A silent
     /// Node (Story 7.2) names the time of its last Reading in the User's zone, a silent Hub what cannot be read.
+    /// A low battery (Story 7.3) names the Node's Lot, "Lot 'Lettuce'.", and has no body without one; its Reminder
+    /// says "Still low." first.
     /// </summary>
     /// <param name="facts">The Alert.</param>
     /// <param name="reminder">Whether the text is a Reminder's: the Alert text with "Still".</param>
@@ -161,6 +171,14 @@ public sealed class PushText
                 : Format(
                     $"{prefix}.silent.node",
                     ("time", TimeZoneInfo.ConvertTime(silentSince, zone).ToString("HH:mm", CultureInfo.InvariantCulture)));
+        }
+
+        if (IsBattery(entry, out _))
+        {
+            // The title names the Node when its Lot cannot be named; the body then has nothing to add.
+            return facts.LotName is { } lot
+                ? Format($"{prefix}.battery.lot", ("lot", lot))
+                : reminder ? _templates["reminder.battery"] : null;
         }
 
         if (entry is { Kind: AlertKind.Threshold, Side: { } side } && facts.Reading is { } reading)
@@ -215,7 +233,7 @@ public sealed class PushText
         ArgumentNullException.ThrowIfNull(window);
 
         var ordered = alerts.Where(alert => NeedsWater(alert.Entry)).Concat(alerts.Where(alert => !NeedsWater(alert.Entry))).ToList();
-        var lines = ordered.Take(MaxSummaryLines).Select(alert => SilentTitle(alert, now, summary: true) ?? Title(alert, now)).ToList();
+        var lines = ordered.Take(MaxSummaryLines).Select(alert => SilentTitle(alert, now, summary: true) ?? BatteryTitle(alert, summary: true) ?? Title(alert, now)).ToList();
 
         if (ordered.Count > MaxSummaryLines)
         {
@@ -298,6 +316,36 @@ public sealed class PushText
         return facts.LotName is { } lot
             ? Format(summary ? "summary.silent.nodeOnLot" : "title.silent.nodeOnLot", ("lot", lot), ("duration", duration))
             : Format("title.silent.node", ("device", device), ("duration", duration));
+    }
+
+    // A Node's low-battery Alert that says the level it opened with (Story 7.3). It opens only from a report that
+    // is not charging, so the kind states the charger status. One without a level keeps the neutral text.
+    private static bool IsBattery(NotificationEntry entry, out int batteryPercent)
+    {
+        batteryPercent = entry.BatteryPercent ?? default;
+
+        return entry is { Kind: AlertKind.Battery, BatteryPercent: not null };
+    }
+
+    // The title of a low battery, or null for any other Alert. The Node is named by its short ID when it is on
+    // no Lot or the Lot's name is not known; with a Lot the body names it. In a summary the Lot leads.
+    private string? BatteryTitle(PushEntryFacts facts, bool summary)
+    {
+        if (!IsBattery(facts.Entry, out var batteryPercent))
+        {
+            return null;
+        }
+
+        var percent = batteryPercent.ToString(CultureInfo.InvariantCulture);
+
+        if (facts.LotName is not { } lot)
+        {
+            return Format("title.battery.node", ("device", ShortName(facts.Entry.DeviceId)), ("percent", percent));
+        }
+
+        return summary
+            ? Format("summary.battery.nodeOnLot", ("lot", lot), ("percent", percent))
+            : Format("title.battery.nodeOnLot", ("percent", percent));
     }
 
     // Whole numbers where they are whole; one decimal otherwise, three significant digits for kΩ.

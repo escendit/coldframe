@@ -6465,6 +6465,39 @@
           }
         }
       }
+    },
+    "alert_title_battery_level": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node battery %1$@ %%, not charging — Lot '%2$@'"
+          }
+        }
+      }
+    },
+    "alert_title_node_battery_level": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %1$@ battery %2$@ %%, not charging"
+          }
+        }
+      }
+    },
+    "alert_title_node_battery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node %@ battery low"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

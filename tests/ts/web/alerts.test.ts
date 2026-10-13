@@ -416,6 +416,10 @@ function health(id: string, fields: Partial<HealthAlert> = {}): HealthAlert {
   return { id, kind: 'silent', deviceId: '9c0d1e4b5a673f2a', deviceKind: 'node', openedAt: '2026-10-09T07:05:00.000Z', ...fields };
 }
 
+/** Story 7.3: low batteries. */
+const lowLettuce = health('b-1', { kind: 'battery', lotId: 'lot-Lettuce', lotName: 'Lettuce', batteryPercent: 14 });
+const lowSpare = health('b-2', { kind: 'battery', batteryPercent: 14 });
+
 const silentBeans = health('h-1', { lotId: 'lot-Beans', lotName: 'Beans', silentSince: '2026-10-09T01:05:00.000Z' });
 const silentHub = health('h-2', { deviceId: '3f2a9c0d1e4b5a67', deviceKind: 'hub', silentSince: '2026-10-09T07:11:30.000Z', openedAt: '2026-10-09T07:16:30.000Z' });
 const silentSpare = health('h-3', { silentSince: '2026-10-09T01:00:00.000Z', openedAt: '2026-10-09T07:00:00.000Z' });
@@ -475,10 +479,51 @@ describe('Health Alerts of the Health list (Story 7.2)', () => {
       href: '/devices#device-9c0d1e4b5a673f2a',
     });
     expect(healthAlertRow(health('h-9', { kind: 'frost' }), context).title).toBe('Health Alert');
-    // The later kinds of Epic 7 keep today's titles and icons; without a Lot they are the neutral row.
-    expect(healthAlertRow(health('h-9', { kind: 'battery', lotName: 'Lettuce', lotId: 'l' }), context)).toMatchObject({ icon: 'battery--low', title: "Node battery low on Lot 'Lettuce'", href: '/devices#device-9c0d1e4b5a673f2a' });
+    // The uncalibrated kind of Epic 7 keeps today's title and icon; without a Lot it is the neutral row.
     expect(healthAlertRow(health('h-9', { kind: 'uncalibrated', lotName: 'Potatoes', lotId: 'l-7' }), context)).toMatchObject({ icon: 'tools', title: "Soil Sensor on Lot 'Potatoes' needs Calibration", href: '/garden/l-7' });
     expect(healthAlertRow(health('h-9', { kind: 'uncalibrated' }), context)).toMatchObject({ icon: 'tools', title: 'Health Alert', href: '/devices#device-9c0d1e4b5a673f2a' });
+  });
+
+  // Story 7.3: a low battery says the level it opened with.
+  test('UX-DR25 a low battery on a Lot reads "Node battery 14 %, not charging — Lot \'Lettuce\'", hatched, with the low-battery icon', () => {
+    expect(healthAlertRow(lowLettuce, context)).toEqual({
+      id: 'b-1',
+      variant: 'health',
+      icon: 'battery--low',
+      eyebrow: 'Health Alert',
+      title: "Node battery 14 %, not charging — Lot 'Lettuce'",
+      spoken: "Node battery 14 %, not charging — Lot 'Lettuce', since 07:05",
+      href: '/devices#device-9c0d1e4b5a673f2a',
+      hatched: true,
+    });
+  });
+
+  test('UX-DR25 a low battery of a Node on no Lot is named by its ID: "Node 9C0D battery 14 %, not charging"', () => {
+    expect(healthAlertRow(lowSpare, context)).toMatchObject({ icon: 'battery--low', title: 'Node 9C0D battery 14 %, not charging', href: '/devices#device-9c0d1e4b5a673f2a' });
+    // An empty battery is a level.
+    expect(healthAlertRow({ ...lowSpare, batteryPercent: 0 }, context).title).toBe('Node 9C0D battery 0 %, not charging');
+  });
+
+  test('UX-DR25 a closed low battery, and one without a level, read "battery low"', () => {
+    const closedAt = '2026-10-09T07:10:00.000Z';
+    expect(healthAlertRow({ ...lowLettuce, closedAt, reason: 'recovered' }, context)).toMatchObject({ variant: 'closed', icon: 'battery--low', title: "Node battery low on Lot 'Lettuce'", hatched: false });
+    expect(healthAlertRow({ ...lowSpare, closedAt, reason: 'recovered' }, context).title).toBe('Node 9C0D battery low');
+    // An Alert that states no level, or one the contract cannot describe.
+    expect(healthAlertRow({ ...lowLettuce, batteryPercent: undefined }, context).title).toBe("Node battery low on Lot 'Lettuce'");
+    expect(healthAlertRow({ ...lowSpare, batteryPercent: undefined }, context).title).toBe('Node 9C0D battery low');
+    expect(healthAlertRow({ ...lowLettuce, batteryPercent: 140 }, context).title).toBe("Node battery low on Lot 'Lettuce'");
+    expect(healthAlertRow({ ...lowLettuce, batteryPercent: 13.5 }, context).title).toBe("Node battery low on Lot 'Lettuce'");
+    expect(healthAlertRow({ ...lowSpare, batteryPercent: -1 }, context).title).toBe('Node 9C0D battery low');
+    // Never sent by the Server: a Hub has no battery to report, and is not named as a Node.
+    expect(healthAlertRow({ ...lowSpare, deviceId: '3f2a9c0d1e4b5a67', deviceKind: 'hub' }, context)).toMatchObject({ icon: 'battery--low', title: 'Health Alert' });
+  });
+
+  test('UX-DR64 UX-DR26 the page lists a low battery under Health Alerts, linked to its Node on Devices', () => {
+    const body = page([tomatoes], null, 'UTC', [lowLettuce, silentHub]);
+    expect(ids(body)).toEqual(['a-1', 'b-1', 'h-2']);
+    expect(item(body, 'b-1')).toContain('href="/devices#device-9c0d1e4b5a673f2a"');
+    expect(item(body, 'b-1')).toContain('data-variant="health"');
+    expect(item(body, 'b-1')).toContain("Node battery 14 %, not charging — Lot 'Lettuce'");
   });
 
   test('UX-DR26 a Health row links to the row of its Device on Devices', () => {

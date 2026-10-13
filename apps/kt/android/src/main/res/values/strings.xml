@@ -646,4 +646,9 @@
   <string name="alert_title_node_silent">Node %1$s silent</string>
   <string name="alert_title_node_silent_for">Node %1$s silent for %2$s</string>
   <string name="alert_title_health">Health Alert</string>
+
+  <!-- Story 7.3: the low-battery Alert. -->
+  <string name="alert_title_battery_level">Node battery %1$s %%, not charging — Lot \'%2$s\'</string>
+  <string name="alert_title_node_battery_level">Node %1$s battery %2$s %%, not charging</string>
+  <string name="alert_title_node_battery">Node %1$s battery low</string>
 </resources>

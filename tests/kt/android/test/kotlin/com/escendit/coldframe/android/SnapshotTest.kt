@@ -787,6 +787,28 @@ class SnapshotTest {
     fun `UX-DR117 UX-DR96 Alerts with Node and Hub Health rows, dark, font scale 2`() =
         alerts("alerts-silent-large-dark", alertsOf(AlertFixtures.silentDevices), ThemePreference.Dark, 2f)
 
+    // Story 7.3: Health rows of a low battery.
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR25 UX-DR26 Alerts with low-battery Health rows, light`() =
+        alerts("alerts-battery-light", alertsOf(AlertFixtures.lowBatteries), ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR25 UX-DR26 Alerts with low-battery Health rows, dark`() =
+        alerts("alerts-battery-dark", alertsOf(AlertFixtures.lowBatteries), ThemePreference.Dark)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR25 UX-DR96 Alerts with low-battery Health rows, light, font scale 2`() =
+        alerts("alerts-battery-large-light", alertsOf(AlertFixtures.lowBatteries), ThemePreference.Light, 2f)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR25 UX-DR96 Alerts with low-battery Health rows, dark, font scale 2`() =
+        alerts("alerts-battery-large-dark", alertsOf(AlertFixtures.lowBatteries), ThemePreference.Dark, 2f)
+
     @Test
     fun `UX-DR82 UX-DR64 no open Alerts, light, font scale 2`() =
         alerts("alerts-empty-light", alertsOf(emptyList()), ThemePreference.Light, 2f)
