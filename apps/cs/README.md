@@ -130,6 +130,10 @@ The Server serves the contract in [`packages/openapi`](../../packages/openapi) f
 | `GET /enrolment-key` | any authenticated User | The Server's X25519 enrolment public key: 200 `{publicKey, fingerprint}` (base64url, lowercase hex SHA-256) |
 | `GET /sites/{siteId}/devices` | `Member` | Lists every enrolled Device of the Site from the devices projection, by Device ID: 200 `{devices: [{id, kind, lotId?, lastSeenAt?, online, silentSince?, silenceWindowSeconds, silenceWindowOverridden}]}`; `online` is computed when the Server answers ([The Devices list](#the-devices-list)) |
 | `PUT /sites/{siteId}/devices/{deviceId}/silence-window` | `Administrator` | Sets a Device's own Silence Window or returns it to the default (Story 7.2, see [The Silence Window endpoint](#the-silence-window-endpoint)): 200 `{windowSeconds, overridden}` |
+| `PUT /sites/{siteId}/devices/{deviceId}/pause` | `Administrator` | Pauses a Device by its own source, with an optional end date (Story 8.1, see [Pause](#pause)): 200 `{pausedBy, pausedUntil?}` |
+| `DELETE /sites/{siteId}/devices/{deviceId}/pause` | `Administrator` | Lifts the Device's own Pause source: 200 `{pausedBy, pausedUntil?}`, still naming `site` while the Site is paused |
+| `PUT /sites/{siteId}/pause` | `Administrator` | Pauses the Site, with an optional end date; the Site grain delivers it to every Device: 200 `{paused, pausedUntil?}` |
+| `DELETE /sites/{siteId}/pause` | `Administrator` | Resumes the Site: 200 `{paused: false}` |
 | `POST /sites/{siteId}/devices` | `Administrator` | Opens the sealed `K_dev`, wraps it, and `Device(id).Enrol(…)`: 201 `{id, kind, siteId}` |
 | `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | The Sensor's Calibration state and its recent stored Readings with their `readingSeq` (Story 5.2, see [Calibration](#calibration)) |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Saves the dry and/or wet point of a Sensor's Calibration (Story 5.1, see [Calibration](#calibration)): 200 with where the Calibration stands |
@@ -241,9 +245,10 @@ Device enrolment (AD-12, AD-18) lives in `server/Devices/`.
 3. `DeviceGrain` (`device/{id}`) refuses a Device enrolled on another Site (409
    `device-on-another-site`), then calls `SiteGrain.RegisterDevice`, which owns the roster and the
    Idempotency-Key rule (`{sub}:{key}`, 24 h; a key reused for another Device is 422). The Site journals
-   `site.device-registered` once per Device, and its reply carries the Site's Pause (never paused until
-   Epic 8). Only then does the Device journal `device.enrolled` with the wrapped key. Enrolling the same
-   Device on the same Site again journals nothing and answers the same 201.
+   `site.device-registered` once per Device, and its reply carries the Site's Pause. Only then does the
+   Device journal `device.enrolled` with the wrapped key, and in the same write `device.paused` with source
+   `Site` when the Site is paused: a Device added to a paused Site starts paused ([Pause](#pause)). Enrolling
+   the same Device on the same Site again journals nothing and answers the same 201.
 
 The wrapped key is `{kekId, nonce, sealed}`: ChaCha20-Poly1305 under
 `HKDF-SHA256(UTF-8(kek), info "coldframe/device-kek/v1")` with a random nonce and associated data
@@ -369,8 +374,7 @@ A Sensor ID is `UUIDv5(namespace, "{deviceIdHex}:{slot}:{quantity}")` from
 [`packages/crypto-spec`](../../packages/crypto-spec) (`Coldframe.Crypto.SensorIds`); `slot` is the
 Sensor's index in the Node's Specification set. `calibration_id` is the Calibration in force for the
 Sensor when the Reading is stored (the Device grain's cache, see [Calibration](#calibration)), `NULL` for a Sensor
-without one. Pause has no
-API yet: `device.paused` and `device.resumed` exist as events and state only (Epic 8).
+without one. What raises and lifts a Pause is [Pause](#pause).
 
 Tests drive ingestion through the Device simulator only (`SimulatedDevice.Wake`, `SealFrame`,
 `IngestBody`, `IngestRequest`, `ReadIngestResponse`, `OpenDownlink`).
@@ -593,8 +597,9 @@ open and close an Alert, through grain calls and the journal only (AD-5):
    and the Device grain of a Device's Alert: the grain
    reads the caller of the call itself, so a client, another grain, another Sensor or another Device is refused and
    the Alert stays open. The reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`. A
-   Device's Alert closes only as `recovered` before Epic 8; a Sensor's Alerts also close as `unassigned`,
-   `paused`, `calibrated` and `removed` (Story 7.4).
+   Device's Alert closes as `recovered`, or as `paused` when the Device becomes paused (Story 8.1,
+   [Pause](#pause)); a Sensor's Alerts also close as `unassigned`, `paused`, `calibrated` and `removed`
+   (Story 7.4).
 7. **The Site's open Alerts and its members.** The Alert grain reports each open and close to its Site grain
    (`ISiteGrain.AlertOpened`, `AlertClosed`), the open before the close. The Site grain journals
    `site.alert-opened` and `site.alert-closed`, once per Alert, and answers with its current members
@@ -612,8 +617,8 @@ Streak, side, episode, the open Alert and every pending delivery are journaled s
 none of them. A moved Node's open Threshold Alert follows its Device to the new Lot until three Readings recover
 (DW-85). An unassigned or paused Node gets no Reading evaluated, so the Sensor closes its open Threshold Alert
 when its context says so, as `unassigned` or `paused`, and its streak starts over
-([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert), Story 7.4); nothing raises a Pause before
-Epic 8. Closing on recalibration and removal is not built. The lots projector derives *needs water* from the
+([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert), Story 7.4; [Pause](#pause), Story 8.1).
+Closing on recalibration and removal is not built. The lots projector derives *needs water* from the
 Alert events ([Lot status](#lot-status)).
 
 `SetCalibration` on the Device grain is `[AlwaysInterleave]`: the Device grain awaits a Sensor's evaluation, or
@@ -645,7 +650,7 @@ backlog of old Readings does not look alive.
 | Enrolment | `device.enrolled` |
 | The last accepted report | `device.seen` (Hub), `device.reported` (Node) |
 | The last Server start | `device.silence-clock-restarted` with cause `ServerStarted` |
-| The last resume | `device.resumed` that clears the last Pause source |
+| The last resume | `device.resumed` that clears the last Pause source ([Pause](#pause)) |
 | The recovery of a Node's last relay Hub | `device.silence-clock-restarted` with cause `RelayHubRecovered` |
 
 `SilenceDueAt` is `SilenceFrom` plus the window in force. Both are derived from the Device's own stream, so the
@@ -701,7 +706,7 @@ frame is accepted.
 | `device.silence-window-set` `{windowSeconds?, setAt}` | The Device's own window was set, or cleared (`null`) |
 | `device.silence-clock-restarted` `{from, cause, hubId?, restartedAt}` | A Server start (`ServerStarted`) or the recovery of the relay Hub (`RelayHubRecovered`) moved the clock start forward |
 | `device.silence-started` `{episode, alertId, siteId, lotId?, dueAt, startedAt, silentSince?}` | The window expired: the next episode, journaled before its Alert is opened. `silentSince` from Story 7.2 on |
-| `device.silence-ended` `{episode, alertId, reason, endedAt}` | The Device reported again inside its window |
+| `device.silence-ended` `{episode, alertId, reason, endedAt}` | The Device reported again inside its window (`recovered`), or became paused while its Alert was open (`paused`, Story 8.1). Only `recovered` counts as the recovery a Node behind that Hub restarts its clock at |
 | `device.alert-delivered` `{alertId, change, deliveredAt}` | The Alert grain holds the open or the close and its Site knows it |
 
 #### Silent since
@@ -782,7 +787,8 @@ recovered reports while one is.
   and only when that time is newer than the last report counted. A frame sent again, also one of a Node without
   synced time whose resend carries a later time, and an older frame arriving late change nothing. The grain never
   reads `device_reports` to rebuild a streak.
-- **A paused Node** stores no report and counts none.
+- **A paused Node** stores no report and counts none. Becoming paused clears both streaks and closes an open
+  `battery` Alert as `paused` ([Pause](#pause)), so the count starts over after the resume.
 - **Journal only what changed.** A report that leaves the streaks as they are (a healthy Node, or a Node that
   stays low while its Alert is open) journals nothing, so the common case adds no event per frame. The last
   counted time therefore advances in memory between events (`DeviceState.BatteryCountedAt` is the journaled one).
@@ -822,7 +828,7 @@ Health Alert it reminds at most once per day ([Delivery timing](#delivery-timing
 | --- | --- |
 | `device.battery-streak-changed` `{low, recovered, measuredAt}` | A counted report moved a streak without opening or closing the Alert; never for a report that leaves both as they are |
 | `device.battery-low-started` `{episode, alertId, siteId, lotId?, batteryPercent, measuredAt, startedAt}` | The third consecutive low report: the next episode, journaled before its Alert is opened |
-| `device.battery-low-ended` `{episode, alertId, reason, measuredAt?, endedAt}` | The third consecutive recovered report |
+| `device.battery-low-ended` `{episode, alertId, reason, measuredAt?, endedAt}` | The third consecutive recovered report; or, without a `measuredAt`, the Node became paused while its Alert was open (`paused`, Story 8.1) |
 
 Tests: `BatteryRuleTests` and `DeviceStateBatteryTests` (`tests/cs/server.tests`) and `BatteryAlertGrainTests`
 (`tests/cs/server.integration`), a TestCluster with a fake clock and frames from the Device simulator.
@@ -850,7 +856,7 @@ assignment and Pause event.
 | after an assignment at enrolment | `Enrol`, when a Node that was enrolled before is given its Lot (a new Node has no Sensors yet) |
 | after a move and after an unassignment | `Move`, `Unassign`, last, after the old Lot is released |
 | after a frame declared a Specification set | step 8 of `Ingest`: the Sensors first exist here |
-| after a Pause change | with the next wake or report; no grain method raises a Pause before Epic 8 |
+| after a Pause change | every command that changes a Pause source, before it answers ([Pause](#pause)); the wake that lifts an end date |
 
 Which Sensor confirmed which epoch is kept in the Device grain's memory only, and nothing is journaled on the
 Device stream for it. A context that did not reach a Sensor is sent again with the Device's next report
@@ -898,6 +904,116 @@ Tests: `SensorStateContextTests` (`tests/cs/server.tests`, the state and the rul
 (`tests/cs/server.integration`, a TestCluster with a fake clock and frames from the Device simulator; a Pause is
 journaled by the test and read by a new silo), and `UncalibratedSensorJourneyTests` (`tests/cs/web.e2e`), the
 real Server and the web app in a browser.
+
+### Pause
+
+Story 8.1: an Administrator or Owner switches a Device, or the whole Site, off on purpose, so that planned
+downtime raises no Alert. Pause lives in one place (AD-8): the Device grain, as a set of sources
+`pausedBy ⊆ {device, site}`, each with its own optional end. A Device is paused exactly while it has a source.
+The Site grain holds only the Site's Pause and who has not heard of it yet; no grain and no read model stores
+or derives "is this Device paused?" by itself. The read models project `device.paused` and `device.resumed`
+as before ([Lot status](#lot-status)).
+
+**What a paused Device does.** Its frames are acknowledged as ever and nothing of them is kept, evaluated or
+counted (step 5 of [Ingesting Node frames](#ingesting-node-frames-step-by-step)); a Hub's heartbeat is still
+accepted. No Alert opens for it, however long it stays quiet. A paused Hub does not pause the Nodes it relays
+and does not excuse them: Pause is a state of one Device.
+
+**The Device's own source** (`IDeviceGrain.SetPause(siteId, endsAt?)`, `LiftPause(siteId)`). Every command is
+idempotent and journals only a change, because `device.paused` and `device.resumed` each start a new evaluation
+epoch and a resume moves the silence clock: the same Pause again answers `Unchanged` with no event.
+
+| Command | Journaled | Then, before the command answers |
+| --- | --- | --- |
+| `SetPause` on a Device that is not paused | `device.paused`, and in the same write `device.silence-ended` and `device.battery-low-ended` with reason `paused` for the Device's own open Alerts | The closes are delivered to the Alert grain, every Sensor is sent the paused context and closes its own Alerts as `paused`, and the lots projection is caught up |
+| `SetPause` with another end, or none, or on a Device its Site already paused | `device.paused` | The new context is sent; nothing closes twice |
+| `LiftPause` while the Site's source stays | `device.resumed` | Still paused: the silence clock does not move |
+| `LiftPause`, or the Site's resume, clearing the last source | `device.resumed` | The Silence Window counts from now ([Silent Devices](#silent-devices)); every Sensor is sent the live context, and one that needs calibration opens its next episode |
+
+Only the grain that opened an Alert closes it: the Device grain its `silent` and `battery` Alerts, each Sensor
+grain its Threshold and `uncalibrated` Alerts, through the context
+([The uncalibrated Sensor Alert](#the-uncalibrated-sensor-alert)). A close that did not reach the Alert grain,
+and a context that did not reach a Sensor, are delivered again by the next wake or report, as before. Becoming
+paused clears the battery streaks (DW-104). A `silent` Alert closed as `paused` is no recovery:
+`DeviceState.LastRecoveredAt` moves only for `recovered`, so a Node behind a Hub that was paused while silent
+does not restart its clock there.
+
+**The Site's Pause** (`ISiteGrain.SetPause(endsAt?)`, `LiftPause()`, `GetPause()`). The Site grain journals
+`site.paused` or `site.resumed` with the next **revision** of its Pause, and with it every Device on its roster
+as pending. It answers as soon as that is journaled.
+
+- **Delivery is level-triggered.** The Site tells each pending Device what its Pause is now
+  (`IDeviceGrain.SetSitePause(siteId, SitePause(Paused, EndsAt?, Revision))`), never "pause" or "resume". The
+  Device makes its `site` source match and journals nothing when it already does; a revision older than one it
+  applied (journaled with the event as `siteRevision`) arrived late and is not applied. Every answer
+  acknowledges, also that of a Device that is on the roster and not enrolled on this Site: its enrolment reads
+  the join reply. The Site journals `site.pause-delivered` per answer; an answer to a revision that is no longer
+  the current one settles nothing. Paused, resumed and paused again while a Device was out of reach therefore
+  delivers one state, the latest.
+- **Redelivery from journaled state.** A Device that throws or does not answer stays pending. While the grain
+  is active a grain timer tries again every 5 s; the `site-pause` reminder (period 1 min, registered before the
+  Pause is journaled, and removing itself once nothing has an end date and nothing is pending) restarts that
+  timer after a deactivation or a silo restart, and so does every activation. A registration that failed is
+  tried again by every tick, and the timer does not stop before the reminder is registered. A journal write that fails is
+  repeated by the log-consistency adaptor, on the Site and on the Device alike.
+- **Delivery never blocks the Site.** A Device that is told the Pause closes its Alerts before it answers, and
+  each close is reported to this Site (`ISiteGrain.AlertClosed`); a Device that enrols awaits
+  `ISiteGrain.RegisterDevice`. A Site grain that awaited a Device in an ordinary turn would stop both until a
+  call timed out. So `SetPause`, `LiftPause` and the reminder only journal and start the timer; its ticks
+  interleave with the Site's other calls (`GrainTimerCreationOptions.Interleave`), as
+  `ISiteGrain.DeliverPause()` does (`[AlwaysInterleave]`), which runs one attempt and returns: the test-only
+  wake and the TestCluster tests wait through it. Attempts never run side by side. Because they interleave, the
+  Site grain's Pause code reads `TentativeState`.
+- **The join reply.** `RegisterDevice` answers the Site's Pause, and `DeviceGrain.Enrol` journals it with the
+  enrolment. `RegisterDevice` puts a Device on the roster before the Device journals `device.enrolled`, so the
+  reply and a pending delivery may both reach it; the second changes nothing.
+
+**End dates (AD-6).** An end date is a calendar date. `PauseEndRule` (`server/Devices/`, pure) resolves it to
+00:00 on that date in the IANA time zone of the User who set the Pause, the zone of the caller's User grain
+(chosen, else detected, else UTC, `NotificationWindowRule.ZoneOf`); a midnight the clocks skip is the first
+instant of that date that exists, one that occurs twice its first occurrence. The result is a UTC due-at in the
+state of the grain that owns it, and the owner ends it:
+
+| Source | Due-at | Lifted by |
+| --- | --- | --- |
+| `device` | `DeviceState.PausedBy[Device]` | The Device grain, at or after it (`EndOwnPauseWhenDueAsync`): on the first wake of its `silence-window` reminder, on every activation, and before an accepted heartbeat, a valid frame (so the frame is kept) or a read of its silence (`IDeviceGrain.Silence()`) is looked at |
+| `site` | `SiteState.Pause.EndsAt` | The Site grain, on the first wake of `site-pause`, timer tick or activation at or after it: `site.resumed`, delivered like any resume. A Device keeps the Site's end for display only and never lifts its `site` source itself |
+
+A resume is stamped with the clock, not with the due-at, so a Pause that ended while the Server was down gives
+every Device a full Silence Window from the moment it is lifted. Both grains refuse an end that is not after
+their own clock.
+
+**The endpoints** (all Administrator and up; a Member gets 403 and nothing is journaled).
+
+| Request | Answer |
+| --- | --- |
+| `PUT …/devices/{deviceId}/pause` with `{}` or `{"until": "2026-11-01"}` | 200 `{pausedBy, pausedUntil?}`: every source in force, `device` before `site`, and the later of their ends, absent when either has none (`LotStatusRule.PausedUntil`) |
+| `DELETE …/devices/{deviceId}/pause` | 200 the same shape; `pausedBy` is `["site"]` while the Site is paused, `[]` otherwise |
+| `PUT /sites/{siteId}/pause` with `{}` or `{"until": …}` | 200 `{paused: true, pausedUntil?}` once the Site has journaled; its Devices follow |
+| `DELETE /sites/{siteId}/pause` | 200 `{paused: false}` |
+| `until` that is no `YYYY-MM-DD` date, or whose midnight in the caller's zone is not ahead; a body that is no JSON object | 400 `validation`, nothing changed (`EdgeApi.TryReadPauseDate`, `PauseEndRule.TryResolve`) |
+| a `deviceId` that is no Device ID | 400 `validation` |
+| a Device that is unknown or of another Site | 404 `device-not-found` |
+
+`pausedUntil` is absent, not `null`, when there is no end, like every optional member of this API. The Devices
+list and `GET /sites/{siteId}` carry no pause fields (Story 8.2 decides what its screens need), so a Hub's
+Pause, a Hub having no Lot, shows in no read model yet.
+
+| Event | Journaled when |
+| --- | --- |
+| `device.paused` `{source, endsAt?, pausedAt, siteRevision?}` | A Pause source was set or its end changed |
+| `device.resumed` `{source, resumedAt, siteRevision?}` | A Pause source was lifted, by a command, by the Device's own due-at, or by the Site |
+| `site.paused` `{endsAt?, revision, pausedAt}` | The Site was paused, or the end of its Pause changed |
+| `site.resumed` `{revision, resumedAt}` | The Site was resumed, by a command or by its due-at |
+| `site.pause-delivered` `{deviceId, revision, deliveredAt}` | A Device answered the delivery of that revision |
+
+Not built: a Sensor that a new Specification set dropped hears of no Pause (DW-108).
+
+Tests: `PauseEndRuleTests`, `SiteStatePauseTests` and the Pause cases of `DeviceStateSilenceTests` and
+`DeviceStateBatteryTests` (`tests/cs/server.tests`); `PauseGrainTests` and `SitePauseGrainTests`
+(`tests/cs/server.integration`), a TestCluster with a fake clock where a test fires the reminders by hand
+(`IdentityCluster.WakeDeviceAsync`, `WakeSiteAsync`; the cluster drops their own ticks) and restarts the silo at
+a given time; and `PauseEndpointTests` on the AppHost.
 
 ### The Alerts list
 
@@ -1346,7 +1462,10 @@ their real length; only what the Server reads as "now" moves.
   `POST /testing/clock` with `{"now": "…"}` moves the clock forward (400 for a time behind it),
   `POST /testing/users/{userId}/wake` wakes that User's grain as its reminder would, and
   `POST /testing/devices/{deviceId}/wake` fires that Device's silence evaluation as its `silence-window`
-  reminder does (Story 7.2), so a test need not wait for the next tick.
+  reminder does (Story 7.2), which also lifts the Device's own Pause once its end date has passed, and
+  `POST /testing/sites/{siteId}/wake` wakes the Site for its Pause as its `site-pause` reminder does
+  (Story 8.1): it ends a Site Pause that is past its end date and waits for one delivery to the Site's Devices.
+  So a test need not wait for the next tick.
 - **Access tokens keep the real clock.** The bearer handler validates lifetimes against the system clock, and
   the hub closes a connection at its token's expiry on the real clock (`AccessTokenClock`).
 - **What to stamp.** A Device's signature and a frame's `measured_at` are checked against the Server's clock,
@@ -1494,7 +1613,7 @@ because a silent Hub may have no Lot behind it: then no Lot changes, and the `de
 client read the list again. Clients name a Hub by the first four hex digits of its ID in upper case.
 
 **Live inputs.** All five inputs are live: the Node on the Lot, the Pause
-sources (journaled only by tests until Epic 8 adds the commands), silence, the uncalibrated soil Sensor, and the
+sources ([Pause](#pause), Story 8.1), silence, the uncalibrated soil Sensor, and the
 open low-side Alert (Story 6.1).
 A declared `calibration: true` soil-moisture Sensor counts as uncalibrated until its `sensor.calibrated` is
 projected (Story 5.1). That is the Sensor's state, not its `uncalibrated` Alert (Story 7.4): an unassigned or

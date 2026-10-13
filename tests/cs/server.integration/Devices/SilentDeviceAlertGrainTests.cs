@@ -576,7 +576,7 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         var stream = $"device/{nodeId}";
         var lastReport = Now;
 
-        // Pause has no command before Epic 8: its events are journaled here, and a new silo reads them. The clock
+        // The Pause is journaled here, behind the grain, and a new silo reads it; PauseGrainTests pins the commands. The clock
         // of every new silo starts where this one stands, so that no Server start moves the Node's window.
         await AppendAsync(stream, new DevicePaused(DevicePauseSource.Device, null, lastReport.AddHours(1)));
         await identity.RestartSiloAsync(lastReport);

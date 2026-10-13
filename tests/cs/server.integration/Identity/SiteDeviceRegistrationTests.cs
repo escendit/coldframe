@@ -30,6 +30,26 @@ public sealed class SiteDeviceRegistrationTests(IdentityCluster identity) : ICla
         Assert.Equal(DeviceKind.Hub, roster.Devices[deviceId]);
     }
 
+    // Story 8.1: the join reply carries the Site's Pause as it is, with its end and its revision.
+    [Fact]
+    public async Task TheJoinReplyCarriesTheSitesPauseAndADeviceRegisteredMeanwhileIsNotPendingForIt()
+    {
+        var (userId, siteId) = await SeedSiteAsync();
+        var site = identity.Site(siteId);
+        var until = identity.Time.GetUtcNow().AddDays(90);
+        Assert.Equal(SitePauseOutcome.Changed, (await site.SetPause(until, Ct)).Outcome);
+
+        var paused = await site.RegisterDevice(NewDeviceId(), DeviceKind.Node, $"{userId}:k1", Ct);
+
+        Assert.Equal((DeviceRegistrationOutcome.Registered, new SitePause(true, until, 1)), (paused.Outcome, paused.Pause));
+        Assert.Empty((await site.GetPause(Ct)).PendingDevices);
+
+        Assert.Equal(SitePauseOutcome.Changed, (await site.LiftPause(Ct)).Outcome);
+        var resumed = await site.RegisterDevice(NewDeviceId(), DeviceKind.Node, $"{userId}:k2", Ct);
+
+        Assert.Equal(new SitePause(false, null, 2), resumed.Pause);
+    }
+
     [Fact]
     public async Task TheSameKeyAndDeviceAnswersTheSameAndAnotherDeviceIsRefused()
     {

@@ -150,6 +150,39 @@ public sealed class DeviceStateBatteryTests
         Assert.Null(Assert.Single(state.PendingAlertDeliveries).BatteryPercent);
     }
 
+    // Story 8.1 (DW-104): a paused Node counts no report, so no streak runs across a Pause, and its open Alert
+    // ends as paused, with no report to stamp it.
+    [Fact]
+    public void APauseClearsTheStreaksAndEndsAnOpenEpisodeAsPaused()
+    {
+        var counting = Enrolled();
+        counting.Apply(new DeviceBatteryStreakChanged(2, 0, T));
+        counting.Apply(new DevicePaused(DevicePauseSource.Device, null, T.AddMinutes(5)));
+
+        Assert.Equal(new BatteryStreaks(false, 0, 0), counting.BatteryStreaks);
+        Assert.Equal((DateTimeOffset?)T, counting.BatteryCountedAt);
+
+        var low = Enrolled();
+        var alertId = AlertIds.Battery(NodeId, 1);
+        low.Apply(new DeviceBatteryLowStarted(1, alertId, SiteId, null, 14, T, T));
+        low.Apply(new DeviceBatteryStreakChanged(0, 2, T.AddMinutes(15)));
+        low.Apply(new DevicePaused(DevicePauseSource.Site, null, T.AddMinutes(20), 1));
+        low.Apply(new DeviceBatteryLowEnded(1, alertId, AlertCloseReason.Paused, null, T.AddMinutes(20)));
+
+        Assert.Equal(new BatteryStreaks(false, 0, 0), low.BatteryStreaks);
+        Assert.Null(low.OpenBatteryAlert);
+        Assert.Equal((DateTimeOffset?)T.AddMinutes(15), low.BatteryCountedAt);
+        var close = low.PendingAlertDeliveries[^1];
+        Assert.Equal(
+            (alertId, AlertLifecycle.Closed, AlertKind.Battery, (AlertCloseReason?)AlertCloseReason.Paused, T.AddMinutes(20)),
+            (close.AlertId, close.Change, close.Kind, close.Reason, close.At));
+
+        // The next episode is another Alert.
+        low.Apply(new DeviceResumed(DevicePauseSource.Site, T.AddHours(1), 2));
+        low.Apply(new DeviceBatteryLowStarted(2, AlertIds.Battery(NodeId, 2), SiteId, null, 9, T.AddHours(2), T.AddHours(2)));
+        Assert.Equal(2, low.OpenBatteryAlert?.Episode);
+    }
+
     private static DeviceState Enrolled()
     {
         var state = new DeviceState();

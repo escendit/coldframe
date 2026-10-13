@@ -20,6 +20,10 @@ The REST contract, written before the code that serves it (AD-10):
 | `POST /sites/{siteId}/devices/{deviceId}/move` | `Administrator` | Story 4.9 |
 | `POST /sites/{siteId}/devices/{deviceId}/unassign` | `Administrator` | Story 4.9 |
 | `PUT /sites/{siteId}/devices/{deviceId}/silence-window` | `Administrator` | Story 7.2 |
+| `PUT /sites/{siteId}/devices/{deviceId}/pause` | `Administrator` | Story 8.1 |
+| `DELETE /sites/{siteId}/devices/{deviceId}/pause` | `Administrator` | Story 8.1 |
+| `PUT /sites/{siteId}/pause` | `Administrator` | Story 8.1 |
+| `DELETE /sites/{siteId}/pause` | `Administrator` | Story 8.1 |
 | `POST /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.1 |
 | `GET /sites/{siteId}/sensors/{sensorId}/calibration` | `Administrator` | Story 5.2 |
 | `GET /sites/{siteId}/sensors/{sensorId}/thresholds` | `Member` | Story 5.3 |
@@ -61,8 +65,8 @@ is planned today.
   assigned to the Lot), `idempotency-key-reused` (422), `identity-provider-unavailable` (503),
   `device-unauthorized` (401, Device authentication failed), `device-on-another-site` (409),
   `device-assigned` (409, the Node is in another Lot already), `device-not-found` (404, no such Node on this
-  Site: moving or unassigning an unknown Device, a Hub or a Device of another Site; for the Silence Window, no
-  such Device, Hub or Node, on this Site), `ingest-unavailable` (503, no frame of an
+  Site: moving or unassigning an unknown Device, a Hub or a Device of another Site; for the Silence Window and
+  for a Pause, no such Device, Hub or Node, on this Site), `ingest-unavailable` (503, no frame of an
   ingest envelope could be committed), `sensor-not-found` (404, no such Sensor on a Node of this Site),
   `calibration-not-delivered` (503, the Calibration is saved but the Node's Device grain has not acknowledged it
   yet; the Server keeps delivering it), `reminder-cadence-not-delivered` (503, the Site holds the Reminder
@@ -93,6 +97,15 @@ is planned today.
   Lot detail when the newest soil-moisture Reading was stored under a Calibration (Story 5.4); the low is
   absent when the Sensor has none. Clients render these fields; they never compute a
   status and never re-sort the list.
+- **Pause.** `PUT` and `DELETE` on `/sites/{siteId}/devices/{deviceId}/pause` and on `/sites/{siteId}/pause`
+  (Story 8.1, Administrator) pause and resume one Device or the whole Site. `PUT` takes `{until?}`, a calendar
+  date (`YYYY-MM-DD`): the Pause lifts by itself at 00:00 on that date in the caller's time zone (UTC without
+  one), and that instant must lie ahead. A Device answers `{pausedBy, pausedUntil?}` with every source in force
+  (`device` and/or `site`, as on a `Lot`), a Site `{paused, pausedUntil?}`; `pausedUntil` is absent without an
+  end, as everywhere in this contract. Every request is idempotent and answers 200 with the state in force. A
+  Site request answers once the Site holds the change; the Server then tells every Device. 400 `validation` is an
+  `until` that is no date or has begun already, or a `deviceId` that is none; 404 `device-not-found` a Device
+  that is unknown or of another Site.
 - **Lot detail and history.** `GET /sites/{siteId}/lots/{lotId}` alone also carries `node` (the Node's
   `deviceId`, `batteryPercent`, `charging` and `lastSeenAt` from its newest device report) and
   `sensors` (the newest Reading per Sensor), both only while the Lot holds a Node. The Server converts

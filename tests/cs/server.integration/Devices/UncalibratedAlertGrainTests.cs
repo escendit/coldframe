@@ -404,7 +404,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         var soil = node.SensorId(0, Quantity.SoilMoisture);
         var first = AlertIds.Uncalibrated(soil, 1);
 
-        // Pause has no command before Epic 8: its events are journaled here, and a new silo reads them. The
+        // The Pause is journaled here, behind the grain, and a new silo reads it; PauseGrainTests pins the commands. The
         // Device grain then sends its Sensors the context with its next wake.
         await AppendAsync($"device/{nodeId}", new DevicePaused(DevicePauseSource.Device, null, Now));
         await identity.RestartSiloAsync(Now);

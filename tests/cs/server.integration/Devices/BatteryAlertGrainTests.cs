@@ -555,7 +555,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var stream = $"device/{nodeId}";
         var lastReport = Now;
 
-        // Pause has no command before Epic 8: its event is journaled here, and a new silo reads it.
+        // The Pause is journaled here, behind the grain, and a new silo reads it; PauseGrainTests pins the commands.
         var version = (await identity.Store.ReadStreamAsync(stream, Ct)).Count;
         Assert.True(await identity.Store.AppendAsync(stream, version, [new DevicePaused(DevicePauseSource.Device, null, lastReport)], Ct));
         await identity.RestartSiloAsync(lastReport);

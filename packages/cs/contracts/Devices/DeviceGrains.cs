@@ -1,3 +1,4 @@
+using Coldframe.Contracts.Sites;
 using Orleans.Concurrency;
 
 namespace Coldframe.Contracts.Devices;
@@ -128,11 +129,116 @@ public interface IDeviceGrain : IGrainWithStringKey
     /// Returns where the Device's silence evaluation stands (Story 7.1), or <see langword="null"/> before it is
     /// enrolled. It first processes what is overdue, like a wake of the Device's reminder: a Node whose window
     /// expired asks its last relay Hub through this call, and the answer must not depend on whose reminder fired
-    /// first.
+    /// first. That includes the end date of the Device's own Pause (Story 8.1): when it has passed, the call
+    /// lifts that source first, which journals <see cref="DeviceResumed"/> and sends the Device's Sensors the new
+    /// evaluation context, so it is not a pure read.
     /// </summary>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("silence")]
     Task<DeviceSilence?> Silence(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pauses the Device by its own source (Story 8.1, AD-8), or changes the end of that Pause. A Device that
+    /// was not paused closes its own open <c>silent</c> and <c>battery</c> Alerts as <c>paused</c> in the same
+    /// write, and its Sensors are sent the paused evaluation context before the call returns. The same Pause
+    /// again journals nothing. An end that is not after the grain's clock is refused.
+    /// </summary>
+    /// <param name="siteId">The canonical Site ID the caller reached the Device through.</param>
+    /// <param name="endsAt">When the Pause lifts by itself (UTC), or <see langword="null"/> for a Pause that lasts until someone resumes.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-pause")]
+    Task<DevicePauseResult> SetPause(string siteId, DateTimeOffset? endsAt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lifts the Device's own Pause source (Story 8.1). The Device stays paused while its Site is; when the last
+    /// source clears, its Silence Window counts from now. A Device without that source journals nothing.
+    /// </summary>
+    /// <param name="siteId">The canonical Site ID the caller reached the Device through.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("lift-pause")]
+    Task<DevicePauseResult> LiftPause(string siteId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the Device what its Site's Pause is now (Story 8.1, AD-8). Level-triggered: the Device makes its
+    /// <c>site</c> source match <paramref name="pause"/> and journals nothing when it already does, so the Site
+    /// grain delivers it until the Device answers, however often. A Pause whose revision is older than one the
+    /// Device applied is not applied. Only the Site grain calls it; the Device never lifts this source itself.
+    /// </summary>
+    /// <param name="siteId">The Site that tells.</param>
+    /// <param name="pause">The Site's Pause, with its revision.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-site-pause")]
+    Task<DeviceSitePauseOutcome> SetSitePause(string siteId, SitePause pause, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// How <see cref="IDeviceGrain.SetPause"/> or <see cref="IDeviceGrain.LiftPause"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-pause-outcome")]
+public enum DevicePauseOutcome
+{
+    /// <summary>
+    /// The Device's own Pause source was set, changed or lifted; the event was journaled.
+    /// </summary>
+    Changed = 0,
+
+    /// <summary>
+    /// Nothing needed to change. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Device is not enrolled on this Site. Nothing was journaled.
+    /// </summary>
+    NotFound = 2,
+
+    /// <summary>
+    /// The end is not after the grain's clock. Nothing was journaled.
+    /// </summary>
+    InvalidEnd = 3,
+}
+
+/// <summary>
+/// The result of <see cref="IDeviceGrain.SetPause"/> or <see cref="IDeviceGrain.LiftPause"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+/// <param name="PausedBy">The Device's Pause sources afterwards, the Device's own before the Site's; empty when it is not paused or was not found.</param>
+/// <param name="PausedUntil">When the Pause ends: the latest end of its sources, or <see langword="null"/> when the Device is not paused or any source has no end.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-pause-result")]
+public sealed record DevicePauseResult(
+    [property: Id(0)] DevicePauseOutcome Outcome,
+    [property: Id(1)] IReadOnlyList<DevicePauseSource> PausedBy,
+    [property: Id(2)] DateTimeOffset? PausedUntil = null);
+
+/// <summary>
+/// How <see cref="IDeviceGrain.SetSitePause"/> ended. Every answer acknowledges the delivery.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.device-site-pause-outcome")]
+public enum DeviceSitePauseOutcome
+{
+    /// <summary>
+    /// The Device's <c>site</c> source changed to match the Site's Pause; the event was journaled.
+    /// </summary>
+    Applied = 0,
+
+    /// <summary>
+    /// The Device's <c>site</c> source matched already. Nothing was journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Device is not enrolled on that Site. Nothing was journaled: its next enrolment reads the Site's
+    /// Pause in the join reply.
+    /// </summary>
+    NotEnrolled = 2,
+
+    /// <summary>
+    /// The Device applied a newer revision of the Site's Pause already. Nothing was journaled.
+    /// </summary>
+    Stale = 3,
 }
 
 /// <summary>

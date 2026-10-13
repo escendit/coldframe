@@ -124,8 +124,9 @@ public sealed class DeviceState
     public DeviceSilentAlert? OpenSilentAlert { get; private set; }
 
     /// <summary>
-    /// When the Device's last silence episode ended, or <see langword="null"/> before the first. A Node whose
-    /// relay Hub recovered after the Node's clock start counts its window from here.
+    /// When the Device last recovered from a silence, or <see langword="null"/> before the first: the end of its
+    /// last episode that ended because it reported again, never one that ended because it was paused (Story 8.1).
+    /// A Node whose relay Hub recovered after the Node's clock start counts its window from here.
     /// </summary>
     [Id(19)]
     public DateTimeOffset? LastRecoveredAt { get; private set; }
@@ -205,6 +206,18 @@ public sealed class DeviceState
     /// Whether the Device is paused: if and only if it has at least one Pause source.
     /// </summary>
     public bool IsPaused => _pausedBy.Count > 0;
+
+    /// <summary>
+    /// The Device's Pause sources in the order the contract names them: its own before its Site's.
+    /// </summary>
+    public IReadOnlyList<DevicePauseSource> PauseSources => [.. _pausedBy.Keys.Order()];
+
+    /// <summary>
+    /// The highest revision of its Site's Pause the Device applied (Story 8.1); 0 before the first. A Site's
+    /// Pause of an older revision arrived late and is not applied.
+    /// </summary>
+    [Id(26)]
+    public long SitePauseRevision { get; private set; }
 
     /// <summary>
     /// The Hub that relayed the Node's last accepted frame, or <see langword="null"/> before the first.
@@ -314,11 +327,18 @@ public sealed class DeviceState
         LastRelayHubId = @event.HubId;
     }
 
+    // Not idempotent on purpose: every Pause event is a new epoch, as it always was. The Device grain therefore
+    // journals a Pause event only when it changes something (Story 8.1).
     public void Apply(DevicePaused @event)
     {
         ArgumentNullException.ThrowIfNull(@event);
         _pausedBy[@event.Source] = @event.EndsAt;
         EvaluationEpoch++;
+        NoteSiteRevision(@event.Source, @event.SiteRevision);
+
+        // A paused Node counts no report, so no streak runs across a Pause (Story 8.1, DW-104).
+        BatteryLowStreak = 0;
+        BatteryRecoveredStreak = 0;
     }
 
     public void Apply(DeviceResumed @event)
@@ -326,6 +346,7 @@ public sealed class DeviceState
         ArgumentNullException.ThrowIfNull(@event);
         _pausedBy.Remove(@event.Source);
         EvaluationEpoch++;
+        NoteSiteRevision(@event.Source, @event.SiteRevision);
 
         // The Silence Window restarts at the moment of resume: when the last source cleared.
         if (_pausedBy.Count == 0)
@@ -420,7 +441,13 @@ public sealed class DeviceState
             @event.Reason,
             @event.EndedAt));
         OpenSilentAlert = null;
-        LastRecoveredAt = @event.EndedAt;
+
+        // Only a Device that reported again has recovered. An Alert closed because the Device was paused says
+        // nothing about its link: a Node behind a paused Hub must not take it for the Hub's recovery (Story 8.1).
+        if (@event.Reason == AlertCloseReason.Recovered)
+        {
+            LastRecoveredAt = @event.EndedAt;
+        }
     }
 
     public void Apply(DeviceBatteryStreakChanged @event)
@@ -498,6 +525,14 @@ public sealed class DeviceState
     {
         ArgumentNullException.ThrowIfNull(@event);
         _pendingAlertDeliveries.RemoveAll(delivery => delivery.AlertId == @event.AlertId && delivery.Change == @event.Change);
+    }
+
+    private void NoteSiteRevision(DevicePauseSource source, long? revision)
+    {
+        if (source == DevicePauseSource.Site && revision is { } applied && applied > SitePauseRevision)
+        {
+            SitePauseRevision = applied;
+        }
     }
 
     private void QueueRelease(string lotId)

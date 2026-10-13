@@ -140,6 +140,48 @@ public sealed class DeviceStateSilenceTests
         Assert.Equal(T.AddHours(2), state.LastReportedAt);
     }
 
+    // Story 8.1: an Alert closed because the Device was paused is no recovery. A Node behind that Hub reads
+    // LastRecoveredAt, and must not restart its clock at the Hub's Pause.
+    [Fact]
+    public void ASilenceThatEndsBecauseTheDeviceWasPausedIsNoRecovery()
+    {
+        var state = Enrolled(DeviceKind.Hub);
+        var alertId = Guid.NewGuid();
+        state.Apply(new DeviceSilenceStarted(1, alertId, SiteId, null, T.AddMinutes(5), T.AddMinutes(5)));
+        state.Apply(new DevicePaused(DevicePauseSource.Device, null, T.AddMinutes(9)));
+        state.Apply(new DeviceSilenceEnded(1, alertId, AlertCloseReason.Paused, T.AddMinutes(9)));
+
+        Assert.Null(state.OpenSilentAlert);
+        Assert.Null(state.LastRecoveredAt);
+        var close = state.PendingAlertDeliveries[^1];
+        Assert.Equal((alertId, AlertLifecycle.Closed, (AlertCloseReason?)AlertCloseReason.Paused), (close.AlertId, close.Change, close.Reason));
+
+        // The next episode ends because the Hub reports again: that is one.
+        state.Apply(new DeviceResumed(DevicePauseSource.Device, T.AddHours(1)));
+        var next = Guid.NewGuid();
+        state.Apply(new DeviceSilenceStarted(2, next, SiteId, null, T.AddHours(2), T.AddHours(2)));
+        state.Apply(new DeviceSilenceEnded(2, next, AlertCloseReason.Recovered, T.AddHours(3)));
+        Assert.Equal(T.AddHours(3), state.LastRecoveredAt);
+    }
+
+    // Story 8.1: the revision of the Site's Pause the Device applied is journaled with the site source only.
+    [Fact]
+    public void TheSiteRevisionIsTheHighestOneASiteSourceEventCarried()
+    {
+        var state = Enrolled(DeviceKind.Node);
+        Assert.Equal(0, state.SitePauseRevision);
+
+        state.Apply(new DevicePaused(DevicePauseSource.Site, null, T, 4));
+        state.Apply(new DevicePaused(DevicePauseSource.Device, null, T, 9));
+        Assert.Equal(4, state.SitePauseRevision);
+
+        state.Apply(new DeviceResumed(DevicePauseSource.Site, T, 6));
+        state.Apply(new DeviceResumed(DevicePauseSource.Site, T, 5));
+        state.Apply(new DevicePaused(DevicePauseSource.Site, T.AddDays(1), T));
+        Assert.Equal(6, state.SitePauseRevision);
+        Assert.Equal([DevicePauseSource.Device, DevicePauseSource.Site], state.PauseSources);
+    }
+
     [Fact]
     public void TheWindowRestartsWhenTheLastPauseSourceClears()
     {

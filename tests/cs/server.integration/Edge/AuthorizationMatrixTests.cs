@@ -154,6 +154,27 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             HttpStatusCode.NotFound,
             DeviceNotFoundAsync);
 
+        // Pause (Story 8.1). A Device no Site has enrolled: 404 device-not-found for an allowed caller, as for a
+        // move. The Site's own Pause is set without an end and lifted; either answers 200 whatever the Site's
+        // Pause was, so the order of the matrix does not matter.
+        _samples["PUT /sites/{siteId}/devices/{deviceId}/pause"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PutAsJsonAsync(new Uri($"/sites/{siteId}/devices/{UnknownNodeId()}/pause", UriKind.Relative), new { }, cancellationToken),
+            HttpStatusCode.NotFound,
+            DeviceNotFoundAsync);
+        _samples["DELETE /sites/{siteId}/devices/{deviceId}/pause"] = new(
+            (server, siteId, cancellationToken) =>
+                server.DeleteAsync(new Uri($"/sites/{siteId}/devices/{UnknownNodeId()}/pause", UriKind.Relative), cancellationToken),
+            HttpStatusCode.NotFound,
+            DeviceNotFoundAsync);
+        _samples["PUT /sites/{siteId}/pause"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PutAsJsonAsync(new Uri($"/sites/{siteId}/pause", UriKind.Relative), new { }, cancellationToken),
+            HttpStatusCode.OK);
+        _samples["DELETE /sites/{siteId}/pause"] = new(
+            (server, siteId, cancellationToken) => server.DeleteAsync(new Uri($"/sites/{siteId}/pause", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK);
+
         // A Sensor no Site has declared: an allowed caller passes the access rule and meets 404 sensor-not-found,
         // which tells it apart from the 403 of a caller below Administrator and the 404 of a missing Site.
         _samples["POST /sites/{siteId}/sensors/{sensorId}/calibration"] = new(

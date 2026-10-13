@@ -102,7 +102,7 @@ development_status:
   epic-7-retrospective: optional
 
   epic-8: backlog
-  8-1-pause-and-resume-on-the-server: backlog
+  8-1-pause-and-resume-on-the-server: done
   8-2-pause-and-resume-in-the-apps: backlog
   epic-8-retrospective: optional
 
