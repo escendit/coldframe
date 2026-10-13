@@ -36,10 +36,11 @@ public sealed class ReminderIntervalRuleTests
     }
 
     // Any kind that is not a Threshold Alert is a Health Alert: a silent Device (Story 7.1), a low battery
-    // (Story 7.3).
+    // (Story 7.3), an uncalibrated Sensor (Story 7.4).
     [Theory]
     [InlineData(AlertKind.Silent)]
     [InlineData(AlertKind.Battery)]
+    [InlineData(AlertKind.Uncalibrated)]
     public void AHealthAlertNeverRemindsMoreOftenThanEvery24Hours(AlertKind health)
     {
         Assert.True(ReminderIntervalRule.IsHealth(health));

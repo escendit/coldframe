@@ -86,8 +86,10 @@ charging" for a Node on no Lot, with the level the Alert opened with. A closed r
 a level, reads "Node battery low on Lot 'Lettuce'" or "Node 9C0D battery low". The core names the
 sentence and its parts (`AlertTitleKind.NodeOnLotBattery`, `NodeBattery`, `Battery`,
 `NodeBatteryLow`); Devices and Lot detail show the Node's newest level and charger status, as
-before. Uncalibrated rows have no producer before Story 7.4: they are built and tested from
-fixtures (`tests/kt/android/test/.../AlertFixtures.kt`).
+before. An uncalibrated Sensor (Story 7.4, produced by the Server for a soil Sensor of a Node on a
+Lot) reads "Soil Sensor on Lot 'Carrots' needs Calibration" with the tools icon, open and closed,
+and opens Lot detail of that Lot; its fixtures are Health-shaped
+(`tests/kt/android/test/.../AlertFixtures.kt`).
 
 ## Silence and the Silence Window (Story 7.2)
 

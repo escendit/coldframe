@@ -296,7 +296,13 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
             await ReadAsync(uncalibrated, new SimulatedReading(0, Quantity.SoilMoisture, 2900));
         }
 
-        Assert.Equal(["sensor.declared"], await identity.AliasesAsync($"sensor/{uncalibrated.Soil}"));
+        // Nothing of an evaluation: its stream holds its declaration and its uncalibrated Alert (Story 7.4), the
+        // only Alert it has.
+        Assert.Equal(
+            ["sensor.declared", "sensor.context-changed", "sensor.uncalibrated-episode-opened", "sensor.alert-delivered"],
+            await identity.AliasesAsync($"sensor/{uncalibrated.Soil}"));
+        Assert.Empty(await EvaluationAliasesAsync(uncalibrated.Soil));
+        Assert.Empty(await identity.AliasesAsync($"alert/{AlertIds.Threshold(uncalibrated.Soil, 1)}"));
 
         // 2. No effective low: the air-temperature Sensor is only watched, and a soil Sensor whose low was cleared.
         var watched = await CalibratedGardenAsync();
@@ -308,7 +314,7 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         }
 
         Assert.Empty(await EvaluationAliasesAsync(watched.Soil));
-        Assert.Equal(["sensor.declared"], await identity.AliasesAsync($"sensor/{watched.Node.SensorId(1, Quantity.AirTemperature)}"));
+        Assert.Equal(["sensor.declared", "sensor.context-changed"], await identity.AliasesAsync($"sensor/{watched.Node.SensorId(1, Quantity.AirTemperature)}"));
 
         // 3. A slot the Node never declared (AD-19): stored under its derived Sensor ID, no Sensor stream.
         var undeclared = watched.Node.SensorId(7, Quantity.SoilMoisture);
@@ -330,10 +336,14 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
 
         Assert.Empty(await EvaluationAliasesAsync(unassigned.Soil));
 
-        foreach (var garden in new[] { uncalibrated, watched, unassigned })
+        // No Threshold Alert anywhere. The uncalibrated garden has the Health Alert that says why (Story 7.4).
+        foreach (var garden in new[] { watched, unassigned })
         {
             Assert.Empty(await identity.Site(garden.SiteId).OpenAlerts(Ct));
         }
+
+        var health = Assert.Single(await identity.Site(uncalibrated.SiteId).OpenAlerts(Ct));
+        Assert.Equal((AlertIds.Uncalibrated(uncalibrated.Soil, 1), AlertKind.Uncalibrated), (health.AlertId, health.Kind));
     }
 
     [Fact]
@@ -902,16 +912,28 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         return lotId;
     }
 
-    // The Sensor's evaluation and delivery events, in order; its declaration, Calibration and Thresholds left out.
+    // The Sensor's evaluation and delivery events, in order; its declaration, Calibration and Thresholds left out,
+    // and what belongs to its uncalibrated Alert (Story 7.4), which every garden opens with its declaration and a
+    // calibrated one closes with its Calibration: the context, that episode, and the deliveries of that Alert.
     private async Task<List<string>> EvaluationAliasesAsync(Guid sensorId) =>
-        [.. (await identity.AliasesAsync($"sensor/{sensorId}")).Where(alias =>
-            alias is "sensor.streak-changed" or "sensor.threshold-episode-opened" or "sensor.threshold-episode-closed" or "sensor.alert-delivered")];
+        [.. (await EvaluationEventsAsync(sensorId)).Select(data => data switch
+        {
+            SensorStreakChanged => "sensor.streak-changed",
+            SensorThresholdEpisodeOpened => "sensor.threshold-episode-opened",
+            SensorThresholdEpisodeClosed => "sensor.threshold-episode-closed",
+            _ => "sensor.alert-delivered",
+        })];
 
     // The same events with their payloads.
-    private async Task<List<object>> EvaluationEventsAsync(Guid sensorId) =>
-        [.. (await identity.Store.ReadStreamAsync($"sensor/{sensorId}", Ct))
-            .Select(journaled => journaled.Data)
-            .Where(data => data is SensorStreakChanged or SensorThresholdEpisodeOpened or SensorThresholdEpisodeClosed or SensorAlertDelivered)];
+    private async Task<List<object>> EvaluationEventsAsync(Guid sensorId)
+    {
+        var events = (await identity.Store.ReadStreamAsync($"sensor/{sensorId}", Ct)).Select(journaled => journaled.Data).ToList();
+        var uncalibrated = events.OfType<SensorUncalibratedEpisodeOpened>().Select(opened => opened.AlertId).ToHashSet();
+
+        return [.. events.Where(data =>
+            data is SensorStreakChanged or SensorThresholdEpisodeOpened or SensorThresholdEpisodeClosed
+            || (data is SensorAlertDelivered delivered && !uncalibrated.Contains(delivered.AlertId)))];
+    }
 
     // The Sensor grain's state, replayed from its journal stream.
     private async Task<SensorState> SensorStateAsync(Guid sensorId)
@@ -943,7 +965,12 @@ public sealed class ThresholdAlertGrainTests(IdentityCluster identity) : IClassF
         Assert.Single(await EvaluationAliasesAsync(garden.Soil), alias => alias == "sensor.threshold-episode-opened");
         Assert.Equal(["alert.opened", "alert.site-notified"], await identity.AliasesAsync($"alert/{alertId}"));
         Assert.Equal(alertId, Assert.Single(await identity.Site(garden.SiteId).OpenAlerts(Ct)).AlertId);
-        Assert.Single(await identity.AliasesAsync($"site/{garden.SiteId}"), alias => alias == "site.alert-opened");
+
+        // The Site heard of this Alert once. Its stream also holds the uncalibrated Alert of the garden's soil
+        // Sensor (Story 7.4), opened with the declaration and closed with the Calibration.
+        Assert.Single(
+            (await identity.Store.ReadStreamAsync($"site/{garden.SiteId}", Ct)).Select(journaled => journaled.Data).OfType<SiteAlertOpened>(),
+            opened => opened.Alert.Kind == AlertKind.Threshold);
         Assert.Empty(await identity.AliasesAsync($"alert/{AlertIds.Threshold(garden.Soil, 2)}"));
     }
 

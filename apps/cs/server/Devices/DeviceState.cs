@@ -83,7 +83,8 @@ public sealed class DeviceState
     /// (<see cref="DeviceAssigned"/>, <see cref="DeviceMoved"/>, <see cref="DeviceUnassigned"/>,
     /// <see cref="DevicePaused"/>, <see cref="DeviceResumed"/>), so it is derived from the stream and needs no
     /// event of its own. The Device grain sends it with every Reading it hands a Sensor grain, and a Sensor's
-    /// streak never runs across two epochs.
+    /// streak never runs across two epochs. It also orders the evaluation contexts the Device sends its Sensors
+    /// (Story 7.4): a newer epoch is a newer context.
     /// </summary>
     [Id(13)]
     public long EvaluationEpoch { get; private set; }

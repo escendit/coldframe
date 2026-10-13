@@ -420,6 +420,10 @@ function health(id: string, fields: Partial<HealthAlert> = {}): HealthAlert {
 const lowLettuce = health('b-1', { kind: 'battery', lotId: 'lot-Lettuce', lotName: 'Lettuce', batteryPercent: 14 });
 const lowSpare = health('b-2', { kind: 'battery', batteryPercent: 14 });
 
+/** Story 7.4: a soil Sensor that needs Calibration on Lot Peppers, and one that was calibrated. */
+const needsPeppers = health('u-1', { kind: 'uncalibrated', lotId: 'lot-Peppers', lotName: 'Peppers' });
+const calibratedPeppers = health('u-2', { kind: 'uncalibrated', lotId: 'lot-Peppers', lotName: 'Peppers', openedAt: '2026-10-09T05:05:00.000Z', closedAt: '2026-10-09T05:20:00.000Z', reason: 'calibrated' });
+
 const silentBeans = health('h-1', { lotId: 'lot-Beans', lotName: 'Beans', silentSince: '2026-10-09T01:05:00.000Z' });
 const silentHub = health('h-2', { deviceId: '3f2a9c0d1e4b5a67', deviceKind: 'hub', silentSince: '2026-10-09T07:11:30.000Z', openedAt: '2026-10-09T07:16:30.000Z' });
 const silentSpare = health('h-3', { silentSince: '2026-10-09T01:00:00.000Z', openedAt: '2026-10-09T07:00:00.000Z' });
@@ -479,9 +483,58 @@ describe('Health Alerts of the Health list (Story 7.2)', () => {
       href: '/devices#device-9c0d1e4b5a673f2a',
     });
     expect(healthAlertRow(health('h-9', { kind: 'frost' }), context).title).toBe('Health Alert');
-    // The uncalibrated kind of Epic 7 keeps today's title and icon; without a Lot it is the neutral row.
-    expect(healthAlertRow(health('h-9', { kind: 'uncalibrated', lotName: 'Potatoes', lotId: 'l-7' }), context)).toMatchObject({ icon: 'tools', title: "Soil Sensor on Lot 'Potatoes' needs Calibration", href: '/garden/l-7' });
+  });
+
+  // Story 7.4: the Server produces the uncalibrated kind, for a soil Sensor of a Node on a Lot.
+  test('UX-DR25 UX-DR26 an uncalibrated Sensor reads "Soil Sensor on Lot \'Peppers\' needs Calibration", hatched, with the tools icon, and leads to Lot detail', () => {
+    expect(healthAlertRow(needsPeppers, context)).toEqual({
+      id: 'u-1',
+      variant: 'health',
+      icon: 'tools',
+      eyebrow: 'Health Alert',
+      title: "Soil Sensor on Lot 'Peppers' needs Calibration",
+      spoken: "Soil Sensor on Lot 'Peppers' needs Calibration, since 07:05",
+      href: '/garden/lot-Peppers',
+      hatched: true,
+    });
+  });
+
+  test('UX-DR25 a closed uncalibrated Alert is the Closed row with the same title and icon, whatever closed it', () => {
+    expect(healthAlertRow(calibratedPeppers, context)).toEqual({
+      id: 'u-2',
+      variant: 'closed',
+      icon: 'tools',
+      eyebrow: 'Health Alert · closed 05:20',
+      title: "Soil Sensor on Lot 'Peppers' needs Calibration",
+      spoken: "Soil Sensor on Lot 'Peppers' needs Calibration, since 05:05, closed 05:20",
+      href: '/garden/lot-Peppers',
+      hatched: false,
+    });
+    for (const reason of ['unassigned', 'paused', 'removed'] as const) {
+      expect(healthAlertRow({ ...calibratedPeppers, reason }, context)).toMatchObject({ variant: 'closed', title: "Soil Sensor on Lot 'Peppers' needs Calibration" });
+    }
+  });
+
+  test('an uncalibrated Alert without a Lot, which the Server never sends, is the neutral row to its Node', () => {
     expect(healthAlertRow(health('h-9', { kind: 'uncalibrated' }), context)).toMatchObject({ icon: 'tools', title: 'Health Alert', href: '/devices#device-9c0d1e4b5a673f2a' });
+  });
+
+  test('UX-DR64 UX-DR26 the page lists an uncalibrated Sensor under Health Alerts and a calibrated one under Closed, both linked to Lot detail', () => {
+    const body = page([tomatoes], null, 'UTC', [needsPeppers, calibratedPeppers]);
+    expect(ids(body)).toEqual(['a-1', 'u-1', 'u-2']);
+    expect(text(body)).toBe(
+      "Alerts Threshold Alerts Needs water · 5:45 AM Tomatoes needs water Health Alerts Health Alert Soil Sensor on Lot 'Peppers' needs Calibration Closed Health Alert · closed 5:20 AM Soil Sensor on Lot 'Peppers' needs Calibration",
+    );
+    expect(item(body, 'u-1')).toContain('href="/garden/lot-Peppers"');
+    expect(item(body, 'u-1')).toContain('data-variant="health"');
+    expect(item(body, 'u-1')).toContain('data-icon="tools"');
+    expect(item(body, 'u-1')).toContain('aria-label="Soil Sensor on Lot \'Peppers\' needs Calibration, since 7:05 AM"');
+    expect(item(body, 'u-2')).toContain('href="/garden/lot-Peppers"');
+    expect(item(body, 'u-2')).toContain('data-variant="closed"');
+    // Among the groups: open under Health in the Server's order, closed after the closed Threshold Alerts.
+    const groups = alertGroups([tomatoes, closedWater], context, [lowLettuce, needsPeppers, calibratedPeppers]);
+    expect(groups.health.map((row) => row.id)).toEqual(['b-1', 'u-1']);
+    expect(groups.closed.map((row) => row.id)).toEqual(['a-9', 'u-2']);
   });
 
   // Story 7.3: a low battery says the level it opened with.

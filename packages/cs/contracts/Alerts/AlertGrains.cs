@@ -5,10 +5,11 @@ namespace Coldframe.Contracts.Alerts;
 /// <summary>
 /// An Alert, keyed by its Alert ID in the lowercase hyphenated form (Story 6.1). The ID of a Threshold Alert is
 /// the UUIDv5 of <c>sensor:{sensorId}:threshold:{episode}</c> in a Server-only namespace, and the ID of a Device's
-/// Health Alert (Stories 7.1 and 7.3) the UUIDv5 of <c>device:{deviceId}:{kind}:{episode}</c>, so the grain that
-/// evaluates journals the episode first and a retried <see cref="Open"/> or <see cref="OpenForDevice"/> can never
-/// create a second Alert. The Alert grain is the only writer of the Alert's state and reports every open and close
-/// to its Site grain, again until the Site acknowledged it.
+/// Health Alert (Stories 7.1 and 7.3) the UUIDv5 of <c>device:{deviceId}:{kind}:{episode}</c>, and the ID of a
+/// Sensor's Health Alert (Story 7.4) the UUIDv5 of <c>sensor:{sensorId}:uncalibrated:{episode}</c>, so the grain
+/// that evaluates journals the episode first and a retried <see cref="Open"/>, <see cref="OpenForDevice"/> or
+/// <see cref="OpenForSensor"/> can never create a second Alert. The Alert grain is the only writer of the
+/// Alert's state and reports every open and close to its Site grain, again until the Site acknowledged it.
 /// </summary>
 [Alias("coldframe.alert")]
 public interface IAlertGrain : IGrainWithStringKey
@@ -34,8 +35,18 @@ public interface IAlertGrain : IGrainWithStringKey
     Task<AlertResult> OpenForDevice(OpenDeviceAlert request, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Closes the Alert. Accepted only from the grain that opened it (the Sensor grain of a Threshold Alert, the
-    /// Device grain of a Device's Health Alert); any other caller is refused and the
+    /// Opens a Sensor's Health Alert (Story 7.4): an Alert that records its Sensor, so that only that Sensor's
+    /// grain closes it, and no side. Idempotent like <see cref="Open"/>. A request that does not derive this
+    /// grain's Alert ID, or whose kind no Sensor opens this way, is refused and journals nothing.
+    /// </summary>
+    /// <param name="request">The Sensor and episode the Alert is for, and what it records.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("open-for-sensor")]
+    Task<AlertResult> OpenForSensor(OpenSensorAlert request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Closes the Alert. Accepted only from the grain that opened it (the Sensor grain of a Threshold Alert or of
+    /// a Sensor's Health Alert, the Device grain of a Device's Health Alert); any other caller is refused and the
     /// Alert stays open. Idempotent: the first call journals <see cref="AlertClosed"/>, a later one journals
     /// nothing. Each call reports to the Site grain what it does not know yet.
     /// </summary>
@@ -73,6 +84,11 @@ public enum AlertKind
     /// A Health Alert: a Node's battery is low while it is not charging (Story 7.3).
     /// </summary>
     Battery = 2,
+
+    /// <summary>
+    /// A Health Alert: a Sensor that requires Calibration is on a Lot and has none (Story 7.4).
+    /// </summary>
+    Uncalibrated = 3,
 }
 
 /// <summary>
@@ -207,6 +223,29 @@ public sealed record OpenDeviceAlert(
     [property: Id(8)] int? BatteryPercent = null);
 
 /// <summary>
+/// A Sensor's Health Alert to open, as the Sensor grain hands it to the Alert grain (Story 7.4).
+/// </summary>
+/// <param name="Kind">What the Alert is about: <see cref="AlertKind.Uncalibrated"/>. No Sensor opens another kind this way.</param>
+/// <param name="SensorId">The Sensor that evaluated; only it closes the Alert.</param>
+/// <param name="Episode">The Sensor's episode of this kind; with the Sensor ID and the kind it derives the Alert ID.</param>
+/// <param name="SiteId">The Site of the Sensor's Node when the Alert opened.</param>
+/// <param name="LotId">The Lot of the Sensor's Node when the Alert opened.</param>
+/// <param name="DeviceId">The Device ID of the Sensor's Node.</param>
+/// <param name="Quantity">What the Sensor measures, such as <c>soil_moisture</c>.</param>
+/// <param name="OpenedAt">When the Sensor journaled the episode.</param>
+[GenerateSerializer]
+[Alias("coldframe.open-sensor-alert")]
+public sealed record OpenSensorAlert(
+    [property: Id(0)] AlertKind Kind,
+    [property: Id(1)] Guid SensorId,
+    [property: Id(2)] int Episode,
+    [property: Id(3)] string SiteId,
+    [property: Id(4)] string LotId,
+    [property: Id(5)] string DeviceId,
+    [property: Id(6)] string Quantity,
+    [property: Id(7)] DateTimeOffset OpenedAt);
+
+/// <summary>
 /// The close of an Alert, as the grain that opened it hands it to the Alert grain.
 /// </summary>
 /// <param name="Reason">Why the Alert closes.</param>
@@ -247,7 +286,8 @@ public enum AlertOutcome
 }
 
 /// <summary>
-/// The result of <see cref="IAlertGrain.Open"/> and <see cref="IAlertGrain.Close"/>.
+/// The result of <see cref="IAlertGrain.Open"/>, <see cref="IAlertGrain.OpenForDevice"/>,
+/// <see cref="IAlertGrain.OpenForSensor"/> and <see cref="IAlertGrain.Close"/>.
 /// </summary>
 /// <param name="Outcome">How the call ended.</param>
 /// <param name="Reported">
@@ -275,7 +315,7 @@ public sealed record AlertResult(
 /// <param name="OpenedAt">When the Alert opened.</param>
 /// <param name="Reason">Why the Alert closed, once it is.</param>
 /// <param name="ClosedAt">When the Alert closed, once it is.</param>
-/// <param name="DeviceKind">Whether a Device's Alert is about a Hub or a Node; <see langword="null"/> for a Threshold Alert and for an Alert opened before Story 7.2.</param>
+/// <param name="DeviceKind">Whether a Health Alert is about a Hub or a Node (a Sensor's is about its Node); <see langword="null"/> for a Threshold Alert and for an Alert opened before Story 7.2.</param>
 /// <param name="SilentSince">When a silent Device was last heard; <see langword="null"/> for another kind and for an Alert opened before Story 7.2.</param>
 /// <param name="BatteryPercent">The battery level of the device report that opened a battery Alert (Story 7.3); <see langword="null"/> for another kind.</param>
 [GenerateSerializer]

@@ -13,6 +13,8 @@ namespace Coldframe.Web.E2ETests;
 /// outside the Notification Window and is held. In the browser the Beans tile is the unknown tile with "6 h" and
 /// stands before every OK tile, in the light and in the dark theme. When the window opens at 07:00 the one
 /// summary of the night says "Beans: Node silent for 6 h". Time is the Server's test-only clock.
+/// The soil Sensor of Beans was never calibrated, so its uncalibrated Alert (Story 7.4) is open all night too: the
+/// summary has two lines to check, the older one first, and the tile is unknown all the same.
 /// </summary>
 /// <remarks>
 /// The clock is walked through the six hours in steps shorter than a Hub's Silence Window, with a heartbeat
@@ -80,6 +82,11 @@ public sealed partial class SilentNodeJourneyTests(MorningNudgeFixture stack) : 
         await WakeAsync(user, hub, beans, FiftyPercent, await ServerNowAsync(user));
         await WakeAsync(user, hub, beans, FiftyPercent, await ServerNowAsync(user));
 
+        // The soil Sensor of Beans needs calibration and nobody calibrates it: its Alert opens at night and is held.
+        var uncalibrated = await UncalibratedAlertIdAsync(user, siteId, beansLot);
+        await UntilAsync(user, () => HeldCountAsync(user, uncalibrated), count => count == 1, "the uncalibrated Sensor Alert is held");
+        var heldBefore = await JournalCountAsync(user, "user.delivery-held");
+
         // 00:55: the last frame of the Beans Node.
         await WalkAsync(user, hub, lastHeard);
         await WakeAsync(user, hub, beans, FiftyPercent, lastHeard);
@@ -94,7 +101,7 @@ public sealed partial class SilentNodeJourneyTests(MorningNudgeFixture stack) : 
         await WakeDeviceAsync(user, beans);
 
         // The Alert opens outside the Notification Window: held, nothing sent.
-        await UntilAsync(user, () => JournalCountAsync(user, "user.delivery-held"), count => count == 1, "the delivery is held");
+        await UntilAsync(user, () => JournalCountAsync(user, "user.delivery-held"), count => count == heldBefore + 1, "the delivery is held");
         Assert.Equal(0, await JournalCountAsync(user, "user.notification-sent"));
 
         using var playwright = await Playwright.CreateAsync();
@@ -148,15 +155,18 @@ public sealed partial class SilentNodeJourneyTests(MorningNudgeFixture stack) : 
                 await Expect(page.Locator("a.cf-lot-tile .cf-lot-tile__name")).ToHaveTextAsync([SilentLot, HealthyLot]);
             }
 
-            // 07:00: the window opens, and the one summary of the night names the silent Node by its Lot.
+            // 07:00: the window opens, and the one summary of the night names the silent Node by its Lot, after
+            // the Sensor that has needed calibration since the evening.
             var opening = NextLocal(zone, silentAt, new TimeOnly(7, 0));
             await WalkAsync(user, hub, opening);
             await WakeAsync(user, hub, tomatoes, FiftyPercent, await ServerNowAsync(user));
             await UntilAsync(user, () => ListAsync(page, "__cf_notifications"), shown => shown.Count >= 1, "the browser notification arrives");
 
             var shown = Assert.Single(await ListAsync(page, "__cf_notifications"));
-            Assert.Equal($"{SiteName}: 1 to check", shown.GetProperty("title").GetString());
-            Assert.Equal($"{SilentLot}: Node silent for 6 h\nHeld overnight, 22:00–07:00", shown.GetProperty("body").GetString());
+            Assert.Equal($"{SiteName}: 2 to check", shown.GetProperty("title").GetString());
+            Assert.Equal(
+                $"{SilentLot}: soil sensor needs calibration\n{SilentLot}: Node silent for 6 h\nHeld overnight, 22:00–07:00",
+                shown.GetProperty("body").GetString());
             Assert.Equal(1, await JournalCountAsync(user, "user.notification-sent"));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

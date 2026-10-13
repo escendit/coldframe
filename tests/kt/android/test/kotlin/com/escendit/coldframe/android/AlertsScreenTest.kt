@@ -32,6 +32,9 @@ import com.escendit.coldframe.android.ui.alerts.carbonIcon
 import com.escendit.coldframe.android.ui.alerts.rowShape
 import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.theme.ColdframeColors
+import com.escendit.coldframe.core.alerts.AlertDeviceKind
+import com.escendit.coldframe.core.alerts.AlertIcon
+import com.escendit.coldframe.core.alerts.AlertTarget
 import com.escendit.coldframe.core.alerts.AlertVariant
 import com.escendit.coldframe.core.alerts.AlertsNotice
 import com.escendit.coldframe.core.alerts.AlertsState
@@ -382,6 +385,42 @@ class AlertsScreenTest {
         row("Node 9C0D silent for 6 h, since 6:30 AM").performScrollTo().performClick()
         assertEquals("Devices", selectedTab())
         assertFalse(calls.any { it.startsWith("openLot") })
+    }
+
+    // Story 7.4: the Health row of an uncalibrated Sensor, as `healthAlerts` lists it.
+
+    @Test
+    fun `UX-DR25 UX-DR26 an uncalibrated Sensor of the Health list names its Lot and opens Lot detail`() {
+        assertEquals(AlertDeviceKind.Node, AlertFixtures.uncalibrated.deviceKind)
+        assertEquals("Soil Sensor on Lot 'Carrots' needs Calibration", copy.title(AlertFixtures.uncalibrated))
+        assertEquals("Health Alert", copy.eyebrow(AlertFixtures.uncalibrated))
+        assertEquals("Soil Sensor on Lot 'Peppers' needs Calibration", copy.title(AlertFixtures.closedUncalibrated))
+        assertEquals("Health Alert · closed Thu", copy.eyebrow(AlertFixtures.closedUncalibrated))
+        assertEquals(AlertIcon.Tools, AlertFixtures.uncalibrated.icon)
+        assertEquals(AlertIcon.Tools, AlertFixtures.closedUncalibrated.icon)
+
+        show(
+            AlertFixtures.ready(
+                listOf(AlertFixtures.needsWater, AlertFixtures.uncalibrated, AlertFixtures.closedUncalibrated),
+            ),
+        )
+
+        assertTrue(top("Threshold Alerts") < top("Health Alerts"))
+        assertTrue(top("Health Alerts") < top("Closed"))
+        assertEquals(
+            listOf(
+                "Tomatoes needs water, since 5:45 AM",
+                "Soil Sensor on Lot 'Carrots' needs Calibration, since Wed",
+                "Soil Sensor on Lot 'Peppers' needs Calibration, since Thu, closed Thu",
+            ),
+            rows(),
+        )
+
+        // It leads to Lot detail of its Lot, where Calibrate is offered: never to Devices.
+        row("Soil Sensor on Lot 'Carrots' needs Calibration, since Wed").performClick()
+        assertEquals("openLot lot-uncal Carrots", calls.last())
+        assertEquals("Garden", selectedTab())
+        assertEquals(AlertTarget.Lot, AlertFixtures.closedUncalibrated.target)
     }
 
     // Story 7.3: Health rows of low batteries.

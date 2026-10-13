@@ -17,8 +17,8 @@ namespace Coldframe.Contracts.Alerts;
 /// <param name="Episode">The episode of the opening grain the Alert ID is derived from.</param>
 /// <param name="OpenedAt">When the opening grain journaled the episode.</param>
 /// <param name="DeviceKind">
-/// Whether a Device's Alert is about a Hub or a Node (Story 7.2); <see langword="null"/> for a Threshold Alert and
-/// in an event journaled before that story.
+/// Whether a Device's Alert is about a Hub or a Node (Story 7.2), and <c>Node</c> for a Sensor's Health Alert
+/// (Story 7.4); <see langword="null"/> for a Threshold Alert and in an event journaled before Story 7.2.
 /// </param>
 /// <param name="SilentSince">
 /// For a silent Alert, when the Device was last heard, or when it was enrolled if it never reported (Story 7.2):

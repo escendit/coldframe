@@ -63,6 +63,7 @@ public sealed class AlertsReadModelUnitTests
         Assert.Equal("threshold", AlertNames.Kind(AlertKind.Threshold));
         Assert.Equal("silent", AlertNames.Kind(AlertKind.Silent));
         Assert.Equal("battery", AlertNames.Kind(AlertKind.Battery));
+        Assert.Equal("uncalibrated", AlertNames.Kind(AlertKind.Uncalibrated));
         Assert.Equal("low", AlertNames.Side(ThresholdSide.Low));
         Assert.Equal("high", AlertNames.Side(ThresholdSide.High));
         Assert.Null(AlertNames.Side(null));

@@ -32,6 +32,10 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
 
     private static readonly string SiteId = Guid.CreateVersion7().ToString();
 
+    // Every Sensor of an accepted set is told where its Node is (Story 7.4): here on its Site and on no Lot, so
+    // the context is journaled once after the declaration and nothing follows from it.
+    private const string ContextChanged = "sensor.context-changed";
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private DateTimeOffset Now => identity.Time.GetUtcNow();
@@ -53,9 +57,9 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
 
         // The Sensor journaled the Calibration with both raw values, and then that the Device acknowledged it.
         var events = await identity.Store.ReadStreamAsync($"sensor/{soil}", Ct);
-        Assert.Equal(["sensor.declared", "sensor.calibrated", "sensor.calibration-delivered"], await identity.AliasesAsync($"sensor/{soil}"));
-        Assert.Equal(new SensorCalibrated(calibration.Id, 3000, 1200, Now), events[1].Data);
-        Assert.Equal(new SensorCalibrationDelivered(calibration.Id, Now), events[2].Data);
+        Assert.Equal(["sensor.declared", ContextChanged, "sensor.calibrated", "sensor.calibration-delivered"], await identity.AliasesAsync($"sensor/{soil}"));
+        Assert.Equal(new SensorCalibrated(calibration.Id, 3000, 1200, Now), events[2].Data);
+        Assert.Equal(new SensorCalibrationDelivered(calibration.Id, Now), events[3].Data);
 
         // The Device grain holds it, as a cache: it journaled only the Sensor and the Calibration ID.
         Assert.Equal(new DeviceCalibrationSet(soil, calibration.Id, 1, Now), (await identity.Store.ReadStreamAsync($"device/{node.DeviceId}", Ct))[^1].Data);
@@ -95,7 +99,7 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
         Assert.Equal(SensorCalibrationOutcome.PointRecorded, first.Outcome);
         Assert.Null(first.Calibration);
         Assert.Equal((3000L, (long?)null), (first.PendingDryRaw, first.PendingWetRaw));
-        Assert.Equal(["sensor.declared", "sensor.calibration-point-recorded"], await identity.AliasesAsync($"sensor/{soil}"));
+        Assert.Equal(["sensor.declared", ContextChanged, "sensor.calibration-point-recorded"], await identity.AliasesAsync($"sensor/{soil}"));
 
         // Still uncalibrated: the Device holds nothing, and a Reading is stored without a Calibration.
         Assert.Null((await identity.Sensor(soil).Describe(Ct))!.Calibration);
@@ -171,7 +175,7 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
             new DeviceCalibrationSet(soil, second.Id, 2, second.CalibratedAt),
             (await identity.Store.ReadStreamAsync($"device/{node.DeviceId}", Ct)).Select(journaled => journaled.Data).OfType<DeviceCalibrationSet>().Last());
         Assert.Equal(
-            ["sensor.declared", "sensor.calibrated", "sensor.calibration-delivered", "sensor.calibrated", "sensor.calibration-delivered"],
+            ["sensor.declared", ContextChanged, "sensor.calibrated", "sensor.calibration-delivered", "sensor.calibrated", "sensor.calibration-delivered"],
             await identity.AliasesAsync($"sensor/{soil}"));
 
         // The same raw value reads what the Calibration it was stored under says, rounded to the nearest 5.
@@ -202,7 +206,7 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
         // A kept point meets a new one that is too close: refused, and the kept point is still the only one.
         Assert.Equal(SensorCalibrationOutcome.PointRecorded, (await identity.Sensor(soil).Calibrate(new CalibrateSensor(Dry: new CalibrationPointRef(a)), Ct)).Outcome);
         Assert.Equal(SensorCalibrationOutcome.IndistinctPoints, (await identity.Sensor(soil).Calibrate(new CalibrateSensor(Wet: new CalibrationPointRef(b)), Ct)).Outcome);
-        Assert.Equal(["sensor.declared", "sensor.calibration-point-recorded"], await identity.AliasesAsync($"sensor/{soil}"));
+        Assert.Equal(["sensor.declared", ContextChanged, "sensor.calibration-point-recorded"], await identity.AliasesAsync($"sensor/{soil}"));
         Assert.Equal(1500L, (await identity.Sensor(soil).Describe(Ct))!.PendingDryRaw);
 
         // 16 counts apart is the smallest span that tells them apart.
@@ -230,8 +234,8 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
             (await identity.Sensor(Guid.NewGuid()).Calibrate(new CalibrateSensor(Dry: new CalibrationPointRef(stored)), Ct)).Outcome);
         Assert.Equal(SensorCalibrationOutcome.NoPoint, (await identity.Sensor(soil).Calibrate(new CalibrateSensor(), Ct)).Outcome);
 
-        Assert.Equal(["sensor.declared"], await identity.AliasesAsync($"sensor/{soil}"));
-        Assert.Equal(["sensor.declared"], await identity.AliasesAsync($"sensor/{airId}"));
+        Assert.Equal(["sensor.declared", ContextChanged], await identity.AliasesAsync($"sensor/{soil}"));
+        Assert.Equal(["sensor.declared", ContextChanged], await identity.AliasesAsync($"sensor/{airId}"));
     }
 
     [Fact]
@@ -248,7 +252,7 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
         // Persisted, but not confirmed: the Device holds nothing, so a Reading is still stored without it.
         Assert.Equal(SensorCalibrationOutcome.NotDelivered, result.Outcome);
         Assert.NotNull(result.Calibration);
-        Assert.Equal(["sensor.declared", "sensor.calibrated"], await identity.AliasesAsync($"sensor/{soil}"));
+        Assert.Equal(["sensor.declared", ContextChanged, "sensor.calibrated"], await identity.AliasesAsync($"sensor/{soil}"));
         await StoreSoilAsync(node, 2000);
         Assert.Null(await CalibrationOfAsync(soil, "reading_seq DESC"));
 
@@ -266,7 +270,7 @@ public sealed class CalibrationGrainTests(IdentityCluster identity) : IClassFixt
         var again = await identity.Sensor(soil).Calibrate(new CalibrateSensor(new CalibrationPointRef(dry), new CalibrationPointRef(wet)), Ct);
         Assert.Equal(SensorCalibrationOutcome.Calibrated, again.Outcome);
         Assert.Equal(result.Calibration.Id, again.Calibration!.Id);
-        Assert.Equal(["sensor.declared", "sensor.calibrated", "sensor.calibration-delivered"], await identity.AliasesAsync($"sensor/{soil}"));
+        Assert.Equal(["sensor.declared", ContextChanged, "sensor.calibrated", "sensor.calibration-delivered"], await identity.AliasesAsync($"sensor/{soil}"));
     }
 
     [Fact]

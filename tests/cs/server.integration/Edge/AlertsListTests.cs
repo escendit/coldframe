@@ -416,6 +416,40 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         Assert.Equal((19, "recovered"), (health[3].GetProperty("batteryPercent").GetInt32(), Text(health[3], "reason")));
     }
 
+    // Story 7.4: an uncalibrated Sensor's Alert is a Health Alert of its Node that names the Lot, with no property
+    // of its own: the contract's HealthAlert stays as it was.
+    [Fact]
+    public async Task AnUncalibratedAlertIsListedAsAHealthAlertOfItsNodeWithItsLotAndCountedAndNotAmongTheThresholdAlerts()
+    {
+        var (siteId, member) = await SeedSiteAsync();
+        var peppers = await edge.SeedLotAsync(siteId, "Peppers", Ct);
+        var beans = await edge.SeedLotAsync(siteId, "Beans", Ct);
+        var now = Now();
+
+        // An uncalibrated soil Sensor on Peppers, and one on Beans that was calibrated an hour ago.
+        var open = await OpenUncalibratedAsync(siteId, peppers, Node, now.AddHours(-2));
+        var calibrated = await OpenUncalibratedAsync(siteId, beans, "9c0d1e4b5a673f2c", now.AddHours(-5));
+        await CloseAsync(calibrated, AlertCloseReason.Calibrated, now.AddHours(-1));
+
+        using var page = await GetAsync(member, siteId);
+
+        Assert.Empty(Alerts(page));
+        Assert.Equal(1, page.RootElement.GetProperty("openCount").GetInt32());
+
+        var health = Health(page);
+        Assert.Equal([open, calibrated], health.Select(Id));
+        Assert.All(health, item => Assert.Equal(("uncalibrated", "node"), (Text(item, "kind"), Text(item, "deviceKind"))));
+
+        // The Sensor and its quantity are not part of a Health Alert: the Lot is what the row leads to.
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt"], Names(health[0]));
+        Assert.Equal(
+            (peppers, "Peppers", Node, Format(now.AddHours(-2))),
+            (Text(health[0], "lotId"), Text(health[0], "lotName"), Text(health[0], "deviceId"), Text(health[0], "openedAt")));
+
+        Assert.Equal(["closedAt", "deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt", "reason"], Names(health[1]));
+        Assert.Equal((Format(now.AddHours(-1)), "calibrated", "Beans"), (Text(health[1], "closedAt"), Text(health[1], "reason"), Text(health[1], "lotName")));
+    }
+
     [Fact]
     public async Task HealthAlertsTravelWithTheFirstPageOnlyAndTheCountIsTheSameOnEveryPage()
     {
@@ -586,6 +620,20 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         var last = await edge.AppendAsync(
             $"alert/{alertId}",
             [new AlertOpened(AlertKind.Battery, null, siteId, lotId, null, deviceId, null, 1, openedAt, DeviceKind.Node, BatteryPercent: batteryPercent)],
+            Ct);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        return alertId;
+    }
+
+    // An open uncalibrated Sensor Alert, as the Alert grain journals it (Story 7.4): its Sensor, quantity and Lot
+    // like a Threshold Alert, no side, and the Device kind of its Node.
+    private async Task<string> OpenUncalibratedAsync(string siteId, string lotId, string deviceId, DateTimeOffset openedAt)
+    {
+        var alertId = Guid.NewGuid().ToString();
+        var last = await edge.AppendAsync(
+            $"alert/{alertId}",
+            [new AlertOpened(AlertKind.Uncalibrated, null, siteId, lotId, Guid.NewGuid(), deviceId, "soil_moisture", 1, openedAt, DeviceKind.Node)],
             Ct);
         await edge.WaitForProjectionCheckpointAsync(Projector, last);
 

@@ -60,11 +60,11 @@ public sealed class PushDeliveryGrainTests(IdentityCluster identity) : IClassFix
         await ReadAsync(node, Soil(20));
         var alertId = AlertIds.Threshold(soil, 1);
         await JournalWait.UntilAsync(
-            async () => (await identity.AliasesAsync($"user/{ownerId}")).Contains(Sent),
+            () => Task.FromResult(PushesOf(iphone, alertId).Count > 0 && PushesOf(android, alertId).Count > 0),
             "the member was notified of the Alert");
 
-        var apns = Assert.Single(identity.Push.For(iphone));
-        var fcm = Assert.Single(identity.Push.For(android));
+        var apns = Assert.Single(PushesOf(iphone, alertId));
+        var fcm = Assert.Single(PushesOf(android, alertId));
 
         // The text is the contract's example: written on the Server, self-contained, the same on both phones.
         var expected = fixture["apns"]!["payload"]!["aps"]!["alert"]!;
@@ -203,7 +203,7 @@ public sealed class PushDeliveryGrainTests(IdentityCluster identity) : IClassFix
         await identity.WakeUserAsync(ownerId);
 
         // The Threshold divided into degrees, the Reading too, at its time in UTC (the User has no zone).
-        var data = Assert.Single(identity.Push.For(android)).Body["message"]!["data"]!;
+        var data = Assert.Single(PushesOf(android, AlertIds.Threshold(air, 1))).Body["message"]!["data"]!;
         Assert.Equal(
             ("Tomatoes temperature below 5 °C", "Reading 4 °C at 12:00."),
             (data["title"]!.GetValue<string>(), data["body"]!.GetValue<string>()));
@@ -473,6 +473,14 @@ public sealed class PushDeliveryGrainTests(IdentityCluster identity) : IClassFix
         Assert.Equal(new AlertResult(AlertOutcome.Open, Reported: true), await identity.Alert(alertId).Open(request, Ct));
         return new SiteAlert(alertId, AlertKind.Threshold, ThresholdSide.Low, lotId, sensorId, "5a4b3c2d1e0f7c20", "soil_moisture", Now);
     }
+
+    // The pushes a phone got about one Alert. A Node on a Lot also has the uncalibrated Alert of its soil Sensor
+    // (Story 7.4) from its declaration until its Calibration, which the phones may have been pushed too.
+    private List<ReceivedPush> PushesOf(string token, Guid alertId) =>
+        [.. identity.Push.For(token).Where(push => string.Equals(
+            (push.Provider == "apns" ? push.Body["coldframe"] : push.Body["message"]?["data"])?["alertId"]?.GetValue<string>(),
+            alertId.ToString("D"),
+            StringComparison.Ordinal))];
 
     // A Node enrolled on the Lot that declared its four Sensors, its soil Sensor calibrated: the default
     // Thresholds are 30 and 80 percent.

@@ -70,6 +70,11 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack) : Journe
 
         await WakeAsync(user, hub, node, FiftyPercent, await ServerNowAsync(user));
 
+        // From its declaration to its Calibration the soil Sensor had its uncalibrated Alert (Story 7.4), opened and
+        // closed outside the Notification Window: whether its delivery was held meanwhile is left open here. It is
+        // closed, so nothing more is held or sent for it.
+        var heldBefore = await JournalCountAsync(user, "user.delivery-held");
+
         using var playwright = await Playwright.CreateAsync();
         await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
@@ -120,7 +125,7 @@ public sealed class MorningNudgeJourneyTests(MorningNudgeFixture stack) : Journe
             await WakeAsync(user, hub, node, TwentyPercent, crossing.AddMinutes(-1));
             await WakeAsync(user, hub, node, TwentyPercent, crossing);
 
-            await UntilAsync(user, () => JournalCountAsync(user, "user.delivery-held"), count => count == 1, "the delivery is held");
+            await UntilAsync(user, () => JournalCountAsync(user, "user.delivery-held"), count => count == heldBefore + 1, "the delivery is held");
             Assert.Equal(0, await JournalCountAsync(user, "user.notification-sent"));
             Assert.Empty(await ListAsync(page, "__cf_notifications"));
 

@@ -654,12 +654,12 @@ severity: medium
 reason: DeviceGrain.EvaluateAsync stops handing that Sensor Readings, so it can never recover; the lots projector hides the Alert through "a.sensor_id = ANY (d.sensor_ids)", so the Site set and the Lot status disagree. The close reason "removed" (AD-7) belongs to a later epic. No test isolates the sensor_ids clause.
 status: open
 
-### DW-85: The open Alert of a Node that was moved keeps naming the Lot it was opened for, while the Lot status follows the Node to its new Lot.
+### DW-85: The open Threshold Alert of a Node that was moved keeps naming the Lot it was opened for, while the Lot status follows the Node to its new Lot.
 origin: spec-deferred b36b6ac4aa8d
-location: packages/cs/contracts/Alerts/AlertGrains.cs, apps/cs/server/Devices/DeviceGrain.cs (Move, Unassign)
+location: packages/cs/contracts/Alerts/AlertGrains.cs, apps/cs/server/Sensors/SensorGrain.cs (RaiseContext)
 source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
 severity: medium
-reason: AlertOpened.LotId, SiteAlert.LotId and AlertSnapshot.LotId are set at open and never change; the projector finds an Alert by Device. Story 6.2 and the notification text would name the old Lot. AD-8 closes a Sensor's Alerts on an unassigned or paused context (reasons unassigned, paused), which is not built yet.
+reason: AlertOpened.LotId, SiteAlert.LotId and AlertSnapshot.LotId are set at open and never change; the projector finds an Alert by Device. The Alerts list and the notification text of a Threshold Alert name the old Lot until three Readings recover. Narrowed by Story 7.4 (`spec-7-4-uncalibrated-sensor-alert.md`): the Sensor grain now holds the evaluation context, closes its Threshold Alert on an unassigned or paused context (reasons unassigned, paused), and closes and reopens its uncalibrated Alert on a move, so those cases are done. What remains is only the move of a Node with an open Threshold Alert, which a context naming another Lot leaves open on purpose.
 status: open
 
 ### DW-86: IDeviceGrain.SetCalibration is now [AlwaysInterleave] and no test runs a Calibration delivery concurrently with an ingest.
@@ -831,4 +831,27 @@ location: apps/cs/server/Devices/BatteryRule.cs (Classify)
 source_spec: `spec-7-3-low-battery-alert.md`
 severity: medium
 reason: BatteryRule.Classify returns Recovered for charger status "charging" whatever the level, as FR14 and the intent say ("charging or at 20 % or above"). envelope.proto documents NOT_CHARGING as "no sun, or the cell is full", so every solar Node is not charging at night. At 15 % that is three low reports after dusk (open, a new episode and Alert ID, an immediate notification) and three charging reports after dawn (closed "recovered" at a level that may still be 5 %). The code follows the requirement; whether closing should need a level at or above 20 %, or a margin, is a product decision on FR14.
+status: open
+
+### DW-108: A Sensor that a new Specification set drops from its Node is never told anything again, so its open uncalibrated Alert (and an open Threshold Alert) stays open with its daily Reminder.
+origin: spec-deferred ca8d4f36db8a
+location: apps/cs/server/Devices/DeviceGrain.cs (DeclareAsync, PushContextsAsync)
+source_spec: `spec-7-4-uncalibrated-sensor-alert.md`
+severity: medium
+reason: DeviceGrain.DeclareAsync replaces State.Sensors with the new set (DeviceState.Apply of DeviceSpecificationsDeclared), and Sensor IDs derive from Device, slot and quantity. PushContextsAsync iterates State.Sensors only, so the dropped Sensor grain hears of no later unassignment, move or Pause and gets no Reading. The orphaning predates this story (Story 4.6); the uncalibrated Alert is one more thing it leaves behind. Close reason "removed" exists for it. It needs a changed Specification set, which V1 firmware does not produce.
+status: open
+
+### DW-109: The uncalibrated Alert notifies at once: during onboarding, before the Owner had a chance to calibrate, and for every never-calibrated Sensor on the first report after the upgrade.
+origin: spec-deferred 4236eca13bea
+location: apps/cs/server/Sensors/UncalibratedRule.cs
+source_spec: `spec-7-4-uncalibrated-sensor-alert.md`
+severity: medium
+reason: The Alert opens with the frame that declares the Sensor of an assigned Node, as FR21 and the story say ("opens when a Node is assigned to a Lot and one of its calibration: true Sensors has no Calibration"), and is delivered like any Alert. MorningNudgeJourneyTests shows it opening and closing during setup. A grace period or a quiet first hour would be a new rule on FR21: a product decision.
+status: open
+
+### DW-110: After a silo restart the reminder table can stall for 30 s; the integration fixture now waits for it, and whether the production reminder store shows the same stall is not known.
+origin: spec-deferred 875a4be654d8
+location: tests/cs/server.integration/Identity/IdentityCluster.cs (ReminderTableReadyAsync)
+source_spec: `spec-7-4-uncalibrated-sensor-alert.md`
+reason: IdentityCluster.RestartSiloAsync reads the reminder table once after a restart (ReminderTableReadyAsync): without it a pause test timed out in 3 of 11 class runs, with "Grain placement operation timed out" and "ReminderService failed initial load of reminders" in the silo log. A User grain registers a reminder in the turn that tells it of an Alert, which a Device's wake or frame awaits. The TestCluster uses the in-memory table; reading the production silo's reminder configuration and a restart under load would settle it. Probably the cause of the known NodeMoveTests flake.
 status: open
