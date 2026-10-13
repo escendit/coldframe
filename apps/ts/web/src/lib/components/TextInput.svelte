@@ -6,7 +6,8 @@
     id: string;
     label: string;
     value?: string;
-    type?: 'text' | 'password' | 'email' | 'time';
+    /** `date` is the browser's own date picker; its value is the calendar date, `YYYY-MM-DD`. */
+    type?: 'text' | 'password' | 'email' | 'time' | 'date';
     helper?: string;
     /** The reason the value is invalid; replaces the helper and marks the field invalid. */
     invalid?: string | null;

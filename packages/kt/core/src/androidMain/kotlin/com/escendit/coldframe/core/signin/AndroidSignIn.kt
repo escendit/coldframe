@@ -67,7 +67,7 @@ public class AndroidSignIn private constructor(
      * The Lots of the current Site and Site settings; reloads whenever the current Site changes.
      * The shell calls `refresh` on pull-to-refresh and whenever the overview comes to the front.
      */
-    public val lots: LotsEngine = SitesWiring.lots(api, sites, settings, scope, cadence = api)
+    public val lots: LotsEngine = SitesWiring.lots(api, sites, settings, scope, cadence = api, pause = api)
 
     /**
      * My notifications: the Notification Window, the time zone, and the mute and my Reminder cadence of the
@@ -91,10 +91,10 @@ public class AndroidSignIn private constructor(
     public val push: PushEngine = SitesWiring.push(api, sites, lots, engine, settings, scope, PushPlatform.Fcm)
 
     /** Lot detail of the current Site: one Lot, its Sensors, Node and 30-day history; the shell opens and closes it. */
-    public val lotDetail: LotDetailEngine = SitesWiring.lotDetail(api, sites, settings, scope)
+    public val lotDetail: LotDetailEngine = SitesWiring.lotDetail(api, sites, settings, scope, pause = api)
 
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
-    public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope)
+    public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope, pause = api)
 
     /** The Alerts of the current Site, read as soon as a Site is current; the shell refreshes on foreground. */
     public val alerts: AlertsEngine = SitesWiring.alerts(api, sites, scope)

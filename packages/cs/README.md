@@ -158,6 +158,12 @@ and `SitePauseDelivered(DeviceId, Revision, DeliveredAt)` (`site.pause-delivered
 `SetPause` and `LiftPause` because `Resume` is a reserved word for interface members (CA1716). See
 [`apps/cs/README.md`](../../apps/cs/README.md#pause).
 
+Story 8.2 reads a Pause back and adds nothing here: no grain call, no event and no member. The identity
+projector projects `SitePaused` and `SiteResumed`, and the devices projector `DevicePaused` and `DeviceResumed`,
+into read-model columns the Edge API answers from (`Site.paused`, `DeviceListItem.pausedBy`; see
+[`apps/cs/README.md`](../../apps/cs/README.md#reading-a-pause-back)). Pause state itself stays in the Device
+grain (AD-8).
+
 The uncalibrated Sensor Alert (Story 7.4) adds `AlertKind.Uncalibrated` and
 `IAlertGrain.OpenForSensor(OpenSensorAlert(Kind, SensorId, Episode, SiteId, LotId, DeviceId, Quantity, OpenedAt))`,
 which accepts that kind only. Its `AlertOpened` records the Sensor (so `IAlertGrain.Close` is accepted from that

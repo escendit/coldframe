@@ -51,6 +51,8 @@ import com.escendit.coldframe.android.ui.components.dashedBorder
 import com.escendit.coldframe.android.ui.components.styledText
 import com.escendit.coldframe.android.ui.notifications.OverviewPushNotice
 import com.escendit.coldframe.android.ui.notifications.PushActions
+import com.escendit.coldframe.android.ui.pause.PauseFailureNotice
+import com.escendit.coldframe.android.ui.pause.PauseSheet
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
@@ -63,6 +65,7 @@ import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.sites.FirstRunStep
 import com.escendit.coldframe.core.sites.FirstRunSteps
 import com.escendit.coldframe.core.sites.FirstRunTile
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.sites.StepState
 import com.escendit.coldframe.designtokens.Spacing
@@ -96,6 +99,11 @@ import com.escendit.coldframe.core.sites.SiteMenu as SiteMenuModel
  * which leads to the OS prompt (UX-DR122), and while notifications are off the notice with Open Settings (UX-DR88).
  * Below it, one notice per silent Hub of the Site (UX-DR81, Story 7.2), named by the core and announced once.
  *
+ * Pause (Story 8.2): the Site menu's "Pause ‹Site›" opens the Pause sheet of [pause] with Whole Site as its only
+ * scope, and "Resume ‹Site›" resumes at once. While the Server says the Site is paused, the summary adds "No Alerts
+ * are sent while the Site is paused." (UX-DR83), and a Member, who has no Resume, reads "Only Owners and
+ * Administrators can resume it." A Resume that did not happen is a notice with Try again.
+ *
  * [now] is the clock ages and durations are told against; [zone] is the phone's.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -116,8 +124,10 @@ fun GardenScreen(
     events: Flow<LotsEvent> = emptyFlow(),
     push: PushState = PushState.None,
     pushActions: PushActions = PushActions.None,
+    pause: PauseState = PauseState(),
 ) {
     val colors = Coldframe.colors
+    val pauseActions = lotsActions.pause
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
     val site = sites.current
     val steps = FirstRunSteps.of(site.role)
@@ -136,9 +146,15 @@ fun GardenScreen(
     val copy = rememberOverviewCopy(clock, zone)
     val overview =
         remember(shown, clock) { (shown as? LotsState.Ready)?.let { LotsOverview.of(it, clock.toEpochMilli()) } }
-    val menuItems = overview?.menu ?: SiteMenuModel.items(site.role)
+    val menuItems = overview?.menu ?: SiteMenuModel.items(site)
     val menu: @Composable () -> Unit = {
-        SiteMenu(site = site, onOpenSiteSettings = onOpenSiteSettings, items = menuItems)
+        SiteMenu(
+            site = site,
+            onOpenSiteSettings = onOpenSiteSettings,
+            items = menuItems,
+            onPause = pauseActions.openForSite,
+            onResume = pauseActions.resumeSite,
+        )
     }
     val pull = rememberPullToRefreshState()
     val refreshing = overview?.refreshing == true
@@ -197,8 +213,15 @@ fun GardenScreen(
                     pausedInk = overview?.headline?.pausedInk == true,
                     onOpenSwitcher = { switcherOpen = true },
                     menu = menu,
+                    pausedLine =
+                        if (overview?.sitePaused == true) stringResource(R.string.garden_site_paused) else null,
                 )
             }
+            // A Member sees the paused Site as anyone does, and reads why there is no Resume (UX-DR84).
+            if (overview?.memberPausedNotice == true) {
+                InlineNotice(message = stringResource(R.string.pause_member_notice))
+            }
+            pause.failure?.let { PauseFailureNotice(it, pauseActions) }
             OverviewPushNotice(push, pushActions)
             // A silent Hub (UX-DR81): never dismissable, no action. Its duration moves with the minute
             // tick, so the notice itself is no live region; StaleAnnouncer says it once.
@@ -263,6 +286,8 @@ fun GardenScreen(
             onDismiss = { switcherOpen = false },
         )
     }
+    // One modal level at a time: the Pause sheet is opened from the Site menu, never over the Site switcher.
+    pause.sheet?.takeIf { !switcherOpen }?.let { PauseSheet(it, pauseActions) }
 }
 
 /** One minute: the stale age and the durations are told in minutes. */
@@ -378,7 +403,8 @@ private fun SiteBar(
  * Site summary header (UX-DR21): the Site name, tappable with `chevron--down` to open the Site
  * switcher, the Site menu trigger at the right, then the [headline] as a heading and the
  * [subline] (the counts, or the detail of "No Readings yet"). A Site paused as a whole has its
- * headline in `status-paused-ink` ([pausedInk]). There is no Site clock yet.
+ * headline in `status-paused-ink` ([pausedInk]). [pausedLine] is "No Alerts are sent while the Site is
+ * paused." with the pause icon, while the Server says the Site is paused. There is no Site clock yet.
  */
 @Composable
 fun SiteSummaryHeader(
@@ -389,6 +415,7 @@ fun SiteSummaryHeader(
     menu: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     pausedInk: Boolean = false,
+    pausedLine: String? = null,
 ) {
     val colors = Coldframe.colors
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.STEP_3.dp)) {
@@ -401,6 +428,24 @@ fun SiteSummaryHeader(
         )
         if (subline != null) {
             Text(text = subline, style = Typography.body.textStyle(), color = colors.textSecondary)
+        }
+        if (pausedLine != null) {
+            val lineStyle = Typography.body.textStyle()
+            val iconSize = with(LocalDensity.current) { lineStyle.fontSize.toDp() } + Spacing.STEP_2.dp
+            Row(
+                modifier = Modifier.semantics(mergeDescendants = true) {},
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_3.dp),
+            ) {
+                // Purple and the pause icon mean paused, and nothing else.
+                Icon(
+                    ColdframeIcons.pauseOutline,
+                    contentDescription = null,
+                    tint = colors.statusPausedInk,
+                    modifier = Modifier.size(iconSize),
+                )
+                Text(text = pausedLine, style = lineStyle, color = colors.textPrimary, modifier = Modifier.weight(1f))
+            }
         }
     }
 }

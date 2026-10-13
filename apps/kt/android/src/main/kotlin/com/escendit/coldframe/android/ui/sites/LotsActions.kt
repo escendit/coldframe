@@ -2,6 +2,7 @@ package com.escendit.coldframe.android.ui.sites
 
 import androidx.annotation.StringRes
 import com.escendit.coldframe.R
+import com.escendit.coldframe.android.ui.pause.PauseActions
 import com.escendit.coldframe.core.lots.LotsEngine
 import com.escendit.coldframe.core.lots.LotsNoticeKind
 import com.escendit.coldframe.core.notifications.ReminderCadence
@@ -30,6 +31,8 @@ class LotsActions(
     val setReminderCadence: (ReminderCadence) -> Unit = {},
     /** Try again after a Reminder cadence that was not saved. */
     val retryReminderCadence: () -> Unit = {},
+    /** Pause and Resume of the Site, from the Site menu of the overview (Story 8.2). */
+    val pause: PauseActions = PauseActions.None,
 ) {
     companion object {
         val None = LotsActions()
@@ -51,6 +54,7 @@ class LotsActions(
                 cancelRemove = engine::cancelRemove,
                 setReminderCadence = engine::setReminderCadence,
                 retryReminderCadence = engine::retryReminderCadence,
+                pause = PauseActions.of(engine.pause),
             )
     }
 }

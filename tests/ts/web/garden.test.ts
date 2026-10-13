@@ -116,10 +116,46 @@ describe('Site menu', () => {
     expect(body).not.toContain('role="menu"');
   });
 
-  test('UX-DR22 UX-DR74 the rendered menu holds only Site settings, which opens Site settings; Pause is hidden until it exists', () => {
-    for (const role of ['Owner', 'Administrator', 'Member'] as const) {
-      expect(siteMenuItems(role).map((item) => [item.label, item.href])).toEqual([['siteMenu.settings', '/settings/site']]);
+  test('UX-DR22 UX-DR70 an Administrator and an Owner get Pause, or Resume while the Site is paused, then Site settings', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      expect(siteMenuItems(role).map((item) => [item.action, item.label, item.href, item.disabled])).toEqual([
+        ['pause', 'siteMenu.pause', null, false],
+        ['settings', 'siteMenu.settings', '/settings/site', false],
+      ]);
+      expect(siteMenuItems(role, { paused: true }).map((item) => [item.action, item.label])).toEqual([
+        ['resume', 'siteMenu.resume'],
+        ['settings', 'siteMenu.settings'],
+      ]);
     }
+  });
+
+  test('UX-DR22 UX-DR84 a Member has Site settings alone: Pause and Resume are hidden, never disabled', () => {
+    for (const paused of [false, true]) {
+      expect(siteMenuItems('Member', { paused }).map((item) => [item.label, item.href, item.disabled])).toEqual([['siteMenu.settings', '/settings/site', false]]);
+    }
+  });
+
+  test('UX-DR22 UX-DR79 in stale mode every item stays and is disabled, the pause item too', () => {
+    expect(siteMenuItems('Owner', { stale: true }).map((item) => [item.action, item.disabled])).toEqual([
+      ['pause', true],
+      ['settings', true],
+    ]);
+    expect(siteMenuItems('Owner', { stale: true, paused: true }).map((item) => [item.action, item.disabled])).toEqual([
+      ['resume', true],
+      ['settings', true],
+    ]);
+  });
+
+  test('UX-DR22 UX-DR70 Pause and Resume are menu buttons that act; Site settings is a link; a disabled item says "Needs your Server"', () => {
+    const source = read(`${webSrc}/lib/components/SiteMenu.svelte`);
+    expect(source).toMatch(/<button[^>]*type="button"[^>]*role="menuitem"/u);
+    expect(source).toMatch(/onselect\?\.\(/u);
+    expect(source).toMatch(/aria-disabled="true"[\s\S]*siteMenu\.needsServer/u);
+    // The shell hands the choice on: Pause opens the Pause modal, Resume is sent at once.
+    const layout = read(`${webSrc}/routes/(app)/+layout.svelte`);
+    expect(layout).toMatch(/action === 'pause'/u);
+    expect(layout).toMatch(/<PauseModal[^>]*device=\{null\}/u);
+    expect(layout).toMatch(/<ResumeControl[\s\S]*?hidden/u);
   });
 });
 

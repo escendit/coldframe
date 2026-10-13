@@ -174,14 +174,16 @@ test.describe('Lot detail', () => {
       await expect(page.locator('.cf-hero__value')).toHaveText('6 h');
       await expect(page.locator('.cf-hero__note')).toHaveText('Check power or range.');
       await expect(page.locator('.cf-cells--device .cf-cell').first()).toContainText('—');
-      await expect(page.locator('.cf-segmented')).toHaveCount(0);
+      // The History picker alone: the Pause modal of an Owner has a Segmented choice of its own (Story 8.2).
+      await expect(page.locator('section[aria-labelledby="cf-detail-history"] .cf-segmented')).toHaveCount(0);
       await axeClean(page, `Lot detail, unknown (${theme})`);
       await expect(page).toHaveScreenshot(`lot-detail-unknown-${theme}.png`, { fullPage: true });
 
-      // Paused by the Site: the Owner is told how to resume.
+      // Paused by the Site and by itself: the Owner is told how to resume the Site, and can lift the Node's own Pause (Story 8.2).
       await openLot(page, lettuce);
       await expect(page.locator('.cf-hero')).toContainText('Paused by Site');
       await expect(page.locator('.cf-hero__note')).toHaveText(['Paused with the Site', 'Resume the Site to resume this Node']);
+      await expect(page.getByRole('group', { name: 'Actions for Node 7c19000000000005' }).getByRole('button')).toHaveText(['Resume 7C19']);
       await axeClean(page, `Lot detail, paused (${theme})`);
       await expect(page).toHaveScreenshot(`lot-detail-paused-${theme}.png`, { fullPage: true });
 

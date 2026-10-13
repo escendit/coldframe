@@ -1,6 +1,9 @@
 package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.api.LotHistoryDayDto
+import com.escendit.coldframe.core.sites.PauseForm
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SiteSummary
 import kotlin.test.Test
@@ -72,6 +75,105 @@ class LotDetailTest {
         role: SiteRole = SiteRole.Owner,
         stale: Boolean = false,
     ) = LotDetail.of(ready(lot, role, stale), now)
+
+    // Pause and Resume (Story 8.2)
+
+    @Test
+    fun uxDr70AnAdministratorCanPauseALiveLotsNodeAndThereIsNothingToResume() {
+        for (role in listOf(SiteRole.Administrator, SiteRole.Owner)) {
+            val live = detail(lot(LotStatus.Ok, moisture = 40.0), role)
+            assertTrue(live.canPause)
+            assertFalse(live.canResume)
+            assertFalse(live.memberPausedNotice)
+            assertEquals("7c19aaaaaaaaaaaa", live.pauseDeviceId)
+        }
+    }
+
+    @Test
+    fun uxDr70ANodePausedByItselfOffersResumeAndNoSecondPause() {
+        val own = detail(lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device), pausedUntil = now + 1))
+
+        assertTrue(own.canResume)
+        assertFalse(own.canPause)
+        assertFalse(own.hero.resumeSiteHint)
+    }
+
+    @Test
+    fun uxDr70ANodePausedByTheSiteOnlyHasNoResumeTheHintAndPauseStaysAvailable() {
+        val bySite = detail(lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Site)), SiteRole.Administrator)
+
+        assertFalse(bySite.canResume)
+        assertTrue(bySite.canPause)
+        assertTrue(bySite.hero.resumeSiteHint)
+
+        // Both sources: Resume lifts the Node's own Pause, and the hint says what still holds it.
+        val both = detail(lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device, LotPauseSource.Site)))
+        assertTrue(both.canResume)
+        assertFalse(both.canPause)
+        assertTrue(both.hero.resumeSiteHint)
+    }
+
+    @Test
+    fun uxDr84AMemberSeesAPausedLotWithTheOneNoticeAndNoPauseOrResume() {
+        val paused = lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device, LotPauseSource.Site))
+        val member = detail(paused, SiteRole.Member)
+
+        assertEquals(LotTileVariant.Paused, member.hero.variant)
+        assertTrue(member.memberPausedNotice)
+        assertFalse(member.canPause)
+        assertFalse(member.canResume)
+        assertFalse(member.hero.resumeSiteHint)
+        // A Lot that is not paused has no notice, and still no Pause.
+        val live = detail(lot(LotStatus.Ok), SiteRole.Member)
+        assertFalse(live.memberPausedNotice)
+        assertFalse(live.canPause)
+        // An Administrator has the controls instead of the notice.
+        assertFalse(detail(paused, SiteRole.Administrator).memberPausedNotice)
+    }
+
+    @Test
+    fun uxDr79InStaleModeAndWithoutANodeThereIsNoPauseControl() {
+        val paused = lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device))
+        val stale = detail(paused, stale = true)
+        assertFalse(stale.canPause)
+        assertFalse(stale.canResume)
+        assertNull(stale.pauseDeviceId)
+        assertFalse(detail(paused, SiteRole.Member, stale = true).memberPausedNotice)
+
+        val noNode = detail(lot(LotStatus.NoNode, node = null, sensors = emptyList()))
+        assertFalse(noNode.canPause)
+        assertFalse(noNode.canResume)
+        assertNull(noNode.pauseDeviceId)
+    }
+
+    @Test
+    fun uxDr70TheSnapshotCarriesThePauseGatesAndTheSheetForSwift() {
+        val bySite = ready(lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Site)), SiteRole.Administrator)
+        val sheet = PauseState(sheet = PauseForm("Home", "7c19aaaaaaaaaaaa", PauseScope.Device, until = "2026-11-01"))
+
+        val snapshot = snapshotOf(bySite, now, sheet)
+
+        assertEquals("7c19aaaaaaaaaaaa", snapshot.pauseDeviceId)
+        assertTrue(snapshot.canPause)
+        assertFalse(snapshot.canResume)
+        assertTrue(snapshot.heroResumeSiteHint)
+        assertFalse(snapshot.memberPausedNotice)
+        assertEquals(listOf("site"), snapshot.heroPausedBy)
+        assertTrue(snapshot.pause.sheetOpen)
+        assertEquals("7C19", snapshot.pause.sheetTarget)
+        assertEquals("2026-11-01", snapshot.pause.sheetUntil)
+
+        val member =
+            snapshotOf(ready(lot(LotStatus.Paused, pausedBy = listOf(LotPauseSource.Device)), SiteRole.Member), now)
+        assertTrue(member.memberPausedNotice)
+        assertFalse(member.canPause || member.canResume)
+        assertEquals(listOf("device"), member.heroPausedBy)
+        assertFalse(member.pause.sheetOpen)
+        // Nothing is open: no Device, no gate.
+        val idle = snapshotOf(LotDetailState.Idle, now)
+        assertEquals("", idle.pauseDeviceId)
+        assertFalse(idle.canPause || idle.canResume || idle.memberPausedNotice)
+    }
 
     @Test
     fun uxDr28SensorValuesAreFormattedWithoutConvertingThem() {

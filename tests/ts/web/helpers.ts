@@ -32,3 +32,25 @@ export function read(path: string): string {
 export function rel(path: string): string {
   return relative(repoRoot, path);
 }
+
+/**
+ * The first element of a server render whose first class is `className`, with everything in
+ * it: elements of the same tag inside it are counted, so the match ends at its own closing tag.
+ */
+export function block(html: string, className: string): string {
+  const open = new RegExp(`<(\\w+)[^>]*class="${className}(?:\\s[^"]*)?"[^>]*>`, 'u').exec(html);
+  const tag = open?.[1];
+  if (open === null || tag === undefined) {
+    return '';
+  }
+  const tags = new RegExp(`<${tag}\\b[^>]*>|</${tag}>`, 'gu');
+  tags.lastIndex = open.index;
+  let depth = 0;
+  for (let match = tags.exec(html); match !== null; match = tags.exec(html)) {
+    depth += match[0].startsWith('</') ? -1 : 1;
+    if (depth === 0) {
+      return html.slice(open.index, match.index + match[0].length);
+    }
+  }
+  return '';
+}

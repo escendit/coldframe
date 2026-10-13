@@ -1,6 +1,9 @@
 package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.sites.PauseSnapshot
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.snapshotOf
 
 /**
  * [LotsState] flattened for Swift. Enum values cross as catalogue key suffixes (`owner`,
@@ -44,8 +47,15 @@ import com.escendit.coldframe.core.devices.DevicesState
  *   stale mode: [hubNoticeIds] (the Device IDs), [hubNoticeNames] (the short name, "3F2A"),
  *   [hubNoticeSilentSince] and the silence [hubNoticeDurationValues] with [hubNoticeDurationUnits]
  *   (`minutes`, `hours`, `days`): "Hub 3F2A silent for 12 min — Lots behind it can't be read."
- * - Site menu: [menuItems] (`siteSettings`, …) and [menuEnabled], false in stale mode ("Needs
- *   your Server"). Use these instead of the Sites snapshot's menu while `ready`.
+ * - Site menu: [menuItems] (`pause` or `resume` first for an Administrator or Owner, then
+ *   `siteSettings`) and [menuEnabled], false in stale mode ("Needs your Server"). Use these instead
+ *   of the Sites snapshot's menu while `ready`.
+ * - Pause (Story 8.2): [sitePaused] is the Server's `Site.paused` for the Lots' Site, with
+ *   [sitePausedUntil] (Unix milliseconds in decimal, empty without an end). [sitePausedLine] says the
+ *   overview shows "No Alerts are sent while the Site is paused." (a paused Site, not in stale mode)
+ *   and [memberPausedNotice] the Inline notice "Only Owners and Administrators can resume it." (the
+ *   same, for a Member). [pause] is the Site menu's Pause sheet and Resume: `IosLots.openSitePause`,
+ *   `resumeSite` and the sheet's calls.
  */
 public data class LotsSnapshot(
     val surface: String,
@@ -118,6 +128,11 @@ public data class LotsSnapshot(
     val hubNoticeSilentSince: List<String> = emptyList(),
     val hubNoticeDurationValues: List<String> = emptyList(),
     val hubNoticeDurationUnits: List<String> = emptyList(),
+    val sitePaused: Boolean = false,
+    val sitePausedUntil: String = "",
+    val sitePausedLine: Boolean = false,
+    val memberPausedNotice: Boolean = false,
+    val pause: PauseSnapshot = snapshotOf(PauseState()),
 )
 
 /**
@@ -141,10 +156,11 @@ private fun Enum<*>.key(): String = name.replaceFirstChar { it.lowercase() }
 
 private fun Number?.text(): String = this?.toString().orEmpty()
 
-/** The snapshot of [state], with ages and durations measured at [nowEpochMs]. */
+/** The snapshot of [state] and of the Site menu's [pause], with ages and durations measured at [nowEpochMs]. */
 public fun snapshotOf(
     state: LotsState,
     nowEpochMs: Long,
+    pause: PauseState = PauseState(),
 ): LotsSnapshot {
     val surface =
         when (state) {
@@ -241,5 +257,10 @@ public fun snapshotOf(
         hubNoticeSilentSince = hubNotices.map { it.silentSinceEpochMs.toString() },
         hubNoticeDurationValues = hubNotices.map { it.duration.value.toString() },
         hubNoticeDurationUnits = hubNotices.map { it.duration.unit.key() },
+        sitePaused = site?.paused == true,
+        sitePausedUntil = site?.pausedUntilEpochMs.text(),
+        sitePausedLine = overview?.sitePaused == true,
+        memberPausedNotice = overview?.memberPausedNotice == true,
+        pause = snapshotOf(pause),
     )
 }

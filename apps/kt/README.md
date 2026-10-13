@@ -126,6 +126,39 @@ A tapped silent notification still opens the overview: the push route carries no
 Under Robolectric a text field in a dialog never comes to rest on a window of 360 dp or wider, so
 the dialog's Roborazzi baselines are taken at 320 dp (`SnapshotTest.NARROW`).
 
+## Pause and Resume (Story 8.2)
+
+Whether anything is paused is the Server's word only: `Site.paused`, a Lot's `pausedBy`, a Device row's
+`pausedBy`. No screen derives it or keeps it. The core's `PauseEngine` of each surface (`lots.pause`,
+`lotDetail.pause`, `devices.pause`) owns the sheet and the Resume; the shell draws its `PauseState`.
+
+- **Entry points**, for Administrators and Owners only: "Pause ‹Site›" in the Site menu of the overview,
+  "Pause" under the hero of Lot detail, and "Pause" on a Hub or Node row of Devices (also a custom
+  accessibility action of the row). For a Member none of them exists; nothing is shown disabled. In stale
+  mode the Site menu item is disabled with "Needs your Server".
+- **Pause sheet** (`ui/pause/PauseSheet.kt`, UX-DR46): a `ModalBottomSheet`. The scope is a Segmented choice:
+  "Whole Site" alone from the Site menu, "This Device" (selected) and "Whole Site" from a Device. "Until" is
+  optional, with "Leave empty to pause until someone resumes."; its calendar opens inside the sheet, never
+  as a dialog on top. The primary button names the result ("Pause Home garden", "Pause 7C19"). The picked
+  calendar date is sent as it is; the Server resolves it. A date the Server refuses marks the field with
+  "Choose a date after today."; a 403 says "You can't change this on ‹Site›. Ask an Owner or
+  Administrator."; an unreachable Server shows the surface's notice with Try again. In each case the sheet
+  stays open with what was entered.
+- **Resume** is one tap, without a sheet: "Resume ‹Site›" in the Site menu, "Resume" on Lot detail and on a
+  Devices row. Only a Device's own Pause is resumed there: a Device paused only by its Site has no Resume
+  but the line "Resume the Site to resume this Node" (a Hub row: "… this Hub"), and Pause stays.
+- **Paused Site** (`GardenScreen.kt`, UX-DR83): under the headline the line "No Alerts are sent while the
+  Site is paused." with the pause icon, following `Site.paused`; the headline ("Paused until Mar 1",
+  "Paused", in paused ink) keeps its own rule over the Lots. The Sites are read again with every refresh of
+  the overview, so a Pause that ended by itself offers Pause again.
+- **Devices rows**: the pause icon with "Paused", or "Paused by Site" when the Site is one of the sources,
+  in paused ink.
+- **Member**: the paused state as for anyone, no control, and one Inline notice, "Only Owners and
+  Administrators can resume it.", on the paused overview and on a paused Lot's detail.
+
+Not built here: no "Paused by ‹name›" line, no notice on the Add a Hub and Add a Node outcome screens, no
+Resume inside Calibrate and no swipe on Device rows.
+
 ## My notifications and Reminders (Story 6.3)
 
 Settings lists My notifications first, above Site settings. The screen (`ui/notifications/`) renders the

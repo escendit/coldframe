@@ -10,7 +10,8 @@ Swift runtimes.
   String Catalog and, where SwiftUI exists, the views. It is a SwiftPM target of the
   `Package.swift` in the repository root, so it builds and tests without Xcode. The views talk to
   the core only through service protocols such as `SignInService`, `AppearanceService`,
-  `SitesService`, `LotsService`, `AlertsService`, `NotificationSettingsService` and `PushService`.
+  `SitesService`, `LotsService`, `AlertsService`, `NotificationSettingsService`, `PushService`
+  and `PauseService`.
   `SitesService` (Story 1.8) carries the Sites of the signed-in user as a `SitesPresentation`
   (Create Site, the empty Garden, the Site switcher and the Site menu) built from the core's flat
   `SitesSnapshot`, plus the actions `load`, `select`, `newSite`, `cancelNewSite`, `setName`,
@@ -96,6 +97,53 @@ Swift runtimes.
     open Devices, which shows the Node's newest level and charger status, as before.
   An uncalibrated Sensor (Story 7.4, produced by the Server for a soil Sensor of a Node on a Lot) reads
   "Soil Sensor on Lot 'Carrots' needs Calibration" with the tools icon and opens Lot detail of that Lot.
+  Pause (Story 8.2) is the Server's everywhere too: no view decides that something is paused, and
+  none keeps it. The core hands over what is paused (`Lot.status` and `pausedBy`, `Site.paused`,
+  the Devices' `pausedBy`), which control a Role has, and the state of the Pause sheet. Each of
+  the three surfaces has its own `PauseService` (`LotsService.pause`, `LotDetailService.pause`,
+  `DevicesService.pause`, adapted from the core's `IosPause` by `CorePauseService`) and carries
+  its state as a `PausePresentation` (`pause` of the surface's presentation). Its actions are
+  `openForSite`, `openForDevice`, `setScope`, `setUntil`, `cancel`, `save`, `resumeSite`,
+  `resumeDevice` and `retry`. The controls are for Administrators and Owners and do not exist for
+  a Member: hidden, never disabled.
+  - *Pause sheet* (`PauseSheet`, UX-DR46): a native sheet, open while the core has one open.
+    The scope is a Segmented choice: "Whole Site" alone from the Site menu, "This Device"
+    (selected) and "Whole Site" from a Device. "Until" is optional: the field reads "No end
+    date" with the helper "Leave empty to pause until someone resumes.", and a tap opens the
+    native calendar inside the sheet, never on top of it. The native calendar always marks a
+    day, so opening it on an empty field picks tomorrow, and "Clear date" empties the field
+    again. The picked calendar date goes to the core in numbers (`PauseDay`), the day the
+    calendar showed: no time zone moves it, and no date is greyed out, since which dates are
+    allowed is the Server's rule. Cancel stands beside a primary button that names the
+    result, "Pause Home garden" or "Pause 7C19", and reads "Pausing…" while the request runs;
+    the sheet then cannot be swiped away. A date the Server refused marks the field ("Choose a
+    date after today."); a 403 says "You can't change this on ‹Site›. Ask an Owner or
+    Administrator."; any other refusal is the surface's notice, with Try again where that can
+    help. The sheet stays open with what was entered. It is never opened over another sheet of
+    its surface (the Site switcher, the Move picker, the Silence Window sheet).
+  - *Site menu* (`SiteMenu`, UX-DR22): "Pause ‹Site›" opens the sheet, or "Resume ‹Site›" while
+    the Server says the Site is paused, which resumes with one tap; then "Site settings". A
+    Member has only "Site settings". In stale mode every item is disabled with "Needs your
+    Server".
+  - *Overview* (`GardenView`, UX-DR83): a paused Site reads "Paused until 1 Mar" or "Paused" in
+    paused ink, adds the pause icon with "No Alerts are sent while the Site is paused." under
+    the summary, and every tile with a Node is the paused one ("Paused by Site"). A Member also
+    reads the Inline notice "Only Owners and Administrators can resume it."
+  - *Lot detail* (`LotDetailView`, UX-DR70): "Pause" under the hero opens the sheet for the
+    Lot's Node; "Resume" lifts the Node's own Pause with one tap and reads "Resuming…" meanwhile.
+    A Node paused only by its Site has no Resume: the hero says "Resume the Site to resume this
+    Node", and Pause stays. The hero is one accessibility element, so the controls are below
+    it. A Member has neither control and reads the same Inline notice on a paused Lot.
+  - *Devices rows* (`DevicesView`): a paused Hub or Node shows the pause icon and "Paused" or
+    "Paused by Site" in paused ink, in sentence case in the catalogue and upper case by style.
+    Pause and Resume are row actions, also custom accessibility actions of the row ("Pause Hub
+    ‹ID›", "Resume Node ‹ID›"); while one request runs no row starts another. A Device paused
+    only by its Site says "Resume the Site to resume this Node" (a Hub row: "… this Hub").
+  - A Resume that did not happen is an Inline notice on its surface (under its row on Devices),
+    with Try again where that can help. Shown ends are the Server's `pausedUntil`, written by
+    the day formatter in the phone's zone. Purple and the pause icon mean paused and nothing
+    else. There is no "Paused by ‹name›" line, no paused notice on the Add a Hub and Add a Node
+    outcome screens, no Resume inside Calibrate and no swipe action.
   `NotificationSettingsService` (Story 6.3) carries My notifications as a
   `NotificationSettingsPresentation` built from the core's flat `NotificationSettingsSnapshot`.
   Settings lists My notifications first, above Site settings; the screen calls `load` on every
@@ -133,7 +181,7 @@ Swift runtimes.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
   (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`, `CoreDevicesService`,
   `CoreHubSetupService`, `CoreNodeSetupService`, `CoreAlertsService`,
-  `CoreNotificationSettingsService`, `CorePushService`), the
+  `CoreNotificationSettingsService`, `CorePushService`, `CorePauseService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
   `CorePushService` holds the OS calls of push: it reads `UNUserNotificationCenter`'s
   authorization, shows the prompt, opens the app's notification settings and, once the

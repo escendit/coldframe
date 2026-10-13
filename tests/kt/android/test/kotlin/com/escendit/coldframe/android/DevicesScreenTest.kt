@@ -16,6 +16,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isHeading
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -38,8 +39,14 @@ import com.escendit.coldframe.core.devices.NodeSummary
 import com.escendit.coldframe.core.devices.SilenceWindowFailure
 import com.escendit.coldframe.core.devices.SilenceWindowNotice
 import com.escendit.coldframe.core.lots.ChargeState
+import com.escendit.coldframe.core.lots.LotPauseSource
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.signin.SignInState
+import com.escendit.coldframe.core.sites.PauseFailure
+import com.escendit.coldframe.core.sites.PauseNotice
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.PauseTarget
 import com.escendit.coldframe.core.sites.SiteRole
 import org.junit.After
 import org.junit.Before
@@ -62,6 +69,7 @@ class DevicesScreenTest {
 
     private val calls = mutableListOf<String>()
     private var devices by mutableStateOf<DevicesState>(DevicesState.Idle)
+    private var pause by mutableStateOf(PauseState())
     private var hubSetup by mutableStateOf(HubSetupState.CLOSED)
 
     private val now = Instant.parse("2026-10-06T07:04:00Z")
@@ -115,7 +123,9 @@ class DevicesScreenTest {
                         moveNode = { node, lot -> calls += "move $node $lot" },
                         unassignNode = { calls += "unassign $it" },
                         setSilenceWindow = { device, seconds -> calls += "window $device ${seconds ?: "default"}" },
+                        pause = PauseFixtures.recording(calls),
                     ),
+                devicesPause = pause,
                 nodeSetupActions = NodeSetupActions(open = { calls += "openNode $it" }),
                 now = { now },
             )
@@ -425,6 +435,7 @@ class DevicesScreenTest {
         val labels = row.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label }
         assertEquals(
             listOf(
+                "Pause Node 7c19a1b2c3d4e5f6",
                 "Move Node 7c19a1b2c3d4e5f6",
                 "Unassign Node 7c19a1b2c3d4e5f6",
                 "Silence Window for Node 7c19a1b2c3d4e5f6",
@@ -434,13 +445,17 @@ class DevicesScreenTest {
 
         val spare = compose.onNodeWithText("7c19000000000003").fetchSemanticsNode()
         assertEquals(
-            listOf("Move Node 7c19000000000003", "Silence Window for Node 7c19000000000003"),
+            listOf(
+                "Pause Node 7c19000000000003",
+                "Move Node 7c19000000000003",
+                "Silence Window for Node 7c19000000000003",
+            ),
             spare.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label },
         )
-        // A Hub row has the one action a Hub has.
+        // A Hub row has the two actions a Hub has.
         val hub = compose.onNodeWithText("3f2a9c0d1e4b5a67").fetchSemanticsNode()
         assertEquals(
-            listOf("Silence Window for Hub 3f2a9c0d1e4b5a67"),
+            listOf("Pause Hub 3f2a9c0d1e4b5a67", "Silence Window for Hub 3f2a9c0d1e4b5a67"),
             hub.config[androidx.compose.ui.semantics.SemanticsActions.CustomActions].map { it.label },
         )
     }
@@ -694,5 +709,225 @@ class DevicesScreenTest {
 
             compose.onNodeWithText(message).assertExists()
         }
+    }
+
+    // Pause and Resume on Device rows (Story 8.2)
+
+    private val pausedUntil = Instant.parse("2027-03-01T00:00:00Z").toEpochMilli()
+
+    /** A Hub paused by itself. */
+    private val pausedHub = online.copy(pausedBy = listOf(LotPauseSource.Device))
+
+    /** A Hub paused with its Site only. */
+    private val hubBySite =
+        HubSummary(
+            "1b00aa11bb22cc33",
+            online = false,
+            lastSeenAtEpochMs = seenAt,
+            pausedBy = listOf(LotPauseSource.Site),
+        )
+
+    /** A Node paused with its Site only, until 1 Mar 2027. */
+    private val nodeBySite =
+        tomatoesNode.copy(pausedBy = listOf(LotPauseSource.Site), pausedUntilEpochMs = pausedUntil)
+
+    /** A Node on no Lot, paused by itself and with its Site. */
+    private val nodeByBoth = unassigned.copy(pausedBy = listOf(LotPauseSource.Device, LotPauseSource.Site))
+
+    /** A Node that is not paused. */
+    private val liveNode =
+        NodeSummary("9c0d1e4b5a673f2a", "lot-b", "Beans", 62, false, ChargeState.NotCharging, seenAt)
+
+    private fun pauses(role: SiteRole) =
+        DevicesState.Ready(homeSite(role), listOf(hubBySite, pausedHub), listOf(nodeBySite, nodeByBoth, liveNode))
+
+    @Test
+    fun `UX-DR70 paused rows say Paused, or Paused by Site when the Site is a source, for anyone`() {
+        show(SiteRole.Member, pauses(SiteRole.Member))
+
+        // Sentence case in the catalogue, upper case by style.
+        compose.onAllNodesWithText("PAUSED").assertCountEquals(1)
+        compose.onAllNodesWithText("PAUSED BY SITE").assertCountEquals(3)
+        assertEquals(
+            listOf(
+                "1b00aa11bb22cc33 Offline PAUSED BY SITE Last seen 7:02 AM",
+                "3f2a9c0d1e4b5a67 Online PAUSED Last seen 7:02 AM",
+                "7c19a1b2c3d4e5f6 Tomatoes PAUSED BY SITE Last seen 7:02 AM 62 % charging",
+                "7c19000000000003 Not in a Lot PAUSED BY SITE Not seen yet",
+                "9c0d1e4b5a673f2a Beans Last seen 7:02 AM 62 % not charging",
+            ),
+            rows().map { it.replace('\u202F', ' ') },
+        )
+    }
+
+    @Test
+    fun `UX-DR84 a Member sees the paused rows and no Pause, Resume or hint, hidden and not disabled`() {
+        show(SiteRole.Member, pauses(SiteRole.Member))
+
+        compose.onAllNodesWithText("PAUSE").assertCountEquals(0)
+        compose.onAllNodesWithText("RESUME").assertCountEquals(0)
+        compose.onAllNodes(hasText("Resume the Site", substring = true)).assertCountEquals(0)
+        compose.onNodeWithContentDescription("Pause Node 9c0d1e4b5a673f2a").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Resume Hub 3f2a9c0d1e4b5a67").assertDoesNotExist()
+        // Nothing in the tab can be pressed: only the four tabs of the shell.
+        assertEquals(4, compose.allNodes().count { it.isClickable })
+        val row = compose.onNodeWithText("3f2a9c0d1e4b5a67").fetchSemanticsNode()
+        assertFalse(row.config.contains(androidx.compose.ui.semantics.SemanticsActions.CustomActions))
+    }
+
+    @Test
+    fun `UX-DR70 an Administrator gets Pause or Resume on every row, as the Device's own Pause says`() {
+        assertTrue(DevicesState.canPause(SiteRole.Administrator) && DevicesState.canPause(SiteRole.Owner))
+        show(SiteRole.Administrator, pauses(SiteRole.Administrator))
+
+        // Its own Pause: Resume, and no second Pause.
+        compose.onNodeWithContentDescription("Resume Hub 3f2a9c0d1e4b5a67").assertExists()
+        compose.onNodeWithContentDescription("Pause Hub 3f2a9c0d1e4b5a67").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Resume Node 7c19000000000003").assertExists()
+        compose.onNodeWithContentDescription("Pause Node 7c19000000000003").assertDoesNotExist()
+        // Paused by the Site only: no Resume for the Device, and Pause stays available.
+        compose.onNodeWithContentDescription("Resume Hub 1b00aa11bb22cc33").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Pause Hub 1b00aa11bb22cc33").assertExists()
+        compose.onNodeWithContentDescription("Resume Node 7c19a1b2c3d4e5f6").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Pause Node 7c19a1b2c3d4e5f6").assertExists()
+        // Not paused: Pause.
+        compose.onNodeWithContentDescription("Pause Node 9c0d1e4b5a673f2a").assertExists()
+        compose.onNodeWithContentDescription("Resume Node 9c0d1e4b5a673f2a").assertDoesNotExist()
+    }
+
+    @Test
+    fun `UX-DR70 a Device paused by the Site says Resume the Site to resume this Node, and a Hub row this Hub`() {
+        show(SiteRole.Owner, pauses(SiteRole.Owner))
+
+        // Only the Node paused by the Site alone: the one paused by both has Resume of its own instead.
+        compose.onAllNodesWithText("Resume the Site to resume this Node").assertCountEquals(1)
+        val both = compose.onNodeWithText("7c19000000000003").fetchSemanticsNode()
+        assertFalse(both.spokenLabel().contains("Resume the Site"))
+        compose.onAllNodesWithText("Resume the Site to resume this Hub").assertCountEquals(1)
+        val hub = compose.onNodeWithText("1b00aa11bb22cc33").fetchSemanticsNode()
+        assertTrue(hub.spokenLabel().endsWith("Resume the Site to resume this Hub"), hub.spokenLabel())
+        val live = compose.onNodeWithText("9c0d1e4b5a673f2a").fetchSemanticsNode()
+        assertFalse(live.spokenLabel().contains("Resume the Site"))
+    }
+
+    @Test
+    fun `UX-DR70 UX-DR46 Pause on a row opens the sheet with This Device selected, and Whole Site names the Site`() {
+        show(SiteRole.Administrator, pauses(SiteRole.Administrator))
+
+        compose.onNodeWithContentDescription("Pause Node 9c0d1e4b5a673f2a").performScrollTo().performClick()
+        assertEquals(listOf("load", "openForDevice 9c0d1e4b5a673f2a"), calls)
+
+        pause = PauseFixtures.sheet(PauseFixtures.forDevice.copy(deviceId = "9c0d1e4b5a673f2a"))
+        compose.waitForIdle()
+        compose.onNode(isSelectable().and(hasText("THIS DEVICE"))).assertIsSelected()
+        compose.onNodeWithText("PAUSE 9C0D").assertExists()
+
+        compose.onNode(isSelectable().and(hasText("WHOLE SITE"))).performClick()
+        assertEquals("scope site", calls.last())
+        pause =
+            PauseFixtures.sheet(PauseFixtures.forDevice.copy(deviceId = "9c0d1e4b5a673f2a", scope = PauseScope.Site))
+        compose.waitForIdle()
+        compose.onNodeWithText("PAUSE HOME GARDEN").performClick()
+        assertEquals("save", calls.last())
+    }
+
+    @Test
+    fun `UX-DR70 Resume on a row resumes with one tap and no sheet`() {
+        show(SiteRole.Owner, pauses(SiteRole.Owner))
+
+        compose.onNodeWithContentDescription("Resume Hub 3f2a9c0d1e4b5a67").performScrollTo().performClick()
+
+        assertEquals(listOf("load", "resumeDevice 3f2a9c0d1e4b5a67"), calls)
+        compose.onAllNodesWithText("WHOLE SITE").assertCountEquals(0)
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR70 Pause and Resume are also custom accessibility actions of the row`() {
+        show(SiteRole.Owner, pauses(SiteRole.Owner))
+
+        fun actionsOf(deviceId: String): List<String> =
+            compose
+                .onNodeWithText(deviceId)
+                .fetchSemanticsNode()
+                .config[androidx.compose.ui.semantics.SemanticsActions.CustomActions]
+                .map { it.label }
+        assertEquals("Resume Hub 3f2a9c0d1e4b5a67", actionsOf("3f2a9c0d1e4b5a67").first())
+        assertEquals("Pause Hub 1b00aa11bb22cc33", actionsOf("1b00aa11bb22cc33").first())
+        assertEquals("Pause Node 7c19a1b2c3d4e5f6", actionsOf("7c19a1b2c3d4e5f6").first())
+        assertEquals("Resume Node 7c19000000000003", actionsOf("7c19000000000003").first())
+
+        val resume =
+            compose
+                .onNodeWithText("7c19000000000003")
+                .fetchSemanticsNode()
+                .config[androidx.compose.ui.semantics.SemanticsActions.CustomActions]
+                .first()
+        assertTrue(resume.action())
+        assertEquals("resumeDevice 7c19000000000003", calls.last())
+    }
+
+    @Test
+    fun `UX-DR84 a 403 on a Resume says You can't change this on the Site, under that Device`() {
+        show(SiteRole.Administrator, pauses(SiteRole.Administrator))
+        pause =
+            PauseState(
+                failure =
+                    PauseFailure(
+                        PauseTarget(PauseScope.Device, "3f2a9c0d1e4b5a67"),
+                        PauseNotice.Forbidden,
+                        "Home garden",
+                    ),
+            )
+        compose.waitForIdle()
+
+        val notice = compose.onNodeWithText("You can't change this on Home garden. Ask an Owner or Administrator.")
+        notice.assertExists()
+        // Under the Hub it is about, above the Nodes.
+        val noticeY = notice.fetchSemanticsNode().positionInRoot.y
+        assertTrue(
+            noticeY >
+                compose
+                    .onNodeWithText("3f2a9c0d1e4b5a67")
+                    .fetchSemanticsNode()
+                    .positionInRoot.y,
+        )
+        assertTrue(
+            noticeY <
+                compose
+                    .onNodeWithText("7c19a1b2c3d4e5f6")
+                    .fetchSemanticsNode()
+                    .positionInRoot.y,
+        )
+        compose.onAllNodesWithText("TRY AGAIN").assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR70 a Resume the Server did not answer says Can't reach your Server with Try again`() {
+        show(SiteRole.Administrator, pauses(SiteRole.Administrator))
+        pause =
+            PauseState(
+                failure =
+                    PauseFailure(
+                        PauseTarget(PauseScope.Device, "7c19000000000003"),
+                        PauseNotice.Unreachable,
+                        "Home garden",
+                    ),
+            )
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Can't reach your Server.").assertExists()
+        compose.onNodeWithText("TRY AGAIN").performScrollTo().performClick()
+        assertEquals("retry", calls.last())
+    }
+
+    @Test
+    fun `UX-DR70 while a Pause or Resume runs no row starts another`() {
+        show(SiteRole.Administrator, pauses(SiteRole.Administrator))
+        pause = PauseState(resuming = PauseTarget(PauseScope.Device, "3f2a9c0d1e4b5a67"))
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Resume Hub 3f2a9c0d1e4b5a67").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Pause Node 9c0d1e4b5a673f2a").assertIsNotEnabled()
     }
 }

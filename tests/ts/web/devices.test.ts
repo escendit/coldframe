@@ -23,7 +23,7 @@ import { deviceAction, listDevices, loadDevices, moveDevice, setSilenceWindow, s
 import type { Role } from '$lib/roles';
 import type { Site } from '$lib/sites';
 import { FakeCookies, fakeServer, fetchFailed, jsonResponse, problemResponse } from './fakes.ts';
-import { read, webSrc } from './helpers.ts';
+import { block, read, webSrc } from './helpers.ts';
 
 const serverUrl = new URL('https://server.example');
 const locals = { session: { identity: { authenticated: true, accessTokenRaw: 'access-token-1', idToken: { name: 'Simon Novak' } } } };
@@ -155,9 +155,9 @@ describe('Devices rows', () => {
   });
 
   test('UX-DR84 UX-DR85 the mobile app notice is for Owners and Administrators only', () => {
-    expect(devicesAccessOf('Owner')).toEqual({ mobileAppNotice: true, canManageNodes: true, canSetSilenceWindow: true });
-    expect(devicesAccessOf('Administrator')).toEqual({ mobileAppNotice: true, canManageNodes: true, canSetSilenceWindow: true });
-    expect(devicesAccessOf('Member')).toEqual({ mobileAppNotice: false, canManageNodes: false, canSetSilenceWindow: false });
+    expect(devicesAccessOf('Owner')).toEqual({ mobileAppNotice: true, canManageNodes: true, canSetSilenceWindow: true, canPause: true });
+    expect(devicesAccessOf('Administrator')).toEqual({ mobileAppNotice: true, canManageNodes: true, canSetSilenceWindow: true, canPause: true });
+    expect(devicesAccessOf('Member')).toEqual({ mobileAppNotice: false, canManageNodes: false, canSetSilenceWindow: false, canPause: false });
   });
 });
 
@@ -215,16 +215,20 @@ describe('Devices surface', () => {
     expect(body).not.toContain('cf-section-title');
   });
 
-  test('UX-DR85 an Owner or Administrator on the web gets the notice in place of Add actions; the only control of a Hub row is its Silence Window', () => {
+  test('UX-DR85 an Owner or Administrator on the web gets the notice in place of Add actions; the controls of a Hub row are its Silence Window and Pause', () => {
     for (const role of ['Owner', 'Administrator'] as const) {
       for (const devices of [[], [online]]) {
         const body = page(role, devices);
         expect(text(body)).toContain('Adding a Hub or Node needs the Coldframe mobile app.');
         expect(body).toContain('id="cf-devices-web-notice"');
-        // Story 7.2 gives every Device row the Silence Window action; nothing else is a control, and nothing adds a Device.
-        const withoutWindow = body.replace(/<details class="cf-devices__window[\s\S]*?<\/details>/gu, '');
-        expect(withoutWindow).not.toMatch(/<(?:form|button|input|select|textarea)\b/u);
-        expect(body.match(/<form\b/gu) ?? []).toHaveLength(devices.length);
+        // Story 7.2 gives every Device row the Silence Window action and Story 8.2 Pause, with its modal; nothing else is a control, and nothing adds a Device.
+        const withoutActions = body
+          .replace(/<details class="cf-devices__window[\s\S]*?<\/details>/gu, '')
+          .replace(/<dialog[\s\S]*?<\/dialog>/gu, '')
+          .replace(block(body, 'cf-devices__pause'), '');
+        expect(withoutActions).not.toMatch(/<(?:form|button|input|select|textarea)\b/u);
+        // One Silence Window form per Device, and the form of the Pause modal while there is a Device.
+        expect(body.match(/<form\b/gu) ?? []).toHaveLength(devices.length * 2);
         expect(body).not.toMatch(/<a\b/u);
         expect(text(body)).not.toMatch(/Add a (?:Hub|Node)/u);
       }
@@ -538,5 +542,86 @@ describe('Silence Window (Story 7.2)', () => {
     expect(text(row(body, silentNode.id))).not.toContain("You can't change this");
     const gone = page('Owner', [silentHub, silentNode], null, 'UTC', lots, { action: 'setSilenceWindow', deviceId: silentNode.id, notice: 'notFound' });
     expect(text(row(gone, silentNode.id))).toContain('That Device is gone. Reload the page.');
+  });
+});
+
+/** Story 8.2: paused rows, and Pause and Resume as row actions. */
+describe('Pause on Devices', () => {
+  const until = '2027-03-01T00:00:00.000Z';
+  const pausedHub: DeviceListItem = { ...online, pausedBy: ['device'] };
+  const siteHub: DeviceListItem = { ...offline, pausedBy: ['site'], pausedUntil: until };
+  const pausedNode: DeviceListItem = { ...assigned, pausedBy: ['device'], pausedUntil: '2026-11-01T00:00:00.000Z' };
+  const siteNode: DeviceListItem = { ...unassignedNode, pausedBy: ['site'], pausedUntil: until };
+  const bothNode: DeviceListItem = { id: '7c19000000000004', kind: 'node', online: false, pausedBy: ['device', 'site'] };
+  const all = [pausedHub, siteHub, pausedNode, siteNode, bothNode];
+  const pauseOf = (body: string, id: string): string => block(row(body, id), 'cf-devices__pause');
+
+  test('UX-DR30 UX-DR83 a paused row adds the pause icon and Paused or Paused by Site in paused ink, with the end the Server sent', () => {
+    const body = page('Member', all);
+    expect(text(row(body, pausedHub.id))).toBe('3f2a9c0d1e4b5a67 Online Paused Last seen 7:03 AM');
+    expect(text(row(body, siteHub.id))).toBe('1b00aa11bb22cc33 Offline Paused by Site until Mar 1 Last seen 6:54 AM');
+    expect(text(row(body, pausedNode.id))).toBe('7c19000000000001 Tomatoes Paused until Nov 1 Not seen yet —');
+    expect(text(row(body, siteNode.id))).toBe('7c19000000000002 Not in a Lot Paused by Site until Mar 1 Not seen yet —');
+    expect(text(row(body, bothNode.id))).toContain('Paused by Site');
+    for (const device of all) {
+      expect(row(body, device.id)).toMatch(/<span class="cf-devices__paused[^"]*">[\s\S]*?data-icon="pause--outline"[\s\S]*?Paused/u);
+    }
+    expect(row(body, bothNode.id)).toContain('data-paused="device site"');
+    expect(body).not.toMatch(/PAUSED/u);
+    const source = read(`${webSrc}/routes/(app)/devices/+page.svelte`);
+    expect(source).toMatch(/\.cf-devices__paused \{[^}]*color: var\(--cf-color-status-paused-ink\)[^}]*text-transform: uppercase/u);
+    // The pause icon means paused and nothing else.
+    const unpaused = page('Member', [online, assigned]);
+    expect(unpaused).not.toContain('pause--outline');
+    expect(unpaused).not.toContain('data-paused');
+  });
+
+  test('UX-DR84 a Member sees the paused rows and no Pause or Resume: hidden, never disabled', () => {
+    const body = page('Member', all, null, 'UTC', lots);
+    expect(body).not.toMatch(/<(?:form|button|input|select|textarea|dialog|details|a)\b/u);
+    expect(text(body)).not.toMatch(/Resume/u);
+    expect(body).not.toMatch(/disabled/u);
+  });
+
+  test('UX-DR70 an Administrator gets Pause on a Hub and a Node that are not paused by themselves, which opens the one Pause modal', () => {
+    for (const role of ['Owner', 'Administrator'] as const) {
+      const body = page(role, [online, assigned], null, 'UTC', lots);
+      expect(text(pauseOf(body, online.id))).toBe('Pause');
+      expect(text(pauseOf(body, assigned.id))).toBe('Pause');
+      expect(pauseOf(body, online.id)).not.toMatch(/<form/u);
+      expect(body.match(/<dialog[^>]*aria-labelledby="cf-device-pause-title"/gu)).toHaveLength(1);
+      expect(body).toContain('action="?/pause"');
+    }
+  });
+
+  test('UX-DR70 a Device paused by itself offers Resume in one tap and no Pause', () => {
+    const body = page('Administrator', all, null, 'UTC', lots);
+    for (const [device, name] of [[pausedHub, '3F2A'], [pausedNode, '7C19'], [bothNode, '7C19']] as const) {
+      expect(text(pauseOf(body, device.id))).toBe(`Resume ${name}`);
+      expect(pauseOf(body, device.id)).toMatch(/<form[^>]*method="POST"[^>]*action="\?\/resume"/u);
+      expect(pauseOf(body, device.id)).toContain(`name="deviceId" value="${device.id}"`);
+      expect(pauseOf(body, device.id)).toContain('name="scope" value="device"');
+    }
+  });
+
+  test('UX-DR70 paused by the Site only: no Resume, the line for a Node and for a Hub, and Pause stays', () => {
+    const body = page('Owner', all, null, 'UTC', lots);
+    expect(text(pauseOf(body, siteNode.id))).toBe('Pause Resume the Site to resume this Node');
+    expect(text(pauseOf(body, siteHub.id))).toBe('Pause Resume the Site to resume this Hub');
+    expect(pauseOf(body, siteNode.id) + pauseOf(body, siteHub.id)).not.toMatch(/action="\?\/resume"/u);
+    // Paused by both: Resume lifts the Device's own Pause, and the line is not needed yet.
+    expect(text(pauseOf(body, bothNode.id))).not.toContain('Resume the Site');
+  });
+
+  test('UX-DR70 the page keeps the Server order and no pause state of its own', () => {
+    const body = page('Owner', [siteHub, pausedHub, siteNode, pausedNode], null, 'UTC', lots);
+    expect([...body.matchAll(/data-device="([^"]+)"/gu)].map((match) => match[1])).toEqual([siteHub.id, pausedHub.id, siteNode.id, pausedNode.id]);
+    const source = read(`${webSrc}/routes/(app)/devices/+page.svelte`);
+    expect(source).not.toMatch(/localStorage|sessionStorage/u);
+  });
+
+  test('UX-DR70 a pause answer never reads as a move, unassign or Silence Window failure', () => {
+    const body = page('Owner', [online, assigned], null, 'UTC', lots, { action: 'pause', scope: 'device', deviceId: assigned.id, notice: 'forbidden' });
+    expect(row(body, assigned.id)).not.toContain('cf-inline-notice');
   });
 });

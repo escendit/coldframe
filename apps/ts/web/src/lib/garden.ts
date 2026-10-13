@@ -7,6 +7,8 @@ import { t } from '$lib/i18n';
 import { formatDay, formatSilence, shortDeviceId } from '$lib/i18n/format';
 import { statusOf, type TileStatus } from '$lib/lot-tiles';
 import type { SilentHub } from '$lib/lots';
+import { pauseAccessOf } from '$lib/pause';
+import type { Site } from '$lib/sites';
 
 export interface SiteHeadline {
   /** The one-sentence Site state, exposed as a heading. */
@@ -62,6 +64,27 @@ export function siteHeadline(lots: readonly Lot[], locale: string, timeZone: str
     return { headline, subline, paused: true };
   }
   return { headline: t('garden.headline.nothing'), subline, paused: false };
+}
+
+/** What the overview says about a paused Site besides the headline. */
+export interface SitePauseNotes {
+  /** "No Alerts are sent while the Site is paused." */
+  readonly line: string | null;
+  /** For a Member, who has no Resume: "Only Owners and Administrators can resume it." */
+  readonly memberNotice: string | null;
+}
+
+/**
+ * The paused-Site line (UX-DR83) and the Member's notice (UX-DR84), from the Server's `Site.paused`
+ * alone: a Site without Nodes says them too, and Lots that are paused under a Site the Server does not
+ * call paused do not. The headline keeps its own rule (`siteHeadline`). Who paused the Site is not said:
+ * the Server stores no attribution.
+ */
+export function sitePauseNotes(site: Pick<Site, 'paused' | 'role'>): SitePauseNotes {
+  if (site.paused !== true) {
+    return { line: null, memberNotice: null };
+  }
+  return { line: t('pause.siteLine'), memberNotice: pauseAccessOf(site.role) ? null : t('pause.memberNotice') };
 }
 
 export type OverviewMode = 'live' | 'stale';

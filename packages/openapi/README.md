@@ -103,7 +103,12 @@ is planned today.
   one), and that instant must lie ahead. A Device answers `{pausedBy, pausedUntil?}` with every source in force
   (`device` and/or `site`, as on a `Lot`), a Site `{paused, pausedUntil?}`; `pausedUntil` is absent without an
   end, as everywhere in this contract. Every request is idempotent and answers 200 with the state in force. A
-  Site request answers once the Site holds the change; the Server then tells every Device. 400 `validation` is an
+  Site request answers once the Site holds the change; the Server then tells every Device. Pause is read back
+  (Story 8.2) from three places: a `Site` (`GET /sites`, `GET /sites/{siteId}`, `PATCH /sites/{siteId}`) carries
+  `paused` and `pausedUntil`; a `DeviceListItem` carries `pausedBy` and `pausedUntil` exactly while the Device is
+  paused, a Hub too; a `Lot` as above. All four members are optional and omitted, never `null`: the answer to
+  `POST /sites` has no `paused`, which reads as not paused. A read made right after a pause or a resume answered
+  shows it for the Site or the Device that was addressed; the Devices of a paused Site follow. 400 `validation` is an
   `until` that is no date or has begun already, or a `deviceId` that is none; 404 `device-not-found` a Device
   that is unknown or of another Site.
 - **Lot detail and history.** `GET /sites/{siteId}/lots/{lotId}` alone also carries `node` (the Node's

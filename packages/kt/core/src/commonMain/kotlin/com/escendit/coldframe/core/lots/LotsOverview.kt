@@ -546,6 +546,12 @@ public data class HubNotice(
  * with "Needs your Server". [headline] and [counts] are still filled, for the shells that keep
  * them; they describe the last good data. [hubNotices] has one notice per silent Hub of the Site,
  * in the Server's order, and none in stale mode: what is not live does not say "silent for".
+ *
+ * [sitePaused] is the Server's `Site.paused` (Story 8.2, UX-DR83): the line "No Alerts are sent while
+ * the Site is paused." shows under the summary, also for a Site without a Node, while the [headline]
+ * keeps its own rule over the Lots. [memberPausedNotice] adds "Only Owners and Administrators can
+ * resume it." for a Member, who has no Resume. Both are false in stale mode: what is not live does
+ * not say what the Site is doing now.
  */
 public data class LotsOverview(
     val stale: Boolean,
@@ -557,6 +563,8 @@ public data class LotsOverview(
     val tiles: List<LotTile>,
     val menu: List<SiteMenuItem>,
     val hubNotices: List<HubNotice> = emptyList(),
+    val sitePaused: Boolean = false,
+    val memberPausedNotice: Boolean = false,
 ) {
     public companion object {
         public fun of(
@@ -565,6 +573,7 @@ public data class LotsOverview(
         ): LotsOverview {
             val canAddNode = DevicesState.canAddNode(ready.site.role)
             val canCalibrate = ready.site.role >= SiteRole.Administrator
+            val sitePaused = ready.site.paused && !ready.stale
             return LotsOverview(
                 stale = ready.stale,
                 fetchedAtEpochMs = ready.fetchedAtEpochMs,
@@ -578,13 +587,16 @@ public data class LotsOverview(
                     },
                 menu = ready.siteMenu(),
                 hubNotices = if (ready.stale) emptyList() else ready.silentHubs.map { HubNotice.of(it, nowEpochMs) },
+                sitePaused = sitePaused,
+                memberPausedNotice = sitePaused && ready.site.role == SiteRole.Member,
             )
         }
     }
 }
 
 /**
- * The Site menu for the Lots' Site (UX-DR22): in stale mode every item is disabled with "Needs
- * your Server". Empty while there is no Site.
+ * The Site menu for the Lots' Site (UX-DR22): Pause, or Resume while the Server says the Site is
+ * paused, for Administrators and Owners, then Site settings. In stale mode every item is disabled
+ * with "Needs your Server". Empty while there is no Site.
  */
-public fun LotsState.siteMenu(): List<SiteMenuItem> = site?.let { SiteMenu.items(it.role, stale = stale) }.orEmpty()
+public fun LotsState.siteMenu(): List<SiteMenuItem> = site?.let { SiteMenu.items(it, stale = stale) }.orEmpty()

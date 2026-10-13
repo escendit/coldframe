@@ -1,17 +1,19 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { t } from '$lib/i18n';
-  import type { SiteMenuItem } from '$lib/site-menu';
+  import type { SiteMenuAction, SiteMenuItem } from '$lib/site-menu';
   import Icon from './Icon.svelte';
 
   interface Props {
     siteName: string;
-    /** From `siteMenuItems`: already gated by Role, Pause availability and stale mode. */
+    /** From `siteMenuItems`: already gated by Role, the Site's Pause and stale mode. */
     items: readonly SiteMenuItem[];
+    /** Pause or Resume was chosen: the items without a link act through this. */
+    onselect?: (action: SiteMenuAction) => void;
     id?: string;
   }
 
-  let { siteName, items, id = 'cf-site-menu' }: Props = $props();
+  let { siteName, items, onselect, id = 'cf-site-menu' }: Props = $props();
 
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
@@ -92,13 +94,24 @@
     <ul id="{id}-items" class="cf-site-menu__items" role="menu" aria-label={t('siteMenu.open', { name: siteName })}>
       {#each items as item (item.action)}
         <li role="none">
-          {#if item.disabled || item.href === null}
+          {#if item.disabled}
+            <!-- Stale mode: the item stays and says why it cannot be used. -->
             <span class="cf-site-menu__item cf-site-menu__item--disabled" role="menuitem" aria-disabled="true" tabindex="-1">
               <span>{t(item.label, { name: siteName })}</span>
-              {#if item.disabled}
-                <span class="cf-site-menu__reason">{t('siteMenu.needsServer')}</span>
-              {/if}
+              <span class="cf-site-menu__reason">{t('siteMenu.needsServer')}</span>
             </span>
+          {:else if item.href === null}
+            <!-- Pause and Resume act here. Focus goes back to the trigger first, so the Pause modal returns it there. -->
+            <button
+              type="button"
+              class="cf-site-menu__item cf-site-menu__item--action"
+              role="menuitem"
+              tabindex="-1"
+              onclick={() => {
+                hide(true);
+                onselect?.(item.action);
+              }}>{t(item.label, { name: siteName })}</button
+            >
           {:else}
             <a class="cf-site-menu__item" role="menuitem" tabindex="-1" href={item.href} onclick={() => {
               hide(false);
@@ -154,6 +167,15 @@
     line-height: var(--cf-type-body-lg-line-height);
     text-decoration: none;
     overflow-wrap: anywhere;
+  }
+
+  .cf-site-menu__item--action {
+    width: 100%;
+    border: 0;
+    border-radius: var(--cf-radius-none);
+    background: transparent;
+    text-align: start;
+    cursor: pointer;
   }
 
   .cf-site-menu__item:hover {

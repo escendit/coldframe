@@ -196,12 +196,4 @@ public sealed partial class SilentNodeJourneyTests(MorningNudgeFixture stack) : 
             await HeartbeatAsync(user, hub);
         }
     }
-
-    // Fires the Device's silence evaluation as its reminder does: the journey does not wait a real minute.
-    private async Task WakeDeviceAsync(JourneyUser user, SimulatedDevice device)
-    {
-        using var server = await Stack.CreateServerClientAsync(user, Ct);
-        using var response = await server.PostAsync(new Uri($"/testing/devices/{device.DeviceId}/wake", UriKind.Relative), content: null, Ct);
-        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
-    }
 }

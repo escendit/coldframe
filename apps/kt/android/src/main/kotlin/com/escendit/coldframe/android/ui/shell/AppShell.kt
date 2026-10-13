@@ -71,6 +71,7 @@ import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.notifications.NotificationSettingsState
 import com.escendit.coldframe.core.push.PushRoute
 import com.escendit.coldframe.core.push.PushState
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
@@ -112,6 +113,9 @@ enum class Tab(
  * has already switched to the notification's Site, and the shell shows Lot detail or the overview on the Garden tab
  * and says so with [PushActions.routeHandled]. A route that arrives while a flow covers the shell is shown when the
  * shell is back.
+ *
+ * [gardenPause], [lotDetailPause] and [devicesPause] are the core's Pause state of the three surfaces that can
+ * pause (Story 8.2): each draws its own sheet and its own notice.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,6 +146,9 @@ fun AppShell(
     notificationsActions: NotificationSettingsActions = NotificationSettingsActions.None,
     push: PushState = PushState.None,
     pushActions: PushActions = PushActions.None,
+    gardenPause: PauseState = PauseState(),
+    lotDetailPause: PauseState = PauseState(),
+    devicesPause: PauseState = PauseState(),
 ) {
     val colors = Coldframe.colors
     var tab by tabState
@@ -313,7 +320,7 @@ fun AppShell(
                     now = now,
                 )
             } else if (tab == Tab.Devices) {
-                DevicesScreen(devices = devices, actions = devicesActions, now = now)
+                DevicesScreen(devices = devices, actions = devicesActions, now = now, pause = devicesPause)
             } else if (showingLotDetail) {
                 LotDetailScreen(
                     state = lotDetail,
@@ -327,6 +334,7 @@ fun AppShell(
                         lotDetailActions.close()
                         tab = Tab.Devices
                     },
+                    pause = lotDetailPause,
                 )
             } else if (tab == Tab.Garden) {
                 GardenScreen(
@@ -348,6 +356,7 @@ fun AppShell(
                     events = lotsEvents,
                     push = push,
                     pushActions = pushActions,
+                    pause = gardenPause,
                 )
             } else if (showingAppearance) {
                 AppearanceScreen(theme = theme, onSelectTheme = onSelectTheme)

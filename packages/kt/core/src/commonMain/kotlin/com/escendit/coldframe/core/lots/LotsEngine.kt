@@ -10,6 +10,8 @@ import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.NameError
+import com.escendit.coldframe.core.sites.PauseApi
+import com.escendit.coldframe.core.sites.PauseEngine
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesNotice
@@ -74,6 +76,11 @@ public interface LotsApi {
  * Server's value when it was not saved. One failure does save it: after a 503
  * `reminder-cadence-not-delivered` the Site holds the pick, so the control keeps showing it, with
  * the notice and Try again, which hands it to the members that were not reached.
+ *
+ * Pause (Story 8.2): [pause] is the Site menu's Pause sheet and Resume, over [pauseApi]. Whether the
+ * Site is paused is the Server's `Site.paused` on [LotsState.site]; [refresh] reads the Sites again
+ * with the Lots, so a Pause that ended by itself shows, and after a pause or resume anywhere in the
+ * app the Lots are read again.
  */
 public class LotsEngine(
     private val api: LotsApi,
@@ -84,7 +91,11 @@ public class LotsEngine(
     /** Epoch milliseconds; stamps [LotsState.Ready.fetchedAtEpochMs]. */
     internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val cadenceApi: SiteReminderCadenceApi? = null,
+    pauseApi: PauseApi? = null,
 ) {
+    /** Pause and Resume of the Site, from the Site menu of the overview. */
+    public val pause: PauseEngine = PauseEngine(pauseApi, sites, scope)
+
     private val cache = LotsCache(settings)
     private val mutableState = MutableStateFlow<LotsState>(LotsState.Idle)
     private val mutableEvents =
@@ -120,6 +131,8 @@ public class LotsEngine(
             cadenceNotSaved = null
             cache.clear()
         }
+        // A Pause or a Resume changes the statuses of the Lots: the Server's are read again.
+        sites.onPauseChanged { reread() }
         scope.launch {
             sites.state
                 .map { (it as? SitesState.Ready)?.current }
@@ -171,10 +184,16 @@ public class LotsEngine(
      * Reads the Lots again: pull-to-refresh, and every time the overview comes to the front.
      * Shown Lots stay while it runs ([LotsState.Ready.refreshing]); after a failed load it tries
      * again from [LotsState.Loading]. A read that fails twice puts shown Lots in stale mode.
-     * Sites that came from this device are read again with it.
+     * The Sites are read again with it: the ones that came from this device, and the current Site's
+     * name, Role and Pause as the Server holds them now.
      */
     public fun refresh() {
-        if ((sites.state.value as? SitesState.Ready)?.fromCache == true) sites.load()
+        sites.refresh()
+        reread()
+    }
+
+    /** Reads the Lots again, leaving the Sites as they are. */
+    private fun reread() {
         when (val current = mutableState.value) {
             is LotsState.Ready -> {
                 read()

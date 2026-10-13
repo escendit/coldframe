@@ -5,10 +5,13 @@
   import Hatch from '$lib/components/Hatch.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
+  import PauseModal from '$lib/components/PauseModal.svelte';
+  import ResumeControl from '$lib/components/ResumeControl.svelte';
   import SegmentedChoice from '$lib/components/SegmentedChoice.svelte';
   import StaleHeader from '$lib/components/StaleHeader.svelte';
   import { locale, t, type MessageKey } from '$lib/i18n';
-  import { deviceCells, heroSpoken, historyChart, lotHero, pickerQuantities, quantityName, sensorCells, type SensorQuantity } from '$lib/lot-detail';
+  import { shortDeviceId } from '$lib/i18n/format';
+  import { deviceCells, heroSpoken, historyChart, lotHero, lotPause, pickerQuantities, quantityName, sensorCells, type SensorQuantity } from '$lib/lot-detail';
   import { calibratableSensor } from '$lib/calibrate';
   import { thresholdSummary } from '$lib/thresholds';
   import { hasRole } from '$lib/roles';
@@ -52,6 +55,9 @@
     picked = value;
   }
   const hasNode = $derived(lot?.node !== undefined);
+  /** Pause and Resume of the Lot's Node (Story 8.2): Owners and Administrators only, from the Server's `pausedBy`. */
+  const pause = $derived(lot === null ? null : lotPause(lot, context));
+  let pauseOpen = $state(false);
   /** Calibrate: Owners and Administrators only, and only for a Sensor whose Specification calls for it. */
   const canCalibrate = $derived(admin && lot !== null && calibratableSensor(lot) !== null);
 
@@ -117,6 +123,32 @@
           </div>
         {/if}
       </section>
+
+      {#if pause !== null && pause.memberNotice !== null}
+        <!-- A Member sees the paused Lot and no Resume (hidden, never disabled): the one notice says who can (UX-DR84). -->
+        <InlineNotice id="cf-lot-paused-notice" message={pause.memberNotice} />
+      {/if}
+      {#if pause !== null && pause.device !== null && (pause.canPause || pause.canResume)}
+        <!-- The admin action strip: Resume in one tap while the Node is paused by itself, else Pause, which opens the Pause modal. -->
+        <div class="cf-detail__actions" role="group" aria-label={t('devices.nodeActions', { id: pause.device.id })}>
+          {#if pause.canResume}
+            <ResumeControl
+              id="cf-lot-resume"
+              action="?/resume"
+              fields={{ siteId: data.currentSite.id, scope: 'device', deviceId: pause.device.id }}
+              label={t('pause.resume', { name: shortDeviceId(pause.device.id) })}
+              name={shortDeviceId(pause.device.id)}
+              siteName={data.currentSite.name}
+              variant="secondary"
+            />
+          {:else}
+            <Button id="cf-lot-pause-open" variant="secondary" label={t('pause.open')} onclick={() => (pauseOpen = true)} />
+          {/if}
+        </div>
+        {#if pause.canPause}
+          <PauseModal id="cf-lot-pause" bind:open={pauseOpen} siteId={data.currentSite.id} siteName={data.currentSite.name} device={pause.device} action="?/pause" />
+        {/if}
+      {/if}
 
       {#if !hasNode}
         <InlineNotice id="cf-lot-no-node" message={t('lotDetail.noNodeWeb')} />
@@ -204,6 +236,12 @@
     align-items: center;
     min-height: 44px;
     color: var(--cf-color-primary-text);
+  }
+
+  .cf-detail__actions {
+    display: grid;
+    justify-items: start;
+    gap: var(--cf-spacing-3);
   }
 
   .cf-detail__calibrate {

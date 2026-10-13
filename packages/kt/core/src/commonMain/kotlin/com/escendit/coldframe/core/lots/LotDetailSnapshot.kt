@@ -1,6 +1,9 @@
 package com.escendit.coldframe.core.lots
 
 import com.escendit.coldframe.core.devices.DevicesState
+import com.escendit.coldframe.core.sites.PauseSnapshot
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.snapshotOf
 
 /**
  * [LotDetailState] flattened for Swift: enum values cross as catalogue key suffixes
@@ -31,6 +34,13 @@ import com.escendit.coldframe.core.devices.DevicesState
  *   (`yyyy-MM-dd`), [barDayEpochMs], [barPresent], [barLows], [barHighs] (numbers, empty for a
  *   gap), [barCounts], [barFractions] (0..1), and the summary parts [chartDaysWithReadings],
  *   [chartLowest] with [chartLowestDay], [chartHighest] with [chartHighestDay].
+ * - Pause (Story 8.2): [pauseDeviceId] is the Lot's Node, the Device Pause and Resume are about
+ *   (empty in stale mode and without a Node). [canPause] and [canResume] say which control shows
+ *   (Administrator and up; a Node paused only by its Site has Pause and [heroResumeSiteHint], no
+ *   Resume); [memberPausedNotice] is "Only Owners and Administrators can resume it." for a Member
+ *   on a paused Lot. [heroPausedBy] holds the Server's sources (`device`, `site`). [pause] is the
+ *   Pause sheet and Resume of this surface: `IosLotDetail.openDevicePause`, `resumeDevice` and the
+ *   sheet's calls.
  */
 public data class LotDetailSnapshot(
     val surface: String,
@@ -114,6 +124,12 @@ public data class LotDetailSnapshot(
     /** The days (`yyyy-MM-dd`) with a low under the low Threshold, for the accessible summary. */
     val chartBelowLowDays: List<String>,
     val heroSilentHubName: String = "",
+    val heroPausedBy: List<String> = emptyList(),
+    val pauseDeviceId: String = "",
+    val canPause: Boolean = false,
+    val canResume: Boolean = false,
+    val memberPausedNotice: Boolean = false,
+    val pause: PauseSnapshot = snapshotOf(PauseState()),
 )
 
 private fun Enum<*>.key(): String = name.replaceFirstChar { it.lowercase() }
@@ -122,10 +138,11 @@ private fun Number?.text(): String = this?.toString().orEmpty()
 
 private fun SensorQuantity.camel(): String = name.replaceFirstChar { it.lowercase() }
 
-/** The snapshot of [state], with ages measured at [nowEpochMs]. */
+/** The snapshot of [state] and of this surface's [pause], with ages measured at [nowEpochMs]. */
 public fun snapshotOf(
     state: LotDetailState,
     nowEpochMs: Long,
+    pause: PauseState = PauseState(),
 ): LotDetailSnapshot {
     val ready = state as? LotDetailState.Ready
     val detail = ready?.let { LotDetail.of(it, nowEpochMs) }
@@ -243,5 +260,17 @@ public fun snapshotOf(
         barBelowLow = bars.map { it.belowLow },
         chartBelowLowDays = chart?.belowLowDays.orEmpty(),
         heroSilentHubName = hero?.silentHubName.orEmpty(),
+        heroPausedBy =
+            ready
+                ?.lot
+                ?.takeIf { it.status == LotStatus.Paused }
+                ?.pausedBy
+                ?.map { it.key }
+                .orEmpty(),
+        pauseDeviceId = detail?.pauseDeviceId.orEmpty(),
+        canPause = detail?.canPause == true,
+        canResume = detail?.canResume == true,
+        memberPausedNotice = detail?.memberPausedNotice == true,
+        pause = snapshotOf(pause),
     )
 }

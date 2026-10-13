@@ -10,9 +10,12 @@ final class CoreLotDetailService: LotDetailService {
   private var watch: Watch?
   private var eventsWatch: Watch?
   private var onChange: (@MainActor (LotDetailPresentation) -> Void)?
+  /// Pause and Resume of the Lot's Node; its state arrives with the snapshot.
+  let pause: PauseService
 
   init(core: IosLotDetail) {
     self.core = core
+    self.pause = CorePauseService(core: core.pause)
   }
 
   func observe(_ onChange: @escaping @MainActor (LotDetailPresentation) -> Void) {
@@ -90,6 +93,9 @@ final class CoreLotDetailService: LotDetailService {
       chartBandHighFraction: snapshot.chartBandHighFraction,
       barBelowLow: snapshot.barBelowLow.map { $0.boolValue },
       chartBelowLowDays: snapshot.chartBelowLowDays,
-      heroSilentHubName: snapshot.heroSilentHubName)
+      heroSilentHubName: snapshot.heroSilentHubName,
+      pauseDeviceId: snapshot.pauseDeviceId, canPause: snapshot.canPause,
+      canResume: snapshot.canResume, memberPausedNotice: snapshot.memberPausedNotice,
+      pause: CorePauseService.presentation(of: snapshot.pause))
   }
 }

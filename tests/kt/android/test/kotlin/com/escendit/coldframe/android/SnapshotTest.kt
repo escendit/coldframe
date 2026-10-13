@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.escendit.coldframe.android.ui.alerts.AlertsActions
 import com.escendit.coldframe.android.ui.alerts.AlertsScreen
+import com.escendit.coldframe.android.ui.pause.PauseActions
+import com.escendit.coldframe.android.ui.pause.PauseSheetContent
 import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotDetailScreen
 import com.escendit.coldframe.android.ui.sites.LotTiles
@@ -39,6 +41,7 @@ import com.escendit.coldframe.core.devices.NodeSummary
 import com.escendit.coldframe.core.lots.ChargeState
 import com.escendit.coldframe.core.lots.CreateLotForm
 import com.escendit.coldframe.core.lots.LotDetailState
+import com.escendit.coldframe.core.lots.LotPauseSource
 import com.escendit.coldframe.core.lots.LotStatus
 import com.escendit.coldframe.core.lots.LotSummary
 import com.escendit.coldframe.core.lots.LotsOverview
@@ -53,6 +56,8 @@ import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.CreateSiteForm
+import com.escendit.coldframe.core.sites.PauseForm
+import com.escendit.coldframe.core.sites.PauseScope
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.sites.TimeZoneProposal
@@ -1252,6 +1257,232 @@ class SnapshotTest {
         /** My notifications, and Site settings down to its Reminders, at font scale 2. */
         const val NOTIFICATIONS = "w411dp-h2600dp-mdpi"
     }
+
+    // Story 8.2: Pause and Resume. The sheet's content alone, then the paused surfaces as the shell shows them.
+
+    /** The Pause sheet's content on the sheet's ground, as a `ModalBottomSheet` holds it. */
+    private fun pauseSheet(
+        name: String,
+        form: PauseForm,
+        theme: ThemePreference,
+        fontScale: Float = 1f,
+    ) {
+        compose.setContent {
+            AtFontScale(fontScale) {
+                ColdframeTheme(isDark = theme == ThemePreference.Dark) {
+                    Box(Modifier.testTag("sheet").background(Coldframe.colors.background)) {
+                        PauseSheetContent(form = form, actions = PauseActions.None)
+                    }
+                }
+            }
+        }
+        compose.assertNothingOverflows(name)
+        compose.onNodeWithTag("sheet").captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    fun `UX-DR46 the Pause sheet from the Site menu, Whole Site only and no date, light`() =
+        pauseSheet("pause-sheet-site-light", PauseFixtures.forSite, ThemePreference.Light)
+
+    @Test
+    fun `UX-DR46 the Pause sheet from the Site menu, Whole Site only and no date, dark`() =
+        pauseSheet("pause-sheet-site-dark", PauseFixtures.forSite, ThemePreference.Dark)
+
+    private val pauseDeviceUntil = PauseFixtures.forDevice.copy(until = "2026-11-01")
+
+    @Test
+    fun `UX-DR46 the Pause sheet from a Device, This Device selected with a date, light`() =
+        pauseSheet("pause-sheet-device-light", pauseDeviceUntil, ThemePreference.Light)
+
+    @Test
+    fun `UX-DR46 the Pause sheet from a Device, This Device selected with a date, dark`() =
+        pauseSheet("pause-sheet-device-dark", pauseDeviceUntil, ThemePreference.Dark)
+
+    @Test
+    fun `UX-DR46 the Pause sheet from a Device with Whole Site chosen, light`() =
+        pauseSheet(
+            "pause-sheet-device-site-light",
+            pauseDeviceUntil.copy(scope = PauseScope.Site, until = "2027-03-01"),
+            ThemePreference.Light,
+        )
+
+    @Test
+    fun `UX-DR46 the Pause sheet from a Device with Whole Site chosen, dark`() =
+        pauseSheet(
+            "pause-sheet-device-site-dark",
+            pauseDeviceUntil.copy(scope = PauseScope.Site, until = "2027-03-01"),
+            ThemePreference.Dark,
+        )
+
+    @Test
+    fun `UX-DR46 the Pause sheet with a refused date, light`() =
+        pauseSheet("pause-sheet-refused-light", PauseFixtures.refused, ThemePreference.Light)
+
+    @Test
+    fun `UX-DR46 the Pause sheet with a refused date, dark`() =
+        pauseSheet("pause-sheet-refused-dark", PauseFixtures.refused, ThemePreference.Dark)
+
+    @Test
+    fun `UX-DR46 UX-DR96 the Pause sheet with a refused date, light, font scale 2`() =
+        pauseSheet("pause-sheet-refused-large-light", PauseFixtures.refused, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    fun `UX-DR46 UX-DR96 the Pause sheet with a refused date, dark, font scale 2`() =
+        pauseSheet("pause-sheet-refused-large-dark", PauseFixtures.refused, ThemePreference.Dark, fontScale = 2f)
+
+    /** The overview of a paused Site for [role], with the Site the Lots belong to as the current one. */
+    private fun pausedOverview(
+        name: String,
+        role: SiteRole,
+        theme: ThemePreference,
+        fontScale: Float,
+    ) {
+        val lots = LotFixtures.pausedSite(role)
+        compose.setContent {
+            AtFontScale(fontScale) {
+                ColdframeRoot(
+                    state = SignInState.SignedIn("Simon"),
+                    sites = readySites(lots.site),
+                    theme = theme,
+                    onSignIn = {},
+                    onSignOut = {},
+                    onSelectTheme = {},
+                    lots = lots,
+                    now = { LotFixtures.now },
+                )
+            }
+        }
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    fun `UX-DR83 the overview of a paused Site, light`() =
+        pausedOverview("garden-paused-light", SiteRole.Owner, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    fun `UX-DR83 the overview of a paused Site, dark`() =
+        pausedOverview("garden-paused-dark", SiteRole.Owner, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    fun `UX-DR83 UX-DR96 the overview of a paused Site, light, font scale 2`() =
+        pausedOverview("garden-paused-large-light", SiteRole.Owner, ThemePreference.Light, fontScale = 2f)
+
+    @Test
+    fun `UX-DR83 UX-DR96 the overview of a paused Site, dark, font scale 2`() =
+        pausedOverview("garden-paused-large-dark", SiteRole.Owner, ThemePreference.Dark, fontScale = 2f)
+
+    @Test
+    fun `UX-DR83 UX-DR84 the overview of a paused Site for a Member, light`() =
+        pausedOverview("garden-paused-member-light", SiteRole.Member, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    fun `UX-DR83 UX-DR84 the overview of a paused Site for a Member, dark`() =
+        pausedOverview("garden-paused-member-dark", SiteRole.Member, ThemePreference.Dark, fontScale = 1f)
+
+    /** A Hub paused with its Site, a Hub paused by itself, a Node paused with its Site, one by both, and a live one. */
+    private fun pausedDevices(
+        name: String,
+        theme: ThemePreference,
+        role: SiteRole,
+    ) {
+        val site = homeSite(role)
+        val bySite = listOf(LotPauseSource.Site)
+        val hubs =
+            listOf(
+                HubSummary("1b00aa11bb22cc33", online = false, lastSeenAtEpochMs = seenAt, pausedBy = bySite),
+                onlineHub.copy(pausedBy = listOf(LotPauseSource.Device)),
+            )
+        val nodes =
+            listOf(
+                NodeSummary(
+                    "7c19a1b2c3d4e5f6",
+                    "lot-t",
+                    "Tomatoes",
+                    62,
+                    false,
+                    ChargeState.Charging,
+                    seenAt,
+                    pausedBy = bySite,
+                    pausedUntilEpochMs = LotFixtures.sitePausedUntil.toEpochMilli(),
+                ),
+                NodeSummary(
+                    "7c19000000000003",
+                    null,
+                    null,
+                    null,
+                    false,
+                    null,
+                    null,
+                    pausedBy = listOf(LotPauseSource.Device, LotPauseSource.Site),
+                ),
+                NodeSummary("9c0d1e4b5a673f2a", "lot-b", "Beans", 62, false, ChargeState.NotCharging, seenAt),
+            )
+        snapshot(name, readySites(site), theme, devices = DevicesState.Ready(site, hubs, nodes))
+    }
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR70 UX-DR30 Devices with paused rows for an Administrator, light, font scale 2`() =
+        pausedDevices("devices-paused-light", ThemePreference.Light, SiteRole.Administrator)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR70 UX-DR30 Devices with paused rows for an Administrator, dark, font scale 2`() =
+        pausedDevices("devices-paused-dark", ThemePreference.Dark, SiteRole.Administrator)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR70 UX-DR84 Devices with paused rows for a Member, light, font scale 2`() =
+        pausedDevices("devices-paused-member-light", ThemePreference.Light, SiteRole.Member)
+
+    @Test
+    @Config(qualifiers = TALLER)
+    fun `UX-DR70 UX-DR84 Devices with paused rows for a Member, dark, font scale 2`() =
+        pausedDevices("devices-paused-member-dark", ThemePreference.Dark, SiteRole.Member)
+
+    private val pausedDetail = LotDetailFixtures.ready(LotDetailFixtures.paused)
+    private val pausedDetailMember = LotDetailFixtures.ready(LotDetailFixtures.paused, role = SiteRole.Member)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR70 UX-DR27 Lot detail of a paused Node with Resume, light`() =
+        detail("lot-detail-resume-light", pausedDetail, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR70 UX-DR27 Lot detail of a paused Node with Resume, dark`() =
+        detail("lot-detail-resume-dark", pausedDetail, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR84 UX-DR27 Lot detail of a paused Node for a Member, light`() =
+        detail("lot-detail-paused-member-light", pausedDetailMember, ThemePreference.Light, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR84 UX-DR27 Lot detail of a paused Node for a Member, dark`() =
+        detail("lot-detail-paused-member-dark", pausedDetailMember, ThemePreference.Dark, fontScale = 1f)
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR70 UX-DR27 Lot detail paused by the Site only, with Pause and no Resume, light`() =
+        detail(
+            "lot-detail-paused-site-only-light",
+            LotDetailFixtures.ready(LotDetailFixtures.pausedBySiteOnly),
+            ThemePreference.Light,
+            fontScale = 1f,
+        )
+
+    @Test
+    @Config(qualifiers = TALL)
+    fun `UX-DR70 UX-DR27 Lot detail paused by the Site only, with Pause and no Resume, dark`() =
+        detail(
+            "lot-detail-paused-site-only-dark",
+            LotDetailFixtures.ready(LotDetailFixtures.pausedBySiteOnly),
+            ThemePreference.Dark,
+            fontScale = 1f,
+        )
 
     // Thresholds (Story 5.4): the editor, a Member's read-only view and the failures, light and dark, font scale 2.
 

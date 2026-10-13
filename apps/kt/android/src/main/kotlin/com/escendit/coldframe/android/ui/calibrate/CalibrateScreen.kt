@@ -55,8 +55,8 @@ import androidx.compose.ui.text.intl.Locale as ComposeLocale
  * Calibrate (UX-DR66), full screen: dry, then wet, then the confirmation. Every rule, state and
  * the moment a Reading is fresh come from [CalibrateState]; this only draws them (AD-14). The
  * waiting panel is never announced; a fresh Reading and the first percentage are, politely, from
- * the core's announcement ids. Resume after a Pause is the core's `offersResume`; no Resume call
- * exists until Epic 8, so the paused step only explains.
+ * the core's announcement ids. The paused step only explains: a Pause is resumed from Lot detail, a
+ * Devices row or the Site menu (Story 8.2), and Calibrate has no Resume of its own.
  */
 @Composable
 fun CalibrateScreen(

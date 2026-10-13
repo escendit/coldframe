@@ -9,11 +9,13 @@
     subline: string | null;
     /** The whole Site is paused: the headline takes the paused ink (UX-DR129). */
     paused?: boolean;
+    /** A line under the counts: "No Alerts are sent while the Site is paused." (UX-DR83). */
+    line?: string | null;
     /** The Site menu trigger (mobile places it here; the web puts it on the Site tab). */
     menu?: Snippet;
   }
 
-  let { siteName, headline, subline, paused = false, menu }: Props = $props();
+  let { siteName, headline, subline, paused = false, line = null, menu }: Props = $props();
 </script>
 
 <!-- Site summary header (UX-DR21): the headline sentence as a heading, then the counts. No Site clock yet. -->
@@ -27,6 +29,9 @@
   <h2 id="cf-site-summary-headline" class="cf-site-summary__headline" class:cf-site-summary__headline--paused={paused}>{headline}</h2>
   {#if subline !== null}
     <p class="cf-site-summary__subline">{subline}</p>
+  {/if}
+  {#if line !== null}
+    <p class="cf-site-summary__line">{line}</p>
   {/if}
 </section>
 
@@ -65,6 +70,13 @@
 
   .cf-site-summary__headline--paused {
     color: var(--cf-color-status-paused-ink);
+  }
+
+  .cf-site-summary__line {
+    margin: 0;
+    font-family: var(--cf-type-body-font-family);
+    font-size: var(--cf-type-body-font-size);
+    line-height: var(--cf-type-body-line-height);
   }
 
   .cf-site-summary__subline {

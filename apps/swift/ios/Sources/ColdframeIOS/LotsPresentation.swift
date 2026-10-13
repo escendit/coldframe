@@ -710,13 +710,21 @@ public struct SiteOverviewPresentation: Equatable, Sendable {
   /// One notice per silent Hub of the Site, in the Server's order; none in stale mode, as the
   /// core decided.
   public let hubNotices: [HubNoticePresentation]
+  /// The Server says the Site is paused, and the overview is live: the line under the summary
+  /// shows (UX-DR83). The core decided; it is false in stale mode.
+  public let showsPausedLine: Bool
+  /// The same, for a Member, who has no Resume: the one Inline notice shows (UX-DR84).
+  public let showsMemberPausedNotice: Bool
 
   public init(
     stale: Bool, refreshing: Bool = false, fetchedAt: Date? = nil,
     staleAge: StaleAgePresentation = StaleAgePresentation(days: 0, hours: 0, minutes: 0),
     summary: SiteSummaryPresentation, menuItems: [SiteMenuItem], menuEnabled: Bool,
-    hubNotices: [HubNoticePresentation] = []
+    hubNotices: [HubNoticePresentation] = [], showsPausedLine: Bool = false,
+    showsMemberPausedNotice: Bool = false
   ) {
+    self.showsPausedLine = showsPausedLine
+    self.showsMemberPausedNotice = showsMemberPausedNotice
     self.hubNotices = hubNotices
     self.stale = stale
     self.refreshing = refreshing
@@ -726,6 +734,16 @@ public struct SiteOverviewPresentation: Equatable, Sendable {
     self.menuItems = menuItems
     self.menuEnabled = menuEnabled
   }
+
+  /// "No Alerts are sent while the Site is paused." under the summary of a paused Site.
+  public var pausedLine: L10n? { showsPausedLine ? .gardenSitePaused : nil }
+
+  /// Purple and the pause icon mean paused, and nothing else.
+  public static let pausedLineIcon: CarbonIcon = .pauseOutline
+  public static let pausedLineInk: ThemedColor = ColorTokens.statusPausedInk
+
+  /// "Only Owners and Administrators can resume it." for a Member on a paused Site.
+  public var memberPausedNotice: L10n? { showsMemberPausedNotice ? .pauseMemberNotice : nil }
 }
 
 /// Stale mode was entered or left (UX-DR106), as the core reported it: one polite announcement
@@ -980,10 +998,17 @@ public struct LotsPresentation: Equatable, Sendable {
   public let surface: LotsSurface
   /// The Site overview; nil unless ready.
   public let overview: SiteOverviewPresentation?
+  /// Pause and Resume of the Site, from the Site menu (Story 8.2): the Pause sheet, a Resume
+  /// under way and the last Resume that did not happen.
+  public let pause: PausePresentation
 
-  public init(surface: LotsSurface, overview: SiteOverviewPresentation? = nil) {
+  public init(
+    surface: LotsSurface, overview: SiteOverviewPresentation? = nil,
+    pause: PausePresentation = .none
+  ) {
     self.surface = surface
     self.overview = overview
+    self.pause = pause
   }
 
   public static let waiting = LotsPresentation(surface: .waiting)
@@ -991,6 +1016,8 @@ public struct LotsPresentation: Equatable, Sendable {
   /// Mirrors the flat snapshot field for field; unknown names fall back to the safest reading:
   /// a tile the core did not describe is drawn as unknown, never as fine. Times are Unix
   /// milliseconds; an optional number is a decimal string that is empty when absent.
+  /// `sitePausedLine` and `memberPausedNotice` are the core's word on what a paused Site adds to
+  /// the overview, and `pause` is the Site menu's Pause sheet and Resume (Story 8.2).
   public init(
     surface: String, notice: String?, siteId: String?, siteName: String?, role: String?,
     canRenameSite: Bool, canEditLots: Bool, readOnlyNotice: Bool,
@@ -1015,8 +1042,10 @@ public struct LotsPresentation: Equatable, Sendable {
     lotOpensAddNode: [Bool] = [], lotOpensCalibrate: [Bool] = [], menuItems: [String] = [],
     menuEnabled: Bool = true, hubNoticeIds: [String] = [], hubNoticeNames: [String] = [],
     hubNoticeSilentSince: [String] = [], hubNoticeDurationValues: [String] = [],
-    hubNoticeDurationUnits: [String] = []
+    hubNoticeDurationUnits: [String] = [], sitePausedLine: Bool = false,
+    memberPausedNotice: Bool = false, pause: PausePresentation = .none
   ) {
+    self.pause = pause
     switch surface {
     case "loading":
       self.overview = nil
@@ -1123,7 +1152,8 @@ public struct LotsPresentation: Equatable, Sendable {
         staleAge: StaleAgePresentation(
           days: staleAgeDays, hours: staleAgeHours, minutes: staleAgeMinutes),
         summary: summary, menuItems: menuItems.compactMap(SiteMenuItem.init(rawValue:)),
-        menuEnabled: menuEnabled, hubNotices: hubNotices)
+        menuEnabled: menuEnabled, hubNotices: hubNotices, showsPausedLine: sitePausedLine,
+        showsMemberPausedNotice: memberPausedNotice)
       self.surface = .ready(settings, tiles: tiles)
     default:
       self.overview = nil
@@ -1201,4 +1231,6 @@ public protocol LotsService: AnyObject {
   func setReminderCadence(_ cadence: ReminderCadenceKind)
   /// Try again after the Reminder cadence was not saved.
   func retryReminderCadence()
+  /// Pause and Resume of the Site, from the Site menu (Story 8.2).
+  var pause: PauseService { get }
 }

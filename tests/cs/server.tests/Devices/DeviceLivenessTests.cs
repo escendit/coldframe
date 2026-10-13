@@ -118,6 +118,57 @@ public sealed class DeviceLivenessTests
         Assert.Equal(lotId, device.GetProperty("lotId").GetString());
     }
 
+    // Story 8.2 (DW-112): a paused Device names its Pause sources, device before site, and the later end; one
+    // that is not paused carries neither member.
+    [Fact]
+    public async Task APausedDeviceCarriesItsSourcesAndTheLaterEndAndAnUnpausedOneNeither()
+    {
+        var deviceEnd = new DateTimeOffset(2027, 3, 1, 0, 0, 0, TimeSpan.FromHours(1));
+        var siteEnd = new DateTimeOffset(2027, 4, 1, 0, 0, 0, TimeSpan.FromHours(2));
+
+        using var body = await SerializeAsync(new DeviceListResponse(
+        [
+            EdgeApi.ToDeviceListItem(new DeviceView("92064422c012f481", "hub", null, null, DevicePaused: true), Now),
+            EdgeApi.ToDeviceListItem(new DeviceView("92064422c012f482", "node", null, null, SitePaused: true, SitePausedUntil: siteEnd), Now),
+            EdgeApi.ToDeviceListItem(
+                new DeviceView("92064422c012f483", "node", null, null, DevicePaused: true, DevicePausedUntil: deviceEnd, SitePaused: true, SitePausedUntil: siteEnd),
+                Now),
+            EdgeApi.ToDeviceListItem(
+                new DeviceView("92064422c012f484", "node", null, null, DevicePaused: true, DevicePausedUntil: deviceEnd, SitePaused: true),
+                Now),
+            EdgeApi.ToDeviceListItem(new DeviceView("92064422c012f485", "node", null, null), Now),
+        ]));
+
+        var devices = body.RootElement.GetProperty("devices").EnumerateArray().ToList();
+
+        Assert.Equal(["device"], Sources(devices[0]));
+        Assert.False(devices[0].TryGetProperty("pausedUntil", out _));
+        Assert.Equal(["site"], Sources(devices[1]));
+        Assert.Equal("2027-03-31T22:00:00.000Z", devices[1].GetProperty("pausedUntil").GetString());
+        Assert.Equal(["device", "site"], Sources(devices[2]));
+        Assert.Equal("2027-03-31T22:00:00.000Z", devices[2].GetProperty("pausedUntil").GetString());
+
+        // One source without an end: the Pause has no end.
+        Assert.Equal(["device", "site"], Sources(devices[3]));
+        Assert.False(devices[3].TryGetProperty("pausedUntil", out _));
+        Assert.False(devices[4].TryGetProperty("pausedBy", out _));
+        Assert.False(devices[4].TryGetProperty("pausedUntil", out _));
+    }
+
+    // An end kept for a source that is not in force is never shown.
+    [Fact]
+    public async Task AnEndOfASourceThatIsNotInForceIsNotSent()
+    {
+        var item = EdgeApi.ToDeviceListItem(
+            new DeviceView("92064422c012f481", "node", null, null, DevicePausedUntil: Now.AddDays(3), SitePausedUntil: Now.AddDays(4)),
+            Now);
+        using var body = await SerializeAsync(new DeviceListResponse([item]));
+
+        var device = Assert.Single(body.RootElement.GetProperty("devices").EnumerateArray());
+        Assert.False(device.TryGetProperty("pausedBy", out _));
+        Assert.False(device.TryGetProperty("pausedUntil", out _));
+    }
+
     [Theory]
     [InlineData("device/92064422c012f481", "92064422c012f481")]
     [InlineData("site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", null)]
@@ -126,6 +177,9 @@ public sealed class DeviceLivenessTests
     {
         Assert.Equal(deviceId, DevicesProjector.DeviceIdOf(streamId));
     }
+
+    private static List<string?> Sources(JsonElement device) =>
+        [.. device.GetProperty("pausedBy").EnumerateArray().Select(source => source.GetString())];
 
     // Through the Server's own JSON options, exactly as the endpoint writes it.
     private static async Task<JsonDocument> SerializeAsync(DeviceListResponse response)

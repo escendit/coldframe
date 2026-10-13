@@ -235,13 +235,39 @@ func siteMenu() {
   #expect(SiteMenuItem.siteSettings.opensSiteSettings)
 }
 
-@Test("UX-DR22 Pause and Resume keep their labels and are hidden unless the core lists them")
+@Test("UX-DR22 UX-DR70 an Administrator or Owner has Pause first, which opens the Pause sheet")
 func siteMenuPause() {
-  let paused = garden(snapshot(menuItems: ["resume", "siteSettings"], menuEnabled: false))
+  let owner = garden(snapshot(menuItems: ["pause", "siteSettings"]))
+
+  #expect(owner?.menuItems == [.pause, .siteSettings])
+  #expect(owner?.menuEnabled == true)
+  #expect(SiteMenuItem.pause.action == .openPauseSheet)
+  #expect(!SiteMenuItem.pause.opensSiteSettings)
+  #expect(Catalogue.resolve(SiteMenuItem.pause.labelCopy(siteName: "Home")) == "Pause Home")
+  #expect(
+    Catalogue.resolve(SiteMenuItem.siteSettings.labelCopy(siteName: "Home")) == "Site settings")
+}
+
+@Test("UX-DR22 UX-DR70 a paused Site's menu offers Resume instead of Pause, and one tap resumes")
+func siteMenuResume() {
+  let paused = garden(snapshot(menuItems: ["resume", "siteSettings"]))
 
   #expect(paused?.menuItems == [.resume, .siteSettings])
-  #expect(paused?.menuEnabled == false)
-  #expect(SiteMenuItem.pause.label == .siteMenuPause)
-  #expect(!SiteMenuItem.pause.opensSiteSettings)
+  // Resume acts at once: it opens no sheet and no question.
+  #expect(SiteMenuItem.resume.action == .resumeSite)
   #expect(!SiteMenuItem.resume.opensSiteSettings)
+  #expect(Catalogue.resolve(SiteMenuItem.resume.labelCopy(siteName: "Home")) == "Resume Home")
+  // Which of the two shows is the core's answer; this shell never offers both by itself.
+  #expect(SiteMenuItem.allCases.map(\.action) == [.openPauseSheet, .resumeSite, .openSiteSettings])
+}
+
+@Test("UX-DR22 UX-DR84 a Member's Site menu has no Pause and no Resume, and holds Site settings")
+func siteMenuMember() {
+  let member = garden(snapshot(currentRole: "member", menuItems: ["siteSettings"]))
+
+  #expect(member?.menuItems == [.siteSettings])
+  #expect(member?.menuItems.contains(.pause) == false)
+  #expect(member?.menuItems.contains(.resume) == false)
+  // An item this client does not know is left out, never shown as something else.
+  #expect(garden(snapshot(menuItems: ["archive", "siteSettings"]))?.menuItems == [.siteSettings])
 }

@@ -65,6 +65,9 @@ import com.escendit.coldframe.android.ui.components.Segment
 import com.escendit.coldframe.android.ui.components.SegmentedChoice
 import com.escendit.coldframe.android.ui.components.plate
 import com.escendit.coldframe.android.ui.components.styledText
+import com.escendit.coldframe.android.ui.pause.PauseActions
+import com.escendit.coldframe.android.ui.pause.PauseFailureNotice
+import com.escendit.coldframe.android.ui.pause.PauseSheet
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
 import com.escendit.coldframe.android.ui.theme.textStyle
@@ -79,6 +82,7 @@ import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.LotTileVariant
 import com.escendit.coldframe.core.lots.LotsEvent
 import com.escendit.coldframe.core.lots.SensorCell
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 import kotlinx.coroutines.delay
@@ -89,6 +93,12 @@ import java.time.ZoneId
 
 /** Marks the History chart for tests. */
 const val HISTORY_CHART_TAG = "history-chart"
+
+/** Marks the Pause control of Lot detail for tests. */
+const val PAUSE_ACTION_TAG = "pause-action"
+
+/** Marks the Resume control of Lot detail for tests. */
+const val RESUME_ACTION_TAG = "resume-action"
 
 /** Marks the Set Thresholds / View Thresholds control for tests. */
 const val THRESHOLDS_ACTION_TAG = "thresholds-action"
@@ -105,7 +115,13 @@ private const val TICK_MILLIS = 60_000L
  * to one per row from font scale 1.5. The core's [LotDetail] decides everything that is shown:
  * which note, value, cells and bars apply, every number and the stale state. This screen draws it
  * with the words of [LotDetailCopy]. Calibrate and Set Thresholds (read-only "View Thresholds" for a
- * Member) lead to their own screens; Pause has no destination before Epic 8.
+ * Member) lead to their own screens.
+ *
+ * Pause (Story 8.2): for Administrators and Owners, "Pause" under the hero opens the Pause sheet of [pause] with
+ * This Device selected, and "Resume" lifts the Node's own Pause at once. A Node paused only by its Site has no
+ * Resume here: the hero says "Resume the Site to resume this Node", and Pause stays. A Member has neither control
+ * and reads "Only Owners and Administrators can resume it." on a paused Lot. The hero is one accessibility
+ * element, so the controls are below it, never inside.
  *
  * - Stale mode (UX-DR79): the stale header on top, the hero without a value, and no Sensor or
  *   Device cell: no live value is drawn.
@@ -126,6 +142,7 @@ fun LotDetailScreen(
     onCalibrate: (lotId: String, name: String) -> Unit = { _, _ -> },
     onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit = { _, _, _ -> },
     onOpenDevices: () -> Unit = {},
+    pause: PauseState = PauseState(),
 ) {
     val colors = Coldframe.colors
     var minute by remember { mutableIntStateOf(0) }
@@ -169,6 +186,7 @@ fun LotDetailScreen(
                             onCalibrate = onCalibrate,
                             onThresholds = onThresholds,
                             onOpenDevices = onOpenDevices,
+                            pause = pause,
                         )
                     }
                 }
@@ -202,6 +220,8 @@ fun LotDetailScreen(
             }
         }
     }
+    // Only over a shown Lot: the sheet belongs to this surface.
+    if (state is LotDetailState.Ready) pause.sheet?.let { PauseSheet(it, actions.pause) }
 }
 
 @Composable
@@ -240,6 +260,7 @@ private fun ReadyDetail(
     onCalibrate: (lotId: String, name: String) -> Unit,
     onThresholds: (lotId: String, name: String, sensorId: String?) -> Unit,
     onOpenDevices: () -> Unit,
+    pause: PauseState,
 ) {
     val oneColumn = LocalDensity.current.fontScale >= ONE_COLUMN_FONT_SCALE
     if (detail.stale) {
@@ -250,6 +271,7 @@ private fun ReadyDetail(
         )
     }
     Hero(detail.hero, copy, overviewCopy)
+    PauseControls(detail, pause, actions.pause)
     // Calibrate is the core's answer: Admin+ on a live Lot with a calibratable Sensor; hidden, never disabled.
     if (detail.canCalibrate) {
         ColdframeButton(
@@ -292,6 +314,43 @@ private fun ReadyDetail(
     }
     HistorySection(detail, copy, actions)
     detail.device?.let { DeviceSection(it, copy, oneColumn, onOpenDevices) }
+}
+
+/**
+ * Pause and Resume of the Lot's Node (UX-DR70), right under the hero. Which control shows is the core's answer
+ * ([LotDetail.canPause], [LotDetail.canResume]): hidden, never disabled. Resume is one tap; Pause opens the sheet.
+ * A Member reads the one notice instead, and a Resume that did not happen says why, with Try again.
+ */
+@Composable
+private fun PauseControls(
+    detail: LotDetail,
+    pause: PauseState,
+    actions: PauseActions,
+) {
+    val deviceId = detail.pauseDeviceId
+    if (deviceId != null && detail.canResume) {
+        ColdframeButton(
+            label = stringResource(R.string.pause_resume),
+            onClick = { actions.resumeDevice(deviceId) },
+            variant = ButtonVariant.Secondary,
+            working = pause.workingOn(deviceId),
+            workingLabel = stringResource(R.string.pause_resuming),
+            modifier = Modifier.testTag(RESUME_ACTION_TAG),
+        )
+    }
+    if (deviceId != null && detail.canPause) {
+        ColdframeButton(
+            label = stringResource(R.string.pause_action),
+            onClick = { actions.openForDevice(deviceId) },
+            variant = ButtonVariant.Secondary,
+            working = pause.workingOn(deviceId),
+            modifier = Modifier.testTag(PAUSE_ACTION_TAG),
+        )
+    }
+    if (detail.memberPausedNotice) {
+        InlineNotice(message = stringResource(R.string.pause_member_notice))
+    }
+    pause.failure?.let { PauseFailureNotice(it, actions) }
 }
 
 /** Stale header of Lot detail (UX-DR24): `cloud--offline`, the title, the age as the heading, one line. */

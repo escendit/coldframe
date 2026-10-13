@@ -6,12 +6,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -26,11 +30,18 @@ import com.escendit.coldframe.android.ui.format.Formats
 import com.escendit.coldframe.android.ui.sites.HISTORY_CHART_TAG
 import com.escendit.coldframe.android.ui.sites.LotDetailActions
 import com.escendit.coldframe.android.ui.sites.LotDetailScreen
+import com.escendit.coldframe.android.ui.sites.PAUSE_ACTION_TAG
+import com.escendit.coldframe.android.ui.sites.RESUME_ACTION_TAG
 import com.escendit.coldframe.android.ui.theme.ColdframeTheme
 import com.escendit.coldframe.core.lots.LotDetailNotice
 import com.escendit.coldframe.core.lots.LotDetailState
 import com.escendit.coldframe.core.lots.SensorQuantity
 import com.escendit.coldframe.core.lots.StaleReason
+import com.escendit.coldframe.core.sites.PauseFailure
+import com.escendit.coldframe.core.sites.PauseNotice
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.PauseTarget
 import com.escendit.coldframe.core.sites.SiteRole
 import org.junit.After
 import org.junit.Before
@@ -88,6 +99,8 @@ class LotDetailScreenTest {
         compose.onAllNodes(hasText(text, substring = substring, ignoreCase = true)).assertCountEquals(0)
     }
 
+    private var pause by mutableStateOf(PauseState())
+
     private fun show(state: LotDetailState) {
         compose.setContent {
             ColdframeTheme(isDark = false) {
@@ -97,13 +110,120 @@ class LotDetailScreenTest {
                         LotDetailActions(
                             refresh = { calls += "refresh" },
                             pick = { calls += "pick ${it.key}" },
+                            pause = PauseFixtures.recording(calls),
                         ),
                     now = { LotFixtures.now },
                     onAddNode = { calls += "addNode $it" },
                     onOpenDevices = { calls += "devices" },
+                    pause = pause,
                 )
             }
         }
+    }
+
+    // Pause and Resume (Story 8.2)
+
+    @Test
+    fun `UX-DR70 an Administrator gets Pause on a live Lot, which opens the sheet for the Lot's Node`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.ok, role = SiteRole.Administrator))
+
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertDoesNotExist()
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertTextEquals("PAUSE").performClick()
+        assertEquals(listOf("openForDevice ${LotDetailFixtures.NODE_ID}"), calls)
+
+        // The core opened the sheet: This Device selected, and the button names the Node.
+        pause = PauseFixtures.sheet(PauseFixtures.forDevice)
+        compose.waitForIdle()
+        compose.onNode(isSelectable().and(hasText("WHOLE SITE"))).assertExists()
+        compose.onNode(isSelectable().and(hasText("THIS DEVICE"))).assertIsSelected()
+        compose.onNodeWithText("PAUSE 7C19").performClick()
+        assertEquals("save", calls.last())
+    }
+
+    @Test
+    fun `UX-DR70 a Node paused by itself has Resume, one tap and no sheet, and no second Pause`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.paused))
+
+        assertShown("Paused until ${utcDay("2026-11-01")}")
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertDoesNotExist()
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertTextEquals("RESUME").performClick()
+
+        assertEquals(listOf("resumeDevice ${LotDetailFixtures.NODE_ID}"), calls)
+        compose.onAllNodes(isSelectable().and(hasText("THIS DEVICE"))).assertCountEquals(0)
+        assertNotShown("Resume the Site to resume this Node")
+    }
+
+    @Test
+    fun `UX-DR70 a Node paused by the Site only has no Resume, says Resume the Site, and Pause stays`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.pausedBySiteOnly, role = SiteRole.Administrator))
+
+        assertShown("Paused with the Site")
+        assertShown("Resume the Site to resume this Node")
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertDoesNotExist()
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertExists()
+    }
+
+    @Test
+    fun `UX-DR70 a Node paused by itself and by the Site can be resumed, and stays paused with the Site`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.pausedBySite))
+
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertExists()
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertDoesNotExist()
+        assertShown("Resume the Site to resume this Node")
+    }
+
+    @Test
+    fun `UX-DR84 a Member sees the paused Lot with the one notice and no Pause or Resume`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.paused, role = SiteRole.Member))
+
+        assertShown("Paused until ${utcDay("2026-11-01")}")
+        compose.onAllNodesWithText("Only Owners and Administrators can resume it.").assertCountEquals(1)
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertDoesNotExist()
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertDoesNotExist()
+        compose.onAllNodesWithText("RESUME").assertCountEquals(0)
+        compose.onAllNodesWithText("PAUSE").assertCountEquals(0)
+    }
+
+    @Test
+    fun `UX-DR84 a Member on a live Lot has no Pause and no notice`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.ok, role = SiteRole.Member))
+
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertDoesNotExist()
+        assertNotShown("Only Owners and Administrators can resume it.")
+    }
+
+    @Test
+    fun `UX-DR79 in stale mode and without a Node there is no Pause or Resume`() {
+        show(LotDetailFixtures.ready(LotDetailFixtures.paused, staleReason = StaleReason.Unreachable))
+
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertDoesNotExist()
+        compose.onNodeWithTag(PAUSE_ACTION_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun `UX-DR70 a Resume that did not happen says why under the hero, with Try again`() {
+        pause =
+            PauseState(
+                failure =
+                    PauseFailure(
+                        PauseTarget(PauseScope.Device, LotDetailFixtures.NODE_ID),
+                        PauseNotice.Unreachable,
+                        "Home garden",
+                    ),
+            )
+        show(LotDetailFixtures.ready(LotDetailFixtures.paused))
+
+        assertShown("Can't reach your Coldframe Server.", substring = true)
+        compose.onNodeWithText("TRY AGAIN").performClick()
+        assertEquals(listOf("retry"), calls)
+    }
+
+    @Test
+    fun `UX-DR70 while the Resume runs its button says Resuming and cannot be pressed again`() {
+        pause = PauseState(resuming = PauseTarget(PauseScope.Device, LotDetailFixtures.NODE_ID))
+        show(LotDetailFixtures.ready(LotDetailFixtures.paused))
+
+        compose.onNodeWithTag(RESUME_ACTION_TAG).assertTextEquals("RESUMING…").assertIsNotEnabled()
     }
 
     @Test

@@ -1,13 +1,15 @@
 using Coldframe.Contracts.Sites;
 using Coldframe.Server.Journal;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Coldframe.Server.Identity;
 
 /// <summary>
 /// Projects Sites and Memberships into <c>identity_sites</c> and <c>identity_memberships</c>, the read
-/// model the authorization policy reads (AD-4). It is the only writer of those tables. The ownerless-edit
-/// events need no rows.
+/// model the authorization policy reads (AD-4). It is the only writer of those tables. The Site's Pause
+/// (<c>site.paused</c>, <c>site.resumed</c>; Story 8.2) is kept on the Site's row, so both Site reads can say
+/// it. The ownerless-edit events and <c>site.pause-delivered</c> need no rows.
 /// </summary>
 public sealed class IdentityProjector : IProjector
 {
@@ -36,6 +38,9 @@ public sealed class IdentityProjector : IProjector
 
     // Deletion keeps the rows: the ID stays resolvable and the policy answers 404 for a deleted Site.
     private const string DeleteSiteSql = "UPDATE identity_sites SET lifecycle = @lifecycle WHERE site_id = @site_id";
+
+    // The Site's Pause as its newest event says it; a resume leaves no end behind. Applied again, the same row.
+    private const string PauseSiteSql = "UPDATE identity_sites SET paused = @paused, paused_until = @paused_until WHERE site_id = @site_id";
 
     // The projection is a read model, not a tombstone: a revoked Membership has no row.
     private const string RevokeMembershipSql = "DELETE FROM identity_memberships WHERE site_id = @site_id AND user_id = @user_id";
@@ -101,12 +106,29 @@ public sealed class IdentityProjector : IProjector
                     .ConfigureAwait(false);
                 changes.Touch(siteId, ReadModelResources.Sites, siteId);
                 break;
+            case SitePaused paused:
+                await PauseAsync(transaction, siteId, paused: true, paused.EndsAt, cancellationToken).ConfigureAwait(false);
+                changes.Touch(siteId, ReadModelResources.Sites, siteId);
+                break;
+            case SiteResumed:
+                await PauseAsync(transaction, siteId, paused: false, until: null, cancellationToken).ConfigureAwait(false);
+                changes.Touch(siteId, ReadModelResources.Sites, siteId);
+                break;
             case MembershipRevoked revoked:
                 await ExecuteAsync(transaction, RevokeMembershipSql, cancellationToken, ("site_id", siteId), ("user_id", revoked.UserId))
                     .ConfigureAwait(false);
                 changes.Touch(siteId, ReadModelResources.Sites, siteId, revoked.UserId);
                 break;
         }
+    }
+
+    private static async Task PauseAsync(NpgsqlTransaction transaction, string siteId, bool paused, DateTimeOffset? until, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(PauseSiteSql, transaction.Connection, transaction);
+        command.Parameters.AddWithValue("site_id", siteId);
+        command.Parameters.AddWithValue("paused", paused);
+        command.Parameters.AddWithValue("paused_until", NpgsqlDbType.TimestampTz, until is { } end ? end.ToUniversalTime() : DBNull.Value);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task ExecuteAsync(

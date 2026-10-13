@@ -162,6 +162,66 @@ public sealed class PauseEndpointTests(EdgeApiFixture edge) : IClassFixture<Edge
         Assert.Single(await edge.AliasesAsync($"site/{site.Id}", Ct), alias => alias == "site.resumed");
     }
 
+    // Story 8.2 (DW-112): a read made right after a pause or a resume answered shows it for the thing addressed,
+    // without waiting for a hint or a poll: the Site in both Site reads, the Device in the Devices list and its Lot.
+    [Fact]
+    public async Task AReadRightAfterAPauseOrAResumeAnsweredShowsItForTheSiteAndForTheDevice()
+    {
+        var site = await SeedSiteAsync();
+        var (node, lotId) = await EnrolNodeAsync(site, "Strawberries");
+        var hub = await EnrolAsync(site, ProtocolKind.Hub);
+        var until = DateOnly.FromDateTime(TimeProvider.System.GetUtcNow().UtcDateTime).AddDays(140);
+        var end = Format(new DateTimeOffset(until.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero));
+        using var server = edge.CreateServerClient(site.Administrator.AccessToken);
+        using var member = edge.CreateServerClient(site.Member.AccessToken);
+
+        Assert.Equal((false, null), await SiteReadAsync(member, site.Id));
+        Assert.Equal((false, null), await SiteListedAsync(member, site.Id));
+
+        using var sitePaused = await server.PutAsJsonAsync(SitePauseUri(site.Id), new { until = Date(until) }, Ct);
+        Assert.Equal((true, end), await SitePauseAsync(sitePaused));
+
+        Assert.Equal((true, end), await SiteReadAsync(member, site.Id));
+        Assert.Equal((true, end), await SiteListedAsync(member, site.Id));
+
+        using var siteOpen = await server.PutAsJsonAsync(SitePauseUri(site.Id), new { }, Ct);
+        Assert.Equal((true, null), await SitePauseAsync(siteOpen));
+
+        Assert.Equal((true, null), await SiteReadAsync(member, site.Id));
+        Assert.Equal((true, null), await SiteListedAsync(member, site.Id));
+
+        using var siteResumed = await server.DeleteAsync(SitePauseUri(site.Id), Ct);
+        Assert.Equal((false, null), await SitePauseAsync(siteResumed));
+
+        Assert.Equal((false, null), await SiteReadAsync(member, site.Id));
+        Assert.Equal((false, null), await SiteListedAsync(member, site.Id));
+
+        // The Site's Devices follow through delivery: wait until both heard the resume, so only their own source is read below.
+        await JournaledAsync(node, DeviceResumed, 1);
+        await JournaledAsync(hub, DeviceResumed, 1);
+        await DeviceListedAsync(member, site.Id, node, sources => sources.Length == 0);
+        await DeviceListedAsync(member, site.Id, hub, sources => sources.Length == 0);
+
+        // A Device call: the very next reads show it, for a Hub (no Lot) as for a Node.
+        using var hubPaused = await server.PutAsJsonAsync(DevicePauseUri(site.Id, hub), new { until = Date(until) }, Ct);
+        Assert.Equal(("device", end), await DevicePauseAsync(hubPaused));
+        Assert.Equal(("device", end), await DeviceListedOnceAsync(member, site.Id, hub));
+
+        using var nodePaused = await server.PutAsJsonAsync(DevicePauseUri(site.Id, node), new { }, Ct);
+        Assert.Equal(("device", null), await DevicePauseAsync(nodePaused));
+        Assert.Equal(("device", null), await DeviceListedOnceAsync(member, site.Id, node));
+        using (var lot = await member.GetAsync(new Uri($"/sites/{site.Id}/lots/{lotId}", UriKind.Relative), Ct))
+        {
+            using var body = await EdgeApiFixture.ReadJsonAsync(lot, Ct);
+            Assert.Equal(("paused", "device"), (body.RootElement.GetProperty("status").GetString(), Sources(body.RootElement)));
+        }
+
+        using var nodeResumed = await server.DeleteAsync(DevicePauseUri(site.Id, node), Ct);
+        Assert.Equal(("", null), await DevicePauseAsync(nodeResumed));
+        Assert.Equal(("", null), await DeviceListedOnceAsync(member, site.Id, node));
+        Assert.Equal(("device", end), await DeviceListedOnceAsync(member, site.Id, hub));
+    }
+
     [Fact]
     public async Task ADeviceEnrolledIntoAPausedSiteStartsPaused()
     {
@@ -331,6 +391,61 @@ public sealed class PauseEndpointTests(EdgeApiFixture edge) : IClassFixture<Edge
             body.RootElement.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
 
         return (body.RootElement.GetProperty("paused").GetBoolean(), until);
+    }
+
+    private static (bool Paused, string? PausedUntil) SitePauseOf(JsonElement site) =>
+        (site.GetProperty("paused").GetBoolean(), site.TryGetProperty("pausedUntil", out var until) ? until.GetString() : null);
+
+    // The Site's Pause as GET /sites/{siteId} shows it, read once.
+    private static async Task<(bool Paused, string? PausedUntil)> SiteReadAsync(HttpClient server, string siteId)
+    {
+        using var response = await server.GetAsync(new Uri($"/sites/{siteId}", UriKind.Relative), Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, Ct);
+
+        return SitePauseOf(body.RootElement);
+    }
+
+    // The Site's Pause as GET /sites shows it, read once.
+    private static async Task<(bool Paused, string? PausedUntil)> SiteListedAsync(HttpClient server, string siteId)
+    {
+        using var response = await server.GetAsync(new Uri("/sites", UriKind.Relative), Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, Ct);
+
+        return SitePauseOf(body.RootElement.GetProperty("sites").EnumerateArray().Single(site => site.GetProperty("id").GetString() == siteId));
+    }
+
+    // The Device's Pause as the Devices list shows it, read once: its sources joined by a comma, and their end.
+    private static async Task<(string PausedBy, string? PausedUntil)> DeviceListedOnceAsync(HttpClient server, string siteId, string deviceId)
+    {
+        using var response = await server.GetAsync(new Uri($"/sites/{siteId}/devices", UriKind.Relative), Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, Ct);
+        var device = body.RootElement.GetProperty("devices").EnumerateArray().Single(item => item.GetProperty("id").GetString() == deviceId);
+
+        return (
+            device.TryGetProperty("pausedBy", out var sources) ? string.Join(',', Strings(sources)) : string.Empty,
+            device.TryGetProperty("pausedUntil", out var until) ? until.GetString() : null);
+    }
+
+    // Reads the Devices list until the Device's sources pass: what a Site's delivery reaches after the Site answered.
+    private static async Task DeviceListedAsync(HttpClient server, string siteId, string deviceId, Func<string[], bool> sources)
+    {
+        var deadline = TimeProvider.System.GetUtcNow().AddSeconds(30);
+
+        while (true)
+        {
+            var (pausedBy, _) = await DeviceListedOnceAsync(server, siteId, deviceId);
+
+            if (sources(pausedBy.Split(',', StringSplitOptions.RemoveEmptyEntries)))
+            {
+                return;
+            }
+
+            Assert.True(TimeProvider.System.GetUtcNow() < deadline, $"Device {deviceId} still lists as paused by '{pausedBy}'.");
+            await Task.Delay(TimeSpan.FromMilliseconds(100), Ct);
+        }
     }
 
     // The Lot as GET lots/{lotId} shows it, read until its status passes and, when asked, it names that many

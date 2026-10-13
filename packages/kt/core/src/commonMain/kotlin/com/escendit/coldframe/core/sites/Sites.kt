@@ -13,11 +13,17 @@ public enum class SiteRole {
     }
 }
 
-/** A Site the user holds a Membership on, with the Role the Server reported. */
+/**
+ * A Site the user holds a Membership on, with the Role the Server reported. [paused] is the Server's
+ * word that the Site is paused, with [pausedUntilEpochMs] when that Pause has an end; a Site the
+ * Server says nothing about reads as not paused. The client never computes either.
+ */
 public data class SiteSummary(
     val id: String,
     val name: String,
     val role: SiteRole,
+    val paused: Boolean = false,
+    val pausedUntilEpochMs: Long? = null,
 )
 
 /** The one-line reason under the Site name field. */

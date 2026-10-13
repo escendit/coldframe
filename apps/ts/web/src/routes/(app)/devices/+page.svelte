@@ -6,6 +6,8 @@
   import Icon from '$lib/components/Icon.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
   import Modal from '$lib/components/Modal.svelte';
+  import PauseModal from '$lib/components/PauseModal.svelte';
+  import ResumeControl from '$lib/components/ResumeControl.svelte';
   import {
     batteryText,
     chargingText,
@@ -28,7 +30,9 @@
     type DeviceListItem,
   } from '$lib/devices';
   import { locale, t, type MessageKey } from '$lib/i18n';
+  import { shortDeviceId } from '$lib/i18n/format';
   import { lowBatteryPercent } from '$lib/lot-detail';
+  import { devicePauseOf } from '$lib/pause';
   import { onMount } from 'svelte';
   import type { PageProps } from './$types';
 
@@ -41,7 +45,8 @@
   const nodes = $derived(nodesOf(data.devices));
   const loadedAt = $derived(new Date(data.loadedAt));
 
-  const failed: DeviceActionFailure | null = $derived(form === null || form.done === true ? null : form);
+  // Pause and Resume answer to their own controls (the Pause modal, the Resume form), never through `form`.
+  const failed: DeviceActionFailure | null = $derived(form === null || form.done === true || form.action === 'pause' || form.action === 'resume' ? null : (form as DeviceActionFailure));
 
   /** Which Device's form is working: `moveNode:<id>`, `unassignNode:<id>`, `setSilenceWindow:<id>` or `useDefault:<id>`. */
   let working: string | null = $state(null);
@@ -59,6 +64,9 @@
   let pickedUnit: Record<string, string> = $state({});
   /** The Device whose Silence Window was refused here, before anything was sent: the range is said under its field. */
   let refused: string | null = $state(null);
+  /** The Device the Pause modal was last opened for (Story 8.2). */
+  let pausing: DeviceListItem | null = $state(null);
+  let pauseOpen = $state(false);
   let unassigning: DeviceListItem | null = $state(null);
   let confirmOpen = $state(false);
   let unassignForm: HTMLFormElement | undefined = $state();
@@ -146,6 +154,11 @@
     };
   }
 
+  function askPause(device: DeviceListItem): void {
+    pausing = device;
+    pauseOpen = true;
+  }
+
   function askUnassign(node: DeviceListItem): void {
     unassigning = node;
     confirmOpen = true;
@@ -159,6 +172,9 @@
   /** Without a chosen time zone the times are told in the browser's, once the page runs there. */
   let browserTimeZone: string | null = $state(null);
   const timeZone = $derived(data.timeZone ?? browserTimeZone ?? 'UTC');
+
+  /** What a row shows and offers for its Pause: the Server's `pausedBy` and `pausedUntil`, and the caller's Role. */
+  const pauseContext = $derived({ admin: access?.canPause === true, locale, timeZone });
 
   onMount(() => {
     browserTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -242,6 +258,49 @@
   </details>
 {/snippet}
 
+<!-- A paused row (UX-DR83): the pause icon and "Paused" or "Paused by Site" in paused ink, with the end the Server sent. -->
+{#snippet pausedState(device: DeviceListItem)}
+  {@const pause = devicePauseOf(device, pauseContext)}
+  {#if pause.paused}
+    <span class="cf-devices__paused"><Icon name="pause--outline" />{pause.label}</span>
+    {#if pause.until !== null}<span class="cf-devices__paused-until">{pause.until}</span>{/if}
+  {/if}
+{/snippet}
+
+<!--
+  Pause and Resume of one Device (UX-DR70), for Owners and Administrators only. Resume is one tap while the
+  Device is paused by itself; otherwise Pause opens the Pause modal. Paused by the Site only, the line says
+  to resume the Site, and Pause for the Device stays.
+-->
+{#snippet pauseControl(device: DeviceListItem, siteId: string, siteName: string)}
+  {@const pause = devicePauseOf(device, pauseContext)}
+  {#if pause.canPause || pause.canResume}
+    <div class="cf-devices__pause">
+      {#if pause.canResume}
+        <ResumeControl
+          id="cf-resume-{device.id}"
+          action="?/resume"
+          fields={{ siteId, scope: 'device', deviceId: device.id }}
+          label={t('pause.resume', { name: shortDeviceId(device.id) })}
+          name={shortDeviceId(device.id)}
+          {siteName}
+        />
+      {:else}
+        <Button
+          variant="ghost"
+          label={t('pause.open')}
+          onclick={() => {
+            askPause(device);
+          }}
+        />
+      {/if}
+      {#if pause.resumeSiteLine !== null}
+        <p class="cf-devices__hint cf-devices__pause-line">{pause.resumeSiteLine}</p>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 {#if data.currentSite !== null && access !== null}
   <div class="cf-devices">
     {#if notice !== null}
@@ -262,18 +321,26 @@
             {#each hubs as hub (hub.id)}
               {@const status = statusOf(hub)}
               {@const silent = silentText(hub, loadedAt)}
-              <li id={deviceRowId(hub.id)} class="cf-devices__row" data-device={hub.id} data-online={hub.online} data-silent={silent === null ? undefined : 'true'}>
+              <li id={deviceRowId(hub.id)} class="cf-devices__row" data-device={hub.id} data-online={hub.online} data-silent={silent === null ? undefined : 'true'} data-paused={hub.pausedBy === undefined || hub.pausedBy.length === 0 ? undefined : hub.pausedBy.join(' ')}>
                 <span class="cf-devices__id">{hub.id}</span>
                 <span class="cf-devices__meta">
                   <span class="cf-devices__status"><Icon name={status.icon} />{t(status.label)}</span>
                   {#if silent !== null}<span class="cf-devices__silent"><Icon name="help" />{silent}</span>{/if}
+                  <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                  {@render pausedState(hub)}
                   <span class="cf-devices__seen">{lastSeenText(hub, loadedAt, locale, timeZone)}</span>
                 </span>
-                {#if access.canSetSilenceWindow}
+                {#if access.canSetSilenceWindow || access.canPause}
                   <!-- Admin+ only, hidden for Members (UX-DR84). -->
                   <div class="cf-devices__actions" role="group" aria-label={t('devices.hubActions', { id: hub.id })}>
-                    <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
-                    {@render silenceWindow(hub, data.currentSite.id)}
+                    {#if access.canSetSilenceWindow}
+                      <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                      {@render silenceWindow(hub, data.currentSite.id)}
+                    {/if}
+                    {#if access.canPause}
+                      <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                      {@render pauseControl(hub, data.currentSite.id, data.currentSite.name)}
+                    {/if}
                   </div>
                 {/if}
                 {#if noticeOf(hub.id) !== null}
@@ -294,13 +361,15 @@
             {#each nodes as node (node.id)}
               {@const charging = chargingText(node)}
               {@const silent = silentText(node, loadedAt)}
-              <li id={deviceRowId(node.id)} class="cf-devices__row" data-device={node.id} data-silent={silent === null ? undefined : 'true'}>
+              <li id={deviceRowId(node.id)} class="cf-devices__row" data-device={node.id} data-silent={silent === null ? undefined : 'true'} data-paused={node.pausedBy === undefined || node.pausedBy.length === 0 ? undefined : node.pausedBy.join(' ')}>
                 <span class="cf-devices__who">
                   <span class="cf-devices__id">{node.id}</span>
                   <span class="cf-devices__lot">{node.lotName ?? t('devices.noLot')}</span>
                 </span>
                 <span class="cf-devices__meta">
                   {#if silent !== null}<span class="cf-devices__silent"><Icon name="help" />{silent}</span>{/if}
+                  <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                  {@render pausedState(node)}
                   <span class="cf-devices__seen">{lastSeenText(node, loadedAt, locale, timeZone)}</span>
                   <span class="cf-devices__battery">
                     {#if node.batteryPercent !== undefined && node.batteryPercent < lowBatteryPercent}<Icon name="battery--low" />{/if}
@@ -308,8 +377,8 @@
                   </span>
                   {#if charging !== null}<span class="cf-devices__charging">{charging}</span>{/if}
                 </span>
-                {#if access.canManageNodes || access.canSetSilenceWindow}
-                  <!-- Admin+ only, hidden for Members (UX-DR31, UX-DR84); no Bluetooth is needed to move, unassign or set the Silence Window. -->
+                {#if access.canManageNodes || access.canSetSilenceWindow || access.canPause}
+                  <!-- Admin+ only, hidden for Members (UX-DR31, UX-DR84); no Bluetooth is needed to move, unassign, pause or set the Silence Window. -->
                   <div class="cf-devices__actions" role="group" aria-label={t('devices.nodeActions', { id: node.id })}>
                     {#if access.canSetSilenceWindow}
                       <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
@@ -350,6 +419,10 @@
                         />
                       {/if}
                     {/if}
+                    {#if access.canPause}
+                      <!-- eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- rendering a snippet declared in this file is typed as a void call -->
+                      {@render pauseControl(node, data.currentSite.id, data.currentSite.name)}
+                    {/if}
                   </div>
                 {/if}
                 {#if noticeOf(node.id) !== null}
@@ -380,6 +453,18 @@
           detail={t('devices.unassignDetail', { lotName: unassigning?.lotName ?? t('devices.noLot') })}
           actionLabel={t('devices.unassignNode')}
           onaction={confirmUnassign}
+        />
+      {/if}
+
+      {#if access.canPause && hubs.length + nodes.length > 0}
+        <!-- The one Pause modal of the page (UX-DR46), opened for the Device of the row: This Device selected, beside Whole Site. -->
+        <PauseModal
+          id="cf-device-pause"
+          bind:open={pauseOpen}
+          siteId={data.currentSite.id}
+          siteName={data.currentSite.name}
+          device={pausing === null ? null : { id: pausing.id, kind: pausing.kind }}
+          action="?/pause"
         />
       {/if}
 
@@ -427,6 +512,27 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--cf-color-text-primary);
+  }
+
+  /* "Paused by Site" beside last seen: the pause icon and the words in paused ink, in capitals by style only (UX-DR124). Purple means paused and nothing else. */
+  .cf-devices__paused {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cf-spacing-2);
+    color: var(--cf-color-status-paused-ink);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .cf-devices__pause {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cf-spacing-3) var(--cf-spacing-5);
+  }
+
+  .cf-devices__pause .cf-devices__pause-line {
+    margin: 0;
   }
 
   /* The open form takes the row, so the other actions stand under it and not beside its fields. */

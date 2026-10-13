@@ -30,8 +30,9 @@ class LotsOverviewTest {
         lots: List<LotSummary>,
         role: SiteRole = SiteRole.Owner,
         staleReason: StaleReason? = null,
+        sitePaused: Boolean = false,
     ) = LotsState.Ready(
-        site = SiteSummary("a", "Home", role),
+        site = SiteSummary("a", "Home", role, paused = sitePaused),
         lots = lots,
         siteName = SiteNameForm("Home", null, working = false),
         create = CreateLotForm("", null, working = false, idempotencyKey = "key"),
@@ -637,7 +638,15 @@ class LotsOverviewTest {
         )
         assertEquals(LotsHeadline(LotsHeadlineKind.NeedsWater, 1, "Tomatoes"), overview.headline)
         assertEquals(listOf(LotCount(LotStatus.Ok, 1), LotCount(LotStatus.NoNode, 1)), overview.counts)
-        assertEquals(listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true)), overview.menu)
+        assertEquals(
+            listOf(
+                SiteMenuItem(SiteMenuAction.Pause, enabled = true),
+                SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true),
+            ),
+            overview.menu,
+        )
+        assertFalse(overview.sitePaused)
+        assertFalse(overview.memberPausedNotice)
         assertTrue(overview.tiles.last().opensAddNode)
         assertFalse(
             LotsOverview
@@ -672,17 +681,114 @@ class LotsOverviewTest {
     fun uxDr22InStaleModeTheSiteMenuItemsAreDisabledWithNeedsYourServer() {
         val stale = ready(emptyList(), staleReason = StaleReason.Unreachable)
 
-        assertEquals(listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = false)), stale.siteMenu())
+        assertEquals(
+            listOf(
+                SiteMenuItem(SiteMenuAction.Pause, enabled = false),
+                SiteMenuItem(SiteMenuAction.SiteSettings, enabled = false),
+            ),
+            stale.siteMenu(),
+        )
         assertEquals(stale.siteMenu(), LotsOverview.of(stale, NOW).menu)
         assertEquals(
-            listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true)),
+            listOf(
+                SiteMenuItem(SiteMenuAction.Pause, enabled = true),
+                SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true),
+            ),
             ready(emptyList()).siteMenu(),
+        )
+        assertEquals(
+            listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = false)),
+            ready(emptyList(), role = SiteRole.Member, staleReason = StaleReason.Unreachable).siteMenu(),
         )
         // Loading and a failed load are not stale mode; without a Site there is no menu.
         val home = SiteSummary("a", "Home", SiteRole.Member)
         assertTrue(LotsState.Loading(home).siteMenu().all { it.enabled })
         assertTrue(LotsState.Failed(home, SitesNotice.Unreachable).siteMenu().all { it.enabled })
         assertTrue(LotsState.Idle.siteMenu().isEmpty())
+    }
+
+    // The paused Site (Story 8.2)
+
+    private val pausedBySite =
+        listOf(
+            lot(LotStatus.Paused, "Beans", pausedBy = listOf(LotPauseSource.Site), pausedUntil = NOW + 30 * 24 * HOUR),
+            lot(LotStatus.Paused, "Herbs", pausedBy = listOf(LotPauseSource.Site), pausedUntil = NOW + 30 * 24 * HOUR),
+            lot(LotStatus.NoNode, "Peas"),
+        )
+
+    @Test
+    fun uxDr83APausedSiteHasTheNoAlertsLineThePausedHeadlineAndResumeInItsMenu() {
+        val overview = LotsOverview.of(ready(pausedBySite, sitePaused = true), NOW)
+
+        assertTrue(overview.sitePaused)
+        assertFalse(overview.memberPausedNotice)
+        assertEquals(
+            LotsHeadline(LotsHeadlineKind.Paused, pausedUntilEpochMs = NOW + 30 * 24 * HOUR),
+            overview.headline,
+        )
+        assertTrue(overview.headline.pausedInk)
+        assertEquals(
+            listOf(LotTileLabel.PausedBySite, LotTileLabel.PausedBySite, LotTileLabel.NoNode),
+            overview.tiles.map { it.label },
+        )
+        assertEquals(
+            listOf(
+                SiteMenuItem(SiteMenuAction.Resume, enabled = true),
+                SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true),
+            ),
+            overview.menu,
+        )
+    }
+
+    @Test
+    fun uxDr83TheLineAndTheMenuFollowTheSitesPausedMemberAndTheHeadlineItsOwnRule() {
+        // A paused Site without a Node: the line shows and the Site can be resumed; the headline has nothing to count.
+        val empty = LotsOverview.of(ready(listOf(lot(LotStatus.NoNode)), sitePaused = true), NOW)
+        assertTrue(empty.sitePaused)
+        assertEquals(LotsHeadlineKind.NoReadings, empty.headline.kind)
+        assertEquals(SiteMenuAction.Resume, empty.menu.first().action)
+
+        // Every Lot paused by the Site, but the Site is not (the Sites are read a moment later): no line, Pause.
+        val lagging = LotsOverview.of(ready(pausedBySite), NOW)
+        assertFalse(lagging.sitePaused)
+        assertEquals(LotsHeadlineKind.Paused, lagging.headline.kind)
+        assertEquals(SiteMenuAction.Pause, lagging.menu.first().action)
+
+        // A paused Site whose Lots still read live (delivery is on its way): the line shows, the headline counts.
+        val delivering = LotsOverview.of(ready(listOf(lot(LotStatus.Ok)), sitePaused = true), NOW)
+        assertTrue(delivering.sitePaused)
+        assertEquals(LotsHeadlineKind.NothingNeedsWater, delivering.headline.kind)
+    }
+
+    @Test
+    fun uxDr84AMemberOnAPausedSiteGetsTheOneNoticeAndNoPauseOrResume() {
+        val member = LotsOverview.of(ready(pausedBySite, role = SiteRole.Member, sitePaused = true), NOW)
+
+        assertTrue(member.sitePaused)
+        assertTrue(member.memberPausedNotice)
+        assertEquals(listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true)), member.menu)
+        // Not paused: no notice.
+        assertFalse(LotsOverview.of(ready(pausedBySite, role = SiteRole.Member), NOW).memberPausedNotice)
+    }
+
+    @Test
+    fun uxDr79InStaleModeTheOverviewSaysNothingAboutThePauseAndResumeNeedsTheServer() {
+        val stale =
+            LotsOverview.of(
+                ready(pausedBySite, role = SiteRole.Member, staleReason = StaleReason.Unreachable, sitePaused = true),
+                NOW,
+            )
+        assertFalse(stale.sitePaused)
+        assertFalse(stale.memberPausedNotice)
+
+        val owner = LotsOverview.of(ready(pausedBySite, staleReason = StaleReason.Unreachable, sitePaused = true), NOW)
+        assertEquals(
+            listOf(
+                SiteMenuItem(SiteMenuAction.Resume, enabled = false),
+                SiteMenuItem(SiteMenuAction.SiteSettings, enabled = false),
+            ),
+            owner.menu,
+        )
     }
 
     private companion object {

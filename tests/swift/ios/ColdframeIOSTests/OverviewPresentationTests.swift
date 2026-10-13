@@ -402,3 +402,135 @@ func hubNoticeAnnouncedOnce() throws {
   let again = announcements.fresh(in: notices([later, Overview.otherSilentHub]))
   #expect(again.map(\.name) == ["3F2A"])
 }
+
+// MARK: - Pause and Resume of the Site (Story 8.2)
+
+@Test(
+  "UX-DR83 a paused Site reads Paused until, says no Alerts are sent, and every tile is paused by the Site"
+)
+func pausedSiteOverview() throws {
+  let lots = Overview.pausedSite()
+  let overview = try #require(lots.overview)
+  let headline = try #require(summary(lots))
+
+  #expect(headline.headline(context) == "Paused until 1 Mar")
+  #expect(headline.headlineInk == ColorTokens.statusPausedInk)
+  #expect(
+    overview.pausedLine.map { context.text($0) } == "No Alerts are sent while the Site is paused.")
+  // Purple and the pause icon mean paused, and nothing else.
+  #expect(SiteOverviewPresentation.pausedLineIcon == .pauseOutline)
+  #expect(SiteOverviewPresentation.pausedLineInk == ColorTokens.statusPausedInk)
+  let withNode = lots.tiles.filter { $0.status != .noNode }
+  #expect(withNode.count == 2)
+  #expect(withNode.allSatisfy { $0.variant == .paused })
+  #expect(withNode.allSatisfy { context.text($0.statusLabel) == "Paused by Site" })
+  // A paused Lot never reads as fine.
+  #expect(!lots.tiles.contains { context.text($0.statusLabel).contains("OK") })
+  #expect(overview.memberPausedNotice == nil)
+}
+
+@Test(
+  "UX-DR83 a Site paused without an end reads Paused, and the line follows the core, not the tiles"
+)
+func pausedSiteWithoutEnd() throws {
+  let open = Overview.pausedSite(until: "")
+  // A paused Site whose Lots have no Node: nothing is paused on a tile, the line still shows.
+  let noNodes = Overview.lots(
+    [Overview.noNode], headline: "noReadings", headlineCount: 0, headlineLotName: nil,
+    counts: [("noNode", 1)], menuItems: ["resume", "siteSettings"], sitePausedLine: true)
+  // Every Lot paused by itself, the Site not: the headline is the Lots', and there is no line.
+  let lotsOnly = Overview.lots(
+    [Overview.paused], headline: "paused", headlineCount: 0, headlineLotName: nil,
+    headlinePausedInk: true, counts: [("paused", 1)], menuItems: ["pause", "siteSettings"])
+
+  #expect(try #require(summary(open)).headline(context) == "Paused")
+  #expect(open.overview?.pausedLine == .gardenSitePaused)
+  #expect(try #require(summary(noNodes)).headline(context) == "No Readings yet")
+  #expect(noNodes.overview?.pausedLine == .gardenSitePaused)
+  #expect(garden.menu(lots: noNodes).items == [.resume, .siteSettings])
+  #expect(lotsOnly.overview?.pausedLine == nil)
+  #expect(garden.menu(lots: lotsOnly).items == [.pause, .siteSettings])
+}
+
+@Test(
+  "UX-DR70 Resume in the Site menu resumes with one tap and no sheet, and the tiles are live again"
+)
+func resumeFromTheSiteMenu() throws {
+  let paused = Overview.pausedSite()
+  let resuming = Overview.pausedSite(pause: PauseFixture(resumingScope: "site"))
+  // After the Resume, or once the end date has passed and the Site woke: the Server's answer.
+  let live = Overview.lots(menuItems: ["pause", "siteSettings"])
+
+  #expect(garden.menu(lots: paused).items == [.resume, .siteSettings])
+  #expect(garden.menu(lots: paused).enabled)
+  #expect(paused.pause.sheet == nil)
+  #expect(resuming.pause.working)
+  #expect(resuming.pause.sheet == nil)
+  #expect(garden.menu(lots: live).items == [.pause, .siteSettings])
+  #expect(live.overview?.pausedLine == nil)
+  #expect(try #require(summary(live)).headline(context) == "Tomatoes needs water")
+  #expect(live.tiles.contains { $0.variant == .needsWater })
+}
+
+@Test("UX-DR46 UX-DR70 Pause in the Site menu opens the sheet of the overview, Whole Site only")
+func pauseFromTheSiteMenu() throws {
+  let lots = Overview.lots(menuItems: ["pause", "siteSettings"], pause: .forSite)
+  let sheet = try #require(lots.pause.sheet)
+
+  #expect(sheet.scopes == [.site])
+  #expect(context.resolve(sheet.primaryLabel) == "Pause Home garden")
+  // The sheet is kept while the Lots are read again behind it.
+  #expect(Overview.lots(surface: "loading", [], pause: .forSite).pause.sheet != nil)
+}
+
+@Test("UX-DR84 a Member sees the paused Site with the one notice and no Pause or Resume")
+func pausedSiteForMember() throws {
+  let lots = Overview.pausedSite(role: "member")
+  let overview = try #require(lots.overview)
+
+  #expect(try #require(summary(lots)).headline(context) == "Paused until 1 Mar")
+  #expect(overview.pausedLine == .gardenSitePaused)
+  #expect(
+    overview.memberPausedNotice.map { context.text($0) }
+      == "Only Owners and Administrators can resume it.")
+  #expect(garden.menu(lots: lots).items == [.siteSettings])
+  #expect(lots.tiles.filter { $0.status == .paused }.count == 2)
+}
+
+@Test(
+  "UX-DR79 in stale mode a paused Site's Resume needs the Server, and nothing is said about Alerts"
+)
+func pausedSiteInStaleMode() throws {
+  let stale = Overview.lots(
+    [Overview.pausedBySite.stale], stale: true, fetchedAtMs: Overview.readingMs,
+    staleAge: (0, 2, 58), headline: "paused", headlineCount: 0, headlineLotName: nil,
+    headlinePausedInk: true, menuItems: ["resume", "siteSettings"], menuEnabled: false)
+  let menu = garden.menu(lots: stale)
+
+  #expect(menu.items == [.resume, .siteSettings])
+  #expect(!menu.enabled)
+  #expect(menu.disabledReason.map { context.text($0) } == "Needs your Server")
+  // The core says nothing about the line in stale mode, so nothing is shown.
+  #expect(stale.overview?.pausedLine == nil)
+  #expect(stale.overview?.memberPausedNotice == nil)
+  #expect(staleHeader(stale) != nil)
+}
+
+@Test("UX-DR70 a Resume of the Site that did not happen says why above the tiles, with Try again")
+func resumeOfTheSiteFailed() throws {
+  let unreachable = Overview.pausedSite(pause: .resumeFailed("unreachable", tryAgain: true))
+  let forbidden = Overview.pausedSite(pause: .resumeFailed("forbidden"))
+  let failure = try #require(unreachable.pause.failure)
+  let refused = try #require(forbidden.pause.failure)
+
+  #expect(failure.scope == .site)
+  #expect(failure.message(unreachable: .noticeUnreachable) == .noticeUnreachable)
+  #expect(failure.tryAgain)
+  #expect(
+    context.text(refused.message(unreachable: .noticeUnreachable), .text(refused.subject ?? ""))
+      == "You can't change this on Home garden. Ask an Owner or Administrator.")
+  #expect(!refused.tryAgain)
+  // Nothing changed: the Site is still paused and Resume is still offered.
+  #expect(garden.menu(lots: unreachable).items == [.resume, .siteSettings])
+  #expect(unreachable.overview?.pausedLine == .gardenSitePaused)
+}

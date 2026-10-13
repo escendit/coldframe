@@ -11,8 +11,11 @@ import com.escendit.coldframe.core.notifications.ReminderCadence
 import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
+import com.escendit.coldframe.core.sites.FakePauseApi
 import com.escendit.coldframe.core.sites.FakeSitesApi
 import com.escendit.coldframe.core.sites.NameError
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.SiteMenuAction
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesNotice
@@ -130,6 +133,7 @@ class LotsEngineTest {
     private val sitesApi = FakeSitesApi()
     private val api = FakeLotsApi()
     private val cadenceApi = FakeSiteReminderCadenceApi()
+    private val pauseApi = FakePauseApi(sitesApi)
     private val signIn = MutableStateFlow<SignInState>(SignInState.Restoring)
     private var keys = 0
 
@@ -159,6 +163,7 @@ class LotsEngineTest {
                 backgroundScope,
                 newKey = { "key-${++keys}" },
                 cadenceApi = cadenceApi,
+                pauseApi = pauseApi,
             )
         signIn.value = SignInState.SignedIn("Simon")
         runCurrent()
@@ -795,5 +800,124 @@ class LotsEngineTest {
             runCurrent()
 
             assertEquals(LotsState.Idle, lots.state.value)
+        }
+
+    // Pause and Resume of the Site (Story 8.2)
+
+    /** The Server's bookkeeping of a Site Pause: every Lot with a Node reads `paused` by the Site, or live again. */
+    private fun pauseTheLots(paused: Boolean) {
+        api.lots["a"] =
+            api.lots["a"]
+                .orEmpty()
+                .map {
+                    when {
+                        it.status == "noNode" -> it
+                        paused -> it.copy(status = "paused", pausedBy = listOf("site"))
+                        else -> it.copy(status = "ok", pausedBy = null)
+                    }
+                }.toMutableList()
+    }
+
+    @Test
+    fun uxDr70PausingTheSiteFromTheSiteMenuShowsThePausedOverviewFromTheServersAnswers() =
+        runTest {
+            seed("Tomatoes" to "ok", "Beans" to "noNode")
+            val lots = lotsFor("Administrator")
+            assertEquals(
+                SiteMenuAction.Pause,
+                lots.state.value
+                    .siteMenu()
+                    .first()
+                    .action,
+            )
+            val reads = api.calls.count { it == "list a" }
+
+            lots.pause.openForSite()
+            pauseTheLots(paused = true)
+            lots.pause.save()
+            runCurrent()
+
+            assertEquals(listOf("pauseSite a open"), pauseApi.calls)
+            assertEquals(PauseState(), lots.pause.state.value)
+            assertEquals(reads + 1, api.calls.count { it == "list a" })
+            val ready = lots.ready()
+            assertTrue(ready.site.paused)
+            val overview = LotsOverview.of(ready, 0)
+            assertTrue(overview.sitePaused)
+            assertEquals(LotsHeadlineKind.Paused, overview.headline.kind)
+            assertEquals(listOf(LotTileLabel.PausedBySite, LotTileLabel.NoNode), overview.tiles.map { it.label })
+            assertEquals(SiteMenuAction.Resume, overview.menu.first().action)
+        }
+
+    @Test
+    fun uxDr70ResumingTheSiteIsOneTapAndTheTilesReturnToTheirLiveStatuses() =
+        runTest {
+            api.lots["a"] = mutableListOf(LotDto("id-t", "Tomatoes", "paused", pausedBy = listOf("site")))
+            val (_, lots) = engines(SiteDto("a", "Home", "Owner", paused = true))
+            assertEquals(
+                SiteMenuAction.Resume,
+                lots.state.value
+                    .siteMenu()
+                    .first()
+                    .action,
+            )
+
+            pauseTheLots(paused = false)
+            lots.pause.resumeSite()
+            runCurrent()
+
+            assertEquals(listOf("resumeSite a"), pauseApi.calls)
+            assertFalse(lots.ready().site.paused)
+            assertEquals(listOf(LotStatus.Ok), lots.ready().lots.map { it.status })
+            assertEquals(
+                SiteMenuAction.Pause,
+                lots.state.value
+                    .siteMenu()
+                    .first()
+                    .action,
+            )
+        }
+
+    @Test
+    fun uxDr83RefreshReadsTheSitesAgainSoAPauseThatEndedByItselfOffersPauseAgain() =
+        runTest {
+            api.lots["a"] = mutableListOf(LotDto("id-t", "Tomatoes", "paused", pausedBy = listOf("site")))
+            val (_, lots) =
+                engines(
+                    SiteDto("a", "Home", "Owner", paused = true, pausedUntil = "2027-03-01T00:00:00.000Z"),
+                )
+            assertTrue(LotsOverview.of(lots.ready(), 0).sitePaused)
+
+            // The end date passed and the Site woke; nobody tapped Resume.
+            sitesApi.sites[0] = SiteDto("a", "Home", "Owner", paused = false)
+            pauseTheLots(paused = false)
+            lots.refresh()
+            runCurrent()
+
+            val overview = LotsOverview.of(lots.ready(), 0)
+            assertFalse(overview.sitePaused)
+            assertEquals(SiteMenuAction.Pause, overview.menu.first().action)
+            assertEquals(listOf(LotTileLabel.Ok), overview.tiles.map { it.label })
+            assertTrue(pauseApi.calls.isEmpty())
+        }
+
+    @Test
+    fun uxDr84AMembersSiteMenuHasNoPauseAndTheirCallsAreIgnored() =
+        runTest {
+            seed("Tomatoes" to "ok")
+            val (_, lots) = engines(SiteDto("a", "Home", "Member", paused = true))
+
+            assertEquals(
+                listOf(SiteMenuAction.SiteSettings),
+                lots.state.value
+                    .siteMenu()
+                    .map { it.action },
+            )
+            assertTrue(LotsOverview.of(lots.ready(), 0).memberPausedNotice)
+            lots.pause.openForSite()
+            lots.pause.resumeSite()
+            runCurrent()
+            assertEquals(PauseState(), lots.pause.state.value)
+            assertTrue(pauseApi.calls.isEmpty())
         }
 }

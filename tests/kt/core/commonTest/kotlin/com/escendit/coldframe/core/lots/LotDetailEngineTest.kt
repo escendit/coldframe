@@ -12,7 +12,11 @@ import com.escendit.coldframe.core.api.SiteDto
 import com.escendit.coldframe.core.api.ThresholdSideDto
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.DeviceChoices
+import com.escendit.coldframe.core.sites.FakePauseApi
 import com.escendit.coldframe.core.sites.FakeSitesApi
+import com.escendit.coldframe.core.sites.PauseNotice
+import com.escendit.coldframe.core.sites.PauseScope
+import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.russhwolf.settings.MapSettings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +27,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -90,8 +95,10 @@ class LotDetailEngineTest {
 
     private fun TestScope.start(): LotDetailEngine = engineOver(startSites())
 
+    private val pauseApi = FakePauseApi(sitesApi)
+
     private fun TestScope.engineOver(sitesEngine: SitesEngine): LotDetailEngine {
-        val engine = LotDetailEngine(api, sitesEngine, settings, backgroundScope, now = { clock })
+        val engine = LotDetailEngine(api, sitesEngine, settings, backgroundScope, now = { clock }, pauseApi = pauseApi)
         backgroundScope.launch { engine.events.collect { events += it } }
         runCurrent()
         return engine
@@ -558,5 +565,187 @@ class LotDetailEngineTest {
 
             assertNull(engine.ready().soilThresholds)
             assertNull(engine.ready().staleReason)
+        }
+
+    // Pause and Resume from Lot detail (Story 8.2)
+
+    private val node = "7c19aaaaaaaaaaaa"
+
+    /** The Server's bookkeeping of a Device pause: the Lot reads `paused` by the Device, or live again. */
+    private fun followThePause() {
+        pauseApi.onDevice = { _, paused ->
+            api.lot =
+                if (paused) {
+                    detail.copy(
+                        status = "paused",
+                        pausedBy = listOf("device"),
+                        pausedUntil = "2026-11-01T00:00:00.000Z",
+                    )
+                } else {
+                    detail
+                }
+        }
+    }
+
+    @Test
+    fun uxDr70PausingTheNodeFromLotDetailSendsThePauseAndReadsTheLotAgain() =
+        runTest {
+            api.lot = detail
+            followThePause()
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            assertTrue(LotDetail.of(engine.ready(), clock).canPause)
+            val reads = api.calls.count { it == "lot t" }
+
+            engine.pause.openForDevice(node)
+            engine.pause.setUntil("2026-11-01")
+            engine.pause.save()
+            runCurrent()
+
+            assertEquals(listOf("pauseDevice a $node 2026-11-01"), pauseApi.calls)
+            assertEquals(PauseState(), engine.pause.state.value)
+            assertEquals(reads + 1, api.calls.count { it == "lot t" })
+            // What the hero shows is the Server's answer, not a guess.
+            val ready = engine.ready()
+            assertEquals(LotStatus.Paused, ready.lot.status)
+            assertEquals(listOf(LotPauseSource.Device), ready.lot.pausedBy)
+            val shown = LotDetail.of(ready, clock)
+            assertTrue(shown.canResume)
+            assertEquals(HeroNote.PausedUntil, shown.hero.note)
+        }
+
+    @Test
+    fun uxDr70ResumeFromLotDetailIsOneTapAndTheLotIsLiveAgain() =
+        runTest {
+            api.lot = detail.copy(status = "paused", pausedBy = listOf("device"))
+            followThePause()
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+
+            engine.pause.resumeDevice(node)
+            runCurrent()
+
+            assertEquals(listOf("resumeDevice a $node"), pauseApi.calls)
+            assertNull(engine.pause.state.value.sheet)
+            assertEquals(LotStatus.NeedsCalibration, engine.ready().lot.status)
+            assertTrue(LotDetail.of(engine.ready(), clock).canPause)
+        }
+
+    @Test
+    fun uxDr46ARefusedPauseLeavesLotDetailAsItWasAndTheSheetOpen() =
+        runTest {
+            api.lot = detail
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            val before = engine.ready()
+            val reads = api.calls.size
+
+            engine.pause.openForDevice(node)
+            engine.pause.setUntil("2020-01-01")
+            pauseApi.failure = ApiFailure.Validation
+            engine.pause.save()
+            runCurrent()
+
+            assertTrue(
+                engine.pause.state.value.sheet!!
+                    .dateRefused,
+            )
+            assertEquals(before, engine.ready())
+            assertEquals(reads, api.calls.size)
+
+            pauseApi.failure = ApiFailure.Forbidden
+            engine.pause.save()
+            runCurrent()
+            assertEquals(
+                PauseNotice.Forbidden,
+                engine.pause.state.value.sheet!!
+                    .notice,
+            )
+            assertEquals(before, engine.ready())
+        }
+
+    // The sheet and a failed Resume belong to the Lot they were asked on: the next Lot starts clean, so its
+    // Try again can never resume another Lot's Node.
+    @Test
+    fun uxDr70OpeningOrClosingALotDropsThePauseSheetAndAFailedResumeOfTheLotBefore() =
+        runTest {
+            api.lot = detail
+            val engine = start()
+            engine.open("t", "Tomatoes")
+            runCurrent()
+
+            pauseApi.failure = ApiFailure.Unreachable
+            engine.pause.resumeDevice(node)
+            runCurrent()
+            assertEquals(
+                node,
+                engine.pause.state.value.failure
+                    ?.target
+                    ?.deviceId,
+            )
+
+            engine.open("b", "Beans")
+            runCurrent()
+
+            assertEquals(PauseState(), engine.pause.state.value)
+            engine.pause.retry()
+            runCurrent()
+            assertEquals(listOf("resumeDevice a $node"), pauseApi.calls)
+
+            // An open sheet does not outlive its Lot either, whether the Lot is left or another is opened.
+            engine.pause.openForDevice(node)
+            assertNotNull(engine.pause.state.value.sheet)
+            engine.close()
+            assertEquals(PauseState(), engine.pause.state.value)
+
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            engine.pause.openForDevice(node)
+            engine.open("b", "Beans")
+            assertEquals(PauseState(), engine.pause.state.value)
+        }
+
+    @Test
+    fun uxDr70WholeSiteFromLotDetailPausesTheSiteAndThePauseBelongsToThisSurface() =
+        runTest {
+            api.lot = detail
+            val sitesEngine = startSites()
+            val engine = engineOver(sitesEngine)
+            val other =
+                LotDetailEngine(api, sitesEngine, settings, backgroundScope, now = { clock }, pauseApi = pauseApi)
+            engine.open("t", "Tomatoes")
+            runCurrent()
+
+            engine.pause.openForDevice(node)
+            engine.pause.setScope(PauseScope.Site)
+            // The sheet is this surface's: another surface's Pause stays closed.
+            assertNull(other.pause.state.value.sheet)
+            engine.pause.save()
+            runCurrent()
+
+            assertEquals(listOf("pauseSite a open"), pauseApi.calls)
+            assertTrue((sitesEngine.state.value as com.escendit.coldframe.core.sites.SitesState.Ready).current.paused)
+        }
+
+    @Test
+    fun uxDr70APauseSomewhereElseInTheAppReadsTheOpenLotAgainAndAClosedOneNotAtAll() =
+        runTest {
+            api.lot = detail
+            val sitesEngine = startSites()
+            val engine = engineOver(sitesEngine)
+
+            sitesEngine.pauseChanged()
+            runCurrent()
+            assertTrue(api.calls.isEmpty())
+
+            engine.open("t", "Tomatoes")
+            runCurrent()
+            val reads = api.calls.count { it == "lot t" }
+            sitesEngine.pauseChanged()
+            runCurrent()
+            assertEquals(reads + 1, api.calls.count { it == "lot t" })
         }
 }

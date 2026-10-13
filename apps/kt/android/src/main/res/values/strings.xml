@@ -651,4 +651,29 @@
   <string name="alert_title_battery_level">Node battery %1$s %%, not charging — Lot \'%2$s\'</string>
   <string name="alert_title_node_battery_level">Node %1$s battery %2$s %%, not charging</string>
   <string name="alert_title_node_battery">Node %1$s battery low</string>
+
+  <!-- Story 8.2: Pause and Resume. -->
+  <string name="pause_title">Pause</string>
+  <string name="pause_scope">Pause scope</string>
+  <string name="pause_scope_device">This Device</string>
+  <string name="pause_scope_site">Whole Site</string>
+  <string name="pause_until">Until</string>
+  <string name="pause_until_empty">No end date</string>
+  <string name="pause_until_helper">Leave empty to pause until someone resumes.</string>
+  <string name="pause_until_refused">Choose a date after today.</string>
+  <string name="pause_until_clear">Clear date</string>
+  <string name="pause_primary">Pause %1$s</string>
+  <string name="pause_working">Pausing…</string>
+  <string name="pause_action">Pause</string>
+  <string name="pause_resume">Resume</string>
+  <string name="pause_resuming">Resuming…</string>
+  <string name="pause_not_found">That Device is gone.</string>
+  <string name="pause_unexpected">That didn\'t work. Try again.</string>
+  <string name="pause_member_notice">Only Owners and Administrators can resume it.</string>
+  <string name="garden_site_paused">No Alerts are sent while the Site is paused.</string>
+  <string name="devices_pause_hub">Pause Hub %1$s</string>
+  <string name="devices_pause_node">Pause Node %1$s</string>
+  <string name="devices_resume_hub">Resume Hub %1$s</string>
+  <string name="devices_resume_node">Resume Node %1$s</string>
+  <string name="devices_resume_site_hub">Resume the Site to resume this Hub</string>
 </resources>

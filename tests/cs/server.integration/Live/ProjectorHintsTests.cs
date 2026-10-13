@@ -29,8 +29,8 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
     // Of the five Device events below, the ones that change the row.
     private static readonly int[] ChangedRows = [0, 1, 2, 4];
 
-    // Of the eleven silence events of a Hub below, the ones that change the row.
-    private static readonly int[] SilenceRows = [0, 1, 6, 8, 10];
+    // Of the eleven silence events and the five Pause events of a Hub below, the ones that change the row.
+    private static readonly int[] SilenceRows = [0, 1, 6, 8, 10, 11, 13, 14, 15];
 
     private readonly JournalDatabase _database = new(fixture);
 
@@ -56,6 +56,9 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
             new SiteRenamed("Allotment"),
             new MembershipRevoked(Ben),
             new SiteOwnerlessEditRefused([Ada]),
+            new SitePaused(new DateTimeOffset(2027, 2, 28, 23, 0, 0, TimeSpan.Zero), 1, new DateTimeOffset(2026, 10, 20, 8, 0, 0, TimeSpan.Zero)),
+            new SitePauseDelivered(Node, 1, new DateTimeOffset(2026, 10, 20, 8, 0, 1, TimeSpan.Zero)),
+            new SiteResumed(2, new DateTimeOffset(2026, 10, 22, 8, 0, 0, TimeSpan.Zero)),
             new SiteDeleted());
 
         Assert.Equal(
@@ -65,7 +68,11 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
                 new ReadModelChange(site, "sites", site, positions[2], Ben),
                 new ReadModelChange(site, "sites", site, positions[3]),
                 new ReadModelChange(site, "sites", site, positions[4], Ben),
+
+                // Story 8.2: the Site's Pause and its resume are each a change of the Site; a delivery is none.
                 new ReadModelChange(site, "sites", site, positions[6]),
+                new ReadModelChange(site, "sites", site, positions[8]),
+                new ReadModelChange(site, "sites", site, positions[9]),
             ],
             hints.Published);
         Assert.Equal([positions[^1]], hints.CheckpointsSeen);
@@ -118,7 +125,8 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
     }
 
     // Story 7.2: the overview and the Devices page read again when a Device goes silent, recovers, or gets
-    // another Silence Window; an event that changes no row is not reported.
+    // another Silence Window; an event that changes no row is not reported. Story 8.2: the same for a Pause source
+    // that is set, changed or lifted, of the Device's own and of its Site.
     [Fact]
     public async Task TheDevicesProjectorReportsADeviceThatGoesSilentRecoversOrGetsAnotherSilenceWindow()
     {
@@ -144,11 +152,17 @@ public sealed class ProjectorHintsTests(AppHostFixture fixture) : IAsyncLifetime
             new DeviceSilenceWindowSet(600, at.AddMinutes(2)),
             new DeviceSilenceEnded(1, alert, AlertCloseReason.Recovered, at.AddMinutes(20)),
             new DeviceSilenceEnded(1, alert, AlertCloseReason.Recovered, at.AddMinutes(20)),
-            new DeviceSilenceWindowSet(null, at.AddMinutes(30)));
+            new DeviceSilenceWindowSet(null, at.AddMinutes(30)),
+            new DevicePaused(DevicePauseSource.Device, null, at.AddMinutes(40)),
+            new DevicePaused(DevicePauseSource.Device, null, at.AddMinutes(40)),
+            new DevicePaused(DevicePauseSource.Site, at.AddDays(140), at.AddMinutes(41), 1),
+            new DeviceResumed(DevicePauseSource.Device, at.AddMinutes(42)),
+            new DeviceResumed(DevicePauseSource.Site, at.AddMinutes(43), 2));
 
         // The enrolment, the start of the silence, the window, the recovery and the cleared window; the same
         // silence, the same window and the same recovery applied again change nothing, and the other silence
-        // events are not projected.
+        // events are not projected. Then the Device's own Pause, the Site's Pause and the lifting of each: one
+        // change per row change, none for the same Pause applied again.
         Assert.Equal(
             [.. SilenceRows.Select(index => new ReadModelChange(site, "devices", hub, positions[index]))],
             devices.Published.Where(change => change.Id == hub));

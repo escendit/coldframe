@@ -33,17 +33,20 @@ import com.escendit.coldframe.core.sites.SiteMenu as SiteMenuModel
 
 /**
  * Site menu (UX-DR22): the `overflow-menu--vertical` trigger at the right of the Site summary
- * header opens a Material dropdown with the core's items for the Role. For now that is only
- * "Site settings", which opens Site settings (UX-DR74); Pause arrives with its sheet. [items] are
- * the core's: in stale mode it hands them over disabled, and a disabled item says "Needs your
- * Server" (UX-DR79).
+ * header opens a Material dropdown with the core's items for the Role: "Pause ‹Site›", which opens
+ * the Pause sheet ([onPause]), or "Resume ‹Site›" while the Server says the Site is paused, which
+ * resumes at once ([onResume]); then "Site settings" (UX-DR74). A Member has neither Pause nor
+ * Resume. [items] are the core's: in stale mode it hands them over disabled, and a disabled item
+ * says "Needs your Server" (UX-DR79).
  */
 @Composable
 fun SiteMenu(
     site: SiteSummary,
     onOpenSiteSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    items: List<SiteMenuItem> = SiteMenuModel.items(site.role),
+    items: List<SiteMenuItem> = SiteMenuModel.items(site),
+    onPause: () -> Unit = {},
+    onResume: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var open by rememberSaveable { mutableStateOf(false) }
@@ -93,9 +96,8 @@ fun SiteMenu(
                         open = false
                         when (item.action) {
                             SiteMenuAction.SiteSettings -> onOpenSiteSettings()
-
-                            // Pause and Resume stay hidden until the Pause sheet exists.
-                            SiteMenuAction.Pause, SiteMenuAction.Resume -> Unit
+                            SiteMenuAction.Pause -> onPause()
+                            SiteMenuAction.Resume -> onResume()
                         }
                     },
                     modifier = Modifier.heightIn(min = Spacing.BUTTON_HEIGHT.dp),

@@ -104,6 +104,10 @@ Things to know:
   `Idempotency-Key`, body `{"name":"Home"}`) creates a Site with the caller as Owner, and
   `GET /sites/{siteId}` reads it. `GET /sites` lists the caller's Active Sites with their Role, oldest
   first; the apps use it to find out whether the user has a Membership and to fill the Site switcher.
+  Both say whether the Site is paused (`paused`, `pausedUntil`). `PUT` and `DELETE /sites/{siteId}/pause`
+  (Administrator, body `{}` or `{"until":"2027-03-01"}`) pause and resume the whole Site, and the same
+  two on `/sites/{siteId}/devices/{deviceId}/pause` one Device; the apps call them from the Pause sheet
+  and from Resume (Site menu, Lot detail, a Devices row).
   `PATCH /sites/{siteId}` (Owner, body `{"name":"Home garden"}`) renames a Site; the Server sets the
   Keycloak Organization's display name first. Lots live under `/sites/{siteId}/lots`: `GET` lists the
   live Lots in the Server's order (Member), `POST` creates one (Administrator, `Idempotency-Key`),
@@ -256,9 +260,12 @@ Two; the Edge API tests and the authorization matrix call the running Server wit
 Users they create through a test client of their own, and the Keycloak reconciliation tests change
 Organizations through the Phase Two API and wait for the Server to follow.
 
-`tests/cs/web.e2e` runs the morning-nudge journey (UJ-2) in Chromium: it starts its own AppHost, starts
-the built web app with `node build` on port 5173, signs a Keycloak User in, and follows a simulated Node's
-Readings to the browser notification at 07:00 and to the recovery. Build the web app first, and install
+`tests/cs/web.e2e` runs the journeys in Chromium on the real stack: it starts its own AppHost, starts
+the built web app with `node build` on port 5173 and signs a Keycloak User in. The morning-nudge journey
+(UJ-2) follows a simulated Node's Readings to the browser notification at 07:00 and to the recovery;
+`WinterPauseJourneyTests` (UJ-4) pauses a Site until a date through the web's Pause sheet, lets the Silence
+Windows pass without an Alert, passes the date and sees the tiles live again, in light and dark. Build the
+web app first, and install
 Playwright's Chromium once (the same revision as the TypeScript end-to-end tests use):
 
 ```sh
@@ -354,7 +361,8 @@ the OpenAPI contract; after changing `packages/openapi/coldframe.openapi.json`, 
 committed schema is stale. The end-to-end fake in `tests/ts/web.e2e/fixtures` also stands in for the
 Server's Sites and Lots endpoints. `specs/garden.spec.ts` compares screenshots of Create Site and
 the empty Garden, `specs/site-settings.spec.ts` those of Site settings and Garden with Lots, and
-`specs/lot-status.spec.ts` those of every Lot tile variant, live and stale, at 1 to 4 columns, with
+`specs/lot-status.spec.ts` those of every Lot tile variant, live and stale, at 1 to 4 columns, and
+`specs/pause.spec.ts` those of the Pause sheet and every paused surface (Story 8.2), with
 the baselines next to them (Linux, Chromium); after a deliberate visual change, rebuild and rerun
 them with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test garden site-settings lot-status --update-snapshots` and
 commit the new PNGs.
@@ -401,8 +409,9 @@ On Linux the iOS targets of the core compile but do not link:
 ```
 
 The Android app's snapshot tests (Roborazzi) compare Create Site, Garden (with Lots) and Site settings, in light and
-dark at font scale 2, and the Site overview with its Lot tiles of every status, stale and skeleton at the default
-font scale (two columns) and at font scale 2 (one column), with the PNGs in `tests/kt/android/snapshots`; `check`
+dark at font scale 2, the Site overview with its Lot tiles of every status, stale and skeleton at the default
+font scale (two columns) and at font scale 2 (one column), and the Pause sheet with the paused overview, Devices
+rows and Lot detail (Story 8.2), with the PNGs in `tests/kt/android/snapshots`; `check`
 fails on a difference.
 After a deliberate visual change, record new baselines with `./gradlew :android:recordRoborazziDebug`
 and commit them. The core's `OpenApiContractTest` fails when an operation, header or property the

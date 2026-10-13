@@ -231,6 +231,11 @@
   /// tiles' durations; it fetches nothing and announces nothing. The Site menu's Site settings
   /// opens Site settings (UX-DR74). A *no Node* Lot tile starts Add a Node with its Lot for
   /// Administrators and Owners; the first-run "Add a Node" step tile starts nothing.
+  /// Pause (Story 8.2): the Site menu's "Pause ‹Site›" opens the Pause sheet with Whole Site as
+  /// its only scope, and "Resume ‹Site›" resumes at once. While the Server says the Site is
+  /// paused, the summary adds "No Alerts are sent while the Site is paused." (UX-DR83), and a
+  /// Member, who has no Resume, reads "Only Owners and Administrators can resume it." A Resume
+  /// that did not happen is a notice with Try again.
   /// Above the tiles stands what the core says about notifications (Story 6.5): on the first
   /// landing the one line of why, whose Continue leads to the OS prompt (UX-DR122), afterwards
   /// the notifications-off notice while the permission is denied (UX-DR88). Under it, one
@@ -297,6 +302,13 @@
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.step6) {
           header(context)
+          // A Member sees the paused Site as anyone does, and reads why there is no Resume.
+          if let notice = lots.overview?.memberPausedNotice {
+            InlineNotice(message: notice)
+          }
+          if let failure = lots.pause.failure {
+            PauseFailureNotice(failure: failure, actions: lotsActions.pause)
+          }
           if let notice = push.overviewNotice {
             PushNotice(notice: notice, actions: pushActions)
           }
@@ -360,6 +372,9 @@
             actions.newSite()
           })
       }
+      // The Pause sheet is opened from the Site menu, never over the Site switcher.
+      .pauseSheet(
+        lots.pause, blocked: switching, actions: lotsActions.pause, now: now, timeZone: timeZone)
     }
 
     private func header(_ context: CopyContext) -> some View {
@@ -385,11 +400,13 @@
           Spacer(minLength: 0)
           SiteMenu(
             siteName: presentation.siteName, items: menu.items, enabled: menu.enabled,
-            onOpenSiteSettings: { path.wrappedValue.siteSettings = true })
+            onOpenSiteSettings: { path.wrappedValue.siteSettings = true },
+            onPause: lotsActions.pause.openForSite, onResume: lotsActions.pause.resumeSite)
         }
         switch presentation.header(lots: lots) {
         case .summary(let summary):
-          SiteSummaryHeader(summary: summary, context: context)
+          SiteSummaryHeader(
+            summary: summary, context: context, pausedLine: lots.overview?.pausedLine)
         case .stale(let stale):
           StaleHeader(stale: stale, context: context)
         case .loading(let siteName):
@@ -427,10 +444,13 @@
   }
 
   /// The Site summary (UX-DR21, UX-DR129): the headline sentence, exposed as a heading and in
-  /// paused ink for a paused Site, over the counts subline.
+  /// paused ink for a paused Site, over the counts subline. `pausedLine` is "No Alerts are sent
+  /// while the Site is paused." with the pause icon, while the Server says the Site is paused
+  /// (UX-DR83).
   struct SiteSummaryHeader: View {
     let summary: SiteSummaryPresentation
     let context: CopyContext
+    var pausedLine: L10n?
     @Environment(\.palette) private var palette
 
     var body: some View {
@@ -442,6 +462,13 @@
         if let subline = summary.subline(context) {
           Text(verbatim: subline).role(Typography.body).foregroundStyle(palette.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
+        }
+        if let pausedLine {
+          PausedMark(iconSize: 20, alignment: .top) {
+            pausedLine.text.role(Typography.body).foregroundStyle(palette.textPrimary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .accessibilityElement(children: .combine)
         }
       }
     }
@@ -568,36 +595,45 @@
     }
   }
 
-  /// The Site menu (UX-DR22): a native `Menu` behind the `overflow-menu--vertical` trigger.
-  /// It renders Site settings, which opens Site settings (Story 1.9).
+  /// The Site menu (UX-DR22): a native `Menu` behind the `overflow-menu--vertical` trigger, with
+  /// the core's items for the Role: "Pause ‹Site›", which opens the Pause sheet (`onPause`), or
+  /// "Resume ‹Site›" while the Server says the Site is paused, which resumes at once
+  /// (`onResume`); then Site settings, which opens Site settings (Story 1.9). A Member has
+  /// neither Pause nor Resume. In stale mode the core hands the items over disabled, and each
+  /// says "Needs your Server" (UX-DR79).
   public struct SiteMenu: View {
     let siteName: String
     let items: [SiteMenuItem]
     let enabled: Bool
     let onOpenSiteSettings: () -> Void
+    let onPause: () -> Void
+    let onResume: () -> Void
     @Environment(\.palette) private var palette
 
     public init(
       siteName: String, items: [SiteMenuItem], enabled: Bool,
-      onOpenSiteSettings: @escaping () -> Void
+      onOpenSiteSettings: @escaping () -> Void, onPause: @escaping () -> Void = {},
+      onResume: @escaping () -> Void = {}
     ) {
       self.siteName = siteName
       self.items = items
       self.enabled = enabled
       self.onOpenSiteSettings = onOpenSiteSettings
+      self.onPause = onPause
+      self.onResume = onResume
     }
 
     public var body: some View {
       Menu {
         ForEach(items, id: \.self) { item in
           Button {
-            if item.opensSiteSettings { onOpenSiteSettings() }
-          } label: {
-            if item == .siteSettings {
-              item.label.text
-            } else {
-              Text(verbatim: item.label.string(siteName))
+            switch item.action {
+            case .openPauseSheet: onPause()
+            case .resumeSite: onResume()
+            case .openSiteSettings: onOpenSiteSettings()
             }
+          } label: {
+            Text(verbatim: item.labelCopy(siteName: siteName).string)
             if !enabled { L10n.siteMenuNeedsServer.text }
           }
           .disabled(!enabled)

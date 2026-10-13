@@ -30,6 +30,7 @@ object ColdframeIcons {
     val help: ImageVector get() = of(CarbonIcon.HELP)
     val cloudOffline: ImageVector get() = of(CarbonIcon.CLOUD_OFFLINE)
     val batteryLow: ImageVector get() = of(CarbonIcon.BATTERY_LOW)
+    val pauseOutline: ImageVector get() = of(CarbonIcon.PAUSE_OUTLINE)
 
     private fun build(icon: CarbonIcon): ImageVector =
         ImageVector

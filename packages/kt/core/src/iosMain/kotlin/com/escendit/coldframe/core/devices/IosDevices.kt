@@ -1,26 +1,40 @@
 package com.escendit.coldframe.core.devices
 
 import com.escendit.coldframe.core.Watch
-import com.escendit.coldframe.core.watch
+import com.escendit.coldframe.core.sites.IosPause
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * The Devices engine for Swift, which observes flat [DevicesSnapshot]s and calls [load], [moveNode],
- * [unassignNode] and [setSilenceWindow].
+ * [unassignNode] and [setSilenceWindow], and pauses and resumes through [pause].
  */
 public class IosDevices internal constructor(
     private val engine: DevicesEngine,
     private val scope: CoroutineScope,
 ) {
     /**
-     * Calls [onEach] on the main thread with the current snapshot and every change. The silence of
-     * silent Devices in it is measured when it is taken; [current] takes a new one for a minute tick.
+     * Pause and Resume from a Device row (Story 8.2): `openForDevice` and `resumeDevice` with the row's
+     * Device ID. Its state is [DevicesSnapshot.pause].
+     */
+    public val pause: IosPause = IosPause(engine.pause)
+
+    /**
+     * Calls [onEach] on the main thread with the current snapshot and every change, of the Devices and
+     * of [pause]. The silence of silent Devices in it is measured when it is taken; [current] takes a
+     * new one for a minute tick.
      */
     public fun watch(onEach: (DevicesSnapshot) -> Unit): Watch =
-        engine.state.watch(scope) { onEach(snapshotOf(it, engine.now())) }
+        Watch(
+            scope.launch {
+                combine(engine.state, engine.pause.state) { devices, pause -> snapshotOf(devices, engine.now(), pause) }
+                    .collect { onEach(it) }
+            },
+        )
 
     /** The snapshot as of now: the silence durations move, nothing else does. */
-    public fun current(): DevicesSnapshot = snapshotOf(engine.state.value, engine.now())
+    public fun current(): DevicesSnapshot = snapshotOf(engine.state.value, engine.now(), engine.pause.state.value)
 
     /** Reads the list again: on every entry of the Devices tab, and for Try again. */
     public fun load() {

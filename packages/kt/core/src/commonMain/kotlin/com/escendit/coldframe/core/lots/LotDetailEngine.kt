@@ -7,6 +7,8 @@ import com.escendit.coldframe.core.api.LotHistoryDayDto
 import com.escendit.coldframe.core.api.LotHistoryDto
 import com.escendit.coldframe.core.api.SensorThresholdsDto
 import com.escendit.coldframe.core.lots.LotsEngine.Companion.toSummary
+import com.escendit.coldframe.core.sites.PauseApi
+import com.escendit.coldframe.core.sites.PauseEngine
 import com.escendit.coldframe.core.sites.SiteSummary
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesState
@@ -130,6 +132,10 @@ public sealed interface LotDetailState {
  * success makes it live. The last good detail of each Lot is kept in settings
  * (`lotDetail.lastGood.‹siteId›.‹lotId›`) for a cold start, dropped on 403/404 and cleared when
  * the session ends. Nothing here converts, aggregates or derives a status.
+ *
+ * Pause (Story 8.2): [pause] is the Pause sheet and Resume of the Lot's Node, over [pauseApi]. After
+ * a pause or resume anywhere in the app the open Lot is read again, so the hero shows the Server's
+ * `pausedBy` and `pausedUntil`.
  */
 public class LotDetailEngine(
     private val api: LotDetailApi,
@@ -137,7 +143,11 @@ public class LotDetailEngine(
     settings: Settings,
     private val scope: CoroutineScope,
     internal val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    pauseApi: PauseApi? = null,
 ) {
+    /** Pause and Resume of the Lot's Node, or of the Site, from Lot detail. */
+    public val pause: PauseEngine = PauseEngine(pauseApi, sites, scope)
+
     private val cache = LotDetailCache(settings)
     private val mutableState = MutableStateFlow<LotDetailState>(LotDetailState.Idle)
     private val mutableEvents =
@@ -160,6 +170,8 @@ public class LotDetailEngine(
             mutableState.value = LotDetailState.Idle
             cache.clear()
         }
+        // A Pause or a Resume changes the Lot's status: the Server's is read again.
+        sites.onPauseChanged { refresh() }
         scope.launch {
             sites.state
                 .map { (it as? SitesState.Ready)?.current?.id }
@@ -178,6 +190,8 @@ public class LotDetailEngine(
     ) {
         val site = (sites.state.value as? SitesState.Ready)?.current ?: return
         generation++
+        // The sheet and a failed Resume belong to the Lot they were asked on, never to the next one.
+        pause.reset()
         val cached = cache.read(site.id, lotId)
         mutableState.value =
             if (cached == null) {
@@ -202,6 +216,7 @@ public class LotDetailEngine(
     /** Leaves Lot detail. */
     public fun close() {
         generation++
+        pause.reset()
         mutableState.value = LotDetailState.Idle
     }
 

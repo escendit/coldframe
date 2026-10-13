@@ -9,9 +9,12 @@ final class CoreDevicesService: DevicesService {
   private let core: IosDevices
   private var watch: Watch?
   private var onChange: (@MainActor (DevicesPresentation) -> Void)?
+  /// Pause and Resume from a Device row; its state arrives with the snapshot.
+  let pause: PauseService
 
   init(core: IosDevices) {
     self.core = core
+    self.pause = CorePauseService(core: core.pause)
   }
 
   func observe(_ onChange: @escaping @MainActor (DevicesPresentation) -> Void) {
@@ -55,7 +58,20 @@ final class CoreDevicesService: DevicesService {
       canSetSilenceWindow: snapshot.canSetSilenceWindow,
       silenceWindowWorkingId: snapshot.silenceWindowWorkingId,
       silenceWindowFailedId: snapshot.silenceWindowFailedId,
-      silenceWindowNotice: snapshot.silenceWindowNotice)
+      silenceWindowNotice: snapshot.silenceWindowNotice,
+      hubPause: DevicesPresentation.PauseLists(
+        paused: snapshot.hubPaused.map { $0.boolValue },
+        pausedBySite: snapshot.hubPausedBySite.map { $0.boolValue },
+        canPause: snapshot.hubCanPause.map { $0.boolValue },
+        canResume: snapshot.hubCanResume.map { $0.boolValue },
+        resumeSiteHint: snapshot.hubResumeSiteHint.map { $0.boolValue }),
+      nodePause: DevicesPresentation.PauseLists(
+        paused: snapshot.nodePaused.map { $0.boolValue },
+        pausedBySite: snapshot.nodePausedBySite.map { $0.boolValue },
+        canPause: snapshot.nodeCanPause.map { $0.boolValue },
+        canResume: snapshot.nodeCanResume.map { $0.boolValue },
+        resumeSiteHint: snapshot.nodeResumeSiteHint.map { $0.boolValue }),
+      pause: CorePauseService.presentation(of: snapshot.pause))
   }
 
   func load() { core.load() }

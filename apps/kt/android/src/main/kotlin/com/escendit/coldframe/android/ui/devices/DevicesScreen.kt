@@ -1,5 +1,6 @@
 package com.escendit.coldframe.android.ui.devices
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -47,6 +48,9 @@ import com.escendit.coldframe.android.ui.components.SegmentedChoice
 import com.escendit.coldframe.android.ui.components.TextInput
 import com.escendit.coldframe.android.ui.components.styledText
 import com.escendit.coldframe.android.ui.format.Formats
+import com.escendit.coldframe.android.ui.pause.PauseActions
+import com.escendit.coldframe.android.ui.pause.PauseFailureNotice
+import com.escendit.coldframe.android.ui.pause.PauseSheet
 import com.escendit.coldframe.android.ui.setup.LotPickerRow
 import com.escendit.coldframe.android.ui.theme.Coldframe
 import com.escendit.coldframe.android.ui.theme.ColdframeIcons
@@ -62,6 +66,10 @@ import com.escendit.coldframe.core.devices.SilenceWindowLength
 import com.escendit.coldframe.core.devices.SilenceWindowNotice
 import com.escendit.coldframe.core.devices.SilenceWindowUnit
 import com.escendit.coldframe.core.lots.ChargeState
+import com.escendit.coldframe.core.sites.DevicePause
+import com.escendit.coldframe.core.sites.PauseFailure
+import com.escendit.coldframe.core.sites.PauseState
+import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 import java.time.Instant
@@ -79,6 +87,12 @@ import androidx.compose.ui.text.intl.Locale as ComposeLocale
  * its last seen, and every row names its Silence Window. Changing it is a row action for
  * Administrators and Owners only: for a Member the control does not exist.
  *
+ * Pause (Story 8.2): a Device the Server lists as paused shows the pause icon and "Paused", or "Paused by
+ * Site" when its sources include the Site, in paused ink. For Administrators and Owners a row has Pause, which
+ * opens the Pause sheet of [pause] with This Device selected, or Resume, which lifts the Device's own Pause at
+ * once. A Device paused only by its Site has no Resume: "Resume the Site to resume this Node" (a Hub row: "…
+ * this Hub"), and Pause stays. A Member sees the paused state and none of the controls.
+ *
  * [now] is the clock the last-seen times are told against, read once per shown list.
  */
 @Composable
@@ -88,6 +102,7 @@ fun DevicesScreen(
     modifier: Modifier = Modifier,
     now: () -> Instant = Instant::now,
     zone: ZoneId = ZoneId.systemDefault(),
+    pause: PauseState = PauseState(),
 ) {
     Column(
         modifier =
@@ -111,9 +126,15 @@ fun DevicesScreen(
                     // The Device whose Silence Window dialog is open, by ID: its values are read from
                     // the list when the dialog is drawn.
                     var window by remember { mutableStateOf<String?>(null) }
-                    if (devices.hubs.isNotEmpty()) Hubs(devices, clock, zone, locale, onSilenceWindow = { window = it })
+                    if (devices.hubs.isNotEmpty()) {
+                        Hubs(devices, actions, pause, clock, zone, locale, onSilenceWindow = { window = it })
+                    }
                     if (devices.nodes.isNotEmpty()) {
-                        Nodes(devices, actions, clock, zone, locale, onSilenceWindow = { window = it })
+                        Nodes(devices, actions, pause, clock, zone, locale, onSilenceWindow = { window = it })
+                    }
+                    // One modal level at a time: the Pause sheet is never opened over the Silence Window dialog.
+                    pause.sheet?.takeIf { window == null }?.let {
+                        PauseSheet(it, actions.pause, unreachable = R.string.devices_unreachable)
                     }
                     window?.let { id ->
                         SilenceWindowDialogFor(
@@ -153,6 +174,8 @@ fun DevicesScreen(
 @Composable
 private fun Hubs(
     devices: DevicesState.Ready,
+    actions: DevicesActions,
+    pause: PauseState,
     now: Instant,
     zone: ZoneId,
     locale: Locale,
@@ -180,6 +203,7 @@ private fun Hubs(
                 windowFailure = devices.silenceWindowFailure?.takeIf { it.deviceId == hub.id },
                 siteName = devices.site.name,
                 onSilenceWindow = { onSilenceWindow(hub.id) },
+                pause = DevicePauseUi.of(hub.id, hub.pause, devices.site.role, pause, actions.pause),
             )
             HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
         }
@@ -195,6 +219,7 @@ private fun Hubs(
 private fun Nodes(
     devices: DevicesState.Ready,
     actions: DevicesActions,
+    pause: PauseState,
     now: Instant,
     zone: ZoneId,
     locale: Locale,
@@ -229,6 +254,7 @@ private fun Nodes(
                 windowFailure = devices.silenceWindowFailure?.takeIf { it.deviceId == node.id },
                 siteName = devices.site.name,
                 onSilenceWindow = { onSilenceWindow(node.id) },
+                pause = DevicePauseUi.of(node.id, node.pause, devices.site.role, pause, actions.pause),
             )
             HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
         }
@@ -273,9 +299,12 @@ private fun NodeRow(
     windowFailure: SilenceWindowFailure?,
     siteName: String,
     onSilenceWindow: () -> Unit,
+    pause: DevicePauseUi,
 ) {
     val colors = Coldframe.colors
     val resources = LocalResources.current
+    val pauseLabel = stringResource(R.string.devices_pause_node, node.id)
+    val resumeLabel = stringResource(R.string.devices_resume_node, node.id)
     val silence = node.silence(now.toEpochMilli())?.let { Formats.duration(resources, it) }
     val window = node.silenceWindow?.let { Formats.silenceWindow(resources, it) }
     val windowLabel = stringResource(R.string.devices_silence_window_node, node.id)
@@ -308,9 +337,17 @@ private fun NodeRow(
         Column(
             modifier =
                 Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-                    if (manage || silenceWindow) {
+                    if (manage || silenceWindow || pause.canPause || pause.canResume) {
                         customActions =
                             buildList {
+                                if (pause.canPause) {
+                                    add(
+                                        CustomAccessibilityAction(pauseLabel) { pause.act(pause.onPause) },
+                                    )
+                                }
+                                if (pause.canResume) {
+                                    add(CustomAccessibilityAction(resumeLabel) { pause.act(pause.onResume) })
+                                }
                                 if (manage) {
                                     add(
                                         CustomAccessibilityAction(moveLabel) {
@@ -350,6 +387,7 @@ private fun NodeRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_5.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
             ) {
+                if (pause.paused) PausedMark(pause.bySite, iconSize)
                 if (silence != null) SilentMark(silence, iconSize)
                 Text(text = lastSeen, style = Typography.helper.textStyle(), color = colors.textSecondary)
                 if (battery != null) {
@@ -373,13 +411,15 @@ private fun NodeRow(
                 }
                 if (window != null) WindowSummary(window)
             }
+            if (pause.resumeSiteHint) ResumeSiteHint(R.string.lot_detail_resume_site)
         }
         // Admin+ only, hidden for a Member (UX-DR31, UX-DR84); no Bluetooth is needed for any of them.
-        if (manage || silenceWindow) {
+        if (manage || silenceWindow || pause.canPause || pause.canResume) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_4.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
             ) {
+                PauseButtons(pause, pauseLabel, resumeLabel)
                 if (manage) {
                     ColdframeButton(
                         label = stringResource(R.string.devices_move),
@@ -413,6 +453,117 @@ private fun NodeRow(
             InlineNotice(message = stringResource(failure.notice.message()), announcement = Announcement.Assertive)
         }
         if (windowFailure != null) SilenceWindowFailureNotice(windowFailure, siteName)
+        pause.failure?.let { PauseFailureNotice(it, pause.actions, unreachable = R.string.devices_unreachable) }
+    }
+}
+
+/**
+ * What a Device row says and offers about Pause: the core's [DevicePause] for the Role, with the request
+ * that is under way on this Device and the last Resume of it that did not happen.
+ */
+private class DevicePauseUi(
+    val paused: Boolean,
+    val bySite: Boolean,
+    val canPause: Boolean,
+    val canResume: Boolean,
+    val resumeSiteHint: Boolean,
+    val working: Boolean,
+    val failure: PauseFailure?,
+    val actions: PauseActions,
+    val onPause: () -> Unit,
+    val onResume: () -> Unit,
+) {
+    /** A custom accessibility action of the row: ignored while a request runs, as the button is. */
+    fun act(action: () -> Unit): Boolean {
+        if (!working) action()
+        return true
+    }
+
+    companion object {
+        fun of(
+            deviceId: String,
+            device: DevicePause,
+            role: SiteRole,
+            state: PauseState,
+            actions: PauseActions,
+        ) = DevicePauseUi(
+            paused = device.paused,
+            bySite = device.bySite,
+            canPause = device.canPause(role),
+            canResume = device.canResume(role),
+            resumeSiteHint = device.resumeSiteHint(role),
+            // One request at a time, on any row.
+            working = state.working,
+            failure = state.failure?.takeIf { it.target.deviceId == deviceId },
+            actions = actions,
+            onPause = { actions.openForDevice(deviceId) },
+            onResume = { actions.resumeDevice(deviceId) },
+        )
+    }
+}
+
+/**
+ * A paused Device (UX-DR70): the `pause--outline` icon with "Paused", or "Paused by Site" when its sources
+ * include the Site, in paused ink; in sentence case in the catalogue and upper case by style. Purple and the
+ * pause icon mean paused and nothing else.
+ */
+@Composable
+private fun PausedMark(
+    bySite: Boolean,
+    iconSize: Dp,
+) {
+    val colors = Coldframe.colors
+    val label = if (bySite) R.string.lot_tile_label_paused_by_site else R.string.lot_tile_label_paused
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = ColdframeIcons.pauseOutline,
+            contentDescription = null,
+            tint = colors.statusPausedInk,
+            modifier = Modifier.size(iconSize),
+        )
+        Text(
+            text = styledText(stringResource(label), Typography.statusLabel),
+            style = Typography.statusLabel.textStyle(),
+            color = colors.statusPausedInk,
+        )
+    }
+}
+
+/** "Resume the Site to resume this Node" (or "… this Hub"): why a Device paused by its Site has no Resume. */
+@Composable
+private fun ResumeSiteHint(
+    @StringRes text: Int,
+) {
+    Text(text = stringResource(text), style = Typography.helper.textStyle(), color = Coldframe.colors.textSecondary)
+}
+
+/** Pause, which opens the sheet, or Resume, which acts at once; whichever the core says the row has. */
+@Composable
+private fun PauseButtons(
+    pause: DevicePauseUi,
+    pauseLabel: String,
+    resumeLabel: String,
+) {
+    if (pause.canResume) {
+        ColdframeButton(
+            label = stringResource(R.string.pause_resume),
+            onClick = pause.onResume,
+            variant = ButtonVariant.Ghost,
+            working = pause.working,
+            modifier = Modifier.semantics { contentDescription = resumeLabel },
+        )
+    }
+    if (pause.canPause) {
+        ColdframeButton(
+            label = stringResource(R.string.pause_action),
+            onClick = pause.onPause,
+            variant = ButtonVariant.Ghost,
+            working = pause.working,
+            modifier = Modifier.semantics { contentDescription = pauseLabel },
+        )
     }
 }
 
@@ -745,9 +896,11 @@ private fun HubRow(
     windowFailure: SilenceWindowFailure?,
     siteName: String,
     onSilenceWindow: () -> Unit,
+    pause: DevicePauseUi,
 ) {
-    val colors = Coldframe.colors
     val resources = LocalResources.current
+    val pauseLabel = stringResource(R.string.devices_pause_hub, hub.id)
+    val resumeLabel = stringResource(R.string.devices_resume_hub, hub.id)
     val silence = hub.silence(now.toEpochMilli())?.let { Formats.duration(resources, it) }
     val window = hub.silenceWindow?.let { Formats.silenceWindow(resources, it) }
     val windowLabel = stringResource(R.string.devices_silence_window_hub, hub.id)
@@ -766,18 +919,38 @@ private fun HubRow(
         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.STEP_4.dp),
         verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
     ) {
-        HubFacts(hub, lastSeen, silence, window, iconSize, windowLabel.takeIf { silenceWindow }, onSilenceWindow)
-        // Administrators and Owners only (UX-DR84): for a Member the control does not exist.
-        if (silenceWindow) {
-            ColdframeButton(
-                label = stringResource(R.string.devices_silence_window),
-                onClick = onSilenceWindow,
-                variant = ButtonVariant.Ghost,
-                working = working,
-                modifier = Modifier.semantics { contentDescription = windowLabel },
-            )
+        HubFacts(
+            hub = hub,
+            lastSeen = lastSeen,
+            silence = silence,
+            window = window,
+            iconSize = iconSize,
+            windowAction = windowLabel.takeIf { silenceWindow },
+            onSilenceWindow = onSilenceWindow,
+            pause = pause,
+            pauseLabel = pauseLabel,
+            resumeLabel = resumeLabel,
+        )
+        // Administrators and Owners only (UX-DR84): for a Member the controls do not exist.
+        if (silenceWindow || pause.canPause || pause.canResume) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.STEP_4.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
+            ) {
+                PauseButtons(pause, pauseLabel, resumeLabel)
+                if (silenceWindow) {
+                    ColdframeButton(
+                        label = stringResource(R.string.devices_silence_window),
+                        onClick = onSilenceWindow,
+                        variant = ButtonVariant.Ghost,
+                        working = working,
+                        modifier = Modifier.semantics { contentDescription = windowLabel },
+                    )
+                }
+            }
         }
         if (windowFailure != null) SilenceWindowFailureNotice(windowFailure, siteName)
+        pause.failure?.let { PauseFailureNotice(it, pause.actions, unreachable = R.string.devices_unreachable) }
     }
 }
 
@@ -795,19 +968,32 @@ private fun HubFacts(
     iconSize: Dp,
     windowAction: String?,
     onSilenceWindow: () -> Unit,
+    pause: DevicePauseUi,
+    pauseLabel: String,
+    resumeLabel: String,
 ) {
     val colors = Coldframe.colors
     Column(
         modifier =
             Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-                if (windowAction != null) {
+                if (windowAction != null || pause.canPause || pause.canResume) {
                     customActions =
-                        listOf(
-                            CustomAccessibilityAction(windowAction) {
-                                onSilenceWindow()
-                                true
-                            },
-                        )
+                        buildList {
+                            if (pause.canPause) add(CustomAccessibilityAction(pauseLabel) { pause.act(pause.onPause) })
+                            if (pause.canResume) {
+                                add(
+                                    CustomAccessibilityAction(resumeLabel) { pause.act(pause.onResume) },
+                                )
+                            }
+                            if (windowAction != null) {
+                                add(
+                                    CustomAccessibilityAction(windowAction) {
+                                        onSilenceWindow()
+                                        true
+                                    },
+                                )
+                            }
+                        }
                 }
             },
         verticalArrangement = Arrangement.spacedBy(Spacing.STEP_2.dp),
@@ -835,9 +1021,11 @@ private fun HubFacts(
                     color = colors.textPrimary,
                 )
             }
+            if (pause.paused) PausedMark(pause.bySite, iconSize)
             if (silence != null) SilentMark(silence, iconSize)
             Text(text = lastSeen, style = Typography.helper.textStyle(), color = colors.textSecondary)
             if (window != null) WindowSummary(window)
         }
+        if (pause.resumeSiteHint) ResumeSiteHint(R.string.devices_resume_site_hub)
     }
 }

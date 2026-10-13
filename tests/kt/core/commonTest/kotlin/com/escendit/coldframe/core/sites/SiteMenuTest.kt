@@ -5,10 +5,43 @@ import kotlin.test.assertEquals
 
 class SiteMenuTest {
     @Test
-    fun uxDr22InStory18TheMenuHoldsOnlySiteSettings() {
+    fun uxDr22ASurfaceThatCannotPauseHoldsOnlySiteSettings() {
         for (role in SiteRole.entries) {
-            assertEquals(listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true)), SiteMenu.items(role))
+            assertEquals(
+                listOf(SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true)),
+                SiteMenu.items(role, pauseAvailable = false),
+            )
         }
+    }
+
+    @Test
+    fun uxDr22TheMenuOffersPauseByDefaultAndFollowsTheSitesPausedMember() {
+        val pause = SiteMenuItem(SiteMenuAction.Pause, enabled = true)
+        val resume = SiteMenuItem(SiteMenuAction.Resume, enabled = true)
+        val settings = SiteMenuItem(SiteMenuAction.SiteSettings, enabled = true)
+        assertEquals(listOf(pause, settings), SiteMenu.items(SiteRole.Owner))
+        assertEquals(listOf(pause, settings), SiteMenu.items(SiteSummary("a", "Home garden", SiteRole.Administrator)))
+        // `Site.paused` is the Server's: a paused Site offers Resume, also when it has no Node.
+        assertEquals(
+            listOf(resume, settings),
+            SiteMenu.items(SiteSummary("a", "Home garden", SiteRole.Owner, paused = true)),
+        )
+        // A Member has neither, paused or not.
+        assertEquals(
+            listOf(settings),
+            SiteMenu.items(SiteSummary("a", "Home garden", SiteRole.Member, paused = true)),
+        )
+    }
+
+    @Test
+    fun uxDr22InStaleModeResumeIsDisabledToo() {
+        assertEquals(
+            listOf(
+                SiteMenuItem(SiteMenuAction.Resume, enabled = false),
+                SiteMenuItem(SiteMenuAction.SiteSettings, enabled = false),
+            ),
+            SiteMenu.items(SiteSummary("a", "Home garden", SiteRole.Owner, paused = true), stale = true),
+        )
     }
 
     @Test

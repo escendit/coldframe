@@ -183,8 +183,9 @@ location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sit
 source_spec: `spec-1-8-create-site-and-the-empty-garden-in-the-apps.md`
 severity: medium
 reason: UX-DR22 in full needs the Pause sheet (UX-DR46/70) and stale mode, which arrive in later epics; rendering a Pause item that does nothing would break controls-you-cannot-use-are-hidden. Turn on pauseAvailable with the Pause story and stale with stale mode, and render the Needs your Server state on all three clients.
-status: open
-progress: Story 4.7 (`spec-4-7-lot-status-and-the-site-overview.md`) closes the stale part: in stale mode the Site menu items are disabled with "Needs your Server" on all three clients (core `LotsState.siteMenu()`, web `site-menu.ts` fed from the layout). Pause/Resume stays hidden until the Pause story (Epic 8).
+status: resolved
+resolution: Story 8.2 (`spec-8-2-pause-and-resume-in-the-apps.md`): the Site menu offers "Pause <Site>" or "Resume <Site>" to Administrators and Owners on web, Android and iOS, from `Site.paused` (core `SiteMenu.items` with `pauseAvailable` on, web `site-menu.ts`); Pause opens the Pause sheet with Whole Site as its only scope, Resume is one tap. A Member has Site settings only, and in stale mode the item is disabled with "Needs your Server".
+progress: Story 4.7 (`spec-4-7-lot-status-and-the-site-overview.md`) closes the stale part: in stale mode the Site menu items are disabled with "Needs your Server" on all three clients (core `LotsState.siteMenu()`, web `site-menu.ts` fed from the layout). Pause/Resume stayed hidden until the Pause story, Story 8.2, which shows it (see the resolution).
 
 ### DW-25: Site settings in the Site menu opens the Settings index, not a Site settings surface.
 origin: spec-deferred cd4566c213ff
@@ -557,6 +558,7 @@ source_spec: `spec-4-8-lot-detail-with-history-and-device-status.md`
 severity: low
 reason: No Thresholds exist before Epic 5, no Calibrate, Pause or Resume destination before Epics 5 and 8, so Story 4.8 draws no strip, no band and no below-low bars (every bar is normal-style). `moisturePercent` and `lowThresholdPercent` are never sent by the Server before Epics 5 and 6; the hero's `~N %` path is exercised only by fixtures. Epics 5 and 8 add the strip and the band.
 status: open
+progress: Story 8.2 (`spec-8-2-pause-and-resume-in-the-apps.md`) closes the Pause/Resume part: Lot detail has a Pause action for the Lot's Node (it opens the Pause sheet, This Device preselected) and Resume on a Node paused by itself, for Administrators and Owners on web, Android and iOS; paused by the Site only it shows "Resume the Site to resume this Node". What else is still open here is unchanged by that story.
 
 ### DW-73: Devices (all clients) and Lot detail on mobile have no refetch on focus; the Hub-silent hero text has no Hub ID.
 origin: spec-deferred story-4-8-2
@@ -870,7 +872,8 @@ location: apps/cs/server/Devices/DevicesReadModel.cs, apps/cs/server/Edge/EdgeAp
 source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
 severity: medium
 reason: Story 8.1 asks only for the LotStatus projection, which shows paused with pausedBy and pausedUntil. The four pause endpoints answer with the state in force, and ISiteGrain.GetPause is grain-only. DevicesProjector ignores device.paused and device.resumed, and GET /sites/{siteId} has no pause member. Story 8.2 needs a Site headline ("Paused until 1 Mar"), "PAUSED BY SITE" Device rows and a paused Hub row, so it has to add these to the contract and the read models.
-status: open
+status: resolved
+resolution: Story 8.2 (`spec-8-2-pause-and-resume-in-the-apps.md`): `Site` carries optional `paused` and `pausedUntil` (`GET /sites`, `GET /sites/{siteId}`, the answer to `PATCH`), and `DeviceListItem` optional `pausedBy` and `pausedUntil`, a Hub too. `IdentityProjector` projects `site.paused` and `site.resumed` into `identity_sites`, `DevicesProjector` `device.paused` and `device.resumed` into per-source columns of `devices` (`M20261014090000AddPauseReadColumns`, which fills the Sites from the journal and replays only the devices read model). A read right after a pause or a resume shows it for the Site or Device addressed. Pinned by `SiteResponseTests`, `DeviceLivenessTests`, `ListSitesTests`, `DevicesListTests`, `PauseEndpointTests` and `MigrationTests`; see `apps/cs/README.md`, "Reading a Pause back".
 
 ### DW-113: The test-only POST /testing/sites/{siteId}/wake has no caller yet.
 origin: spec-deferred 9e172f2b22fc
@@ -878,7 +881,8 @@ location: apps/cs/server/Testing/TestingHostingExtensions.cs
 source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
 severity: low
 reason: It was added for Story 8.2's end-to-end run of the winter journey, which must pass a Site end date on the manual clock. Nothing in this change requests the route (IdentityCluster.WakeSiteAsync calls the grain), so a mistyped route or a wake that does not wait for delivery would go unnoticed until that journey is written; the Device and User wakes are exercised by the web.e2e journeys in the same way.
-status: open
+status: resolved
+resolution: Story 8.2 (`spec-8-2-pause-and-resume-in-the-apps.md`): `WinterPauseJourneyTests` (`tests/cs/web.e2e`) passes a Site end date on the manual clock and calls the route through `JourneyTests.WakeSiteAsync`, which expects 204 and then reads the resume from `GET /sites/{siteId}`, the Site and Device journals and the Devices list.
 
 ### DW-114: Enrolling an already-enrolled Device again while it is still pending for its Site's Pause is not tested.
 origin: spec-deferred 39f577954fd0

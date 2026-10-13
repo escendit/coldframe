@@ -10,9 +10,12 @@ final class CoreLotsService: LotsService {
   private var watch: Watch?
   private var eventsWatch: Watch?
   private var onChange: (@MainActor (LotsPresentation) -> Void)?
+  /// Pause and Resume of the Site, from the Site menu; its state arrives with the snapshot.
+  let pause: PauseService
 
   init(core: IosLots) {
     self.core = core
+    self.pause = CorePauseService(core: core.pause)
   }
 
   func observe(_ onChange: @escaping @MainActor (LotsPresentation) -> Void) {
@@ -89,7 +92,10 @@ final class CoreLotsService: LotsService {
       hubNoticeIds: snapshot.hubNoticeIds, hubNoticeNames: snapshot.hubNoticeNames,
       hubNoticeSilentSince: snapshot.hubNoticeSilentSince,
       hubNoticeDurationValues: snapshot.hubNoticeDurationValues,
-      hubNoticeDurationUnits: snapshot.hubNoticeDurationUnits)
+      hubNoticeDurationUnits: snapshot.hubNoticeDurationUnits,
+      sitePausedLine: snapshot.sitePausedLine,
+      memberPausedNotice: snapshot.memberPausedNotice,
+      pause: CorePauseService.presentation(of: snapshot.pause))
   }
 
   func load() { core.load() }
@@ -121,4 +127,59 @@ final class CoreLotsService: LotsService {
   }
 
   func retryReminderCadence() { core.retryReminderCadence() }
+}
+
+/// Adapts `IosPause` of the shared Kotlin core to `PauseService`: Pause and Resume of one
+/// surface. `IosLots`, `IosLotDetail` and `IosDevices` each have one, and each surface's snapshot
+/// carries its state as `pause`. The core decides who may pause and what is paused; this only
+/// forwards taps.
+@MainActor
+final class CorePauseService: PauseService {
+  private let core: IosPause
+
+  init(core: IosPause) {
+    self.core = core
+  }
+
+  func openForSite() { core.openForSite() }
+
+  func openForDevice(_ deviceId: String) { core.openForDevice(deviceId: deviceId) }
+
+  func setScope(_ scope: PauseScopeKind) { core.setScope(scope: scope.rawValue) }
+
+  /// The picked calendar date in numbers, as the picker gave it; no time zone crosses.
+  func setUntil(_ day: PauseDay?) {
+    if let day {
+      core.setUntil(year: Int32(day.year), month: Int32(day.month), day: Int32(day.day))
+    } else {
+      core.clearUntil()
+    }
+  }
+
+  func cancel() { core.cancel() }
+
+  func save() { core.save() }
+
+  func resumeSite() { core.resumeSite() }
+
+  func resumeDevice(_ deviceId: String) { core.resumeDevice(deviceId: deviceId) }
+
+  func retry() { core.retry() }
+
+  /// The flat `PauseSnapshot` of a surface, field by field.
+  static func presentation(of snapshot: PauseSnapshot) -> PausePresentation {
+    PausePresentation(
+      sheetOpen: snapshot.sheetOpen, sheetScopes: snapshot.sheetScopes,
+      sheetScope: snapshot.sheetScope, sheetTarget: snapshot.sheetTarget,
+      sheetDeviceId: snapshot.sheetDeviceId, sheetSiteName: snapshot.sheetSiteName,
+      sheetUntilYear: Int(snapshot.sheetUntilYear),
+      sheetUntilMonth: Int(snapshot.sheetUntilMonth),
+      sheetUntilDay: Int(snapshot.sheetUntilDay), sheetWorking: snapshot.sheetWorking,
+      sheetDateRefused: snapshot.sheetDateRefused, sheetNotice: snapshot.sheetNotice,
+      sheetNoticeTryAgain: snapshot.sheetNoticeTryAgain,
+      resumingScope: snapshot.resumingScope, resumingDeviceId: snapshot.resumingDeviceId,
+      failureScope: snapshot.failureScope, failureDeviceId: snapshot.failureDeviceId,
+      failureNotice: snapshot.failureNotice, failureTryAgain: snapshot.failureTryAgain,
+      failureSiteName: snapshot.failureSiteName)
+  }
 }
