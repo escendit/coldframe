@@ -393,10 +393,14 @@ public sealed class PauseGrainTests(IdentityCluster identity) : IClassFixture<Id
         var readings = await CountAsync("readings", node);
 
         // The Server comes back three days after the end, and the first thing that reaches the Node's grain is a
-        // frame: the due-at is in the journal, the Pause is lifted before the frame is looked at, and the frame
-        // is kept.
+        // call that lifts nothing by itself (the Site saying it is not paused): the due-at is in the journal, and
+        // the activation alone lifts the Pause.
         var restartedAt = until.AddDays(3);
         await identity.RestartSiloAsync(restartedAt);
+        Assert.Equal(DeviceSitePauseOutcome.Unchanged, await identity.Device(nodeId).SetSitePause(site.SiteId, SitePause.NotPaused, Ct));
+        Assert.Single(await identity.AliasesAsync(stream), alias => alias == Resumed);
+
+        // The frame that follows is kept.
         var first = await IngestAsync(node, node.Wake(Now));
 
         Assert.Equal(DeviceIngestStatus.Stored, first.Status);
@@ -449,6 +453,28 @@ public sealed class PauseGrainTests(IdentityCluster identity) : IClassFixture<Id
 
         Assert.Single(await identity.AliasesAsync($"device/{hubId}"), alias => alias == Resumed);
         Assert.False((await identity.DeviceStateAsync(hubId)).IsPaused);
+    }
+
+    // A Node asks its relay Hub for its silence, and the answer must not depend on whose reminder fired first: the
+    // read lifts the Hub's own Pause at its due-at.
+    [Fact]
+    public async Task AReadOfTheSilenceAfterTheEndAndBeforeAnyWakeLiftsThePauseFirst()
+    {
+        var site = await SiteAsync();
+        var hub = await HubAsync(site);
+        var hubId = hub.DeviceId.ToString();
+        var until = Now.AddDays(5);
+        Assert.Equal(DevicePauseOutcome.Changed, (await identity.Device(hubId).SetPause(site.SiteId, until, Ct)).Outcome);
+
+        identity.Time.SetUtcNow(until - Second);
+        Assert.True((await identity.Device(hubId).Silence(Ct))!.Paused);
+        Assert.DoesNotContain(Resumed, await identity.AliasesAsync($"device/{hubId}"));
+
+        identity.Time.Advance(Second);
+        var silence = await identity.Device(hubId).Silence(Ct);
+
+        Assert.Equal((false, until), (silence!.Paused, silence.ClockStart));
+        Assert.Single(await identity.AliasesAsync($"device/{hubId}"), alias => alias == Resumed);
     }
 
     // The guard against a Site's Pause that arrives late has two halves: what this activation was told, also by

@@ -5,7 +5,7 @@ created: '2026-10-13'
 baseline_revision: 25c2c7cc230f758d6dfd62e99f5bcb6a5036358d
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context.md'
   - '{project-root}/apps/cs/README.md'
@@ -216,6 +216,39 @@ Tests:
   - `[low]` `[reject]` Intent: the Site endpoint answers before its Devices are told — as the spec and the contract say; the Lot may read its old status for a moment.
   - `[low]` `[reject]` Intent: `site` source in `PauseGrainTests` uses hand-made revisions — the Device's side of a contract the Site suite drives for real.
 
+### 2026-10-13 — Review pass (follow-up)
+- verdicts: 29 findings — high 0, medium 1, low 20, false 6, maybe-false 2
+- findings:
+  - `[low]` `[reject]` Blind: the `site-pause` reminder ticks every minute for the whole of a Pause with an end, and each tick starts a timer that finds nothing — real and cheap: AD-6 asks for a due-at looked at on every wake with a period of at least a minute, and every enrolled Device already runs a one-minute `silence-window` reminder; a reminder due at `EndsAt` is a second scheduling shape for one tick per paused Site.
+  - `[low]` `[reject]` Blind: a Device that never answers is retried every 5 s with a warning each time, with no backoff and no operator signal — real; the Device-to-Lot release this imitates retries the same way, and a Device grain that fails every call is a Server fault its own logs show. Backoff state is new machinery.
+  - `[low]` `[reject]` Blind: every Pause change awaits a lots catch-up in the Device's turn, also on the Site fan-out — carried: the same read-your-writes catch-up already runs in `LotGrain`, `SensorGrain` and `DeviceGrain`; wasted work for a Hub only.
+  - `[low]` `[reject]` Blind: one `site.pause-delivered` per Device and revision grows the Site stream — real, a handful of events per Pause on a home garden's roster; a batched event is a second event shape for the same fact.
+  - `[false]` `[reject]` Blind: only the UTC instant is journaled; date, zone and acting User are lost — the intent forbids attribution, fixes the end as the instant of 00:00 in the setting User's zone, and the matrix answers with that instant; the same date from another zone is a different end and is journaled as one.
+  - `[low]` `[reject]` Blind: `until: null` is accepted and the contract's `until` is not nullable — real leniency: a client generated from the contract never sends it, and the first pass pinned the tolerant read on purpose (`PauseResponseTests`); no caller is harmed.
+  - `[low]` `[reject]` Blind: `until` has no upper bound — carried: an end the caller chose; a cap would be a new rule.
+  - `[low]` `[reject]` Blind: the late-revision guard is half in memory — carried: needs a superseded call to overtake a newer one across a deactivation; closing it means journaling every acknowledgement.
+  - `[false]` `[reject]` Blind: a failed `ConfirmEvents` in `EndOwnPauseWhenDueAsync` could journal a second `device.resumed` — carried: the log-consistency adaptor retries a failed write until it lands; the confirm does not return with the event unwritten.
+  - `[low]` `[reject]` Blind: `SetSitePause` does not check its caller — carried: no HTTP path reaches it and grain interfaces are internal to the Server.
+  - `[false]` `[reject]` Blind: the overdue-Pause lift is copied into five call sites with three different follow-ups — the follow-ups differ because the call sites do: the reminder wake pushes contexts for every tick anyway, and an activation sends them from its own timer (`PushContextsOnceAsync`) because a Sensor may be waiting on that activation; no site misses a step.
+  - `[low]` `[reject]` Blind: missing tests (a command during a delivery in the grain, a failing reminder registration, a real timer or reminder tick, `NotEnrolled` then the join reply, 404 on the Site endpoints, a DST day over HTTP) — the 404 is the access rule's, sampled by `AuthorizationMatrixTests`; DST is `PauseEndRuleTests`'; the rest need a failing reminder service or a real-clock wait, as the first pass recorded.
+  - `[maybe-false]` `[defer]` Blind: pausing a silent Hub releases its Nodes into their own `silent` Alerts — carried: the product question already deferred (DW-111); not deferred again.
+  - `[low]` `[reject]` Edge: a newer revision answered `Unchanged`, a deactivation, then an older one arriving — carried: the same in-memory guard as the Blind row.
+  - `[low]` `[reject]` Edge: the lots catch-up has no time limit where activation, ingest, heartbeat or `SetSitePause` await it — carried with the Blind catch-up row: the same unbounded catch-up the other grains await; a failure is caught and logged.
+  - `[low]` `[reject]` Edge: the delivery timer retries without backoff — same as the Blind row above; rejected with it.
+  - `[maybe-false]` `[defer]` Edge: a paused silent Hub lets its Nodes open `silent` Alerts — carried: DW-111; not deferred again.
+  - `[low]` `[defer]` Gap: re-enrolment into a Site whose Pause changed is not exercised — carried: already deferred (DW-114); not deferred again.
+  - `[medium]` `[patch]` Gap: the activation-time lift is masked, because the first call after the restart was a frame and `Ingest` now lifts by itself — real, a result of the first pass's own two patches. Patched: `APauseWhoseEndPassedWhileTheServerWasDownLiftsWhenTheDeviceIsActivated` now makes a call that lifts nothing (`SetSitePause` with `NotPaused`) the first one and asserts the single `device.resumed` before the frame. With the lift removed from `OnActivateAsync` the test fails.
+  - `[low]` `[patch]` Gap: the lift in `IDeviceGrain.Silence()` has no test — real. Patched: new `AReadOfTheSilenceAfterTheEndAndBeforeAnyWakeLiftsThePauseFirst`; with the lift removed from `Silence()` it fails.
+  - `[low]` `[defer]` Gap: `POST /testing/sites/{siteId}/wake` is neither tested nor consumed — carried: already deferred (DW-113); not deferred again.
+  - `[low]` `[reject]` Intent: `pausedUntil` is omitted where the matrix writes `null` — carried: the contract's rule for every optional member, under Design Notes; the fix would edit this spec.
+  - `[false]` `[reject]` Intent: with two sources the later end is reported — the intent leaves it open and `LotStatusRule.PausedUntil` predates this story; no divergence.
+  - `[low]` `[reject]` Intent: the Site endpoint answers before its Devices are told — carried: as the spec and the contract say.
+  - `[low]` `[reject]` Intent: the end-date chain is proven in pieces — carried: each link is pinned; the whole chain needs Story 8.2's manual-clock journey.
+  - `[false]` `[reject]` Intent: lifting on a frame, a heartbeat and a silence read goes beyond "every wake and every activation" — a Device past its due-at is not meant to be paused any more; the answer to a frame is `Stored` as before, and a Device that still holds a source with no passed end keeps nothing (`AFrameOfAPausedNodeIsAcknowledgedAndNothingIsKeptOrCounted`).
+  - `[low]` `[reject]` Intent: several matrix rows are checked below HTTP (epoch, silence clock, a frame while paused, Alerts closing as `paused` through `AlertsReadModel`) — real; the read model row is what `GET /sites/{s}/alerts` serialises and that mapping has its own endpoint tests, and epoch and silence clock have no HTTP surface. An HTTP journey with open Alerts of all four kinds is a large fixture for the same code.
+  - `[low]` `[reject]` Intent: no test runs an enrolment concurrently with a delivery — real; the constraint is met by structure (interleaving timer, `TentativeState`), and a deterministic test needs a hook that holds an enrolment open mid-call.
+  - `[false]` `[reject]` Intent: test-first order and `sprint-status.yaml` cannot be judged from the diff — no divergence reported; the working-tree change of `sprint-status.yaml` is the orchestrator's.
+
 ## Design Notes
 
 - **Level-triggered delivery.** The Site tells a Device its current Pause (`SitePause`), not "pause" or "resume" deltas, with a revision so a stale delivery is recognised. The Device makes its `site` source match and answers; any answer from a Device that is not enrolled in this Site counts as acknowledged, because its next enrolment reads the join reply.
@@ -251,28 +284,32 @@ Status: done
 - `apps/cs/server/Testing/TestingHostingExtensions.cs` -- test-only `POST /testing/sites/{siteId}/wake`.
 - `packages/openapi/coldframe.openapi.json`, `packages/openapi/README.md`, `packages/ts/api-client/src/schema.ts` -- contract, operations table, regenerated client.
 - `apps/cs/README.md`, `packages/cs/README.md` -- a Pause section; every "until Epic 8" statement replaced.
-- `tests/cs/server.integration/Devices/PauseGrainTests.cs`, `PauseEndpointTests.cs`, `Identity/SitePauseGrainTests.cs` -- new suites; `IdentityCluster.cs` (Site wake, reminder filter), `AuthorizationMatrixTests.cs`, `SiteDeviceRegistrationTests.cs`, `LotStatusTests.cs` and three Alert suites adjusted.
+- `tests/cs/server.integration/Devices/PauseGrainTests.cs` (two tests added or tightened by the follow-up review), `PauseEndpointTests.cs`, `Identity/SitePauseGrainTests.cs` -- new suites; `IdentityCluster.cs` (Site wake, reminder filter), `AuthorizationMatrixTests.cs`, `SiteDeviceRegistrationTests.cs`, `LotStatusTests.cs` and three Alert suites adjusted.
 - `tests/cs/server.tests/` -- `PauseEndRuleTests`, `PauseResponseTests`, `SiteStatePauseTests`, state tests, journal fixture rows and replay expectations.
 - `_bmad-output/implementation-artifacts/deferred-work.md` -- DW-104 resolved; `epic-8-context.md` -- compiled epic context.
 
-**Review.** One pass, four layers, 50 findings: 16 rows patched in 10 fixes, 6 rows deferred as 4 items, 28 rejected.
-- Patched (by entry verdict: medium 5, low 5, high 0): frames and heartbeats lift an overdue own Pause first; the Site's delivery timer keeps running until its reminder is registered; `SetPause` re-checks the end after the reminder wait; `Silence` doc; journal fixture rows; and five test gaps (activation lift, Site catch-up after a restart, stale revisions, HTTP outcome mapping, read-your-writes).
-- Deferred: a paused Hub does not excuse its Nodes (product decision); no read surface for a Site's or a Hub's Pause (Story 8.2); the test-only Site wake has no caller yet; re-enrolment during a pending delivery is untested.
-- Rejected, with reasons in the Review Triage Log: 11 false, 16 low not worth the added machinery or settled by precedent, 1 maybe-false that would be low.
+**Review.** Two passes, four layers each.
+- First pass: 50 findings; 16 rows patched in 10 fixes (medium 5, low 5), 6 rows deferred as 4 items, 28 rejected. Its rows and reasons are in the Review Triage Log.
+- Follow-up pass: 29 findings; 2 patched (medium 1, low 1, high 0), 0 newly deferred, 27 not acted on. Both patches are tests in `PauseGrainTests.cs`; no production code changed.
+  - Patched: the activation-time lift of an overdue own Pause is now pinned by itself (the first call after the restart lifts nothing), and the lift in `IDeviceGrain.Silence()` has a test. Each test fails when its lift is removed.
+  - Carried from the first pass, same verdict and route (14 rows): the lots catch-up in the Device's turn (2), no upper bound on `until`, the in-memory half of the revision guard (2), the second `device.resumed` after a failed confirm (false), no caller check on `SetSitePause`, `pausedUntil` omitted, the Site endpoint answering before delivery, the end-date chain proven in pieces; and four rows already deferred as DW-111 (2), DW-113 and DW-114, not deferred again.
+  - Rejected as false (5): date, zone and User not journaled (the intent forbids attribution and fixes the end as an instant); the lift copied into five call sites (the follow-ups differ because the call sites do); the later end reported for two sources (predates the story); lifting on a frame, heartbeat or silence read (a Device past its due-at is not meant to be paused; the frame's answer is unchanged); test-first order and `sprint-status.yaml` (nothing to judge).
+  - Rejected as low (8): a one-minute `site-pause` reminder for the length of a Pause; no backoff on delivery retries (2); one `site.pause-delivered` per Device; `until: null` tolerated beyond the contract; six further untested paths that need a failing reminder service or a real-clock wait; matrix rows checked below HTTP; no concurrent enrolment-and-delivery test. Reasons are in the log.
 
-**Follow-up review: recommended.** Five medium entries were patched after the review layers had read the diff, so the patched code has had no independent read. The specific risk: the Site grain's interleaved delivery tick now also retries the reminder registration and decides when the timer stops, and `Ingest` and `Heartbeat` now journal a resume before they read the Pause; neither path has been reviewed, only tested.
+**Follow-up review: not recommended.** This pass patched no `high` entry and changed tests only; the two paths the first pass left unread (`PauseDeliveryTickAsync` retrying the reminder registration, `Ingest` and `Heartbeat` lifting an overdue Pause) were read by all four layers and drew no finding that verified as a defect.
 
-**Verification** (run after the patches, repo root):
+**Verification** (run after the follow-up patches, repo root):
 - `dotnet build --no-restore -warnaserror` -- 0 warnings, 0 errors.
 - `dotnet format --verify-no-changes --no-restore` -- no changes.
 - `dotnet test --no-build --project tests/cs/server.tests` -- 1048 of 1048 passed.
-- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build --project tests/cs/server.integration` -- 596 of 596 passed (18 min 33 s); no `NodeMoveTests` flake.
-- `pnpm --filter @coldframe/api-client generate` -- `schema.ts` stable; api-client tests and `pnpm --filter @coldframe/openapi run check` pass.
-- `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` -- all passed on the run before the patches; the patches touched no TypeScript or contract file.
-- Every row of the I/O matrix has a passing test (`PauseEndpointTests`, `PauseGrainTests`, `SitePauseGrainTests`, `PauseEndRuleTests`, `AuthorizationMatrixTests`).
+- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build --project tests/cs/server.integration` -- 594 of 597 passed (19 min 22 s). The three failures (`SiteCreationTests` x2, `SiteLotsAndRenameTests` x1) were `Npgsql.PostgresException 53300: too many clients already`, while the `pnpm` checks ran beside the suite; both classes passed 22 of 22 when run again alone. `PauseGrainTests` passed 21 of 21. The full suite was not run a second time.
+- `pnpm --filter @coldframe/api-client generate` with `git diff --exit-code` on `schema.ts` -- no diff; `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test`, `pnpm --filter @coldframe/openapi run check` -- all exit 0.
+- Mutation check of the two patches: with the lift removed from `OnActivateAsync` and from `Silence()`, exactly those two tests fail; the production file was restored and rebuilt before the runs above.
 
 **Residual risks.**
 - The stale-revision guard on the Device is partly in memory: an older Site Pause delivery that overtakes a newer one across a deactivation would be applied. It needs message reordering to occur.
 - A Site that is deleted while paused keeps delivering until its Devices acknowledge, and cannot be resumed by command.
+- A Device grain that fails every call is retried every 5 s for as long as the Site grain is active, with a warning each time and no backoff.
 - Automatic resume is proven through hand-fired wakes, as every deadline in the TestCluster is; a real reminder tick is not exercised.
 - `Apply(DevicePaused)` now clears battery streaks, which changes how a stream with earlier pause events replays; only test-appended streams hold any.
+- The integration suite can exhaust the test Postgres's connections when other work runs beside it (seen once, in this run).
