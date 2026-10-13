@@ -446,6 +446,7 @@ public sealed record AlertListResponse(
 /// <param name="SilentSince">When a silent Device was last heard; omitted when the Alert does not state it.</param>
 /// <param name="ClosedAt">When the Alert closed; omitted while it is open.</param>
 /// <param name="Reason">Why the Alert closed; omitted while it is open.</param>
+/// <param name="BatteryPercent">The battery level a <c>battery</c> Alert opened with, 0 to 100 (Story 7.3); omitted for another kind and when the Alert does not state it.</param>
 public sealed record HealthAlertResponse(
     string Id,
     string Kind,
@@ -456,7 +457,8 @@ public sealed record HealthAlertResponse(
     string? LotName = null,
     string? SilentSince = null,
     string? ClosedAt = null,
-    string? Reason = null);
+    string? Reason = null,
+    int? BatteryPercent = null);
 
 /// <summary>
 /// The body of <c>POST /device/heartbeat</c>'s 200.
@@ -1090,7 +1092,7 @@ public static partial class EdgeApi
 
     /// <summary>
     /// Maps a Health Alert of the read model to the list item (Story 7.2): the Lot, <c>silentSince</c>,
-    /// <c>closedAt</c> and <c>reason</c> only when present.
+    /// <c>closedAt</c>, <c>reason</c> and <c>batteryPercent</c> (Story 7.3) only when present.
     /// </summary>
     /// <param name="view">The Health Alert as the alerts projection holds it.</param>
     internal static HealthAlertResponse ToHealthAlert(HealthAlertView view)
@@ -1110,7 +1112,8 @@ public static partial class EdgeApi
             hasLot ? view.LotName : null,
             view.SilentSince is { } silentSince ? ToServerTime(silentSince) : null,
             view.ClosedAt is { } closedAt ? ToServerTime(closedAt) : null,
-            view.Reason);
+            view.Reason,
+            view.BatteryPercent is >= 0 and <= 100 ? view.BatteryPercent : null);
     }
 
     /// <summary>

@@ -1541,4 +1541,28 @@
       ])
     #expect(L10n.alertTitleHealth.string == "Health Alert")
   }
+
+  @Test(
+    "UX-DR25 UX-DR26 Alerts renders the Health rows of a low battery, open and closed",
+    arguments: [false, true])
+  @MainActor
+  func alertsLowBatteriesRender(dark: Bool) throws {
+    let alerts = AlertsFixture.alerts([AlertsFixture.needsWater] + AlertsFixture.lowBatteries)
+    #expect(alerts.groups.map(\.kind) == [.threshold, .health, .closed])
+    #expect(rendersAtDefaultSize(alertsView(alerts), dark: dark))
+    #expect(renders(alertsView(alerts), dark: dark))
+    for alert in AlertsFixture.lowBatteries {
+      let row = try AlertsFixture.row(alert)
+      #expect(row.icon == .batteryLow)
+      #expect(renders(AlertRowView(row: row, context: .catalogue()), dark: dark), "\(alert.id)")
+    }
+    let titles = try AlertsFixture.lowBatteries.map {
+      try AlertsFixture.row($0).titleText(.catalogue())
+    }
+    #expect(
+      titles == [
+        "Node battery 14 %, not charging — Lot 'Lettuce'", "Node 9C0D battery 14 %, not charging",
+        "Node battery low on Lot 'Lettuce'", "Node 9C0D battery low",
+      ])
+  }
 #endif

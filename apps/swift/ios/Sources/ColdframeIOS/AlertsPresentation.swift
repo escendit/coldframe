@@ -106,7 +106,8 @@ public enum AlertConditionKind: String, CaseIterable, Sendable {
 
 /// Which title sentence a row gets (UX-DR117), as the core named it, so Android and iOS say the
 /// same. The three silent kinds have two catalogue entries each: with " for ‹duration›" and
-/// without.
+/// without. A low battery (Story 7.3) says the level it opened with while it is open, and
+/// "battery low" once closed or without a level.
 public enum AlertTitleKind: String, CaseIterable, Sendable {
   /// "‹Lot› needs water".
   case needsWater
@@ -122,8 +123,14 @@ public enum AlertTitleKind: String, CaseIterable, Sendable {
   case nodeSilent
   /// "Hub ‹3F2A› silent for ‹duration›".
   case hubSilent
-  /// "Node battery low on Lot '‹Lot›'".
+  /// A low battery without a level: "Node battery low on Lot '‹Lot›'".
   case battery
+  /// A Node on no Lot, without a level: "Node ‹9C0D› battery low".
+  case nodeBatteryLow
+  /// "Node battery ‹14› %, not charging — Lot '‹Lot›'" (Story 7.3).
+  case nodeOnLotBattery
+  /// A Node on no Lot: "Node ‹9C0D› battery ‹14› %, not charging".
+  case nodeBattery
   /// "Soil Sensor on Lot '‹Lot›' needs Calibration".
   case uncalibrated
   /// The neutral Health row with a Lot: "Health Alert on Lot '‹Lot›'".
@@ -198,14 +205,19 @@ public struct AlertRowPresentation: Equatable, Sendable, Identifiable {
   /// The silence in the title, as the core measured it; nil drops " for …": a closed row, or an
   /// Alert without a silent-since.
   public let duration: LotDurationPresentation?
+  /// The level in the title of an open low-battery Alert (Story 7.3), as the core named it; nil
+  /// for every other title.
+  public let batteryPercent: Int?
 
   public init(
     id: String, group: AlertGroupKind, variant: AlertRowVariantKind,
     condition: AlertConditionKind, eyebrow: AlertEyebrowKind, icon: CarbonIcon, quantity: String,
     lotId: String, lotName: String, deviceId: String, openedAt: Date, closedAt: Date?,
     target: AlertRowTarget, title: AlertTitleKind? = nil, deviceKind: AlertDeviceKind? = nil,
-    deviceName: String = "", silentSince: Date? = nil, duration: LotDurationPresentation? = nil
+    deviceName: String = "", silentSince: Date? = nil, duration: LotDurationPresentation? = nil,
+    batteryPercent: Int? = nil
   ) {
+    self.batteryPercent = batteryPercent
     self.title = title
     self.deviceKind = deviceKind
     self.deviceName = deviceName
@@ -240,8 +252,10 @@ public struct AlertRowPresentation: Equatable, Sendable, Identifiable {
   }
 
   /// "Tomatoes needs water", "Beans temperature too low", "Node on Lot 'Beans' silent for 6 h",
-  /// "Hub 3F2A silent for 5 min". Which sentence, and the Lot, the Device's short name and the
-  /// silence in it, are the core's; a silent row without a duration drops " for …".
+  /// "Hub 3F2A silent for 5 min", "Node battery 14 %, not charging — Lot 'Lettuce'". Which
+  /// sentence, and the Lot, the Device's short name, the silence and the battery level in it, are
+  /// the core's; a silent row without a duration drops " for …", and a low battery without a
+  /// level reads "battery low".
   public func titleText(_ context: CopyContext) -> String {
     switch title ?? condition.fallbackTitle {
     case .needsWater: return context.text(.alertTitleNeedsWater, .text(lotName))
@@ -255,6 +269,17 @@ public struct AlertRowPresentation: Equatable, Sendable, Identifiable {
     case .hubSilent:
       return silentTitle(.alertTitleHubSilent, .alertTitleHubSilentFor, deviceName, context)
     case .battery: return context.text(.alertTitleBattery, .text(lotName))
+    case .nodeBatteryLow: return context.text(.alertTitleNodeBattery, .text(deviceName))
+    case .nodeOnLotBattery:
+      guard let batteryPercent else { return context.text(.alertTitleBattery, .text(lotName)) }
+      return context.text(
+        .alertTitleBatteryLevel, .text(String(batteryPercent)), .text(lotName))
+    case .nodeBattery:
+      guard let batteryPercent else {
+        return context.text(.alertTitleNodeBattery, .text(deviceName))
+      }
+      return context.text(
+        .alertTitleNodeBatteryLevel, .text(deviceName), .text(String(batteryPercent)))
     case .uncalibrated: return context.text(.alertTitleUncalibrated, .text(lotName))
     case .healthOnLot: return context.text(.alertTitleUnknown, .text(lotName))
     case .health: return context.text(.alertTitleHealth)
@@ -365,7 +390,9 @@ public struct AlertsPresentation: Equatable, Sendable {
   /// the Device's short name, `durationValues` with `durationUnits` the silence (both empty
   /// without one). A row without an entry reads as its condition did before; a title this client
   /// does not know is the neutral Health title. `lotIds` and `lotNames` are empty for a Hub's
-  /// Alert and for a Node on no Lot, and such a row never opens Lot detail.
+  /// Alert and for a Node on no Lot, and such a row never opens Lot detail. `batteryPercents`
+  /// (Story 7.3) is the level in a low-battery title in decimal, empty for every other row; a
+  /// value that is no number from 0 to 100 is read as none.
   public init(
     surface: String, notice: String?, siteId: String?, siteName: String?, openCount: Int,
     refreshing: Bool, ids: [String], groups: [String], variants: [String], conditions: [String],
@@ -373,7 +400,7 @@ public struct AlertsPresentation: Equatable, Sendable {
     lotNames: [String], deviceIds: [String], openedAts: [String], closedAts: [String],
     targets: [String], titles: [String] = [], deviceKinds: [String] = [],
     deviceNames: [String] = [], silentSinces: [String] = [], durationValues: [String] = [],
-    durationUnits: [String] = []
+    durationUnits: [String] = [], batteryPercents: [String] = []
   ) {
     switch surface {
     case "failed":
@@ -417,6 +444,9 @@ public struct AlertsPresentation: Equatable, Sendable {
             Self.entry(durationUnits, index)
               .flatMap(LotDurationPresentation.Unit.init(rawValue:))
               .map { LotDurationPresentation(value: value, unit: $0) }
+          },
+          batteryPercent: Self.entry(batteryPercents, index).flatMap { Int($0) }.flatMap {
+            (0...100).contains($0) ? $0 : nil
           })
       }
       self.init(

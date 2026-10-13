@@ -188,6 +188,21 @@ public sealed record DeviceSilentAlert(
     [property: Id(2)] DateTimeOffset OpenedAt);
 
 /// <summary>
+/// A Node's open Health Alert of kind <c>battery</c> (Story 7.3).
+/// </summary>
+/// <param name="AlertId">The Alert ID.</param>
+/// <param name="Episode">The Node's low-battery episode the Alert belongs to.</param>
+/// <param name="OpenedAt">When the episode started.</param>
+/// <param name="BatteryPercent">The battery level of the device report that started it.</param>
+[GenerateSerializer]
+[Alias("coldframe.device-battery-alert")]
+public sealed record DeviceBatteryAlert(
+    [property: Id(0)] Guid AlertId,
+    [property: Id(1)] int Episode,
+    [property: Id(2)] DateTimeOffset OpenedAt,
+    [property: Id(3)] int BatteryPercent);
+
+/// <summary>
 /// Where a Device's silence evaluation stands (Story 7.1), all of it derived from the Device's journal.
 /// </summary>
 /// <param name="Kind">Hub or Node.</param>
@@ -201,6 +216,7 @@ public sealed record DeviceSilentAlert(
 /// <param name="Paused">Whether the Device is paused: a paused Device opens no Alert.</param>
 /// <param name="OpenAlert">The Device's open <c>silent</c> Alert, or <see langword="null"/>.</param>
 /// <param name="LastRecoveredAt">When the Device's last silence episode ended, or <see langword="null"/> before the first.</param>
+/// <param name="OpenBatteryAlert">The Node's open <c>battery</c> Alert (Story 7.3), or <see langword="null"/>.</param>
 [GenerateSerializer]
 [Alias("coldframe.device-silence")]
 public sealed record DeviceSilence(
@@ -211,7 +227,8 @@ public sealed record DeviceSilence(
     [property: Id(4)] DateTimeOffset DueAt,
     [property: Id(5)] bool Paused,
     [property: Id(6)] DeviceSilentAlert? OpenAlert = null,
-    [property: Id(7)] DateTimeOffset? LastRecoveredAt = null);
+    [property: Id(7)] DateTimeOffset? LastRecoveredAt = null,
+    [property: Id(8)] DeviceBatteryAlert? OpenBatteryAlert = null);
 
 /// <summary>
 /// The Calibration the Sensor grain sets in force on a Node's Device grain.

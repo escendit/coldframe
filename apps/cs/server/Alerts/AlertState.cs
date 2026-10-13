@@ -105,6 +105,13 @@ public sealed class AlertState
     public DateTimeOffset? SilentSince { get; private set; }
 
     /// <summary>
+    /// The battery level of the device report that opened a battery Alert (Story 7.3); <see langword="null"/> for
+    /// another kind.
+    /// </summary>
+    [Id(15)]
+    public int? BatteryPercent { get; private set; }
+
+    /// <summary>
     /// Whether the Site grain still has to be told that the Alert opened or that it closed.
     /// </summary>
     public bool ReportPending => Lifecycle switch
@@ -135,6 +142,7 @@ public sealed class AlertState
         OpenedAt = @event.OpenedAt;
         DeviceKind = @event.DeviceKind;
         SilentSince = @event.SilentSince;
+        BatteryPercent = @event.BatteryPercent;
     }
 
     public void Apply(AlertClosed @event)

@@ -319,6 +319,8 @@ public data class AlertDto(
  * `AlertKind`, never `threshold`; [deviceKind] is `hub` or `node` and is tolerated missing. [lotId]
  * and [lotName] are absent for a Hub and for a Node on no Lot. [silentSince] is when a silent Device
  * was last heard, absent for another kind and for an Alert opened before the Server recorded it.
+ * [batteryPercent] is the level a `battery` Alert opened with (Story 7.3), absent for another kind
+ * and for an Alert that did not record it.
  */
 @Serializable
 public data class HealthAlertDto(
@@ -332,6 +334,7 @@ public data class HealthAlertDto(
     val silentSince: String? = null,
     val closedAt: String? = null,
     val reason: String? = null,
+    val batteryPercent: Int? = null,
 )
 
 /**

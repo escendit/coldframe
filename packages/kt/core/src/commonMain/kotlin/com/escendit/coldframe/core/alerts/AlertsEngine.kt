@@ -191,7 +191,8 @@ public class AlertsEngine(
         /**
          * The Server's Health Alerts in its order, each once. As for a Threshold Alert, one without a
          * readable `openedAt`, or with an unreadable `closedAt`, is left out. A `silentSince` that
-         * cannot be read is dropped and the Alert stays: its title then has no duration. A kind or a
+         * cannot be read is dropped and the Alert stays: its title then has no duration. A battery
+         * level outside 0 to 100 is dropped the same way. A kind or a
          * Device kind this app does not know is kept and drawn as the neutral Health row.
          */
         internal fun List<HealthAlertDto>.toHealthSummaries(): List<AlertSummary> =
@@ -210,6 +211,7 @@ public class AlertsEngine(
                     closedAtEpochMs = closedAt,
                     deviceKind = AlertDeviceKind.fromServer(alert.deviceKind),
                     silentSinceEpochMs = alert.silentSince?.let(::epochMsOf),
+                    batteryPercent = alert.batteryPercent?.takeIf { it in AlertSummary.BATTERY_RANGE },
                 )
             }
 

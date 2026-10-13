@@ -138,7 +138,8 @@ public sealed partial class PushContentBuilder(
 
     // What the text of one Alert needs. Soil moisture names no Threshold in its title, so a summary line of it
     // needs only the Lot; a summary has no body, so it needs no Reading. Only a Threshold Alert has a Sensor with
-    // a Reading and a Threshold: for any other kind (a Health Alert, Story 7.1) neither is looked up.
+    // a Reading and a Threshold: for any other kind (a Health Alert, Story 7.1) neither is looked up. A low
+    // battery (Story 7.3) needs only the name of its Lot: its level travels with the Alert.
     private async Task<PushEntryFacts> FactsAsync(
         Notification notification,
         NotificationEntry entry,

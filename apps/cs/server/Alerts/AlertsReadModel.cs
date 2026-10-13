@@ -47,6 +47,7 @@ public sealed record AlertView(
 /// <param name="OpenedAt">When the Alert opened.</param>
 /// <param name="ClosedAt">When the Alert closed, or <see langword="null"/> while it is open.</param>
 /// <param name="Reason">Why the Alert closed, or <see langword="null"/> while it is open.</param>
+/// <param name="BatteryPercent">The battery level a <c>battery</c> Alert opened with (Story 7.3); <see langword="null"/> for another kind.</param>
 public sealed record HealthAlertView(
     Guid AlertId,
     string Kind,
@@ -57,7 +58,8 @@ public sealed record HealthAlertView(
     DateTimeOffset? SilentSince,
     DateTimeOffset OpenedAt,
     DateTimeOffset? ClosedAt,
-    string? Reason);
+    string? Reason,
+    int? BatteryPercent = null);
 
 /// <summary>
 /// Where a page of the Alerts list ended: the section, the time the section is ordered by and the Alert ID.
@@ -76,9 +78,9 @@ public sealed record AlertPage(IReadOnlyList<AlertView> Alerts, AlertCursor? Nex
 
 /// <summary>
 /// Reads the alerts projection (Story 6.2). Edge API handlers read Alerts only from here; grains never read it.
-/// The table also holds Health Alerts (Story 7.1), which have no Sensor, no quantity and maybe no Lot. The
-/// contract's <c>Alert</c> requires all three, so the list and the open count select Threshold Alerts only until
-/// the contract is extended with the clients (Story 7.2).
+/// The table also holds Health Alerts (<c>silent</c> from Story 7.1, <c>battery</c> from Story 7.3), which have
+/// no Sensor, no quantity and maybe no Lot. The contract's <c>Alert</c> requires all three, so the Threshold list
+/// selects Threshold Alerts only and Health Alerts are listed on their own (Story 7.2).
 /// </summary>
 public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
 {
@@ -92,8 +94,8 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
     private const long TicksPerMicrosecond = 10;
 
     /// <summary>
-    /// The most Health Alerts one answer lists (Story 7.2). They are bounded by the number of Devices, so the list
-    /// is not paged.
+    /// The most Health Alerts one answer lists (Story 7.2). A Device has at most one open Alert per kind, and a
+    /// closed one stays for <see cref="ClosedRetention"/>; the list is not paged.
     /// </summary>
     public const int HealthLimit = 200;
 
@@ -128,7 +130,7 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
     private const string HealthSql =
         """
         SELECT a.alert_id, a.kind, a.device_id, COALESCE(a.device_kind, d.kind), l.lot_id, l.name, a.silent_since,
-               a.opened_at, a.closed_at, a.reason
+               a.opened_at, a.closed_at, a.reason, a.battery_percent
         FROM alerts a
         LEFT JOIN lots l ON l.site_id = a.site_id AND l.lot_id = a.lot_id
         LEFT JOIN devices d ON d.device_id = a.device_id
@@ -245,7 +247,8 @@ public sealed class AlertsReadModel(NpgsqlDataSource dataSource)
                 await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(6),
                 reader.GetFieldValue<DateTimeOffset>(7),
                 await reader.IsDBNullAsync(8, cancellationToken).ConfigureAwait(false) ? null : reader.GetFieldValue<DateTimeOffset>(8),
-                await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(9)));
+                await reader.IsDBNullAsync(9, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(9),
+                await reader.IsDBNullAsync(10, cancellationToken).ConfigureAwait(false) ? null : reader.GetInt16(10)));
         }
 
         return alerts;

@@ -80,9 +80,14 @@ failed load shows the notice with Try again and no rows.
   Site becomes current, `MainActivity` reads them again on every foreground, and the shell on
   every entry of the tab; pull-to-refresh shows the `primary` bar of the Site overview.
 
-Silent Devices are the Health Alerts the Server lists (Story 7.2, below). Battery and uncalibrated
-rows have no producer before Stories 7.3 and 7.4: they are built and tested from fixtures
-(`tests/kt/android/test/.../AlertFixtures.kt`).
+Silent Devices are the Health Alerts the Server lists (Story 7.2, below), and so are low batteries
+(Story 7.3): "Node battery 14 %, not charging — Lot 'Lettuce'", or "Node 9C0D battery 14 %, not
+charging" for a Node on no Lot, with the level the Alert opened with. A closed row, and one without
+a level, reads "Node battery low on Lot 'Lettuce'" or "Node 9C0D battery low". The core names the
+sentence and its parts (`AlertTitleKind.NodeOnLotBattery`, `NodeBattery`, `Battery`,
+`NodeBatteryLow`); Devices and Lot detail show the Node's newest level and charger status, as
+before. Uncalibrated rows have no producer before Story 7.4: they are built and tested from
+fixtures (`tests/kt/android/test/.../AlertFixtures.kt`).
 
 ## Silence and the Silence Window (Story 7.2)
 

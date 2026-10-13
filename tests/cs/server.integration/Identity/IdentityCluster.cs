@@ -166,6 +166,44 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
     }
 
     /// <summary>
+    /// Makes the next append to the journal stream <paramref name="streamId"/> fail in the database, once, the way
+    /// a lost write does: a trigger on <c>journal_events</c> raises for the first row of that stream. Test-only,
+    /// and nothing of the Server knows it. Disposing removes the trigger.
+    /// </summary>
+    public async Task<IAsyncDisposable> FailNextJournalWriteAsync(string streamId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(streamId);
+
+        // A sequence is not transactional: the failed insert still uses up the one failure.
+        await using var command = Database.DataSource.CreateCommand(
+            $$"""
+            CREATE SEQUENCE test_journal_fault;
+            CREATE FUNCTION test_journal_fault() RETURNS trigger LANGUAGE plpgsql AS $fault$
+            BEGIN
+                IF NEW.stream_id = '{{streamId.Replace("'", "''", StringComparison.Ordinal)}}' AND nextval('test_journal_fault') = 1 THEN
+                    RAISE EXCEPTION 'The test failed this journal write.';
+                END IF;
+                RETURN NEW;
+            END
+            $fault$;
+            CREATE TRIGGER test_journal_fault BEFORE INSERT ON journal_events FOR EACH ROW EXECUTE FUNCTION test_journal_fault();
+            """);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+
+        return new JournalFault(Database.DataSource);
+    }
+
+    private sealed class JournalFault(NpgsqlDataSource dataSource) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            await using var command = dataSource.CreateCommand(
+                "DROP TRIGGER test_journal_fault ON journal_events; DROP FUNCTION test_journal_fault(); DROP SEQUENCE test_journal_fault;");
+            await command.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
     /// Whether the Device grain has its silence reminder registered.
     /// </summary>
     public async Task<bool> HasSilenceReminderAsync(string deviceId)

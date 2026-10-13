@@ -89,8 +89,12 @@ Swift runtimes.
   - Devices and Alerts each have a one-minute tick like the overview's: it reads the core's
     snapshot again (`current()`), so the silences move, and fetches nothing. A tapped silent
     notification still opens the overview: the push route carries no Device ID.
-  Battery and uncalibrated rows have no producer before Stories 7.3 and 7.4; they are built and
-  tested from fixtures.
+  - Low batteries (Story 7.3) are Health rows too: "Node battery 14 %, not charging — Lot
+    'Lettuce'", or "Node 9C0D battery 14 %, not charging" for a Node on no Lot, with the level
+    the Alert opened with (`alertBatteryPercents` of the core's snapshot). A closed row, and one
+    without a level, reads "Node battery low on Lot 'Lettuce'" or "Node 9C0D battery low". They
+    open Devices, which shows the Node's newest level and charger status, as before.
+  Uncalibrated rows have no producer before Story 7.4; they are built and tested from fixtures.
   `NotificationSettingsService` (Story 6.3) carries My notifications as a
   `NotificationSettingsPresentation` built from the core's flat `NotificationSettingsSnapshot`.
   Settings lists My notifications first, above Site settings; the screen calls `load` on every

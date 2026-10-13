@@ -271,6 +271,8 @@ export interface FakeHealthAlert {
   readonly lotId?: string;
   readonly lotName?: string;
   readonly silentSince?: string;
+  /** The level a `battery` Alert opened with (Story 7.3). */
+  readonly batteryPercent?: number;
   readonly openedAt: string;
   readonly closedAt?: string;
   readonly reason?: string;

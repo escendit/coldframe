@@ -583,6 +583,9 @@ public enum L10n: String, CaseIterable, Sendable {
   case alertTitleNodeSilent = "alert_title_node_silent"
   case alertTitleNodeSilentFor = "alert_title_node_silent_for"
   case alertTitleHealth = "alert_title_health"
+  case alertTitleBatteryLevel = "alert_title_battery_level"
+  case alertTitleNodeBatteryLevel = "alert_title_node_battery_level"
+  case alertTitleNodeBattery = "alert_title_node_battery"
 
   /// Keys whose catalogue entry has plural variations (UX-DR125).
   public static let plurals: Set<L10n> = [

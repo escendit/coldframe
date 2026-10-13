@@ -800,3 +800,35 @@ source_spec: `spec-7-2-silence-in-the-apps-and-silence-window-settings.md`
 severity: low
 reason: The dialog state is a plain `remember` inside the Ready branch, so a configuration change or a pass through Loading drops it. `rememberSaveable` above the branch would keep it.
 status: open
+
+### DW-104: Pause (Epic 8) must close an open battery Alert and reset the battery streaks; today a paused Node keeps its Alert open and its streak across the Pause.
+origin: spec-deferred 53d10abc7a44
+location: apps/cs/server/Devices/DeviceGrain.cs (CountBattery), apps/cs/server/Devices/DeviceState.cs
+source_spec: `spec-7-3-low-battery-alert.md`
+severity: medium
+reason: DeviceGrain.Ingest counts no report while paused and nothing journals an end of the episode or a streak reset on device.paused / device.resumed. No grain method raises a Pause yet (only tests append the events), so it cannot happen in the product before Epic 8.
+status: open
+
+### DW-105: The iOS adapter that hands the core's alertBatteryPercents to AlertsPresentation is executed by no test.
+origin: spec-deferred d006c4bd5063
+location: apps/swift/ios/App/CoreAlertsService.swift:45
+source_spec: `spec-7-3-low-battery-alert.md`
+severity: medium
+reason: CoreAlertsService.presentation(of:) passes batteryPercents: snapshot.alertBatteryPercents; the parameter defaults to [], so dropping the argument compiles and every open row reads "battery low". The Swift tests build the presentation from fixtures, and the App target compiles only on the macOS CI jobs (DW-93).
+status: open
+
+### DW-106: The retry answer of Ingest step 7 is not reached by a failing journal write, and no test pins it.
+origin: spec-deferred c095d8bcba3e
+location: apps/cs/server/Devices/DeviceGrain.cs (Ingest, step 7)
+source_spec: `spec-7-3-low-battery-alert.md`
+severity: low
+reason: A test-only trigger that fails one insert into journal_events showed the log-consistency adaptor repeats the write inside ConfirmEvents: the frame answers Stored and the report is counted once (AReportWhoseJournalWriteFailsOnceIsCountedExactlyOnce). The catch that answers Retry, written in Story 7.1 for the liveness write and now shared by the battery event, stays unexercised.
+status: open
+
+### DW-107: A Node that charges by day and is below 20 % opens a battery Alert every evening and closes it as "recovered" every morning, because a charging report counts as recovered at any level.
+origin: spec-deferred 734cee469399
+location: apps/cs/server/Devices/BatteryRule.cs (Classify)
+source_spec: `spec-7-3-low-battery-alert.md`
+severity: medium
+reason: BatteryRule.Classify returns Recovered for charger status "charging" whatever the level, as FR14 and the intent say ("charging or at 20 % or above"). envelope.proto documents NOT_CHARGING as "no sun, or the cell is full", so every solar Node is not charging at night. At 15 % that is three low reports after dusk (open, a new episode and Alert ID, an immediate notification) and three charging reports after dawn (closed "recovered" at a level that may still be 5 %). The code follows the requirement; whether closing should need a level at or above 20 %, or a margin, is a product decision on FR14.
+status: open

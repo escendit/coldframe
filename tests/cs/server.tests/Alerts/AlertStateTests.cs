@@ -1,4 +1,5 @@
 using Coldframe.Contracts.Alerts;
+using Coldframe.Contracts.Devices;
 using Coldframe.Server.Alerts;
 
 namespace Coldframe.Server.Tests.Alerts;
@@ -67,6 +68,23 @@ public sealed class AlertStateTests
         state.Apply(new AlertClosed(AlertCloseReason.Recovered, Now.AddMinutes(1)));
 
         Assert.Equal((AlertLifecycle.Closed, (AlertCloseReason?)AlertCloseReason.Recovered), (state.Lifecycle, state.Reason));
+    }
+
+    // Story 7.3: a battery Alert records the level it was opened with; no other Alert has one.
+    [Fact]
+    public void ABatteryAlertRecordsTheLevelItWasOpenedWith()
+    {
+        var state = new AlertState();
+
+        state.Apply(new AlertOpened(AlertKind.Battery, null, Opened.SiteId, "lot-5", null, "9c0d1e2f3a4b5c68", null, 1, Now, DeviceKind.Node, BatteryPercent: 14));
+
+        Assert.Equal(
+            (AlertKind.Battery, (DeviceKind?)DeviceKind.Node, (int?)14, (DateTimeOffset?)null, "lot-5"),
+            (state.Kind, state.DeviceKind, state.BatteryPercent, state.SilentSince, state.LotId));
+
+        var threshold = new AlertState();
+        threshold.Apply(Opened);
+        Assert.Null(threshold.BatteryPercent);
     }
 
     [Fact]

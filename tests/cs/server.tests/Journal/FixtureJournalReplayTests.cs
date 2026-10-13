@@ -138,6 +138,26 @@ public sealed class FixtureJournalReplayTests
         Assert.Equal(((DeviceKind?)null, (DateTimeOffset?)null), (silent.DeviceKind, silent.SilentSince));
         Assert.Equal((DateTimeOffset?)null, Assert.Single(moved.PendingAlertDeliveries).SilentSince);
 
+        // Story 7.3: a Node on no Lot sent three low device reports (episode 1, opened at 14 %, delivered), then
+        // three recovered ones (the close not delivered yet), then one low report again. The Alert carries the
+        // level; every row journaled before that story carries none and still reads.
+        var batteryAlert = Guid.Parse("ae0cf71d-0fe1-50b9-b548-f4b9e57572b7");
+        var lowNode = Assert.IsType<DeviceState>(states["device/9c0d1e2f3a4b5c68"]);
+        Assert.Equal(batteryAlert, AlertIds.Battery("9c0d1e2f3a4b5c68", 1));
+        Assert.Equal((1, (DeviceBatteryAlert?)null), (lowNode.BatteryEpisode, lowNode.OpenBatteryAlert));
+        Assert.Equal(
+            (1, 0, (DateTimeOffset?)new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero)),
+            (lowNode.BatteryLowStreak, lowNode.BatteryRecoveredStreak, lowNode.BatteryCountedAt));
+        var batteryClose = Assert.Single(lowNode.PendingAlertDeliveries);
+        Assert.Equal((batteryAlert, AlertLifecycle.Closed, AlertKind.Battery), (batteryClose.AlertId, batteryClose.Change, batteryClose.Kind));
+        Assert.Equal(0, lowNode.SilenceEpisode);
+        var battery = Assert.IsType<AlertState>(states[$"alert/{batteryAlert}"]);
+        Assert.Equal(
+            (AlertLifecycle.Closed, AlertKind.Battery, (DeviceKind?)DeviceKind.Node, (int?)14, false),
+            (battery.Lifecycle, battery.Kind, battery.DeviceKind, battery.BatteryPercent, battery.ReportPending));
+        Assert.Equal(((int?)null, (int?)null), (silent.BatteryPercent, hubSilent.BatteryPercent));
+        Assert.Equal((0, 0, (DateTimeOffset?)null, 0), (moved.BatteryLowStreak, moved.BatteryRecoveredStreak, moved.BatteryCountedAt, moved.BatteryEpisode));
+
         // Relayed by the Hub; paused by its Site and by itself, then the Site resumed: still paused.
         Assert.Equal("92064422c012f481", node.LastRelayHubId);
         Assert.True(node.IsPaused);

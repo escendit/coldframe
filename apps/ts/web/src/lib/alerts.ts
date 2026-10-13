@@ -6,7 +6,7 @@
 import type { Alert, components } from '@coldframe/api-client';
 import { deviceRowId } from '$lib/devices';
 import { t, type MessageKey } from '$lib/i18n';
-import { formatSilence, formatWhen, shortDeviceId } from '$lib/i18n/format';
+import { formatNumber, formatSilence, formatWhen, shortDeviceId } from '$lib/i18n/format';
 
 export type { Alert } from '@coldframe/api-client';
 
@@ -143,6 +143,27 @@ function silentTitle(alert: HealthAlert, context: AlertsContext): string {
   return duration === null ? t('alerts.title.silentNode', { nodeId }) : t('alerts.title.silentNodeFor', { nodeId, duration });
 }
 
+/**
+ * "Node battery 14 %, not charging — Lot 'Lettuce'" or, for a Node on no Lot, "Node 9C0D battery 14 %, not
+ * charging" (Story 7.3). The level is the one the Alert opened with, so only an open Alert states it: a
+ * closed row, and an Alert without a level the contract can describe, read "battery low". A `battery`
+ * Alert opens only from a report that is not charging, so the kind is the charger status.
+ */
+function batteryTitle(alert: HealthAlert, context: AlertsContext): string {
+  const level = alert.batteryPercent;
+  const stated = alert.closedAt === undefined && level !== undefined && Number.isInteger(level) && level >= 0 && level <= 100;
+  const percent = stated ? formatNumber(level, context.locale) : null;
+  if (alert.lotName !== undefined) {
+    return percent === null ? t('alerts.title.battery', { lotName: alert.lotName }) : t('alerts.title.batteryLevel', { percent, lotName: alert.lotName });
+  }
+  // Only a Node has a battery to report: anything else without a Lot is the neutral row, as on mobile.
+  if (alert.deviceKind !== 'node') {
+    return neutralTitle(alert);
+  }
+  const nodeId = shortDeviceId(alert.deviceId);
+  return percent === null ? t('alerts.title.batteryNode', { nodeId }) : t('alerts.title.batteryNodeLevel', { nodeId, percent });
+}
+
 /** The neutral Health row: a kind this client does not know, or one it cannot word without a Lot. */
 function neutralTitle(alert: HealthAlert): string {
   return alert.lotName === undefined ? t('alerts.title.otherNoLot') : t('alerts.title.other', { lotName: alert.lotName });
@@ -156,7 +177,7 @@ function deviceCondition(alert: HealthAlert, context: AlertsContext): Condition 
     case 'silent':
       return { ...base, icon: 'help', title: silentTitle(alert, context), href: devices };
     case 'battery':
-      return { ...base, icon: 'battery--low', title: alert.lotName === undefined ? neutralTitle(alert) : t('alerts.title.battery', { lotName: alert.lotName }), href: devices };
+      return { ...base, icon: 'battery--low', title: batteryTitle(alert, context), href: devices };
     case 'uncalibrated':
       return {
         ...base,

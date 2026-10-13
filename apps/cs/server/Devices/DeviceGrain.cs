@@ -24,7 +24,8 @@ namespace Coldframe.Server.Devices;
 /// It keeps a Node's known <c>spec_hash</c> and Sensor list (AD-19), and declares each Sensor of an accepted
 /// Specification set to its <see cref="ISensorGrain"/>. After a frame is committed it hands every declared
 /// Sensor of an assigned Node its Reading to evaluate (Story 6.1). It measures its own silence against a
-/// journaled expiry and opens and closes its Health Alert of kind <c>silent</c> (Story 7.1).
+/// journaled expiry and opens and closes its Health Alert of kind <c>silent</c> (Story 7.1). A Node counts its
+/// device reports and opens and closes its Health Alert of kind <c>battery</c> (Story 7.3).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,6 +35,13 @@ namespace Coldframe.Server.Devices;
 /// The episode is journaled before <see cref="IAlertGrain.OpenForDevice"/> is called, and an open or a close the
 /// Alert grain did not acknowledge is delivered again from state, the open before the close. A Node whose window
 /// expired asks its last relay Hub first and opens nothing while that Hub is silent. A paused Device opens nothing.
+/// </para>
+/// <para>
+/// Battery (Story 7.3): every device report a frame stores is counted once, at the <c>measured_at</c> its key got
+/// at first delivery and only when that is newer than the last one counted (<see cref="BatteryRule"/>). The third
+/// consecutive low report journals the next episode before the Alert grain is called, the third consecutive
+/// recovered one its end; a report that moves no streak journals nothing. Opens and closes take the delivery of
+/// the silent Alert. No Lot status and no silence evaluation reads any of it.
 /// </para>
 /// <para>
 /// Frames (AD-9, AD-17): the replay window is loaded from <c>device_replay</c> on first use and commits with
@@ -86,6 +94,11 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     // Nonce (hex) → the timestamp it was accepted with.
     private readonly Dictionary<string, long> _nonces = new(StringComparer.Ordinal);
+
+    // The measured_at of the newest device report counted for the battery (Story 7.3). A report that changes
+    // nothing is not journaled, so between events this runs ahead of State.BatteryCountedAt; after a
+    // reactivation the journaled liveness (State.LastReportedAt) stands in for it.
+    private DateTimeOffset? _batteryCountedAt;
 
     // The replay window of a Node's frames, or null until it is loaded from device_replay.
     private ReplayWindow? _replay;
@@ -615,16 +628,18 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             }
 
             // 7. The Hub that relayed the frame, journaled only when it changes and only once the frame is
-            // committed (AD-18, DW-45), and the Node's liveness (Story 7.1): the frame's measured_at when it is
-            // newer than any accepted before, never the arrival time. A paused Node's frame was discarded and is
-            // no report. When the write fails the answer is retry: the Node resends, and the resend is a
-            // duplicate that records both.
+            // committed (AD-18, DW-45), the Node's liveness (Story 7.1): the frame's measured_at when it is
+            // newer than any accepted before, never the arrival time, and what the frame's device report does to
+            // the battery streaks (Story 7.3). A paused Node's frame was discarded and is no report. When the
+            // write fails the answer is retry: the Node resends, and the resend is a duplicate that records all
+            // of it.
             var relayChanged = !string.Equals(State.LastRelayHubId, request.RelayHubId, StringComparison.Ordinal);
             var liveness = !paused && frame.Rows is { } accepted && (State.LastReportedAt is not { } last || accepted.MeasuredAt > last)
                 ? accepted.MeasuredAt
                 : (DateTimeOffset?)null;
+            var battery = paused ? null : CountBattery(frame.Rows, committed, receivedAt);
 
-            if (relayChanged || liveness is not null)
+            if (relayChanged || liveness is not null || battery?.Event is not null)
             {
                 try
                 {
@@ -638,9 +653,14 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                         RaiseEvent(new DeviceReported(measuredAt, receivedAt));
                     }
 
+                    if (battery?.Event is { } batteryEvent)
+                    {
+                        RaiseEvent(batteryEvent);
+                    }
+
                     await ConfirmEvents();
                 }
-#pragma warning disable CA1031 // The relay Hub or the liveness could not be persisted: no acknowledgement, the Node resends.
+#pragma warning disable CA1031 // The relay Hub, the liveness or the battery streak could not be persisted: no acknowledgement, the Node resends.
                 catch (Exception exception)
 #pragma warning restore CA1031
                 {
@@ -649,9 +669,18 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 }
             }
 
+            // The report is counted: only now, after the write. A write that threw leaves its events in the
+            // grain's tentative state, whose liveness and counted time the resend is not newer than, so the
+            // resend counts nothing again. No test reaches that branch (DW-106).
+            if (battery is { } counted)
+            {
+                _batteryCountedAt = counted.MeasuredAt;
+            }
+
             // 7a. Silence (Story 7.1): an accepted frame may end the Node's silence, and whatever is overdue is
-            // processed. It never throws and never changes the frame's answer: an Alert that could not be
-            // delivered is delivered again by the next wake.
+            // processed. It also delivers the battery Alert the report opened or closed (Story 7.3). It never
+            // throws and never changes the frame's answer: an Alert that could not be delivered is delivered
+            // again by the next wake or report.
             if (!paused)
             {
                 await EvaluateSilenceAsync(reported: true);
@@ -794,7 +823,8 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             State.SilenceDueAt!.Value,
             State.IsPaused,
             State.OpenSilentAlert,
-            State.LastRecoveredAt);
+            State.LastRecoveredAt,
+            State.OpenBatteryAlert);
     }
 
     private ILogger Logger => ServiceProvider.GetRequiredService<ILogger<DeviceGrain>>();
@@ -918,7 +948,7 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             // Not cancelled by the caller: the journaled episode is delivered until the Alert grain holds it.
             var result = delivery.Change == AlertLifecycle.Open
                 ? await alert.OpenForDevice(
-                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At, State.Kind, delivery.SilentSince),
+                    new OpenDeviceAlert(delivery.Kind, DeviceId, delivery.Episode, delivery.SiteId!, delivery.LotId, delivery.At, State.Kind, delivery.SilentSince, delivery.BatteryPercent),
                     CancellationToken.None)
                 : await alert.Close(new CloseAlert(delivery.Reason ?? AlertCloseReason.Recovered, delivery.At), CancellationToken.None);
 
@@ -935,6 +965,59 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             RaiseEvent(new DeviceAlertDelivered(delivery.AlertId, delivery.Change, Clock.GetUtcNow()));
             await ConfirmEvents();
         }
+    }
+
+    // Counts the device report of a committed frame for the battery (Story 7.3), or returns null when it is not
+    // counted: every report counts once, at the measured_at stored with its key at first delivery, and only when
+    // that is newer than the last one counted, so a frame sent again and an older one arriving late change
+    // nothing. The event is what the report changed: a moved streak, the next episode with the third consecutive
+    // low report, or its end with the third consecutive recovered one; null for a report that leaves the state
+    // as it is. The episode is journaled by the caller before the Alert grain is called. It changes no state.
+    private (DateTimeOffset MeasuredAt, object? Event)? CountBattery(FrameRows? rows, FrameCommitted committed, DateTimeOffset receivedAt)
+    {
+        if (rows is null || State.SiteId is not { } siteId)
+        {
+            return null;
+        }
+
+        var measuredAt = committed.MeasuredAtOf(SensorIds.DeviceReport, rows.Report.ReportSeq, rows.MeasuredAt);
+
+        // The floor: the last report counted, in memory or journaled, and the newest measured_at accepted
+        // before this frame (its own device.reported is not raised yet). A report that changes nothing is not
+        // journaled, but its frame moved the liveness, so after a reactivation a late older frame is still
+        // behind the floor. A frame sent again holds the stored time of its first delivery, which is not newer.
+        DateTimeOffset?[] floors = [_batteryCountedAt, State.BatteryCountedAt, State.LastReportedAt];
+
+        if (floors.Max() is { } last && measuredAt <= last)
+        {
+            return null;
+        }
+
+        var current = State.BatteryStreaks;
+        var step = BatteryRule.Advance(current, BatteryRule.Classify(rows.Report.BatteryPercent, rows.Report.Charging));
+
+        if (step.Opens)
+        {
+            // Low means the level was read.
+            var episode = State.BatteryEpisode + 1;
+            return (measuredAt, new DeviceBatteryLowStarted(
+                episode,
+                AlertIds.Battery(DeviceId, episode),
+                siteId,
+                State.LotId,
+                rows.Report.BatteryPercent ?? 0,
+                measuredAt,
+                receivedAt));
+        }
+
+        if (step.Closes && State.OpenBatteryAlert is { } open)
+        {
+            return (measuredAt, new DeviceBatteryLowEnded(open.Episode, open.AlertId, AlertCloseReason.Recovered, measuredAt, receivedAt));
+        }
+
+        return step.Next == current
+            ? (measuredAt, null)
+            : (measuredAt, new DeviceBatteryStreakChanged(step.Next.Low, step.Next.Recovered, measuredAt));
     }
 
     // Registered once per activation; RegisterOrUpdateReminder keeps one reminder however often it is called, so

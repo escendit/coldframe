@@ -62,6 +62,8 @@ public sealed class LotsProjector : IProjector
 
     private const string SilentKindName = "silent";
 
+    private const string BatteryKindName = "battery";
+
     private const string LowSide = "low";
 
     private const string HighSide = "high";
@@ -500,11 +502,14 @@ public sealed class LotsProjector : IProjector
         }
     }
 
-    // Threshold and silent Alerts reach the rule; a kind this projector does not know yet is kept under its name.
+    // Threshold and silent Alerts reach the rule. A battery Alert (Story 7.3) is stored under its contract name
+    // and never read by the rule: it changes no Lot status. A kind this projector does not know yet is kept under
+    // its name.
     private static string KindName(AlertKind kind) => kind switch
     {
         AlertKind.Threshold => ThresholdKindName,
         AlertKind.Silent => SilentKindName,
+        AlertKind.Battery => BatteryKindName,
         _ => kind.ToString(),
     };
 

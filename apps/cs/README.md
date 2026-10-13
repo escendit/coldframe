@@ -318,17 +318,19 @@ happens in the Device grain (`server/Devices/DeviceGrain.cs`), the only writer o
    6. One transaction: `device_replay` (window and `downlink_counter + 1`), then `reading_keys`
       with `ON CONFLICT DO NOTHING`, and a `readings` or `device_reports` row only for a key that
       was new. The device report's key is the nil UUID with `report_seq`. A new key keeps the
-      frame's `measured_at`; the commit returns, for every Reading of the frame whose key holds a
-      time, that time, which for a frame sent again is the one of its first delivery (a key stored
-      before `reading_keys` kept the time holds none). The transaction fails
+      frame's `measured_at`; the commit returns, for every Reading of the frame and for its device
+      report whose key holds a time, that time, which for a frame sent again is the one of its first
+      delivery (a key stored before `reading_keys` kept the time holds none). The transaction fails
       (`retry`) when the stored high-water mark is above the one being written: the window was
       moved underneath the grain, which then reads it again.
    7. The relay Hub and the Node's liveness, after the commit, in one write: `device.relay-changed`
       is journaled only when the Hub differs from the last one, and `device.reported` `{measuredAt,
       reportedAt}` only when the frame's `measured_at` is newer than any accepted before; a frame
-      that is not committed records neither, and a paused Node's frame is no report. Then the Node's
-      silence is evaluated ([Silent Devices](#silent-devices)): a frame measured inside the Silence
-      Window ends an open silence. That never changes the frame's status.
+      that is not committed records neither, and a paused Node's frame is no report. The same write
+      holds what the frame's device report did to the battery streaks ([Low battery](#low-battery)),
+      when it did anything. Then the Node's silence is evaluated ([Silent Devices](#silent-devices)):
+      a frame measured inside the Silence Window ends an open silence, and an open or a close of the
+      Node's Alerts is delivered. That never changes the frame's status.
    8. The Specification set, when the frame's `spec_hash` is not the known one and a set is
       attached (see [Sensor Specifications](#sensor-specifications)).
    9. Evaluation ([Alerts](#alerts)): every declared Sensor of an assigned Node is handed its Reading
@@ -346,9 +348,10 @@ A failed transaction answers `retry` and leaves no trace: the grain drops its in
 reads it again for the next frame, so memory never runs ahead of the database. The downlink counter
 is never kept in memory, so no counter is reused after a restart. One small event is journaled per
 frame that moves the Node's liveness forward (`device.reported`, about one per 15 minutes per Node),
-so the Silence Window's expiry is in the journal (AD-6); nothing else is journaled per frame.
-Three kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub or the
-liveness could not be journaled, its Specification set could not be declared, or a Reading could not be evaluated
+so the Silence Window's expiry is in the journal (AD-6), and one per device report that moves a battery streak
+([Low battery](#low-battery)); nothing else is journaled per frame.
+Three kinds of `retry` do leave rows behind: when the frame committed but the changed relay Hub, the
+liveness or the battery streak could not be journaled, its Specification set could not be declared, or a Reading could not be evaluated
 (or the Alert it opened or closed not delivered), the frame is not acknowledged, and the Node's resend
 is a `duplicate`, which finishes what was left.
 
@@ -512,8 +515,9 @@ writer (AD-19); `ThresholdRules` (`server/Sensors/`) is its pure rule set.
 ### Alerts
 
 A Threshold Alert opens when a Sensor stays beyond a Threshold and closes when it recovers (Story 6.1). A Health
-Alert of kind `silent` opens when a Device stops reporting ([Silent Devices](#silent-devices), Story 7.1); it
-uses the same Alert grain and the same fan-out from step 6 on. Clients
+Alert of kind `silent` opens when a Device stops reporting ([Silent Devices](#silent-devices), Story 7.1), and one
+of kind `battery` when a Node's battery runs low while it is not charging ([Low battery](#low-battery), Story
+7.3); both use the same Alert grain and the same fan-out from step 6 on. Clients
 read both from [the Alerts list](#the-alerts-list) (Stories 6.2 and 7.2); when a User may be notified is set in
 [Notification settings](#notification-settings) (Story 6.3), each member's User grain decides when to notify
 ([Delivery timing](#delivery-timing), Story 6.4), and the channels are [Push notifications](#push-notifications)
@@ -565,7 +569,8 @@ open and close an Alert, through grain calls and the journal only (AD-5):
    `{reason, closedAt}` are journaled once each, whatever is retried. `Open` refuses a request that does not derive
    its own Alert ID. `OpenForDevice` opens a Device's Health Alert the same way; its `alert.opened` has no `side`,
    `sensorId` or `quantity`, a `lotId` only for a Node on a Lot, and from Story 7.2 on `deviceKind` and
-   `silentSince` ([Silent since](#silent-since)). `Close` is accepted only from the grain that
+   `silentSince` ([Silent since](#silent-since)). It accepts `silent` for any Device and `battery` for a Node
+   only, whose `alert.opened` carries `batteryPercent` instead of `silentSince`; any other kind is refused. `Close` is accepted only from the grain that
    opened the Alert, the Sensor grain of a Threshold Alert and the Device grain of a Device's Alert: the grain
    reads the caller of the call itself, so a client, another grain, another Sensor or another Device is refused and
    the Alert stays open. The reason is one of `recovered`, `paused`, `unassigned`, `calibrated`, `removed`; only
@@ -725,6 +730,79 @@ given time (`RestartSiloAsync(DateTimeOffset)`), and `SilenceWindowEndpointTests
 drops the reminder's own ticks, which run on the real clock. `tests/cs/web.e2e` runs UJ-3, the Node that dies
 quietly, in a browser (`SilentNodeJourneyTests`).
 
+### Low battery
+
+Story 7.3: a Node whose battery runs out while it is not charging (a shaded panel) raises a Health Alert of kind
+`battery` before it dies. The Device grain counts the Node's device reports; `BatteryRule` (`server/Devices/`) is
+pure and the only place that decides. A Hub has no battery to report and gets no such Alert.
+
+**The rule.** A device report is one of three things:
+
+| Report | When |
+| --- | --- |
+| **low** | its battery is known and below 20 %, and its charger status is *not charging* |
+| **recovered** | its charger status is *charging*, or its battery is known and at 20 % or above |
+| neither | anything else: an unreadable battery while not charging, an unknown charger status below 20 % or with an unreadable battery |
+
+The Alert opens with the third consecutive low report and closes, as `recovered`, with the third consecutive
+recovered one. A report that is not low ends a low streak, and a report that is not recovered ends a recovery
+streak, so a report that is neither ends both and starts none. Below 20 % while charging never alerts, and 20 % is
+not below 20 %. Only the streak that can change something is counted: low reports while no Alert is open,
+recovered reports while one is.
+
+**What is counted.** Step 7 of `DeviceGrain.Ingest`
+([Ingesting Node frames](#ingesting-node-frames-step-by-step)) counts the frame's device report after its commit:
+
+- **Once, by its stored time.** The report counts at the `measured_at` stored with its key
+  (`reading_keys`, the nil Sensor ID with `report_seq`) at its first delivery, which the frame's commit returns,
+  and only when that time is newer than the last report counted. A frame sent again, also one of a Node without
+  synced time whose resend carries a later time, and an older frame arriving late change nothing. The grain never
+  reads `device_reports` to rebuild a streak.
+- **A paused Node** stores no report and counts none.
+- **Journal only what changed.** A report that leaves the streaks as they are (a healthy Node, or a Node that
+  stays low while its Alert is open) journals nothing, so the common case adds no event per frame. The last
+  counted time therefore advances in memory between events (`DeviceState.BatteryCountedAt` is the journaled one).
+  A report is also never counted unless it is newer than the newest `measured_at` accepted before its frame
+  (`DeviceState.LastReportedAt`, journaled by `device.reported`), so after a reactivation a late older frame is
+  still ignored. What remains: a frame of a Node without synced time that is sent again moves that liveness to
+  the time of the resend, and a frame measured before it that arrives afterwards is not counted.
+- **Retry.** The battery event is raised in the write of step 7. A write that fails in the database is repeated
+  by the log-consistency adaptor until it lands, so the frame waits and its report is counted once. Should the
+  write throw, the frame answers `retry`, as for the liveness. The events raised before the failed write are
+  still part of the grain's tentative state, and the resend is not newer than the liveness and the counted time
+  they moved, so it counts nothing again. No test reaches this branch (DW-106): this is read from the code, not
+  observed.
+
+**Episode before Alert.** The third low report journals `device.battery-low-started` with the Node's next
+low-battery episode, the Alert ID `UUIDv5(AlertIds.Namespace, "device:{deviceId}:battery:{episode}")`, the Lot the
+Node is on (none for a Node on no Lot) and the battery level of that report. Only then `IAlertGrain.OpenForDevice`
+is called, through the delivery the `silent` Alert uses (`DeviceState.PendingAlertDeliveries`,
+`DeliverAlertsAsync`): the open before the close, again on every wake and every report until the Alert grain and
+its Site acknowledged, ended by `device.alert-delivered`. A delivery that fails never fails the frame. A Node has
+at most one open `battery` Alert, its next episode is another Alert, and only the Device grain closes it. The
+battery episodes count apart from the silence episodes; both Alerts can be open at once.
+
+**Only the level travels.** The Alert states the battery level of the report that opened it, as the nullable
+`batteryPercent` on `OpenDeviceAlert`, `alert.opened`, `AlertSnapshot`, `SiteAlert` (`site.alert-opened`) and
+`NotificationEntry` (`user.alert-tracked`). A `battery` Alert opens only from a report that is not charging, so the
+kind states the charger status. The Alert keeps the Lot the Node had when it opened. An event journaled before
+this story carries no level and reads as before.
+
+**What it never changes.** A `battery` Alert changes no Lot status: the lots projector stores it under its kind
+and its rule reads only `threshold` and `silent` Alerts ([Lot status](#lot-status)). It moves no silence clock.
+The Devices list and Lot detail keep showing the level and charger status of the Node's newest report, with the
+low-battery icon below 20 %; they move as the battery does, while the Alert keeps the level it opened with. As a
+Health Alert it reminds at most once per day ([Delivery timing](#delivery-timing)).
+
+| Event on `device/{id}` | Journaled when |
+| --- | --- |
+| `device.battery-streak-changed` `{low, recovered, measuredAt}` | A counted report moved a streak without opening or closing the Alert; never for a report that leaves both as they are |
+| `device.battery-low-started` `{episode, alertId, siteId, lotId?, batteryPercent, measuredAt, startedAt}` | The third consecutive low report: the next episode, journaled before its Alert is opened |
+| `device.battery-low-ended` `{episode, alertId, reason, measuredAt?, endedAt}` | The third consecutive recovered report |
+
+Tests: `BatteryRuleTests` and `DeviceStateBatteryTests` (`tests/cs/server.tests`) and `BatteryAlertGrainTests`
+(`tests/cs/server.integration`), a TestCluster with a fake clock and frames from the Device simulator.
+
 ### The Alerts list
 
 `GET /sites/{siteId}/alerts?cursor&limit` (`listAlerts`, Stories 6.2 and 7.2, Member and up) reads the `alerts` table, which
@@ -733,19 +811,19 @@ writer of that table (AD-21):
 
 | Event on `alert/{id}` | Row |
 | --- | --- |
-| `alert.opened` | Creates the row: `site_id`, `lot_id`, `device_id`, `sensor_id`, `kind`, `side`, `quantity`, `opened_at`, and for a Device's Alert `device_kind` and `silent_since` (Story 7.2; NULL for an older event) |
+| `alert.opened` | Creates the row: `site_id`, `lot_id`, `device_id`, `sensor_id`, `kind`, `side`, `quantity`, `opened_at`, and for a Device's Alert `device_kind` and `silent_since` (Story 7.2; NULL for an older event), and for a `battery` Alert `battery_percent` (Story 7.3) |
 | `alert.closed` | Sets `closed_at` and `reason`, once |
 | `alert.site-notified` | Nothing |
 
 A closed Alert keeps its row, so an event applied again changes nothing: neither an open after its close nor a
 second close. To rebuild, delete the rows of `alerts` and the `alerts` checkpoint; the projector starts again
 from position 0 and writes the same rows. `kind`, `side` and `reason` are stored under the contract's lowercase
-names, mapped by hand in `AlertNames` (`threshold`; `low`, `high`; `recovered`, `paused`, `unassigned`,
+names, mapped by hand in `AlertNames` (`threshold`, `silent`, `battery`; `low`, `high`; `recovered`, `paused`, `unassigned`,
 `calibrated`, `removed`). A value added to one of those enums must be named there first: the projector refuses
 an event it cannot name. The contract's `AlertKind` is an extensible enum that already names `silent`, `battery`
-and `uncalibrated`; the Server produces `threshold` and `silent` (Story 7.1).
+and `uncalibrated`; the Server produces `threshold`, `silent` (Story 7.1) and `battery` (Story 7.3).
 
-**Health Alerts travel beside the Threshold Alerts (Story 7.2).** A `silent` Alert has its row like any other,
+**Health Alerts travel beside the Threshold Alerts (Story 7.2).** A `silent` or `battery` Alert has its row like any other,
 with `sensor_id` and `quantity` null and `lot_id` null for a Hub or an unassigned Node. The contract's `Alert`
 requires `quantity`, `lotId` and `lotName`, and making them optional is a breaking change for existing clients
 (`oasdiff`: `response-property-became-optional`), so `alerts` stays Threshold-only (`ListSql` selects
@@ -754,11 +832,14 @@ requires `quantity`, `lotId` and `lotName`, and making them optional is a breaki
 - **`healthAlerts`** (`AlertsReadModel.ListHealthAlertsAsync`): every Alert of another kind, open ones newest
   `openedAt` first, then those closed within the same 7 days newest `closedAt` first, at most 200
   (`AlertsReadModel.HealthLimit`). An item is `{id, kind, deviceId, deviceKind, lotId?, lotName?, silentSince?,
-  openedAt, closedAt?, reason?}`. The Lot is left-joined: a Hub's Alert and that of a Node on no Lot have none,
+  batteryPercent?, openedAt, closedAt?, reason?}`; `batteryPercent` (Story 7.3) is the level a `battery` Alert
+  opened with, 0 to 100, and is absent for another kind and for an Alert that recorded none. The Lot is left-joined: a Hub's Alert and that of a Node on no Lot have none,
   and `lotId` and `lotName` are sent together or not at all. `deviceKind` is what the Alert recorded, else the
   kind of the enrolled Device in `devices`; a row whose kind cannot be told either way is left out, because the
   contract cannot describe it.
-- **Not paged.** Health Alerts are bounded by the number of Devices. They are sent with the first page only: a
+- **Not paged.** The list holds at most `AlertsReadModel.HealthLimit` (200) Health Alerts. A Device has at most
+  one open Alert per kind (a Node can hold a `silent` and a `battery` Alert at once), and every closed episode
+  keeps its row for 7 days, so a Site with many flapping Nodes can have more than the list shows. They are sent with the first page only: a
   request with `cursor` carries no `healthAlerts`.
 - **`openCount`** counts every open Alert of the Site, Threshold and Health.
 
@@ -900,7 +981,7 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
   opens at the first valid instant after it, a start that occurs twice at its first occurrence.
 - **Reminders** are `ReminderIntervalRule`, pure: `Daily` is 24 h, `Every2Days` 48 h, the cadence is the User's
   own, else the Site's as the grain holds it, else daily. A Health Alert (any kind that is not `Threshold`,
-  such as `silent`) uses `max(resolved, 24 h)`: it reminds at most once per day.
+  such as `silent` and `battery`) uses `max(resolved, 24 h)`: it reminds at most once per day.
 - **Mute.** A muted Site has nothing due and nothing held: its deliveries are discarded, also the ones held
   when it is muted, without an event. `user.site-mute-changed` to unmuted moves every deadline that passed
   meanwhile to the last `due-at + n × interval` not after the unmute, so the Reminder advanced all the while
@@ -912,9 +993,9 @@ queue behind it, so a channel bounds its own time. Every wake and every activati
 **The Notifier seam** (`server/Notifications/`, registered by `AddNotifications()`):
 `INotifier.SendAsync(Notification)` takes `{userId, siteId, kind: Alert | Reminder | Summary, dueAt, heldFrom?,
 entries, registrations, timeZone?, window}`, each entry `{alertId, kind, side?, lotId?, sensorId?, deviceId,
-quantity?, openedAt, deviceKind?, silentSince?}` (`packages/cs/contracts/Notifications/`; a Health Alert has no
-Sensor and no quantity, and no Lot when it is a Hub's; the last two are a Device Alert's from Story 7.2 on,
-[Silent since](#silent-since)). It carries identifiers and the facts the grains
+quantity?, openedAt, deviceKind?, silentSince?, batteryPercent?}` (`packages/cs/contracts/Notifications/`; a Health Alert has no
+Sensor and no quantity, and no Lot when it is a Hub's; `deviceKind` and `silentSince` are a Device Alert's from Story 7.2 on,
+[Silent since](#silent-since), `batteryPercent` a `battery` Alert's from Story 7.3 on, [Low battery](#low-battery)). It carries identifiers and the facts the grains
 hold; names, values and wording belong to the channels. `registrations`, `timeZone` and `window` are what only
 the User grain knows and a channel needs ([Push notifications](#push-notifications)). The one implementation,
 `Notifier`, stamps `sentAt` from the `TimeProvider`, calls every registered `INotificationChannel` in
@@ -996,7 +1077,7 @@ Threshold, and without interleaving the two would wait for each other until a ca
 grain a channel calls.
 
 **The text** is written by `PushText` from the English templates in `PushText.en.json` (an embedded resource;
-`{lot}`, `{value}`, `{threshold}`, `{unit}`, `{time}`, `{site}`, `{count}`, `{device}`, `{duration}`):
+`{lot}`, `{value}`, `{threshold}`, `{unit}`, `{time}`, `{site}`, `{count}`, `{device}`, `{duration}`, `{percent}`):
 
 | Notification | Title | Body |
 | --- | --- | --- |
@@ -1010,13 +1091,20 @@ grain a channel calls.
 | Silent Node on no Lot | "Node 9C0D silent for 6 h" | as a Node on a Lot |
 | Reminder of a silent Device | the title, with the duration when it is sent | "Still no Reading since 01:05. Check power or range." / "Lots behind it still can't be read." |
 | Summary line of a silent Device | | "Beans: Node silent for 6 h", "Hub 3F2A silent for 5 min", "Node 9C0D silent for 6 h"; counted under "to check" |
-| A Health Alert that says neither its Device kind nor its silent-since (tracked before Story 7.2), or of a kind without copy yet | "Tomatoes needs attention"; without a Lot "A device needs attention" | none; a Reminder says "Still open." |
+| Low battery on a Lot (Story 7.3) | "Node battery 14 %, not charging" | "Lot 'Lettuce'." |
+| Low battery of a Node on no Lot | "Node 9C0D battery 14 %, not charging" | none |
+| Reminder of a low battery | the title | "Still low. Lot 'Lettuce'."; without a Lot "Still low." |
+| Summary line of a low battery | | "Lettuce: Node battery 14 %, not charging", "Node 9C0D battery 14 %, not charging"; counted under "to check" |
+| A Health Alert that says neither its Device kind nor its silent-since (tracked before Story 7.2), a `battery` Alert without a level, or a kind without copy yet | "Tomatoes needs attention"; without a Lot "A device needs attention" | none; a Reminder says "Still open." |
 
 A Hub, and a Node without a Lot, is named by the first four hex digits of its Device ID in upper case
 (`PushText.ShortName`), as the firmware advertises it. A silence duration is the time the notification is sent
 minus `silentSince`, rounded down, in minutes below 1 h, hours below 24 h, days otherwise (`PushText.Duration`).
-A silent Node whose Lot is gone, or whose Lot name was not found in time, keeps its line under its own name.
-What a tapped push opens is unchanged: a silent notification opens the overview (routing to a Device row needs a
+A silent Node whose Lot is gone, or whose Lot name was not found in time, keeps its line under its own name, and
+so does a low battery: its title then names the Node, and its body names no Lot. The level in a low-battery text
+is the one the Alert opened with (`NotificationEntry.BatteryPercent`); nothing is looked up for it but the Lot's
+name.
+What a tapped push opens is unchanged: a silent or low-battery notification opens the overview (routing to a Device row needs a
 `deviceId` in the AsyncAPI `PushRoute`).
 
 Soil moisture is the percentage `CalibrationMath.Percent` gives, rounded to 5, with `~`. Without the value or
@@ -1198,6 +1286,7 @@ Alert stays open.
 | `device.silence-ended` | Sets `silent_since` to `NULL` |
 | `device.silence-window-set` | Sets `silence_window_seconds`, `NULL` for the default of the kind |
 | `device.reported`, `device.silence-clock-restarted`, `device.alert-delivered` | Nothing |
+| `device.battery-streak-changed`, `device.battery-low-started`, `device.battery-low-ended` | Nothing (Story 7.3): the list shows the battery of the Node's newest report, read from `device_reports` |
 
 `site.device-registered` creates no row: the Site's roster can hold a Device whose enrolment was
 never journaled. `device.seen` carries no Site, so the projector keys on the stream ID. The projector
@@ -1254,7 +1343,7 @@ the Lots it touches through the rule again:
 | `device.relay-changed` | The Node's last relay Hub in `lot_status_devices.relay_hub_id`; its Lot is evaluated |
 | `sensor.declared`, `sensor.specification-changed` | The Sensor's Device, quantity and `calibration` flag in `lot_status_sensors`; the Lot of its Device is evaluated |
 | `sensor.calibrated` | The Calibration's points in `calibrations` (by Calibration ID) and `lot_status_sensors.calibrated`; the Lot of its Device is evaluated |
-| `alert.opened`, `alert.closed` | The Alert's Device, Sensor, quantity, kind and side in `lot_status_alerts` (no Sensor and no quantity for a `silent` Alert), and its `closed_at`; the Lot of its Node is evaluated, and for a Hub's Alert every Lot whose Node it relays |
+| `alert.opened`, `alert.closed` | The Alert's Device, Sensor, quantity, kind and side in `lot_status_alerts` (no Sensor and no quantity for a `silent` or `battery` Alert), and its `closed_at`; the Lot of its Node is evaluated, and for a Hub's Alert every Lot whose Node it relays. A `battery` Alert (Story 7.3) is stored and changes no status: the rule reads `threshold` and `silent` only |
 
 `status_since` moves only when the status changes, to the time of the event that changed it: the
 journal's `recorded_at` for a Lot event (Lot events carry no time), the event's own time otherwise.

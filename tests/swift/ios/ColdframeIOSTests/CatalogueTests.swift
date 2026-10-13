@@ -110,6 +110,7 @@ private let coveredUxDrs: [String: [Int]] = [
   "6.3 My notification settings and the Site Reminder cadence": [47, 48, 49, 50, 72],
   "6.5 Push notifications on my phone": [88, 115, 120, 121, 122],
   "7.2 Silence in the apps and Silence Window settings": [30, 31, 78, 81, 84, 117],
+  "7.3 Low-battery Alert": [25, 26],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")
@@ -279,6 +280,10 @@ func silenceCatalogueMatchesAndroid() throws {
   #expect(copy.ios["alert_title_silent_for"] == "Node on Lot '%1$@' silent for %2$@")
   #expect(copy.ios["alert_title_hub_silent_for"] == "Hub %1$@ silent for %2$@")
   #expect(copy.ios["alert_title_node_silent_for"] == "Node %1$@ silent for %2$@")
+  // Story 7.3: the low-battery titles are under the same prefix, and in parity too.
+  #expect(
+    copy.ios["alert_title_battery_level"] == "Node battery %1$@ %%, not charging — Lot '%2$@'")
+  #expect(copy.ios["alert_title_node_battery"] == "Node %1$@ battery low")
 }
 
 @Test("UX-DR124 UX-DR31 every Silence Window notice and unit has its catalogue entry")

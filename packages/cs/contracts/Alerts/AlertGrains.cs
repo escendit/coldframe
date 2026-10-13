@@ -5,7 +5,7 @@ namespace Coldframe.Contracts.Alerts;
 /// <summary>
 /// An Alert, keyed by its Alert ID in the lowercase hyphenated form (Story 6.1). The ID of a Threshold Alert is
 /// the UUIDv5 of <c>sensor:{sensorId}:threshold:{episode}</c> in a Server-only namespace, and the ID of a Device's
-/// Health Alert (Story 7.1) the UUIDv5 of <c>device:{deviceId}:{kind}:{episode}</c>, so the grain that
+/// Health Alert (Stories 7.1 and 7.3) the UUIDv5 of <c>device:{deviceId}:{kind}:{episode}</c>, so the grain that
 /// evaluates journals the episode first and a retried <see cref="Open"/> or <see cref="OpenForDevice"/> can never
 /// create a second Alert. The Alert grain is the only writer of the Alert's state and reports every open and close
 /// to its Site grain, again until the Site acknowledged it.
@@ -68,6 +68,11 @@ public enum AlertKind
     /// A Health Alert: nothing was accepted from a Device for longer than its Silence Window (Story 7.1).
     /// </summary>
     Silent = 1,
+
+    /// <summary>
+    /// A Health Alert: a Node's battery is low while it is not charging (Story 7.3).
+    /// </summary>
+    Battery = 2,
 }
 
 /// <summary>
@@ -170,7 +175,10 @@ public sealed record OpenAlert(
 /// <summary>
 /// A Device's Health Alert to open, as the Device grain hands it to the Alert grain (Story 7.1).
 /// </summary>
-/// <param name="Kind">What the Alert is about; only <see cref="AlertKind.Silent"/> is opened by a Device.</param>
+/// <param name="Kind">
+/// What the Alert is about: <see cref="AlertKind.Silent"/> for any Device, <see cref="AlertKind.Battery"/> for a
+/// Node (Story 7.3). No Device opens another kind.
+/// </param>
 /// <param name="DeviceId">The Device that evaluated; only it closes the Alert.</param>
 /// <param name="Episode">The Device's episode of this kind; with the Device ID and the kind it derives the Alert ID.</param>
 /// <param name="SiteId">The Site of the Device when the Alert opened.</param>
@@ -180,6 +188,10 @@ public sealed record OpenAlert(
 /// <param name="SilentSince">
 /// For a <see cref="AlertKind.Silent"/> Alert, when the Device was last heard, or when it was enrolled if it never
 /// reported (Story 7.2); <see langword="null"/> when the caller does not state it.
+/// </param>
+/// <param name="BatteryPercent">
+/// For a <see cref="AlertKind.Battery"/> Alert, the battery level of the device report that opened it (Story 7.3);
+/// <see langword="null"/> for another kind.
 /// </param>
 [GenerateSerializer]
 [Alias("coldframe.open-device-alert")]
@@ -191,7 +203,8 @@ public sealed record OpenDeviceAlert(
     [property: Id(4)] string? LotId,
     [property: Id(5)] DateTimeOffset OpenedAt,
     [property: Id(6)] DeviceKind? DeviceKind = null,
-    [property: Id(7)] DateTimeOffset? SilentSince = null);
+    [property: Id(7)] DateTimeOffset? SilentSince = null,
+    [property: Id(8)] int? BatteryPercent = null);
 
 /// <summary>
 /// The close of an Alert, as the grain that opened it hands it to the Alert grain.
@@ -264,6 +277,7 @@ public sealed record AlertResult(
 /// <param name="ClosedAt">When the Alert closed, once it is.</param>
 /// <param name="DeviceKind">Whether a Device's Alert is about a Hub or a Node; <see langword="null"/> for a Threshold Alert and for an Alert opened before Story 7.2.</param>
 /// <param name="SilentSince">When a silent Device was last heard; <see langword="null"/> for another kind and for an Alert opened before Story 7.2.</param>
+/// <param name="BatteryPercent">The battery level of the device report that opened a battery Alert (Story 7.3); <see langword="null"/> for another kind.</param>
 [GenerateSerializer]
 [Alias("coldframe.alert-snapshot")]
 public sealed record AlertSnapshot(
@@ -280,4 +294,5 @@ public sealed record AlertSnapshot(
     [property: Id(10)] AlertCloseReason? Reason = null,
     [property: Id(11)] DateTimeOffset? ClosedAt = null,
     [property: Id(12)] DeviceKind? DeviceKind = null,
-    [property: Id(13)] DateTimeOffset? SilentSince = null);
+    [property: Id(13)] DateTimeOffset? SilentSince = null,
+    [property: Id(14)] int? BatteryPercent = null);

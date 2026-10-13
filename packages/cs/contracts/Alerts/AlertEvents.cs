@@ -25,6 +25,10 @@ namespace Coldframe.Contracts.Alerts;
 /// every displayed silence duration counts from here. <see langword="null"/> for another kind and in an event
 /// journaled before that story.
 /// </param>
+/// <param name="BatteryPercent">
+/// For a battery Alert, the battery level of the device report that opened it (Story 7.3). <see langword="null"/>
+/// for another kind and in an event journaled before that story.
+/// </param>
 [EventType("alert.opened")]
 [GenerateSerializer]
 [Alias("coldframe.alert-opened")]
@@ -39,7 +43,8 @@ public sealed record AlertOpened(
     [property: Id(7)] int Episode,
     [property: Id(8)] DateTimeOffset OpenedAt,
     [property: Id(9)] DeviceKind? DeviceKind = null,
-    [property: Id(10)] DateTimeOffset? SilentSince = null);
+    [property: Id(10)] DateTimeOffset? SilentSince = null,
+    [property: Id(11)] int? BatteryPercent = null);
 
 /// <summary>
 /// The Alert closed (Story 6.1). Final: a closed Alert never opens again, the Sensor's next episode is another

@@ -11,7 +11,8 @@ namespace Coldframe.Server.Alerts;
 /// writer of that table (AD-21). <c>alert.opened</c> creates the row and <c>alert.closed</c> sets its close; a
 /// closed Alert keeps its row, so an event applied again changes nothing and a rebuild from position 0 gives the
 /// same rows. <c>alert.site-notified</c> is not projected. A Device's Health Alert (Story 7.1) is stored like
-/// any other, without a Sensor, a quantity and, for a Hub or an unassigned Node, a Lot.
+/// any other, without a Sensor, a quantity and, for a Hub or an unassigned Node, a Lot; a battery Alert (Story
+/// 7.3) with the battery level it opened with.
 /// </summary>
 public sealed class AlertsProjector : IProjector
 {
@@ -25,8 +26,8 @@ public sealed class AlertsProjector : IProjector
     // The first event of an Alert stream. An open applied again, also after its close, keeps the row as it is.
     private const string OpenSql =
         """
-        INSERT INTO alerts (alert_id, site_id, lot_id, device_id, sensor_id, kind, side, quantity, opened_at, device_kind, silent_since)
-        VALUES (@alert_id, @site_id, @lot_id, @device_id, @sensor_id, @kind, @side, @quantity, @opened_at, @device_kind, @silent_since)
+        INSERT INTO alerts (alert_id, site_id, lot_id, device_id, sensor_id, kind, side, quantity, opened_at, device_kind, silent_since, battery_percent)
+        VALUES (@alert_id, @site_id, @lot_id, @device_id, @sensor_id, @kind, @side, @quantity, @opened_at, @device_kind, @silent_since, @battery_percent)
         ON CONFLICT (alert_id) DO NOTHING
         """;
 
@@ -89,6 +90,10 @@ public sealed class AlertsProjector : IProjector
                         "silent_since",
                         NpgsqlDbType.TimestampTz,
                         opened.SilentSince is { } silentSince ? silentSince.ToUniversalTime() : DBNull.Value);
+                    command.Parameters.AddWithValue(
+                        "battery_percent",
+                        NpgsqlDbType.Smallint,
+                        opened.BatteryPercent is { } batteryPercent ? checked((short)batteryPercent) : DBNull.Value);
 
                     // Only a row that is new is a change: an open applied again touches nothing.
                     if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
