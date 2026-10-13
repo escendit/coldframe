@@ -141,3 +141,21 @@ Alert, on `OpenDeviceAlert`, `AlertOpened`, `AlertSnapshot`, `SiteAlert` and `No
 travels: a `battery` Alert opens only from a report that is not charging, so the kind states the charger status.
 `DeviceSilence` gains `OpenBatteryAlert` (`DeviceBatteryAlert(AlertId, Episode, OpenedAt, BatteryPercent)`), the
 Node's open `battery` Alert. See [`apps/cs/README.md`](../../apps/cs/README.md#low-battery).
+
+The uncalibrated Sensor Alert (Story 7.4) adds `AlertKind.Uncalibrated` and
+`IAlertGrain.OpenForSensor(OpenSensorAlert(Kind, SensorId, Episode, SiteId, LotId, DeviceId, Quantity, OpenedAt))`,
+which accepts that kind only. Its `AlertOpened` records the Sensor (so `IAlertGrain.Close` is accepted from that
+Sensor's grain alone), the quantity and the Lot like a Threshold Alert, no `Side`, and `DeviceKind` `Node`; no
+record gains a member. `Sensors/` gains `ISensorGrain.SetContext(SensorContext(SiteId, LotId?, Paused, Epoch))`,
+which only the Device grain calls and which returns `SensorContextResult(Outcome)` with `Outcome` one of `Applied`,
+`NotNewer` and `NotDeclared`, and three events:
+
+| Contract | Alias | Meaning |
+| --- | --- | --- |
+| `SensorContextChanged(SiteId, LotId?, Paused, Epoch, ChangedAt)` | `sensor.context-changed` | The Sensor was told where its Node is; journaled only for an epoch newer than the one held |
+| `SensorUncalibratedEpisodeOpened(Episode, AlertId, SiteId, LotId, Epoch, OpenedAt)` | `sensor.uncalibrated-episode-opened` | The Sensor needs calibration on a Lot and is not paused: its next uncalibrated episode, journaled before its Alert is opened |
+| `SensorUncalibratedEpisodeClosed(Episode, AlertId, Reason, ClosedAt)` | `sensor.uncalibrated-episode-closed` | The episode ended: `Calibrated`, `Unassigned` (also for a move), `Paused` or `Removed` |
+
+`SensorThresholdEpisodeClosed` is now also journaled without a Reading (`MeasuredAt` `null`), with reason
+`Unassigned` or `Paused`, when the context says so. See
+[`apps/cs/README.md`](../../apps/cs/README.md#the-uncalibrated-sensor-alert).

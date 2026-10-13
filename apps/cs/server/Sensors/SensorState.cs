@@ -17,28 +17,43 @@ public sealed record SensorOpenAlert(
     [property: Id(2)] ThresholdSide Side);
 
 /// <summary>
+/// The open Health Alert of kind <c>uncalibrated</c> of a Sensor: at most one at a time (Story 7.4).
+/// </summary>
+/// <param name="AlertId">The Alert ID, derived from the Sensor and its uncalibrated episode.</param>
+/// <param name="Episode">The uncalibrated episode the Alert belongs to.</param>
+/// <param name="LotId">The Lot the Alert names: the Lot of the Node when the episode opened.</param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-uncalibrated-alert")]
+public sealed record SensorUncalibratedAlert(
+    [property: Id(0)] Guid AlertId,
+    [property: Id(1)] int Episode,
+    [property: Id(2)] string LotId);
+
+/// <summary>
 /// An open or a close of the Sensor's Alert that the Alert grain has not acknowledged yet (Story 6.1), with
 /// everything the call needs, so it is delivered again from the Sensor's own stream.
 /// </summary>
 /// <param name="AlertId">The Alert.</param>
 /// <param name="Change"><see cref="AlertLifecycle.Open"/> for an open, <see cref="AlertLifecycle.Closed"/> for a close.</param>
-/// <param name="Episode">The episode of the Alert.</param>
-/// <param name="Side">The Threshold that was crossed.</param>
+/// <param name="Episode">The episode of the Alert, counted per kind.</param>
+/// <param name="Side">The Threshold that was crossed; <see langword="null"/> for an Alert that is not a Threshold Alert.</param>
 /// <param name="SiteId">The Site of the Node when the episode opened; <see langword="null"/> for a close, which the Alert grain places itself.</param>
 /// <param name="LotId">The Lot of the Node when the episode opened; <see langword="null"/> for a close.</param>
 /// <param name="Reason">Why the Alert closes; <see langword="null"/> for an open.</param>
 /// <param name="At">When the Alert opened or closed.</param>
+/// <param name="Kind">What the Alert is about: a Threshold Alert, or the Sensor's uncalibrated Alert (Story 7.4).</param>
 [GenerateSerializer]
 [Alias("coldframe.sensor-pending-alert-delivery")]
 public sealed record PendingAlertDelivery(
     [property: Id(0)] Guid AlertId,
     [property: Id(1)] AlertLifecycle Change,
     [property: Id(2)] int Episode,
-    [property: Id(3)] ThresholdSide Side,
+    [property: Id(3)] ThresholdSide? Side,
     [property: Id(4)] string? SiteId,
     [property: Id(5)] string? LotId,
     [property: Id(6)] AlertCloseReason? Reason,
-    [property: Id(7)] DateTimeOffset At);
+    [property: Id(7)] DateTimeOffset At,
+    [property: Id(8)] AlertKind Kind = AlertKind.Threshold);
 
 /// <summary>
 /// The state of the Sensor grain: the Node and slot it belongs to, the Specification in force, and each
@@ -46,7 +61,10 @@ public sealed record PendingAlertDelivery(
 /// override's value; a side in <see cref="ThresholdKind.Default"/> reads the Specification's default. It also
 /// holds the Calibration in force, the reference point kept while the other one is missing, and which
 /// Calibration the Device grain acknowledged (Story 5.1). For evaluation (Story 6.1) it holds the running streak,
-/// the episode counter, the open Alert and the deliveries the Alert grain has not acknowledged.
+/// the episode counter, the open Alert and the deliveries the Alert grain has not acknowledged. For the
+/// uncalibrated Alert (Story 7.4) it holds the evaluation context the Device grain sent last, the uncalibrated
+/// episode counter and the open Alert of that kind. A stream journaled before that story has none of the three
+/// and replays as before.
 /// </summary>
 [GenerateSerializer]
 [Alias("coldframe.sensor-state")]
@@ -147,6 +165,32 @@ public sealed class SensorState
     /// </summary>
     [Id(14)]
     public SensorOpenAlert? OpenAlert { get; private set; }
+
+    /// <summary>
+    /// Where the Sensor's Node is, as the Device grain told it last (Story 7.4), or <see langword="null"/> before
+    /// the first context: its Site, its Lot or none, whether it is paused, and the epoch that orders contexts.
+    /// </summary>
+    [Id(16)]
+    public SensorContext? Context { get; private set; }
+
+    /// <summary>
+    /// The Sensor's uncalibrated episode counter: 0 before its first uncalibrated Alert. Journaled before the
+    /// Alert grain is called. It counts apart from <see cref="Episode"/>.
+    /// </summary>
+    [Id(17)]
+    public int UncalibratedEpisode { get; private set; }
+
+    /// <summary>
+    /// The Sensor's open Health Alert of kind <c>uncalibrated</c>, or <see langword="null"/>. At most one at a time.
+    /// </summary>
+    [Id(18)]
+    public SensorUncalibratedAlert? OpenUncalibratedAlert { get; private set; }
+
+    /// <summary>
+    /// Whether the Sensor needs calibration: its Specification says <c>calibration: true</c> and no Calibration
+    /// is in force.
+    /// </summary>
+    public bool NeedsCalibration => UncalibratedRule.NeedsCalibration(Specification, Calibrated);
 
     /// <summary>
     /// The opens and closes the Alert grain has not acknowledged, oldest first; they are delivered in this order.
@@ -270,6 +314,72 @@ public sealed class SensorState
         {
             Evaluated(measuredAt);
         }
+    }
+
+    public void Apply(SensorContextChanged @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // The epoch orders contexts: one that is not newer than the one held changes nothing.
+        if (Context is { } held && @event.Epoch <= held.Epoch)
+        {
+            return;
+        }
+
+        Context = new SensorContext(@event.SiteId, @event.LotId, @event.Paused, @event.Epoch);
+
+        // No Reading is evaluated while the Node is on no Lot or paused: the streak starts over (AD-8).
+        if (!Context.Evaluated)
+        {
+            StreakPosition = ThresholdPosition.Within;
+            StreakCount = 0;
+        }
+    }
+
+    public void Apply(SensorUncalibratedEpisodeOpened @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        // At most one open uncalibrated Alert: an episode that is not the next one is not a new one.
+        if (OpenUncalibratedAlert is not null || @event.Episode <= UncalibratedEpisode)
+        {
+            return;
+        }
+
+        UncalibratedEpisode = @event.Episode;
+        OpenUncalibratedAlert = new SensorUncalibratedAlert(@event.AlertId, @event.Episode, @event.LotId);
+        _pendingAlertDeliveries.Add(new PendingAlertDelivery(
+            @event.AlertId,
+            AlertLifecycle.Open,
+            @event.Episode,
+            Side: null,
+            @event.SiteId,
+            @event.LotId,
+            Reason: null,
+            @event.OpenedAt,
+            AlertKind.Uncalibrated));
+    }
+
+    public void Apply(SensorUncalibratedEpisodeClosed @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+
+        if (OpenUncalibratedAlert is not { } open || open.AlertId != @event.AlertId)
+        {
+            return;
+        }
+
+        _pendingAlertDeliveries.Add(new PendingAlertDelivery(
+            open.AlertId,
+            AlertLifecycle.Closed,
+            open.Episode,
+            Side: null,
+            SiteId: null,
+            LotId: null,
+            @event.Reason,
+            @event.ClosedAt,
+            AlertKind.Uncalibrated));
+        OpenUncalibratedAlert = null;
     }
 
     public void Apply(SensorAlertDelivered @event)

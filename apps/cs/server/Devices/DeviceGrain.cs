@@ -44,6 +44,15 @@ namespace Coldframe.Server.Devices;
 /// the silent Alert. No Lot status and no silence evaluation reads any of it.
 /// </para>
 /// <para>
+/// Evaluation context (Story 7.4, AD-8): a Node tells each of its Sensor grains where it is (Site, Lot or none,
+/// paused, epoch) through <see cref="ISensorGrain.SetContext"/>: after an assignment at enrolment, a move, an
+/// unassignment and a declared Specification set, and for a Pause change with the next wake. Which Sensor
+/// confirmed which epoch is kept in memory only: a context that did not reach a Sensor is sent again with the
+/// next report or wake, and every activation sends it to every Sensor once, which a Sensor that holds it ignores.
+/// A failed send never fails the call it follows. The Sensor grain never calls back into a call of this grain
+/// that does not interleave.
+/// </para>
+/// <para>
 /// Frames (AD-9, AD-17): the replay window is loaded from <c>device_replay</c> on first use and commits with
 /// the Readings in one transaction; the downlink counter is reserved in that transaction and never kept in
 /// memory, so it is never reused after a restart or a restore. A failed transaction drops the in-memory
@@ -99,6 +108,16 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
     // nothing is not journaled, so between events this runs ahead of State.BatteryCountedAt; after a
     // reactivation the journaled liveness (State.LastReportedAt) stands in for it.
     private DateTimeOffset? _batteryCountedAt;
+
+    // Sensor ID → the evaluation epoch of the context that Sensor confirmed to this activation (Story 7.4). Not
+    // journaled: after a reactivation every Sensor is sent the context again, which is idempotent by its epoch.
+    private readonly Dictionary<Guid, long> _contextConfirmed = [];
+
+    // Sends the context once after an activation, in a turn of its own: an activation must not wait for a Sensor
+    // that may itself be waiting for this Device.
+    private static readonly TimeSpan ContextTimerDue = TimeSpan.FromSeconds(1);
+
+    private IGrainTimer? _contextTimer;
 
     // The replay window of a Node's frames, or null until it is loaded from device_replay.
     private ReplayWindow? _replay;
@@ -197,6 +216,13 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         // 6. From now on the Device is woken to look at its Silence Window (Story 7.1).
         await EnsureSilenceReminderAsync();
 
+        // 7. A Node that was enrolled before and is given its Lot now has Sensors to tell (Story 7.4); a new Node
+        // has none yet. It never changes the answer.
+        if (claimed)
+        {
+            await PushContextsAsync();
+        }
+
         return new DeviceEnrolmentResult(
             DeviceEnrolmentOutcome.Enrolled,
             new DeviceSummary(DeviceId, State.Kind, State.SiteId!, State.LotId));
@@ -217,6 +243,16 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         // Every activation processes what is overdue (AD-6), and applies the Server start to the silence clock.
         // It never throws, so a grain that cannot be reached never fails the activation.
         await EvaluateSilenceAsync(reported: false);
+
+        // Which Sensor holds the current evaluation context is not journaled (Story 7.4): every activation sends
+        // it again. Not inline: a Sensor may be waiting for this Device to acknowledge a Calibration, and that
+        // call waits for the activation.
+        if (State.Kind == DeviceKind.Node && State.Sensors.Count > 0)
+        {
+            _contextTimer = this.RegisterGrainTimer(
+                PushContextsOnceAsync,
+                new GrainTimerCreationOptions(ContextTimerDue, Timeout.InfiniteTimeSpan));
+        }
     }
 
     /// <inheritdoc />
@@ -269,8 +305,12 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         await ConfirmEvents();
         await CatchUpDevicesAsync();
 
-        // 3. Last, the old Lot, from the pending state the event just persisted.
+        // 3. The old Lot, from the pending state the event just persisted.
         await ReleasePendingAsync();
+
+        // 4. Last, the Node's Sensors learn where it is now (Story 7.4). It never changes the answer: a context
+        // that did not arrive is sent again with the next report or wake.
+        await PushContextsAsync();
 
         return new DeviceAssignmentResult(DeviceAssignmentOutcome.Moved, Summary());
     }
@@ -295,6 +335,10 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         await ConfirmEvents();
         await CatchUpDevicesAsync();
         await ReleasePendingAsync();
+
+        // The Node's Sensors learn that it is on no Lot (Story 7.4): no Reading will tell them. It never changes
+        // the answer: a context that did not arrive is sent again with the next report or wake.
+        await PushContextsAsync();
 
         return new DeviceAssignmentResult(DeviceAssignmentOutcome.Unassigned, Summary());
     }
@@ -322,6 +366,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             }
 
             await EvaluateSilenceAsync(reported: false);
+
+            // A wake also sends the evaluation context to the Sensors that have not confirmed it (Story 7.4).
+            await PushContextsAsync();
         }
     }
 
@@ -713,6 +760,11 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
                 }
             }
 
+            // 8a. The evaluation context (Story 7.4): the Sensors the set just declared, and any Sensor that has
+            // not confirmed the current epoch, learn where the Node is. Nothing is sent once all have. It never
+            // throws and never changes the frame's answer.
+            await PushContextsAsync();
+
             // 9. Evaluation (Story 6.1), after the commit and the declaration: every declared Sensor of an
             // assigned Node gets its Reading, on a first delivery and on a resend alike, with the time stored at
             // its first delivery. When an evaluation or the delivery of what it opened or closed fails, the frame
@@ -1020,6 +1072,63 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
             : (measuredAt, new DeviceBatteryStreakChanged(step.Next.Low, step.Next.Recovered, measuredAt));
     }
 
+    // The one tick after an activation.
+    private async Task PushContextsOnceAsync()
+    {
+        _contextTimer?.Dispose();
+        _contextTimer = null;
+        await PushContextsAsync();
+    }
+
+    // Tells every Sensor of the Node that has not confirmed the current evaluation epoch where the Node is
+    // (Story 7.4, AD-8): its Site, its Lot or none, whether it is paused, and the epoch, which changes with every
+    // assignment and Pause event. A Sensor that answered is not told again until the epoch changes or the grain
+    // is activated again; one that could not be reached is told again by the next report, wake or activation.
+    // The Sensor journals the context and opens or closes its own Alerts from it. Never throws.
+    private async Task PushContextsAsync()
+    {
+        if (State.SiteId is not { } siteId || State.Kind != DeviceKind.Node || State.Sensors.Count == 0)
+        {
+            return;
+        }
+
+        var epoch = State.EvaluationEpoch;
+        var pending = State.Sensors
+            .Select(sensor => sensor.SensorId)
+            .Where(sensorId => !_contextConfirmed.TryGetValue(sensorId, out var confirmed) || confirmed != epoch)
+            .ToList();
+
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        var context = new SensorContext(siteId, State.LotId, State.IsPaused, epoch);
+
+        await Task.WhenAll(pending.Select(async sensorId =>
+        {
+            try
+            {
+                // Not cancelled by the caller: the assignment is journaled, and its context is not abandoned halfway.
+                var result = await GrainFactory
+                    .GetGrain<ISensorGrain>(sensorId.ToString("D"))
+                    .SetContext(context, CancellationToken.None);
+
+                // Applied, or the Sensor holds this epoch already (a Reading carried it, or an earlier activation).
+                if (result.Outcome != SensorContextOutcome.NotDeclared)
+                {
+                    _contextConfirmed[sensorId] = epoch;
+                }
+            }
+#pragma warning disable CA1031 // Whatever kept the Sensor from answering, the context is sent again.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                LogContextNotDelivered(Logger, DeviceId, sensorId, exception);
+            }
+        }));
+    }
+
     // Registered once per activation; RegisterOrUpdateReminder keeps one reminder however often it is called, so
     // a Device enrolled before Story 7.1 gets its reminder with its next activation.
     private async Task EnsureSilenceReminderAsync()
@@ -1217,6 +1326,9 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
 
     [LoggerMessage(EventId = 9, EventName = "SilenceReminderFailed", Level = LogLevel.Warning, Message = "The silence reminder of Device {DeviceId} could not be registered; the next activation tries again.")]
     private static partial void LogSilenceReminderFailed(ILogger logger, string deviceId, Exception exception);
+
+    [LoggerMessage(EventId = 10, EventName = "ContextNotDelivered", Level = LogLevel.Warning, Message = "The evaluation context of Device {DeviceId} did not reach Sensor {SensorId}; it is sent again with the next report or wake.")]
+    private static partial void LogContextNotDelivered(ILogger logger, string deviceId, Guid sensorId, Exception exception);
 
     // Unwraps K_dev, derives the hub-auth/v1 key, verifies, and zeroes both keys on every path.
     private bool Verify(WrappedDeviceKey wrapped, string method, string path, byte[] body, long timestampMs, byte[] nonce, byte[] signature)

@@ -8,7 +8,8 @@ namespace Coldframe.Web.E2ETests;
 /// A battery that runs low, from the Node's reports to the browser (Story 7.3), on the real stack: the Node on
 /// Lot "Lettuce" sends three device reports at 14 % while not charging, the Server opens its Health Alert of kind
 /// <c>battery</c>, and the Alerts page of the web app lists it under Health Alerts as "Node battery 14 %, not
-/// charging — Lot 'Lettuce'", linked to the Node's row on Devices.
+/// charging — Lot 'Lettuce'", linked to the Node's row on Devices. The Node's soil Sensor was never calibrated, so
+/// its uncalibrated Alert (Story 7.4) is the other Health row.
 /// </summary>
 /// <remarks>
 /// The clock is not moved: the three frames are measured at the Server's time as it passes, each newer than the
@@ -73,11 +74,17 @@ public sealed class LowBatteryJourneyTests(MorningNudgeFixture stack) : JourneyT
                     await page.GotoAsync($"{MorningNudgeFixture.WebOrigin}/alerts");
                     return await rows.CountAsync();
                 },
-                count => count == 1,
+                count => count == 2,
                 "the low-battery Alert is listed");
 
-            // One Health row, with the level the Alert opened with, the low-battery icon, and the way to its Node.
-            await Expect(rows).ToHaveCountAsync(1);
+            // Two Health rows: the low battery, opened last and so listed first, and the Sensor that needs
+            // calibration since the Node declared it.
+            await Expect(rows).ToHaveCountAsync(2);
+            await Expect(rows.Nth(1)).ToContainTextAsync($"Soil Sensor on Lot '{Lot}' needs Calibration");
+
+            // The battery row has the level the Alert opened with, the low-battery icon, and the way to its Node.
+            var battery = rows.Filter(new LocatorFilterOptions { HasText = "battery" });
+            await Expect(battery).ToHaveCountAsync(1);
             await Expect(rows.First).ToContainTextAsync(Title);
             await Expect(rows.First.Locator("[data-icon=\"battery--low\"]")).ToBeVisibleAsync();
             await Expect(rows.First).ToHaveAttributeAsync("href", $"/devices#device-{node.DeviceId}");

@@ -547,6 +547,64 @@ public sealed class PushTextTests
         Assert.Equal(("Node 9C0D battery 14 %, not charging", "Still low."), (reminder!.Title, reminder.Body));
     }
 
+    // Story 7.4, the copy matrix: an uncalibrated Sensor names its Lot and says who can calibrate it.
+    [Fact]
+    public async Task AnUncalibratedSensorNamesItsLotAndSaysWhoCanCalibrateItAndRoutesToTheLot()
+    {
+        var lookups = PeppersLookups();
+        var uncalibrated = Uncalibrated(PeppersLot);
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [uncalibrated] }, SentAt);
+
+        Assert.Equal(
+            ("Soil sensor on Lot 'Peppers' needs calibration", "An Owner or Administrator can calibrate it.", PeppersLot, (Guid?)uncalibrated.AlertId),
+            (alert!.Title, alert.Body, alert.LotId, alert.AlertId));
+
+        // The Site's name and the Lot's name: the Alert has a Sensor, but no Reading and no Threshold is read.
+        Assert.Equal(2, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task AReminderOfAnUncalibratedSensorKeepsTheTitleAndSaysStillNotCalibrated()
+    {
+        var reminder = await Builder(PeppersLookups()).BuildAsync(Reminder(IPhone) with { Entries = [Uncalibrated(PeppersLot)] }, SentAt.AddDays(1));
+
+        Assert.Equal(
+            ("reminder", "Soil sensor on Lot 'Peppers' needs calibration", "Still not calibrated. An Owner or Administrator can calibrate it."),
+            (reminder!.Kind, reminder.Title, reminder.Body));
+    }
+
+    [Fact]
+    public async Task ASummaryListsAnUncalibratedSensorUnderToCheckWithTheLotFirst()
+    {
+        var lookups = PeppersLookups();
+        var summary = Summary(new FakeLookups(), IPhone) with { Entries = [Uncalibrated(PeppersLot)] };
+
+        var content = await Builder(lookups).BuildAsync(summary, SentAt);
+
+        Assert.Equal("Home garden: 1 to check", content!.Title);
+        Assert.Equal(["Peppers: soil sensor needs calibration", "Held overnight, 22:00–07:00"], content.Body!.Split('\n'));
+    }
+
+    [Fact]
+    public async Task AnUncalibratedSensorWhoseLotNameWasNotFoundKeepsTheNeutralTextAndOneWhoseLotIsGoneHasNoSummaryLine()
+    {
+        var failing = new FakeLookups { Fail = true };
+        var gone = new FakeLookups();
+        var summary = Summary(gone, IPhone) with { Entries = [Uncalibrated(PeppersLot)] };
+        gone.Lots.Clear();
+
+        var alert = await Builder(failing).BuildAsync(Alert(IPhone) with { Entries = [Uncalibrated(PeppersLot)] }, SentAt);
+        var reminder = await Builder(failing).BuildAsync(Reminder(IPhone) with { Entries = [Uncalibrated(PeppersLot)] }, SentAt.AddDays(1));
+
+        // Today's neutral text, with the route to the Lot all the same.
+        Assert.Equal(("A Lot needs attention", null, PeppersLot), (alert!.Title, alert.Body, alert.LotId));
+        Assert.Equal(("A Lot needs attention", "Still open."), (reminder!.Title, reminder.Body));
+
+        // The Alert is about its Lot, like a Threshold Alert: a Lot that is gone has no line.
+        Assert.Null(await Builder(gone).BuildAsync(summary, SentAt));
+    }
+
     [Theory]
     [InlineData(0, "0 min")]
     [InlineData(59, "0 min")]
@@ -591,6 +649,8 @@ public sealed class PushTextTests
 
     private const string LettuceLot = "0199c1f0-5a00-7000-8000-0000000000b5";
 
+    private const string PeppersLot = "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e08";
+
     // The Lot "Lettuce".
     private static FakeLookups LettuceLookups()
     {
@@ -603,6 +663,19 @@ public sealed class PushTextTests
     // A low-battery Alert of a Node (Story 7.3): the level of the report that opened it, and no silent-since.
     private static NotificationEntry Battery(string? lotId) =>
         new(Guid.NewGuid(), AlertKind.Battery, null, lotId, null, NodeId, null, AlertDueAt.AddMinutes(-30), DeviceKind.Node, BatteryPercent: 14);
+
+    private static FakeLookups PeppersLookups()
+    {
+        var lookups = new FakeLookups();
+        lookups.Lots[PeppersLot] = "Peppers";
+
+        return lookups;
+    }
+
+    // An uncalibrated Sensor's Alert (Story 7.4): its Sensor, quantity and Lot, the Device kind of its Node, and
+    // no side.
+    private static NotificationEntry Uncalibrated(string lotId) =>
+        new(Guid.NewGuid(), AlertKind.Uncalibrated, null, lotId, Guid.NewGuid(), NodeId, "soil_moisture", AlertDueAt.AddMinutes(-30), DeviceKind.Node);
 
     // A Silent Device Alert as the User grain held it before Story 7.2: no side, no Sensor, no quantity, a Lot
     // only for a Node that is on one, and neither the Device kind nor when it was last heard.

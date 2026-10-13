@@ -62,7 +62,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var counting = await identity.DeviceStateAsync(nodeId);
         Assert.Equal((2, 0, (DeviceBatteryAlert?)null), (counting.BatteryLowStreak, counting.BatteryEpisode, counting.OpenBatteryAlert));
         Assert.Equal((DateTimeOffset?)Now, counting.BatteryCountedAt);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
         Assert.Equal([StreakChanged, StreakChanged], Battery(await identity.AliasesAsync(stream), journaled.Count));
 
         // The third: episode 1, journaled before the Alert it opens, with the level of this report.
@@ -84,9 +84,9 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         Assert.Equal(["alert.opened", "alert.site-notified"], await identity.AliasesAsync($"alert/{alertId}"));
 
         // The Site lists it and its member was told.
-        var listed = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        var listed = Assert.Single(await OpenAlertsAsync(site.SiteId));
         Assert.Equal(new SiteAlert(alertId, AlertKind.Battery, null, lotId, null, nodeId, null, Now, DeviceKind.Node, null, 14), listed);
-        Assert.Equal(listed, Assert.Single((await identity.UserStateAsync(site.OwnerId)).TrackedAlerts.Values).Alert);
+        Assert.Equal(listed, Assert.Single(await TrackedAlertsAsync(site.OwnerId)).Alert);
 
         // Lot status unchanged: a battery Alert never turns a Lot unknown.
         Assert.Equal(before, await LotAsync(lotId!));
@@ -100,7 +100,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         await ReportAsync(node, 12);
         await ReportAsync(node, 11);
         Assert.Empty(Battery(await identity.AliasesAsync(stream), open.Count));
-        Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(alertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         Assert.Equal(state.OpenBatteryAlert, (await identity.Device(nodeId).Silence(Ct))!.OpenBatteryAlert);
     }
 
@@ -127,8 +127,8 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var closed = await identity.Alert(first).Describe(Ct);
         Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Recovered, (DateTimeOffset?)Now), (closed!.Lifecycle, closed.Reason, closed.ClosedAt));
         Assert.Equal(["alert.opened", "alert.site-notified", "alert.closed", "alert.site-notified"], await identity.AliasesAsync($"alert/{first}"));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
-        Assert.Empty((await identity.UserStateAsync(site.OwnerId)).TrackedAlerts);
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
+        Assert.Empty(await TrackedAlertsAsync(site.OwnerId));
         Assert.Equal([StreakChanged, StreakChanged, Ended, Delivered], Battery(await identity.AliasesAsync(stream), journaled.Count));
 
         var state = await identity.DeviceStateAsync(nodeId);
@@ -139,7 +139,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var second = await LowAsync(node);
         Assert.Equal(AlertIds.Battery(nodeId, 2), second);
         Assert.NotEqual(first, second);
-        Assert.Equal(second, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(second, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         Assert.Equal([Started, Ended, Started], (await identity.AliasesAsync(stream)).Where(alias => alias is Started or Ended));
     }
 
@@ -158,7 +158,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         // Nothing of the battery is journaled for a Node whose reports move no streak.
         Assert.Empty(Battery(await identity.AliasesAsync(stream), journaled.Count));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         }
 
         Assert.Empty(Battery(await identity.AliasesAsync(stream), journaled.Count));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     [Fact]
@@ -189,12 +189,12 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         foreach (var percent in levels)
         {
             await ReportAsync(node, percent);
-            Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+            Assert.Empty(await OpenAlertsAsync(site.SiteId));
         }
 
         await ReportAsync(node, 19);
 
-        Assert.Equal(AlertIds.Battery(nodeId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Battery(nodeId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         Assert.Single(await identity.AliasesAsync($"device/{nodeId}"), alias => alias == Started);
     }
 
@@ -215,7 +215,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         await ReportAsync(node, 40);
 
         Assert.Equal(AlertLifecycle.Closed, (await identity.Alert(alertId).Describe(Ct))?.Lifecycle);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     [Fact]
@@ -234,13 +234,13 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         await ReportAsync(node, 14);
 
         Assert.Equal(1, (await identity.DeviceStateAsync(nodeId)).BatteryLowStreak);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // A charger status that could not be read below 20 % is neither low nor recovered.
         await ReportAsync(node, 14);
         await ReportAsync(node, 14, ChargeStatus.Unspecified);
         Assert.Equal(0, (await identity.DeviceStateAsync(nodeId)).BatteryLowStreak);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         }
 
         Assert.Equal(2, (await identity.DeviceStateAsync(nodeId)).BatteryLowStreak);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // The third low report, delivered twice: one Alert.
         identity.Time.Advance(Interval);
@@ -272,7 +272,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var state = await identity.DeviceStateAsync(nodeId);
         Assert.Equal((1, AlertIds.Battery(nodeId, 1), 13), (state.BatteryEpisode, state.OpenBatteryAlert?.AlertId, state.OpenBatteryAlert?.BatteryPercent));
         Assert.Equal(new BatteryStreaks(true, 0, 0), state.BatteryStreaks);
-        Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Single(await OpenAlertsAsync(site.SiteId));
         Assert.Single(await identity.AliasesAsync($"device/{nodeId}"), alias => alias == Started);
     }
 
@@ -297,7 +297,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         var state = await identity.DeviceStateAsync(nodeId);
         Assert.Equal((1, (DateTimeOffset?)firstDelivery), (state.BatteryLowStreak, state.BatteryCountedAt));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     [Fact]
@@ -320,7 +320,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         Assert.Equal(DeviceIngestStatus.Stored, late.Status);
         Assert.Equal(journaled, await identity.AliasesAsync(stream));
         Assert.Equal((2, (DateTimeOffset?)counted), ((await identity.DeviceStateAsync(nodeId)).BatteryLowStreak, (await identity.DeviceStateAsync(nodeId)).BatteryCountedAt));
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // Also behind a report that changed nothing and so journaled nothing: a healthy report ends the streak,
         // a second one leaves the state as it is, and two low ones measured just before that one arrive late.
@@ -334,7 +334,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         Assert.Equal(DeviceIngestStatus.Stored, (await IngestAsync(node, node.Wake(healthy.AddMinutes(-1), 14, ChargeStatus.NotCharging))).Status);
 
         Assert.Equal(0, (await identity.DeviceStateAsync(nodeId)).BatteryLowStreak);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     // The streak is journaled state: a new silo goes on from it.
@@ -348,21 +348,21 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         await ReportAsync(node, 14);
         await ReportAsync(node, 14);
         await identity.RestartSiloAsync(Now);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         await ReportAsync(node, 13);
 
         var state = await identity.DeviceStateAsync(nodeId);
         Assert.Equal((1, AlertIds.Battery(nodeId, 1), 13), (state.BatteryEpisode, state.OpenBatteryAlert?.AlertId, state.OpenBatteryAlert?.BatteryPercent));
-        Assert.Equal(AlertIds.Battery(nodeId, 1), Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(AlertIds.Battery(nodeId, 1), Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
 
         // And an open episode: after another restart three recovered reports close it.
         await ReportAsync(node, 60);
         await identity.RestartSiloAsync(Now);
         await ReportAsync(node, 60);
-        Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Single(await OpenAlertsAsync(site.SiteId));
         await ReportAsync(node, 60);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     // A healthy report journals nothing of the battery, so the last counted time is not in the battery state. The
@@ -395,7 +395,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         Assert.Empty(Battery(await identity.AliasesAsync(stream), journaled.Count));
         Assert.Equal(0, (await identity.DeviceStateAsync(nodeId)).BatteryEpisode);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
 
         // A report newer than the last one accepted counts as ever.
         await ReportAsync(node, 9);
@@ -445,7 +445,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         var alert = await identity.Alert(alertId).Describe(Ct);
         Assert.Equal((AlertKind.Battery, (string?)null, (int?)14, (DeviceKind?)DeviceKind.Node), (alert!.Kind, alert.LotId, alert.BatteryPercent, alert.DeviceKind));
-        Assert.Equal((alertId, (string?)null), (Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).LotId));
+        Assert.Equal((alertId, (string?)null), (Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).LotId));
         Assert.Equal(AlertIds.Battery(nodeId, 1), alertId);
     }
 
@@ -462,7 +462,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         await ReportAsync(node, 12);
 
         Assert.Equal(lotId, (await identity.Alert(alertId).Describe(Ct))!.LotId);
-        Assert.Equal(lotId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).LotId);
+        Assert.Equal(lotId, Assert.Single(await OpenAlertsAsync(site.SiteId)).LotId);
     }
 
     [Fact]
@@ -489,7 +489,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         // The next wake delivers it: one episode, one Alert.
         await identity.WakeDeviceAsync(nodeId);
 
-        Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(alertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
         Assert.Equal(14, (await identity.Alert(alertId).Describe(Ct))!.BatteryPercent);
         Assert.Single(await identity.AliasesAsync($"device/{nodeId}"), alias => alias == Started);
 
@@ -507,7 +507,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         await ReportAsync(node, 60);
 
         Assert.Equal(AlertLifecycle.Closed, (await identity.Alert(alertId).Describe(Ct))?.Lifecycle);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
         Assert.Empty((await identity.DeviceStateAsync(nodeId)).PendingAlertDeliveries);
         Assert.Equal(
             [Started, Delivered, Ended, Delivered],
@@ -569,7 +569,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         Assert.Empty(Battery(await identity.AliasesAsync(stream), journaled.Count));
         Assert.Equal(0, (await identity.DeviceStateAsync(nodeId)).BatteryEpisode);
-        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Empty(await OpenAlertsAsync(site.SiteId));
     }
 
     // What the Device grain states once as its Alert opens is what the Alerts list and the notifications say; the
@@ -593,10 +593,11 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var alerts = identity.SiloServices.GetRequiredService<AlertsReadModel>();
         var closedSince = Now - AlertsReadModel.ClosedRetention;
         Assert.Empty((await alerts.ListAlertsAsync(site.SiteId, closedSince, null, 50, Ct)).Alerts);
-        Assert.Equal(1, await alerts.CountOpenAsync(site.SiteId, Ct));
+        // Counted with the uncalibrated Alerts of the two Nodes on Lots (Story 7.4), which are Health Alerts too.
+        Assert.Equal(1 + 2, await alerts.CountOpenAsync(site.SiteId, Ct));
         Assert.Equal(
             [new HealthAlertView(alertId, "battery", nodeId, "node", lotId, "Lettuce", null, opened, null, null, 14)],
-            await alerts.ListHealthAlertsAsync(site.SiteId, closedSince, Ct));
+            await DeviceHealthAlertsAsync(alerts, site.SiteId, closedSince));
 
         // The Lots: every Lot has the status, the cause and the silence members it had without the Alert.
         var after = (await lots.ListLotsAsync(site.SiteId, Ct)).ToDictionary(lot => lot.LotId, StringComparer.Ordinal);
@@ -614,7 +615,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         // The notification text, written from what the Alert carries and the real read models.
         var push = identity.SiloServices.GetRequiredService<PushContentBuilder>();
-        var listed = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        var listed = Assert.Single(await OpenAlertsAsync(site.SiteId));
         var entry = new NotificationEntry(alertId, listed.Kind, null, listed.LotId, null, listed.DeviceId, null, listed.OpenedAt, listed.DeviceKind, listed.SilentSince, listed.BatteryPercent);
         var content = await push.BuildAsync(new Notification(site.OwnerId, site.SiteId, NotificationKind.Alert, Now, null, [entry]), Now);
         Assert.Equal(("Node battery 14 %, not charging", "Lot 'Lettuce'."), (content!.Title, content.Body));
@@ -626,10 +627,10 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         }
 
         await CatchUpAsync();
-        Assert.Equal(0, await alerts.CountOpenAsync(site.SiteId, Ct));
+        Assert.Equal(0 + 2, await alerts.CountOpenAsync(site.SiteId, Ct));
         Assert.Equal(
             [new HealthAlertView(alertId, "battery", nodeId, "node", lotId, "Lettuce", null, opened, Now, "recovered", 14)],
-            await alerts.ListHealthAlertsAsync(site.SiteId, Now - AlertsReadModel.ClosedRetention, Ct));
+            await DeviceHealthAlertsAsync(alerts, site.SiteId, Now - AlertsReadModel.ClosedRetention));
         Assert.NotNull(other);
     }
 
@@ -646,7 +647,7 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var opened = Now;
 
         await identity.WakeUserAsync(site.OwnerId);
-        var sent = Assert.Single(identity.Notifications.For(site.OwnerId));
+        var sent = Assert.Single(NotificationsOf(site.OwnerId, alertId));
         Assert.Equal(NotificationKind.Alert, sent.Notification.Kind);
         Assert.Equal(
             new NotificationEntry(alertId, AlertKind.Battery, null, lotId, null, nodeId, null, opened, DeviceKind.Node, null, 14),
@@ -663,17 +664,17 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
 
         identity.Time.SetUtcNow(opened + TimeSpan.FromHours(24) - TimeSpan.FromMinutes(1));
         await identity.WakeUserAsync(site.OwnerId);
-        Assert.Single(identity.Notifications.For(site.OwnerId));
+        Assert.Single(NotificationsOf(site.OwnerId, alertId));
 
         identity.Time.Advance(TimeSpan.FromMinutes(1));
         await identity.WakeUserAsync(site.OwnerId);
-        var reminded = identity.Notifications.For(site.OwnerId);
+        var reminded = NotificationsOf(site.OwnerId, alertId);
         Assert.Equal(2, reminded.Count);
         Assert.Equal((NotificationKind.Reminder, alertId), (reminded[1].Notification.Kind, Assert.Single(reminded[1].Notification.Entries).AlertId));
         Assert.Equal(14, Assert.Single(reminded[1].Notification.Entries).BatteryPercent);
 
         // Still one Alert, and never a silent one.
-        Assert.Equal(alertId, Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct)).AlertId);
+        Assert.Equal(alertId, Assert.Single(await OpenAlertsAsync(site.SiteId)).AlertId);
     }
 
     // The battery events of a Device stream after its first `skip` events.
@@ -756,6 +757,24 @@ public sealed class BatteryAlertGrainTests(IdentityCluster identity) : IClassFix
         var target = new DateTimeOffset(Now.UtcDateTime.Date, TimeSpan.Zero).AddHours(hour).AddMinutes(minute);
         identity.Time.SetUtcNow(target > Now ? target : target.AddDays(1));
     }
+
+    // The Site's open Alerts without the uncalibrated Alert every Node on a Lot has for its soil Sensor from its
+    // first declaration on (Story 7.4). UncalibratedAlertGrainTests pins that Alert; this suite is about the
+    // Alerts a Device opens for itself, and counts those.
+    private async Task<List<SiteAlert>> OpenAlertsAsync(string siteId) =>
+        [.. (await identity.Site(siteId).OpenAlerts(Ct)).Where(alert => alert.Kind != AlertKind.Uncalibrated)];
+
+    // The Health Alerts the Alerts list holds, without those uncalibrated Alerts.
+    private static async Task<List<HealthAlertView>> DeviceHealthAlertsAsync(AlertsReadModel alerts, string siteId, DateTimeOffset closedSince) =>
+        [.. (await alerts.ListHealthAlertsAsync(siteId, closedSince, Ct)).Where(alert => alert.Kind != "uncalibrated")];
+
+    // What the User grain tracks, without those uncalibrated Alerts.
+    private async Task<List<Coldframe.Server.Identity.TrackedAlert>> TrackedAlertsAsync(string userId) =>
+        [.. (await identity.UserStateAsync(userId)).TrackedAlerts.Values.Where(tracked => tracked.Alert.Kind != AlertKind.Uncalibrated)];
+
+    // The notifications a User was sent about one Alert: the uncalibrated Alert of a Node on a Lot has its own.
+    private List<RecordedNotification> NotificationsOf(string userId, Guid alertId) =>
+        [.. identity.Notifications.For(userId).Where(sent => sent.Notification.Entries.Any(entry => entry.AlertId == alertId))];
 
     private async Task<long> PositionAsync(string streamId, string alias) =>
         await identity.Database.ScalarAsync<long>(

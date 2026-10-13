@@ -231,6 +231,44 @@ public sealed class FixtureJournalReplayTests
         // The Node caches the first Calibration of the soil Sensor.
         Assert.Equal(Guid.Parse("0192f3a4-9000-7000-8000-000000000001"), node.CalibrationOf(Guid.Parse("dac4e7fe-93b1-56fc-a363-51235a586394")));
 
+        // Story 7.4: the rows above were journaled before that story. They hold no evaluation context, so the
+        // Sensor has no uncalibrated episode and no Alert of that kind until a context arrives.
+        Assert.Equal(((SensorContext?)null, 0, (SensorUncalibratedAlert?)null), (soil.Context, soil.UncalibratedEpisode, soil.OpenUncalibratedAlert));
+        Assert.Equal((AlertKind.Threshold, (ThresholdSide?)ThresholdSide.Low), (undelivered.Kind, undelivered.Side));
+
+        // A soil Sensor of another Node (whose own stream is not in the fixture) was declared while its Node was
+        // on no Lot (no Alert), then the Node was assigned: uncalibrated episode 1, delivered. The Node moved:
+        // the Alert of the Lot it left closed as unassigned (delivered), and episode 2 names the new Lot and is
+        // not delivered yet.
+        var uncalibratedSensor = Guid.Parse("1549a7b9-e608-5016-9526-384730ad21c4");
+        var firstUncalibrated = Guid.Parse("b53cd77e-ef30-5b22-a9b1-c4dfe37d5236");
+        var secondUncalibrated = Guid.Parse("b0981698-8399-5254-80ab-c006e203641a");
+        Assert.Equal(
+            (firstUncalibrated, secondUncalibrated),
+            (AlertIds.Uncalibrated(uncalibratedSensor, 1), AlertIds.Uncalibrated(uncalibratedSensor, 2)));
+        var uncalibrated = Assert.IsType<SensorState>(states[$"sensor/{uncalibratedSensor}"]);
+        Assert.Equal(new SensorContext("0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06", false, 2), uncalibrated.Context);
+        Assert.True(uncalibrated.NeedsCalibration);
+        Assert.Equal(
+            (2, new SensorUncalibratedAlert(secondUncalibrated, 2, "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06")),
+            (uncalibrated.UncalibratedEpisode, uncalibrated.OpenUncalibratedAlert));
+        Assert.Equal((0, (SensorOpenAlert?)null), (uncalibrated.Episode, uncalibrated.OpenAlert));
+        var undeliveredUncalibrated = Assert.Single(uncalibrated.PendingAlertDeliveries);
+        Assert.Equal(
+            (secondUncalibrated, AlertLifecycle.Open, AlertKind.Uncalibrated, (ThresholdSide?)null, "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06"),
+            (undeliveredUncalibrated.AlertId, undeliveredUncalibrated.Change, undeliveredUncalibrated.Kind, undeliveredUncalibrated.Side, undeliveredUncalibrated.LotId));
+
+        // Its first Alert records the Sensor (which alone closes it), the quantity, the Lot and the Device kind,
+        // and no side; the Site and the User heard of its open and of its close.
+        var uncalibratedAlert = Assert.IsType<AlertState>(states[$"alert/{firstUncalibrated}"]);
+        Assert.Equal(
+            (AlertLifecycle.Closed, AlertKind.Uncalibrated, AlertCloseReason.Unassigned, false),
+            (uncalibratedAlert.Lifecycle, uncalibratedAlert.Kind, uncalibratedAlert.Reason, uncalibratedAlert.ReportPending));
+        Assert.Equal(
+            ((ThresholdSide?)null, uncalibratedSensor, "soil_moisture", "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", (DeviceKind?)DeviceKind.Node, "7e1f2a3b4c5d6e70"),
+            (uncalibratedAlert.Side, uncalibratedAlert.SensorId, uncalibratedAlert.Quantity, uncalibratedAlert.LotId, uncalibratedAlert.DeviceKind, uncalibratedAlert.DeviceId));
+        Assert.DoesNotContain(firstUncalibrated, site.OpenAlerts.Keys);
+
         // Only watched: no defaults, so both sides follow a default that is absent.
         var air = Assert.IsType<SensorState>(states["sensor/e62a2dbe-b439-5906-a842-35abfb36458a"]);
         Assert.Equal(new SensorSpecification("air_temperature", SensorUnit.MilliDegreeCelsius, -40_000, 85_000, false), air.Specification);

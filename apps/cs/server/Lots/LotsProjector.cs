@@ -64,6 +64,8 @@ public sealed class LotsProjector : IProjector
 
     private const string BatteryKindName = "battery";
 
+    private const string UncalibratedKindName = "uncalibrated";
+
     private const string LowSide = "low";
 
     private const string HighSide = "high";
@@ -502,14 +504,16 @@ public sealed class LotsProjector : IProjector
         }
     }
 
-    // Threshold and silent Alerts reach the rule. A battery Alert (Story 7.3) is stored under its contract name
-    // and never read by the rule: it changes no Lot status. A kind this projector does not know yet is kept under
-    // its name.
+    // Threshold and silent Alerts reach the rule. A battery Alert (Story 7.3) and an uncalibrated Sensor's Alert
+    // (Story 7.4) are stored under their contract names and never read by the rule: they change no Lot status
+    // (needs calibration is computed from the Sensor's state, not from its Alert). A kind this projector does not
+    // know yet is kept under its name.
     private static string KindName(AlertKind kind) => kind switch
     {
         AlertKind.Threshold => ThresholdKindName,
         AlertKind.Silent => SilentKindName,
         AlertKind.Battery => BatteryKindName,
+        AlertKind.Uncalibrated => UncalibratedKindName,
         _ => kind.ToString(),
     };
 

@@ -89,13 +89,88 @@ public interface ISensorGrain : IGrainWithStringKey
     /// not evaluated, so a frame sent again changes nothing. An open or a close the Alert grain has not
     /// acknowledged is delivered again first; while that fails the Reading is evaluated all the same, the answer
     /// is <see cref="SensorEvaluationOutcome.NotDelivered"/>, and the Sensor keeps delivering by itself. It
-    /// never calls the Device grain.
+    /// never calls the Device grain. A Reading whose epoch is newer than the one of the context the Sensor holds
+    /// (Story 7.4) is first taken as that context: the Node is on the Reading's Lot and not paused, which heals
+    /// a context that <see cref="SetContext"/> did not deliver.
     /// </summary>
     /// <param name="request">The Reading and where its Node is.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     [Alias("evaluate")]
     Task<SensorEvaluationResult> Evaluate(EvaluateReading request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tells the Sensor where its Node is (Story 7.4, AD-8): its Site, its Lot or none, whether it is paused, and
+    /// the Node's evaluation epoch. Only the Device grain calls it, whenever its assignment or Pause changes and
+    /// when the Sensor is first declared; the Sensor never asks the Device. A context whose epoch is not newer
+    /// than the one the Sensor holds is ignored and journals nothing. Otherwise the Sensor journals
+    /// <see cref="SensorContextChanged"/> and acts on it: a Sensor that needs calibration (its Specification says
+    /// <c>calibration: true</c> and it has no Calibration) on a Lot, not paused, journals its next uncalibrated
+    /// episode and opens the Health Alert of kind <c>uncalibrated</c>; a context without a Lot, with another Lot
+    /// or paused closes that Alert, and a context without a Lot or paused also closes the Sensor's open Threshold
+    /// Alert and resets its streak. An open or a close the Alert grain does not acknowledge is delivered again by
+    /// the Sensor itself; the call does not fail for it.
+    /// </summary>
+    /// <param name="context">Where the Node is.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("set-context")]
+    Task<SensorContextResult> SetContext(SensorContext context, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Where a Sensor's Node is, as the Device grain tells the Sensor grain (Story 7.4): the evaluation context the
+/// Sensor journals and decides its own Alerts from.
+/// </summary>
+/// <param name="SiteId">The Site of the Node.</param>
+/// <param name="LotId">The Lot the Node is assigned to, or <see langword="null"/> while it is on none.</param>
+/// <param name="Paused">Whether the Node is paused.</param>
+/// <param name="Epoch">
+/// The Node's evaluation epoch: it changes with every assignment and Pause event, so a newer epoch is a newer
+/// context.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-context")]
+public sealed record SensorContext(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] string? LotId,
+    [property: Id(2)] bool Paused,
+    [property: Id(3)] long Epoch)
+{
+    /// <summary>
+    /// Whether a Sensor is evaluated in this context: its Node is on a Lot and not paused.
+    /// </summary>
+    public bool Evaluated => LotId is not null && !Paused;
+}
+
+/// <summary>
+/// How <see cref="ISensorGrain.SetContext"/> ended.
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.sensor-context-outcome")]
+public enum SensorContextOutcome
+{
+    /// <summary>
+    /// The Sensor holds the context now; <see cref="SensorContextChanged"/> was journaled.
+    /// </summary>
+    Applied = 0,
+
+    /// <summary>
+    /// The Sensor holds a context of this epoch or a newer one. Nothing was journaled.
+    /// </summary>
+    NotNewer = 1,
+
+    /// <summary>
+    /// The Sensor was never declared. Nothing was journaled.
+    /// </summary>
+    NotDeclared = 2,
+}
+
+/// <summary>
+/// The result of <see cref="ISensorGrain.SetContext"/>.
+/// </summary>
+/// <param name="Outcome">How the call ended.</param>
+[GenerateSerializer]
+[Alias("coldframe.sensor-context-result")]
+public sealed record SensorContextResult([property: Id(0)] SensorContextOutcome Outcome);
 
 /// <summary>
 /// Where a Node is when one of its Readings is evaluated (Story 6.1). The Sensor grain knows only its Device, so

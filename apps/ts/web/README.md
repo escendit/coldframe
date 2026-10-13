@@ -302,11 +302,16 @@ Health rows (`healthAlertRow`) are titled from the Alert's Device, Lot, `silentS
 | `battery`, a Node on a Lot (Story 7.3) | "Node battery 14 %, not charging — Lot 'Lettuce'" |
 | `battery`, a Node on no Lot | "Node 9C0D battery 14 %, not charging" |
 | `battery`, closed, or without a `batteryPercent` from 0 to 100 | "Node battery low on Lot 'Lettuce'" / "Node 9C0D battery low" |
+| `uncalibrated` (Story 7.4) | "Soil Sensor on Lot 'Peppers' needs Calibration", open and closed; the tools icon; it opens Lot detail of that Lot |
 | a kind this client does not know | the neutral row: "Health Alert on Lot 'Basil'", or "Health Alert" without a Lot |
 
-The Server opens `silent` (Story 7.1) and `battery` Alerts (Story 7.3). The level in a low-battery title is the
-one the Alert opened with, so a closed row names none; Devices and Lot detail show the Node's newest level and
-charger status, as before. `uncalibrated` keeps its title and icon for Story 7.4. A non-Threshold entry in `alerts`, which the Server no longer sends, still renders as
+The Server opens `silent` (Story 7.1), `battery` (Story 7.3) and `uncalibrated` Alerts (Story 7.4). The level in
+a low-battery title is the one the Alert opened with, so a closed row names none; Devices and Lot detail show the
+Node's newest level and charger status, as before. An `uncalibrated` Alert is about a soil Sensor of a Node on a
+Lot: its row leads to Lot detail (`/garden/{lotId}`), where Calibrate is offered to an Owner and an Administrator
+and not to a Member, and the row is a Closed row once the Calibration is saved or the Node left the Lot. Its
+notification is worded by the Server ("Soil sensor on Lot 'Peppers' needs calibration"); the row keeps the
+glossary's capitals. A non-Threshold entry in `alerts`, which the Server no longer sends, still renders as
 the Health row it was (it opens Devices without a row).
 
 There is no Open Alerts rail, no count in the side nav and no stale mode: a failed read shows the notice

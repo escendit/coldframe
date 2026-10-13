@@ -150,8 +150,8 @@ public sealed record SensorThresholdEpisodeOpened(
 
 /// <summary>
 /// The Sensor's open episode ended (Story 6.1): three consecutive Readings were back within the Thresholds, or
-/// on the other side. Journaled before the Alert grain is called; the Sensor delivers the close until
-/// <see cref="SensorAlertDelivered"/> is journaled.
+/// on the other side, or (Story 7.4) the Node was unassigned or paused, which no Reading tells. Journaled before
+/// the Alert grain is called; the Sensor delivers the close until <see cref="SensorAlertDelivered"/> is journaled.
 /// </summary>
 /// <param name="Episode">The episode that ended.</param>
 /// <param name="AlertId">The Alert of that episode.</param>
@@ -187,3 +187,65 @@ public sealed record SensorAlertDelivered(
     [property: Id(0)] Guid AlertId,
     [property: Id(1)] AlertLifecycle Change,
     [property: Id(2)] DateTimeOffset DeliveredAt);
+
+/// <summary>
+/// The Sensor was told where its Node is (Story 7.4, AD-8): the evaluation context it holds from now on. The
+/// Device grain sends it whenever its assignment or Pause changes and when the Sensor is first declared; a
+/// Reading of a newer epoch is taken as one too. Journaled only for an epoch newer than the one held. A context
+/// without a Lot, or paused, resets the evaluation streak.
+/// </summary>
+/// <param name="SiteId">The Site of the Node.</param>
+/// <param name="LotId">The Lot the Node is assigned to; <see langword="null"/> while it is on none.</param>
+/// <param name="Paused">Whether the Node is paused.</param>
+/// <param name="Epoch">The Node's evaluation epoch of this context.</param>
+/// <param name="ChangedAt">When the Sensor journaled the context.</param>
+[EventType("sensor.context-changed")]
+[GenerateSerializer]
+[Alias("coldframe.sensor-context-changed")]
+public sealed record SensorContextChanged(
+    [property: Id(0)] string SiteId,
+    [property: Id(1)] string? LotId,
+    [property: Id(2)] bool Paused,
+    [property: Id(3)] long Epoch,
+    [property: Id(4)] DateTimeOffset ChangedAt);
+
+/// <summary>
+/// The Sensor needs calibration on a Lot (Story 7.4): its Specification says <c>calibration: true</c>, it has no
+/// Calibration, and its Node is on a Lot and not paused. The Sensor's next uncalibrated episode, and with it the
+/// Health Alert whose ID the episode derives. Journaled before the Alert grain is called, so a retry opens the
+/// same Alert. These episodes count apart from the Threshold episodes.
+/// </summary>
+/// <param name="Episode">The episode: 1 for the Sensor's first, then one more each time.</param>
+/// <param name="AlertId">The Alert ID: the UUIDv5 of <c>sensor:{sensorId}:uncalibrated:{episode}</c>.</param>
+/// <param name="SiteId">The Site of the Node when the episode opened.</param>
+/// <param name="LotId">The Lot of the Node when the episode opened; the Alert names it.</param>
+/// <param name="Epoch">The Node's evaluation epoch of the context the episode opened in.</param>
+/// <param name="OpenedAt">When the Sensor journaled the episode; the Alert's opening time.</param>
+[EventType("sensor.uncalibrated-episode-opened")]
+[GenerateSerializer]
+[Alias("coldframe.sensor-uncalibrated-episode-opened")]
+public sealed record SensorUncalibratedEpisodeOpened(
+    [property: Id(0)] int Episode,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] string SiteId,
+    [property: Id(3)] string LotId,
+    [property: Id(4)] long Epoch,
+    [property: Id(5)] DateTimeOffset OpenedAt);
+
+/// <summary>
+/// The Sensor's open uncalibrated episode ended (Story 7.4): a Calibration was saved (<c>Calibrated</c>), the Node
+/// left the Lot the Alert names (<c>Unassigned</c>, also for a move), the Node was paused (<c>Paused</c>), or the
+/// Specification stopped requiring calibration (<c>Removed</c>). Journaled before the Alert grain is called.
+/// </summary>
+/// <param name="Episode">The episode that ended.</param>
+/// <param name="AlertId">The Alert of that episode.</param>
+/// <param name="Reason">Why the Alert closes.</param>
+/// <param name="ClosedAt">When the Sensor journaled the end; the Alert's closing time.</param>
+[EventType("sensor.uncalibrated-episode-closed")]
+[GenerateSerializer]
+[Alias("coldframe.sensor-uncalibrated-episode-closed")]
+public sealed record SensorUncalibratedEpisodeClosed(
+    [property: Id(0)] int Episode,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] AlertCloseReason Reason,
+    [property: Id(3)] DateTimeOffset ClosedAt);

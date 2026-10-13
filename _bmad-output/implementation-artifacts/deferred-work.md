@@ -654,12 +654,12 @@ severity: medium
 reason: DeviceGrain.EvaluateAsync stops handing that Sensor Readings, so it can never recover; the lots projector hides the Alert through "a.sensor_id = ANY (d.sensor_ids)", so the Site set and the Lot status disagree. The close reason "removed" (AD-7) belongs to a later epic. No test isolates the sensor_ids clause.
 status: open
 
-### DW-85: The open Alert of a Node that was moved keeps naming the Lot it was opened for, while the Lot status follows the Node to its new Lot.
+### DW-85: The open Threshold Alert of a Node that was moved keeps naming the Lot it was opened for, while the Lot status follows the Node to its new Lot.
 origin: spec-deferred b36b6ac4aa8d
-location: packages/cs/contracts/Alerts/AlertGrains.cs, apps/cs/server/Devices/DeviceGrain.cs (Move, Unassign)
+location: packages/cs/contracts/Alerts/AlertGrains.cs, apps/cs/server/Sensors/SensorGrain.cs (RaiseContext)
 source_spec: `spec-6-1-threshold-alerts-open-and-close.md`
 severity: medium
-reason: AlertOpened.LotId, SiteAlert.LotId and AlertSnapshot.LotId are set at open and never change; the projector finds an Alert by Device. Story 6.2 and the notification text would name the old Lot. AD-8 closes a Sensor's Alerts on an unassigned or paused context (reasons unassigned, paused), which is not built yet.
+reason: AlertOpened.LotId, SiteAlert.LotId and AlertSnapshot.LotId are set at open and never change; the projector finds an Alert by Device. The Alerts list and the notification text of a Threshold Alert name the old Lot until three Readings recover. Narrowed by Story 7.4 (`spec-7-4-uncalibrated-sensor-alert.md`): the Sensor grain now holds the evaluation context, closes its Threshold Alert on an unassigned or paused context (reasons unassigned, paused), and closes and reopens its uncalibrated Alert on a move, so those cases are done. What remains is only the move of a Node with an open Threshold Alert, which a context naming another Lot leaves open on purpose.
 status: open
 
 ### DW-86: IDeviceGrain.SetCalibration is now [AlwaysInterleave] and no test runs a Calibration delivery concurrently with an ingest.

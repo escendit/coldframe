@@ -956,5 +956,124 @@
     "alias": "device.battery-streak-changed",
     "schemaVersion": 1,
     "payload": { "low": 1, "recovered": 0, "measuredAt": "2026-10-16T12:00:00Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 1,
+    "alias": "sensor.declared",
+    "schemaVersion": 1,
+    "payload": { "deviceId": "7e1f2a3b4c5d6e70", "slot": 0, "specification": { "quantity": "soil_moisture", "unit": "RawCount", "rangeMin": 0, "rangeMax": 4095, "calibration": true, "defaultLow": 30, "defaultHigh": 80 }, "declaredAt": "2026-10-17T08:00:03Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 2,
+    "alias": "sensor.context-changed",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "paused": false, "epoch": 0, "changedAt": "2026-10-17T08:00:04Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 3,
+    "alias": "sensor.context-changed",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", "paused": false, "epoch": 1, "changedAt": "2026-10-17T09:00:02Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 4,
+    "alias": "sensor.uncalibrated-episode-opened",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", "epoch": 1, "openedAt": "2026-10-17T09:00:02Z" }
+  },
+  {
+    "streamId": "alert/b53cd77e-ef30-5b22-a9b1-c4dfe37d5236",
+    "version": 1,
+    "alias": "alert.opened",
+    "schemaVersion": 1,
+    "payload": { "kind": "Uncalibrated", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", "sensorId": "1549a7b9-e608-5016-9526-384730ad21c4", "deviceId": "7e1f2a3b4c5d6e70", "quantity": "soil_moisture", "episode": 1, "openedAt": "2026-10-17T09:00:02Z", "deviceKind": "Node" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 16,
+    "alias": "site.alert-opened",
+    "schemaVersion": 1,
+    "payload": { "alert": { "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "kind": "Uncalibrated", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", "sensorId": "1549a7b9-e608-5016-9526-384730ad21c4", "deviceId": "7e1f2a3b4c5d6e70", "quantity": "soil_moisture", "openedAt": "2026-10-17T09:00:02Z", "deviceKind": "Node" } }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 26,
+    "alias": "user.alert-tracked",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "alert": { "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "kind": "Uncalibrated", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e05", "sensorId": "1549a7b9-e608-5016-9526-384730ad21c4", "deviceId": "7e1f2a3b4c5d6e70", "quantity": "soil_moisture", "openedAt": "2026-10-17T09:00:02Z", "deviceKind": "Node" }, "told": true, "remindFrom": "2026-10-17T09:00:02+00:00", "trackedAt": "2026-10-17T09:00:03+00:00" }
+  },
+  {
+    "streamId": "alert/b53cd77e-ef30-5b22-a9b1-c4dfe37d5236",
+    "version": 2,
+    "alias": "alert.site-notified",
+    "schemaVersion": 1,
+    "payload": { "change": "Open", "notifiedAt": "2026-10-17T09:00:03Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 5,
+    "alias": "sensor.alert-delivered",
+    "schemaVersion": 1,
+    "payload": { "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "change": "Open", "deliveredAt": "2026-10-17T09:00:03Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 6,
+    "alias": "sensor.context-changed",
+    "schemaVersion": 1,
+    "payload": { "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06", "paused": false, "epoch": 2, "changedAt": "2026-10-18T10:00:00Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 7,
+    "alias": "sensor.uncalibrated-episode-closed",
+    "schemaVersion": 1,
+    "payload": { "episode": 1, "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "reason": "Unassigned", "closedAt": "2026-10-18T10:00:00Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 8,
+    "alias": "sensor.uncalibrated-episode-opened",
+    "schemaVersion": 1,
+    "payload": { "episode": 2, "alertId": "b0981698-8399-5254-80ab-c006e203641a", "siteId": "0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00", "lotId": "0192f3a4-8a00-7c3d-8e4f-5a6b7c8d9e06", "epoch": 2, "openedAt": "2026-10-18T10:00:00Z" }
+  },
+  {
+    "streamId": "alert/b53cd77e-ef30-5b22-a9b1-c4dfe37d5236",
+    "version": 3,
+    "alias": "alert.closed",
+    "schemaVersion": 1,
+    "payload": { "reason": "Unassigned", "closedAt": "2026-10-18T10:00:00Z" }
+  },
+  {
+    "streamId": "site/0192f3a4-7c1e-7d2b-9a51-3f7e2c9b1d00",
+    "version": 17,
+    "alias": "site.alert-closed",
+    "schemaVersion": 1,
+    "payload": { "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "reason": "Unassigned", "closedAt": "2026-10-18T10:00:00Z" }
+  },
+  {
+    "streamId": "user/5b0c7c1e-2a4d-4f1b-8e3a-9d7f6c5b4a31",
+    "version": 27,
+    "alias": "user.alert-dropped",
+    "schemaVersion": 1,
+    "payload": { "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "droppedAt": "2026-10-18T10:00:01+00:00" }
+  },
+  {
+    "streamId": "alert/b53cd77e-ef30-5b22-a9b1-c4dfe37d5236",
+    "version": 4,
+    "alias": "alert.site-notified",
+    "schemaVersion": 1,
+    "payload": { "change": "Closed", "notifiedAt": "2026-10-18T10:00:01Z" }
+  },
+  {
+    "streamId": "sensor/1549a7b9-e608-5016-9526-384730ad21c4",
+    "version": 9,
+    "alias": "sensor.alert-delivered",
+    "schemaVersion": 1,
+    "payload": { "alertId": "b53cd77e-ef30-5b22-a9b1-c4dfe37d5236", "change": "Closed", "deliveredAt": "2026-10-18T10:00:01Z" }
   }
 ]

@@ -24,6 +24,16 @@ namespace Coldframe.Server.Sensors;
 /// evaluation. The Sensor grain never calls the Device grain from <see cref="Evaluate"/>.
 /// </para>
 /// <para>
+/// The uncalibrated Alert (Story 7.4, AD-8): the Device grain sends the Sensor an evaluation context (Site, Lot or
+/// none, paused, epoch) whenever its assignment or Pause changes and when the Sensor is first declared
+/// (<see cref="SetContext"/>); the Sensor journals it and never asks the Device. <see cref="UncalibratedRule"/>
+/// decides from the context, the Specification and the Calibration: the Health Alert of kind <c>uncalibrated</c>
+/// is open exactly while the Sensor needs calibration on a Lot and is not paused. The rule runs on a context, on
+/// a changed Specification and on a saved Calibration; its episode is journaled before
+/// <see cref="IAlertGrain.OpenForSensor"/> is called, and its opens and closes take the delivery of the Threshold
+/// Alert. A context without a Lot, or paused, also closes the open Threshold Alert.
+/// </para>
+/// <para>
 /// Calibration (Story 5.1, AD-9): the Sensor grain is the only validator and the only writer of a Calibration.
 /// <see cref="Calibrate"/> checks the named Readings against the stored ones, keeps a single point until the
 /// other one arrives, and journals <see cref="SensorCalibrated"/> once both are known and distinct. Only then
@@ -84,8 +94,19 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
             return new SensorDeclarationResult(SensorDeclarationOutcome.Unchanged);
         }
 
-        RaiseEvent(new SensorSpecificationChanged(request.Specification, Clock.GetUtcNow()));
+        // A Specification that starts or stops requiring calibration opens or closes the uncalibrated Alert
+        // (Story 7.4), in the context the Sensor holds.
+        var now = Clock.GetUtcNow();
+        RaiseEvent(new SensorSpecificationChanged(request.Specification, now));
+        var changed = RaiseUncalibrated(now);
         await ConfirmEvents();
+
+        if (changed)
+        {
+            // Never fails the declaration: what the Alert grain did not take is delivered again.
+            await DeliverAlertsAsync();
+        }
+
         return new SensorDeclarationResult(SensorDeclarationOutcome.SpecificationChanged);
     }
 
@@ -158,8 +179,17 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Context.SiteId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Context.LotId);
 
-        // 1. What an earlier evaluation left undelivered comes first, also for a frame that is sent again. A
-        // failure does not stop this Reading from being evaluated: it only keeps the frame unacknowledged.
+        // 0. Readings carry the epoch (Story 7.4): one that is newer than the context the Sensor holds says that
+        // the Node is on this Lot and not paused, so a context the Device could not deliver heals here.
+        if (State.Specification is not null && (State.Context is not { } held || request.Context.Epoch > held.Epoch))
+        {
+            RaiseContext(new SensorContext(request.Context.SiteId, request.Context.LotId, Paused: false, request.Context.Epoch), Clock.GetUtcNow());
+            await ConfirmEvents();
+        }
+
+        // 1. What an earlier evaluation left undelivered comes first, also for a frame that is sent again, and
+        // what the context just opened or closed. A failure does not stop this Reading from being evaluated: it
+        // only keeps the frame unacknowledged.
         var delivered = await DeliverAlertsAsync();
 
         // 2. Only an alerting Sensor: declared, calibrated when it calibrates, and with an effective low.
@@ -239,6 +269,39 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
     }
 
     /// <inheritdoc />
+    public async Task<SensorContextResult> SetContext(SensorContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(context.SiteId);
+
+        if (context.LotId is { } lotId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(lotId, nameof(context));
+        }
+
+        // The first event of a Sensor stream is its declaration: an undeclared Sensor holds nothing.
+        if (State.Specification is null)
+        {
+            return new SensorContextResult(SensorContextOutcome.NotDeclared);
+        }
+
+        // The epoch orders contexts: one that is not newer is ignored, and nothing is journaled.
+        if (State.Context is { } held && context.Epoch <= held.Epoch)
+        {
+            return new SensorContextResult(SensorContextOutcome.NotNewer);
+        }
+
+        RaiseContext(context, Clock.GetUtcNow());
+        await ConfirmEvents();
+
+        // The context and its episodes are journaled: now the Alert grain, which is idempotent. A failure never
+        // fails the call: the timer, the reminder and the next evaluation deliver again.
+        await DeliverAlertsAsync();
+
+        return new SensorContextResult(SensorContextOutcome.Applied);
+    }
+
+    /// <inheritdoc />
     public async Task<SensorCalibrationResult> Calibrate(CalibrateSensor request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -292,19 +355,30 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
             var nothingPending = State.PendingDryRaw is null && State.PendingWetRaw is null;
             if (nothingPending && State.Calibration is { } current && current.DryRaw == knownDry && current.WetRaw == knownWet)
             {
-                return await ResultAsync(await DeliverAsync());
+                // It also finishes the close of the uncalibrated Alert the first request journaled (Story 7.4).
+                var redelivered = await DeliverAsync();
+                await DeliverAlertsAsync();
+                return await ResultAsync(redelivered);
             }
 
-            // 3. Persist first: the Calibration is the Sensor's, whatever happens to the Device call.
+            // 3. Persist first: the Calibration is the Sensor's, whatever happens to the Device call. With it
+            // the Sensor stops needing calibration: its open uncalibrated Alert closes as calibrated (Story 7.4).
             var now = Clock.GetUtcNow();
             RaiseEvent(new SensorCalibrated(Guid.CreateVersion7(now), knownDry, knownWet, now));
+            RaiseUncalibrated(now);
             await ConfirmEvents();
 
             // Read-your-writes: the Lot leaves needs calibration, and the points are there to derive a percentage.
             await CatchUpLotsAsync();
 
             // 4. Set in force on the Device grain before the request is confirmed.
-            return await ResultAsync(await DeliverAsync());
+            var delivered = await DeliverAsync();
+
+            // 5. The close of the uncalibrated Alert. It never changes the answer: what the Alert grain did not
+            // take is delivered again by the timer and the reminder.
+            await DeliverAlertsAsync();
+
+            return await ResultAsync(delivered);
         }
 
         // Only one point is known: keep it. The Sensor stays as calibrated as it was.
@@ -360,6 +434,57 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
             ? inMemory
             : State.LastEvaluatedAt;
 
+    // Journals nothing by itself: raises the context and what it does to the Sensor's Alerts (Story 7.4, AD-8); the
+    // caller confirms. A context without a Lot, or paused, closes the open Threshold Alert as unassigned or
+    // paused, since no Reading will be evaluated to recover it; a move leaves it open (DW-85). Then the
+    // uncalibrated rule runs in the new context. It reads the tentative state: the events raised in this turn
+    // count, confirmed or not.
+    private void RaiseContext(SensorContext context, DateTimeOffset now)
+    {
+        RaiseEvent(new SensorContextChanged(context.SiteId, context.LotId, context.Paused, context.Epoch, now));
+
+        if (!context.Evaluated && TentativeState.OpenAlert is { } open)
+        {
+            RaiseEvent(new SensorThresholdEpisodeClosed(
+                open.Episode,
+                open.AlertId,
+                context.LotId is null ? AlertCloseReason.Unassigned : AlertCloseReason.Paused,
+                context.Epoch,
+                MeasuredAt: null,
+                now));
+        }
+
+        RaiseUncalibrated(now);
+    }
+
+    // Raises what the Sensor's state now asks of its uncalibrated Alert (UncalibratedRule): the end of the open
+    // episode, the next episode, or both for a Node that moved. The episode counter is in the event, so it is
+    // persisted before the Alert grain hears of it. It reads the tentative state, so a context, a Specification
+    // or a Calibration raised just before it counts. The caller confirms. True when anything was raised.
+    private bool RaiseUncalibrated(DateTimeOffset now)
+    {
+        var step = UncalibratedRule.Decide(TentativeState.Context, TentativeState.Specification, TentativeState.Calibrated, TentativeState.OpenUncalibratedAlert?.LotId);
+
+        if (step.Closes is { } reason && TentativeState.OpenUncalibratedAlert is { } open)
+        {
+            RaiseEvent(new SensorUncalibratedEpisodeClosed(open.Episode, open.AlertId, reason, now));
+        }
+
+        if (step.Opens && TentativeState.Context is { LotId: { } lotId } context)
+        {
+            var episode = TentativeState.UncalibratedEpisode + 1;
+            RaiseEvent(new SensorUncalibratedEpisodeOpened(
+                episode,
+                AlertIds.Uncalibrated(Guid.Parse(SensorId), episode),
+                context.SiteId,
+                lotId,
+                context.Epoch,
+                now));
+        }
+
+        return step.Closes is not null || step.Opens;
+    }
+
     // Delivers every open and close the Alert grain has not acknowledged, oldest first, and journals each
     // acknowledgement. It stops at the first one that fails, so a close never overtakes its open. Never throws:
     // a failure leaves the rest pending, and the timer, the reminder, the next activation and the next
@@ -373,19 +498,31 @@ public sealed partial class SensorGrain : JournaledStreamGrain<SensorState>, ISe
                 var alert = GrainFactory.GetGrain<IAlertGrain>(delivery.AlertId.ToString("D"));
 
                 // Not cancelled by the caller: the journaled episode is delivered until the Alert grain holds it.
-                var result = delivery.Change == AlertLifecycle.Open
-                    ? await alert.Open(
-                        new OpenAlert(
-                            Guid.Parse(SensorId),
-                            delivery.Episode,
-                            delivery.Side,
-                            delivery.SiteId!,
-                            delivery.LotId!,
-                            State.DeviceId!,
-                            State.Specification!.Quantity,
-                            delivery.At),
-                        CancellationToken.None)
-                    : await alert.Close(new CloseAlert(delivery.Reason ?? AlertCloseReason.Recovered, delivery.At), CancellationToken.None);
+                var result = delivery.Change != AlertLifecycle.Open
+                    ? await alert.Close(new CloseAlert(delivery.Reason ?? AlertCloseReason.Recovered, delivery.At), CancellationToken.None)
+                    : delivery.Kind == AlertKind.Threshold
+                        ? await alert.Open(
+                            new OpenAlert(
+                                Guid.Parse(SensorId),
+                                delivery.Episode,
+                                delivery.Side.GetValueOrDefault(),
+                                delivery.SiteId!,
+                                delivery.LotId!,
+                                State.DeviceId!,
+                                State.Specification!.Quantity,
+                                delivery.At),
+                            CancellationToken.None)
+                        : await alert.OpenForSensor(
+                            new OpenSensorAlert(
+                                delivery.Kind,
+                                Guid.Parse(SensorId),
+                                delivery.Episode,
+                                delivery.SiteId!,
+                                delivery.LotId!,
+                                State.DeviceId!,
+                                State.Specification!.Quantity,
+                                delivery.At),
+                            CancellationToken.None);
 
                 var accepted = delivery.Change == AlertLifecycle.Open
                     ? result.Outcome is AlertOutcome.Open or AlertOutcome.Closed

@@ -371,9 +371,11 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
         var declared = Assert.Single(await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(node.SealFrame(second)), cancellationToken));
         Assert.Equal("stored", declared.Status);
         Assert.False(node.OpenDownlink(declared.Downlink!).SpecificationsUnknown);
+        // Declared, and then told where its Node is (Story 7.4): on its Site and on no Lot.
+        string[] declaredAndTold = ["sensor.declared", "sensor.context-changed"];
         foreach (var sensor in sensors)
         {
-            Assert.Equal(["sensor.declared"], await edge.AliasesAsync(sensor, cancellationToken));
+            Assert.Equal(declaredAndTold, await edge.AliasesAsync(sensor, cancellationToken));
         }
 
         string[] journaled = ["device.enrolled", "device.relay-changed", "device.specifications-declared"];
@@ -392,7 +394,7 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
         Assert.Equal(journaled, await WithoutLivenessAsync(stream, cancellationToken));
         foreach (var sensor in sensors)
         {
-            Assert.Equal(["sensor.declared"], await edge.AliasesAsync(sensor, cancellationToken));
+            Assert.Equal(declaredAndTold, await edge.AliasesAsync(sensor, cancellationToken));
         }
 
         Assert.Equal((12L, 3L), await CountsAsync(node, cancellationToken));

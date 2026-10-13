@@ -139,7 +139,8 @@ public sealed partial class PushContentBuilder(
     // What the text of one Alert needs. Soil moisture names no Threshold in its title, so a summary line of it
     // needs only the Lot; a summary has no body, so it needs no Reading. Only a Threshold Alert has a Sensor with
     // a Reading and a Threshold: for any other kind (a Health Alert, Story 7.1) neither is looked up. A low
-    // battery (Story 7.3) needs only the name of its Lot: its level travels with the Alert.
+    // battery (Story 7.3) needs only the name of its Lot: its level travels with the Alert. An uncalibrated Sensor
+    // (Story 7.4) needs only the name of its Lot too.
     private async Task<PushEntryFacts> FactsAsync(
         Notification notification,
         NotificationEntry entry,
@@ -170,8 +171,10 @@ public sealed partial class PushContentBuilder(
             await reading.ConfigureAwait(false),
             await threshold.ConfigureAwait(false),
 
-            // A Device's Alert that names its Device outlives its Lot: it keeps its line, named by the Device.
-            lotGone && entry.DeviceKind is null,
+            // A Device's Alert that names its Device outlives its Lot: it keeps its line, named by the Device. An
+            // uncalibrated Sensor's Alert (Story 7.4) is about its Lot, like a Threshold Alert: without the Lot it
+            // has no line.
+            lotGone && (entry.DeviceKind is null || entry.Kind == AlertKind.Uncalibrated),
             NeverReported: await node.ConfigureAwait(false) is { HasReadings: false });
     }
 

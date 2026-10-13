@@ -87,7 +87,9 @@ public sealed class PushText
     /// silent for 5 min", "Node 9C0D silent for 6 h" for a Node on no Lot. A silent Alert that does not say its
     /// Device kind and silent-since (tracked before Story 7.2) keeps the neutral text. A low battery (Story 7.3)
     /// reads "Node battery 14 %, not charging", with the Node's short ID ("Node 9C0D battery …") when the Node is
-    /// on no Lot or its Lot's name is not known; one that does not say its level keeps the neutral text.
+    /// on no Lot or its Lot's name is not known; one that does not say its level keeps the neutral text. An
+    /// uncalibrated Sensor (Story 7.4) reads "Soil sensor on Lot 'Peppers' needs calibration"; while its Lot's name
+    /// is not known it keeps the neutral text.
     /// </summary>
     /// <param name="facts">The Alert.</param>
     /// <param name="now">When the notification is sent; a silence duration counts up to it.</param>
@@ -105,6 +107,11 @@ public sealed class PushText
         if (BatteryTitle(facts, summary: false) is { } battery)
         {
             return battery;
+        }
+
+        if (UncalibratedTitle(facts, summary: false) is { } uncalibrated)
+        {
+            return uncalibrated;
         }
 
         // An Alert without a Lot that is no silent Device with its kind and time and no low battery with its
@@ -144,7 +151,8 @@ public sealed class PushText
     /// the Threshold was not found (the title stands alone then; a Reminder still says "Still open."). A silent
     /// Node (Story 7.2) names the time of its last Reading in the User's zone, a silent Hub what cannot be read.
     /// A low battery (Story 7.3) names the Node's Lot, "Lot 'Lettuce'.", and has no body without one; its Reminder
-    /// says "Still low." first.
+    /// says "Still low." first. An uncalibrated Sensor (Story 7.4) says who can calibrate it, "An Owner or
+    /// Administrator can calibrate it.", and its Reminder "Still not calibrated." first.
     /// </summary>
     /// <param name="facts">The Alert.</param>
     /// <param name="reminder">Whether the text is a Reminder's: the Alert text with "Still".</param>
@@ -179,6 +187,11 @@ public sealed class PushText
             return facts.LotName is { } lot
                 ? Format($"{prefix}.battery.lot", ("lot", lot))
                 : reminder ? _templates["reminder.battery"] : null;
+        }
+
+        if (IsUncalibrated(facts))
+        {
+            return _templates[$"{prefix}.uncalibrated"];
         }
 
         if (entry is { Kind: AlertKind.Threshold, Side: { } side } && facts.Reading is { } reading)
@@ -233,7 +246,7 @@ public sealed class PushText
         ArgumentNullException.ThrowIfNull(window);
 
         var ordered = alerts.Where(alert => NeedsWater(alert.Entry)).Concat(alerts.Where(alert => !NeedsWater(alert.Entry))).ToList();
-        var lines = ordered.Take(MaxSummaryLines).Select(alert => SilentTitle(alert, now, summary: true) ?? BatteryTitle(alert, summary: true) ?? Title(alert, now)).ToList();
+        var lines = ordered.Take(MaxSummaryLines).Select(alert => SilentTitle(alert, now, summary: true) ?? BatteryTitle(alert, summary: true) ?? UncalibratedTitle(alert, summary: true) ?? Title(alert, now)).ToList();
 
         if (ordered.Count > MaxSummaryLines)
         {
@@ -347,6 +360,18 @@ public sealed class PushText
             ? Format("summary.battery.nodeOnLot", ("lot", lot), ("percent", percent))
             : Format("title.battery.nodeOnLot", ("percent", percent));
     }
+
+    // An uncalibrated Sensor's Alert whose Lot can be named (Story 7.4). The text names the Lot, where Calibrate is
+    // offered; while the Lot's name is not known the Alert keeps the neutral text. "Soil sensor" is fixed copy:
+    // only soil-moisture Specifications require calibration.
+    private static bool IsUncalibrated(PushEntryFacts facts) =>
+        facts is { Entry.Kind: AlertKind.Uncalibrated, LotName: not null };
+
+    // The title of an uncalibrated Sensor, or null for any other Alert. In a summary the Lot leads.
+    private string? UncalibratedTitle(PushEntryFacts facts, bool summary) =>
+        IsUncalibrated(facts)
+            ? Format(summary ? "summary.uncalibrated" : "title.uncalibrated", ("lot", facts.LotName!))
+            : null;
 
     // Whole numbers where they are whole; one decimal otherwise, three significant digits for kΩ.
     private static string Number(PushValue value)

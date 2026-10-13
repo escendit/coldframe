@@ -34,6 +34,22 @@ public static class AlertIds
     public static Guid Threshold(Guid sensorId, int episode) => SensorIds.UuidV5(Namespace, ThresholdName(sensorId, episode));
 
     /// <summary>
+    /// The name an uncalibrated Sensor Alert's ID is derived from (Story 7.4):
+    /// <c>sensor:{sensorId}:uncalibrated:{episode}</c>, the Sensor ID in the lowercase hyphenated form.
+    /// </summary>
+    /// <param name="sensorId">The Sensor that needs calibration.</param>
+    /// <param name="episode">The Sensor's uncalibrated episode, from 1.</param>
+    public static string UncalibratedName(Guid sensorId, int episode) =>
+        string.Create(CultureInfo.InvariantCulture, $"sensor:{sensorId:D}:uncalibrated:{episode}");
+
+    /// <summary>
+    /// The ID of the uncalibrated Sensor Alert of a Sensor's uncalibrated episode.
+    /// </summary>
+    /// <param name="sensorId">The Sensor that needs calibration.</param>
+    /// <param name="episode">The Sensor's uncalibrated episode, from 1.</param>
+    public static Guid Uncalibrated(Guid sensorId, int episode) => SensorIds.UuidV5(Namespace, UncalibratedName(sensorId, episode));
+
+    /// <summary>
     /// The name a Silent Device Alert's ID is derived from (Story 7.1): <c>device:{deviceId}:silent:{episode}</c>,
     /// the Device ID as 16 lowercase hex digits.
     /// </summary>
