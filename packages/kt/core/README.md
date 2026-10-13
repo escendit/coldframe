@@ -195,6 +195,16 @@ Lot-bound kind without a Lot. Its `duration` is `null` for a closed row and for 
 which drops " for …". `AlertsSnapshot` carries it as `alertTitles`, `alertDeviceNames`, `alertDurationValues` and
 `alertDurationUnits`, with `IosAlerts.current()` for a minute tick.
 
+**Low battery (Story 7.3).** A `battery` Health Alert carries `batteryPercent` (`HealthAlertDto`,
+`AlertSummary`), the level of the device report that opened it; a value outside 0 to 100 is dropped and the
+Alert stays. Its title is `NodeOnLotBattery` ("Node battery 14 %, not charging — Lot 'Lettuce'") or, for a Node
+on no Lot, `NodeBattery` ("Node 9C0D battery 14 %, not charging"), with the level in `AlertTitle.batteryPercent`.
+A closed row, and an Alert without a level, is `Battery` ("Node battery low on Lot 'Lettuce'") or
+`NodeBatteryLow` ("Node 9C0D battery low"): the level at opening is no longer true. The kind states the charger
+status, because the Server opens such an Alert only from a report that is not charging. `AlertsSnapshot` carries
+the level as `alertBatteryPercents`, empty for every other title. The row opens Devices, where `NodeSummary`
+shows the newest report's level and charger status.
+
 **My notifications (Story 6.3).** `notifications/NotificationSettingsEngine` is My notifications over
 `GET`/`PATCH /me/notification-settings` and `GET`/`PUT /sites/{siteId}/notification-settings`
 (`NotificationSettingsApi`). It reads when the session becomes signed in and on every `load` (the shells call it
@@ -266,7 +276,7 @@ and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetRem
 
 For Swift, `IosPush` (`IosSignIn.push`) observes a flat `PushSnapshot`; Android reads `AndroidSignIn.push`.
 
-Absent until later stories: battery and uncalibrated Alerts have no producer on the Server (Stories 7.3 and 7.4),
-a silent row or a tapped silent notification opens the Devices surface, not the Device's row (the push route
+Absent until later stories: uncalibrated Alerts have no producer on the Server (Story 7.4),
+a silent or low-battery row or a tapped notification of one opens the Devices surface, not the Device's row (the push route
 carries no Device ID), and there is no live update: the shells read again on entry, on pull-to-refresh and on
 every foreground.

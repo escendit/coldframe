@@ -134,9 +134,12 @@ is planned today.
   a fraction, a string or a malformed Device ID, 403 for a Member, 404 `device-not-found`.
 - **Alerts.** `GET /sites/{siteId}/alerts` answers `{alerts, healthAlerts?, openCount, nextCursor?}`. `alerts`
   holds Threshold Alerts only and keeps its shape. `healthAlerts` (Story 7.2) holds the Health Alerts as `{id,
-  kind, deviceId, deviceKind, lotId?, lotName?, silentSince?, openedAt, closedAt?, reason?}`: a Hub's Alert and
-  the Alert of a Node on no Lot have no Lot. It is not paged (at most 200, bounded by the number of Devices) and
-  is sent with the first page only. `openCount` counts every open Alert, Threshold and Health.
+  kind, deviceId, deviceKind, lotId?, lotName?, silentSince?, batteryPercent?, openedAt, closedAt?, reason?}`: a
+  Hub's Alert and the Alert of a Node on no Lot have no Lot. A `battery` Alert (Story 7.3: a Node below 20 % while
+  not charging) carries `batteryPercent`, the level of the device report that opened it; without it a client words
+  the Alert without a level. It is not paged and holds at most 200: a Device has at most one
+  open Alert per kind (a Node can hold a `silent` and a `battery` Alert at once), and every closed one stays for
+  7 days. It is sent with the first page only. `openCount` counts every open Alert, Threshold and Health.
 - **Notification settings** (Story 6.3). `GET`/`PATCH /me/notification-settings` is the caller's own
   `{window: {from, to}, timeZone?, timeZoneConfirmed}`; it is the first path that names no Site. Times are
   `"HH:mm"` (24 h) wall-clock in the User's zone; the default window is 07:00 to 22:00, `to` omitted in a

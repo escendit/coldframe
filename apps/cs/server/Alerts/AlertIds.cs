@@ -52,4 +52,24 @@ public static class AlertIds
     /// <param name="deviceId">The Device that evaluates its own silence.</param>
     /// <param name="episode">The Device's silence episode, from 1.</param>
     public static Guid Silent(string deviceId, int episode) => SensorIds.UuidV5(Namespace, SilentName(deviceId, episode));
+
+    /// <summary>
+    /// The name a low-battery Alert's ID is derived from (Story 7.3): <c>device:{deviceId}:battery:{episode}</c>,
+    /// the Device ID as 16 lowercase hex digits.
+    /// </summary>
+    /// <param name="deviceId">The Node that counts its own device reports.</param>
+    /// <param name="episode">The Node's low-battery episode, from 1.</param>
+    public static string BatteryName(string deviceId, int episode)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(deviceId);
+
+        return string.Create(CultureInfo.InvariantCulture, $"device:{deviceId}:battery:{episode}");
+    }
+
+    /// <summary>
+    /// The ID of the low-battery Alert of a Node's low-battery episode.
+    /// </summary>
+    /// <param name="deviceId">The Node that counts its own device reports.</param>
+    /// <param name="episode">The Node's low-battery episode, from 1.</param>
+    public static Guid Battery(string deviceId, int episode) => SensorIds.UuidV5(Namespace, BatteryName(deviceId, episode));
 }

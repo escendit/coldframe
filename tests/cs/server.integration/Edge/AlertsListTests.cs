@@ -380,6 +380,42 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         Assert.Equal((Format(now.AddHours(-1)), "recovered"), (Text(health[3], "closedAt"), Text(health[3], "reason")));
     }
 
+    // Story 7.3: a battery Alert is a Health Alert with the level it opened with.
+    [Fact]
+    public async Task ABatteryAlertIsListedAsAHealthAlertWithItsLevelAndCountedAndNotAmongTheThresholdAlerts()
+    {
+        var (siteId, member) = await SeedSiteAsync();
+        var lettuce = await edge.SeedLotAsync(siteId, "Lettuce", Ct);
+        var now = Now();
+
+        // A low Node on Lettuce, one on no Lot, one whose Alert states no level, and one that recovered.
+        var onLot = await OpenBatteryAsync(siteId, lettuce, Node, now.AddHours(-2), 14);
+        var onNone = await OpenBatteryAsync(siteId, lotId: null, "9c0d1e4b5a673f2a", now.AddHours(-1), 0);
+        var noLevel = await OpenBatteryAsync(siteId, lotId: null, "9c0d1e4b5a673f2b", now.AddMinutes(-30), batteryPercent: null);
+        var recovered = await OpenBatteryAsync(siteId, lettuce, "9c0d1e4b5a673f2c", now.AddHours(-5), 19);
+        await CloseAsync(recovered, AlertCloseReason.Recovered, now.AddHours(-3));
+
+        using var page = await GetAsync(member, siteId);
+
+        Assert.Empty(Alerts(page));
+        Assert.Equal(3, page.RootElement.GetProperty("openCount").GetInt32());
+
+        var health = Health(page);
+        Assert.Equal([noLevel, onNone, onLot, recovered], health.Select(Id));
+        Assert.All(health, item => Assert.Equal(("battery", "node"), (Text(item, "kind"), Text(item, "deviceKind"))));
+
+        Assert.Equal(["batteryPercent", "deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt"], Names(health[2]));
+        Assert.Equal((14, lettuce, "Lettuce", Node), (health[2].GetProperty("batteryPercent").GetInt32(), Text(health[2], "lotId"), Text(health[2], "lotName"), Text(health[2], "deviceId")));
+
+        // A Node on no Lot names none; an empty battery is a level, not a missing one.
+        Assert.Equal(["batteryPercent", "deviceId", "deviceKind", "id", "kind", "openedAt"], Names(health[1]));
+        Assert.Equal(0, health[1].GetProperty("batteryPercent").GetInt32());
+        Assert.Equal(["deviceId", "deviceKind", "id", "kind", "openedAt"], Names(health[0]));
+
+        Assert.Equal(["batteryPercent", "closedAt", "deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt", "reason"], Names(health[3]));
+        Assert.Equal((19, "recovered"), (health[3].GetProperty("batteryPercent").GetInt32(), Text(health[3], "reason")));
+    }
+
     [Fact]
     public async Task HealthAlertsTravelWithTheFirstPageOnlyAndTheCountIsTheSameOnEveryPage()
     {
@@ -536,6 +572,20 @@ public sealed class AlertsListTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         var last = await edge.AppendAsync(
             $"alert/{alertId}",
             [new AlertOpened(AlertKind.Silent, null, siteId, lotId, null, deviceId, null, 1, openedAt, deviceKind, silentSince)],
+            Ct);
+        await edge.WaitForProjectionCheckpointAsync(Projector, last);
+
+        return alertId;
+    }
+
+    // An open low-battery Alert of a Node, as the Alert grain journals it (Story 7.3): no side, no Sensor, no
+    // quantity, no silent-since; the level of the report that opened it.
+    private async Task<string> OpenBatteryAsync(string siteId, string? lotId, string deviceId, DateTimeOffset openedAt, int? batteryPercent)
+    {
+        var alertId = Guid.NewGuid().ToString();
+        var last = await edge.AppendAsync(
+            $"alert/{alertId}",
+            [new AlertOpened(AlertKind.Battery, null, siteId, lotId, null, deviceId, null, 1, openedAt, DeviceKind.Node, BatteryPercent: batteryPercent)],
             Ct);
         await edge.WaitForProjectionCheckpointAsync(Projector, last);
 

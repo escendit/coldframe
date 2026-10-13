@@ -34,6 +34,8 @@ enum AlertsFixture {
     var silentSince = ""
     var durationValue = ""
     var durationUnit = ""
+    /// The level in a low-battery title (Story 7.3), in decimal; empty for every other title.
+    var batteryPercent = ""
 
     /// The same Alert once closed at 06:40, as the core flattens it: only the group, the variant
     /// and the time change.
@@ -102,6 +104,37 @@ enum AlertsFixture {
     silentSince: String(silentSinceMs), durationValue: "6", durationUnit: "hours")
   static let closedSilentHub = silentHub.closed(id: "s4")
 
+  /// Story 7.3: a Node on Lot "Lettuce" whose Alert opened at 14 %, not charging.
+  static let lowBattery = Alert(
+    id: "b1", group: "health", variant: "health", condition: "battery", eyebrow: "health",
+    icon: "battery--low", quantity: "", lotId: "lot-l", lotName: "Lettuce",
+    deviceId: "7c19aa01bb02cc03", target: "devices", title: "nodeOnLotBattery",
+    deviceKind: "node", deviceName: "7C19", batteryPercent: "14")
+  /// A low Node on no Lot, named by its short name.
+  static let lowBatterySpareNode = Alert(
+    id: "b2", group: "health", variant: "health", condition: "battery", eyebrow: "health",
+    icon: "battery--low", quantity: "", lotId: "", lotName: "", deviceId: "9c0d0e0f10111213",
+    target: "devices", title: "nodeBattery", deviceKind: "node", deviceName: "9C0D",
+    batteryPercent: "14")
+  /// Once closed the core names no level: "battery low", by the Lot or by the Node.
+  static let closedLowBattery: Alert = {
+    var alert = lowBattery.closed(id: "b3")
+    alert.title = "battery"
+    alert.batteryPercent = ""
+    return alert
+  }()
+  static let closedLowBatterySpareNode: Alert = {
+    var alert = lowBatterySpareNode.closed(id: "b4")
+    alert.title = "nodeBatteryLow"
+    alert.batteryPercent = ""
+    return alert
+  }()
+
+  /// The Health rows of low batteries, in the Server's order: open, then closed.
+  static let lowBatteries = [
+    lowBattery, lowBatterySpareNode, closedLowBattery, closedLowBatterySpareNode,
+  ]
+
   /// The Health rows of silent Devices, in the Server's order: open, then closed.
   static let silentDevices = [silentNode, silentHub, silentSpareNode, closedSilentHub]
   static let closedNeedsWater: Alert = {
@@ -135,7 +168,8 @@ enum AlertsFixture {
       closedAts: alerts.map(\.closedAt), targets: alerts.map(\.target),
       titles: alerts.map(\.title), deviceKinds: alerts.map(\.deviceKind),
       deviceNames: alerts.map(\.deviceName), silentSinces: alerts.map(\.silentSince),
-      durationValues: alerts.map(\.durationValue), durationUnits: alerts.map(\.durationUnit))
+      durationValues: alerts.map(\.durationValue), durationUnits: alerts.map(\.durationUnit),
+      batteryPercents: alerts.map(\.batteryPercent))
   }
 
   static func row(_ alert: Alert) throws -> AlertRowPresentation {
@@ -602,6 +636,86 @@ func alertTitleCopy() throws {
   #expect(entries["alert_title_node_silent"] == "Node %@ silent")
   #expect(entries["alert_title_node_silent_for"] == "Node %1$@ silent for %2$@")
   #expect(entries["alert_title_health"] == "Health Alert")
+}
+
+// MARK: - Health rows of low batteries (Story 7.3)
+
+@Test("UX-DR25 a low battery says the level it opened with, by its Lot or by its Node's short name")
+func alertTitlesOfLowBatteries() throws {
+  let onLot = try AlertsFixture.row(AlertsFixture.lowBattery)
+  let spare = try AlertsFixture.row(AlertsFixture.lowBatterySpareNode)
+
+  #expect(onLot.titleText(context) == "Node battery 14 %, not charging — Lot 'Lettuce'")
+  #expect(spare.titleText(context) == "Node 9C0D battery 14 %, not charging")
+  #expect(onLot.batteryPercent == 14)
+  #expect(onLot.eyebrowText(context) == "Health Alert")
+  #expect(
+    onLot.spokenText(context)
+      == "Node battery 14 %, not charging — Lot 'Lettuce', since 05:45")
+  // An empty battery is a level.
+  var empty = AlertsFixture.lowBatterySpareNode
+  empty.batteryPercent = "0"
+  #expect(try AlertsFixture.row(empty).titleText(context) == "Node 9C0D battery 0 %, not charging")
+}
+
+@Test("UX-DR25 a closed low battery, and one without a level, read battery low")
+func alertTitlesOfLowBatteriesWithoutALevel() throws {
+  let closed = try AlertsFixture.row(AlertsFixture.closedLowBattery)
+  let closedSpare = try AlertsFixture.row(AlertsFixture.closedLowBatterySpareNode)
+
+  #expect(closed.variant == .closed)
+  #expect(closed.titleText(context) == "Node battery low on Lot 'Lettuce'")
+  #expect(closedSpare.titleText(context) == "Node 9C0D battery low")
+  #expect(closed.eyebrowText(context) == "Health Alert · closed 06:40")
+  #expect(closed.batteryPercent == nil)
+
+  // A level title whose level is missing, or is no number from 0 to 100, degrades the same way.
+  for level in ["", "low", "140", "-1"] {
+    var onLot = AlertsFixture.lowBattery
+    onLot.batteryPercent = level
+    var spare = AlertsFixture.lowBatterySpareNode
+    spare.batteryPercent = level
+    #expect(
+      try AlertsFixture.row(onLot).titleText(context) == "Node battery low on Lot 'Lettuce'",
+      "\(level)")
+    #expect(try AlertsFixture.row(spare).titleText(context) == "Node 9C0D battery low", "\(level)")
+  }
+  // A core that names no title: the sentence the condition had before.
+  var untitled = AlertsFixture.lowBattery
+  untitled.title = ""
+  #expect(
+    try AlertsFixture.row(untitled).titleText(context) == "Node battery low on Lot 'Lettuce'")
+}
+
+@Test("UX-DR26 every low-battery row is a Health row with the low-battery icon that opens Devices")
+func alertRowsOfLowBatteries() throws {
+  for alert in AlertsFixture.lowBatteries {
+    let row = try AlertsFixture.row(alert)
+    #expect(row.icon == .batteryLow, "\(alert.id)")
+    #expect(row.target == .devices, "\(alert.id)")
+    #expect(row.condition == .battery, "\(alert.id)")
+  }
+  let open = try AlertsFixture.row(AlertsFixture.lowBattery)
+  #expect(open.variant == .health)
+  #expect(open.variant.isHatched)
+  let alerts = AlertsFixture.alerts([AlertsFixture.needsWater] + AlertsFixture.lowBatteries)
+  #expect(alerts.groups.map(\.kind) == [.threshold, .health, .closed])
+  #expect(alerts.groups[1].rows.map(\.id) == ["b1", "b2"])
+  #expect(alerts.groups[2].rows.map(\.id) == ["b3", "b4"])
+  #expect(alerts.openCount == 3)
+}
+
+@Test("UX-DR25 the low-battery titles are in the catalogue, sentence case, with their parts")
+func alertBatteryTitleCopy() throws {
+  let entries = try Catalogue.entries()
+
+  #expect(entries["alert_title_battery"] == "Node battery low on Lot '%1$@'")
+  #expect(
+    entries["alert_title_battery_level"] == "Node battery %1$@ %%, not charging — Lot '%2$@'")
+  #expect(
+    entries["alert_title_node_battery_level"] == "Node %1$@ battery %2$@ %%, not charging")
+  #expect(entries["alert_title_node_battery"] == "Node %@ battery low")
+  #expect(L10n.alertTitleBatteryLevel.rawValue == "alert_title_battery_level")
 }
 
 // `AlertsActions` lives with the views, which exist only where SwiftUI does.

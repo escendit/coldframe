@@ -341,3 +341,63 @@ public sealed record DeviceAlertDelivered(
     [property: Id(0)] Guid AlertId,
     [property: Id(1)] AlertLifecycle Change,
     [property: Id(2)] DateTimeOffset DeliveredAt);
+
+/// <summary>
+/// A device report of the Node was counted and moved a battery streak (Story 7.3): the count of consecutive
+/// reports that are low (battery known and below 20 % while not charging) or recovered (charging, or battery
+/// known and at 20 % or above). Never journaled for a report that leaves both streaks as they are, so a healthy
+/// Node adds no event per frame.
+/// </summary>
+/// <param name="Low">The consecutive low reports so far; counted only while no battery Alert is open.</param>
+/// <param name="Recovered">The consecutive recovered reports so far; counted only while a battery Alert is open.</param>
+/// <param name="MeasuredAt">The <c>measured_at</c> stored with the report's key at its first delivery: the last report counted.</param>
+[EventType("device.battery-streak-changed")]
+[GenerateSerializer]
+[Alias("coldframe.device-battery-streak-changed")]
+public sealed record DeviceBatteryStreakChanged(
+    [property: Id(0)] int Low,
+    [property: Id(1)] int Recovered,
+    [property: Id(2)] DateTimeOffset MeasuredAt);
+
+/// <summary>
+/// The Node's third consecutive low device report was counted (Story 7.3): its next low-battery episode,
+/// journaled before its Health Alert of kind <c>battery</c> is opened, so a retry opens the same Alert. A Node has
+/// at most one open at a time. Both streaks start over.
+/// </summary>
+/// <param name="Episode">The Node's low-battery episode, from 1.</param>
+/// <param name="AlertId">The Alert ID: the UUIDv5 of <c>device:{deviceId}:battery:{episode}</c>.</param>
+/// <param name="SiteId">The Site of the Node.</param>
+/// <param name="LotId">The Lot of the Node when the episode started; <see langword="null"/> for an unassigned Node.</param>
+/// <param name="BatteryPercent">The battery level of the report that started the episode.</param>
+/// <param name="MeasuredAt">The stored <c>measured_at</c> of that report: the last report counted.</param>
+/// <param name="StartedAt">When the Device grain counted it.</param>
+[EventType("device.battery-low-started")]
+[GenerateSerializer]
+[Alias("coldframe.device-battery-low-started")]
+public sealed record DeviceBatteryLowStarted(
+    [property: Id(0)] int Episode,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] string SiteId,
+    [property: Id(3)] string? LotId,
+    [property: Id(4)] int BatteryPercent,
+    [property: Id(5)] DateTimeOffset MeasuredAt,
+    [property: Id(6)] DateTimeOffset StartedAt);
+
+/// <summary>
+/// The Node's low-battery episode ended (Story 7.3): its Alert is closed with <paramref name="Reason"/>. The next
+/// one is another episode and another Alert. Both streaks start over.
+/// </summary>
+/// <param name="Episode">The episode that ended.</param>
+/// <param name="AlertId">Its Alert.</param>
+/// <param name="Reason">Why it ended; the third consecutive recovered report ends it as <c>Recovered</c>.</param>
+/// <param name="MeasuredAt">The stored <c>measured_at</c> of the report that ended it; <see langword="null"/> when no report did.</param>
+/// <param name="EndedAt">When the Device grain ended it.</param>
+[EventType("device.battery-low-ended")]
+[GenerateSerializer]
+[Alias("coldframe.device-battery-low-ended")]
+public sealed record DeviceBatteryLowEnded(
+    [property: Id(0)] int Episode,
+    [property: Id(1)] Guid AlertId,
+    [property: Id(2)] AlertCloseReason Reason,
+    [property: Id(3)] DateTimeOffset? MeasuredAt,
+    [property: Id(4)] DateTimeOffset EndedAt);

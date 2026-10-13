@@ -357,6 +357,12 @@ public sealed class SilentDeviceAlertGrainTests(IdentityCluster identity) : ICla
         var other = identity.Alert(AlertIds.Silent(hubId, 2));
         Assert.Equal(AlertOutcome.Refused, (await other.OpenForDevice(new OpenDeviceAlert(AlertKind.Silent, hubId, 3, site.SiteId, null, Now), Ct)).Outcome);
         Assert.Equal(AlertOutcome.Refused, (await other.OpenForDevice(new OpenDeviceAlert(AlertKind.Threshold, hubId, 2, site.SiteId, null, Now), Ct)).Outcome);
+
+        // A battery Alert (Story 7.3) is a Node's: a Hub opens none, also under the ID its episode would derive.
+        Assert.Equal(AlertOutcome.Refused, (await other.OpenForDevice(new OpenDeviceAlert(AlertKind.Battery, hubId, 2, site.SiteId, null, Now, DeviceKind.Hub, BatteryPercent: 14), Ct)).Outcome);
+        var battery = identity.Alert(AlertIds.Battery(hubId, 1));
+        Assert.Equal(AlertOutcome.Refused, (await battery.OpenForDevice(new OpenDeviceAlert(AlertKind.Battery, hubId, 1, site.SiteId, null, Now, DeviceKind.Hub, BatteryPercent: 14), Ct)).Outcome);
+        Assert.Null(await battery.Describe(Ct));
         Assert.Null(await other.Describe(Ct));
 
         // Opening it again journals nothing.

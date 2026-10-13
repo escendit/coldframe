@@ -19,12 +19,15 @@ package com.escendit.coldframe.core.alerts
  *
  * The title of each row (Story 7.2), for the `now` the snapshot was taken at: [alertTitles] is
  * `needsWater`, `tooWet`, `tooLow`, `tooHigh`, `nodeOnLotSilent`, `nodeSilent`, `hubSilent`,
- * `battery`, `uncalibrated`, `healthOnLot` or `health`, with its
- * parts: [alertLotNames] for the kinds that name a Lot, [alertDeviceNames] (the Device's short name,
- * "3F2A", always filled) for `nodeSilent` and `hubSilent`, and for the three silent kinds the silence
+ * `battery`, `nodeBatteryLow`, `nodeOnLotBattery`, `nodeBattery`, `uncalibrated`, `healthOnLot` or
+ * `health`, with its parts: [alertLotNames] for the kinds that name a Lot, [alertDeviceNames] (the
+ * Device's short name, "3F2A", always filled) for `nodeSilent`, `hubSilent`, `nodeBattery` and
+ * `nodeBatteryLow`, and for the three silent kinds the silence
  * [alertDurationValues] with [alertDurationUnits] (`minutes`, `hours` or `days`). Both are empty
  * when the title has no " for …": a closed row, or an Alert without a silent-since.
  * [alertDeviceKinds] is `node`, `hub` or empty; [alertSilentSince] Unix milliseconds in decimal or empty.
+ * [alertBatteryPercents] (Story 7.3) is the level in the title of `nodeOnLotBattery` and `nodeBattery`
+ * in decimal, empty for every other title.
  */
 public data class AlertsSnapshot(
     val surface: String,
@@ -53,6 +56,7 @@ public data class AlertsSnapshot(
     val alertSilentSince: List<String> = emptyList(),
     val alertDurationValues: List<String> = emptyList(),
     val alertDurationUnits: List<String> = emptyList(),
+    val alertBatteryPercents: List<String> = emptyList(),
 )
 
 /** The snapshot of [state], with the silence in the titles measured at [nowEpochMs]. */
@@ -111,5 +115,6 @@ public fun snapshotOf(
                     ?.lowercase()
                     .orEmpty()
             },
+        alertBatteryPercents = titles.map { it.batteryPercent?.toString().orEmpty() },
     )
 }

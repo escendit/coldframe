@@ -43,14 +43,16 @@ class AlertsCopy(
 
     /**
      * What is wrong: "Tomatoes needs water", "Node on Lot 'Beans' silent for 6 h", "Hub 3F2A silent for
-     * 5 min". Which sentence, and the Lot, the Device's short name and the silence in it, are the core's
-     * ([AlertSummary.title]); a silent row without a duration drops " for …".
+     * 5 min", "Node battery 14 %, not charging — Lot 'Lettuce'". Which sentence, and the Lot, the Device's
+     * short name, the silence and the battery level in it, are the core's ([AlertSummary.title]); a silent
+     * row without a duration drops " for …", a low battery without a level reads "battery low".
      */
     fun title(alert: AlertSummary): String {
         val title = alert.title(now.toEpochMilli())
         val lot = title.lotName.orEmpty()
         val device = title.deviceName.orEmpty()
         val silence = title.duration?.let { Formats.duration(resources, it) }
+        val level = title.batteryPercent?.toString().orEmpty()
         return when (title.kind) {
             AlertTitleKind.NeedsWater -> {
                 resources.getString(R.string.alert_title_needs_water, lot)
@@ -82,6 +84,18 @@ class AlertsCopy(
 
             AlertTitleKind.Battery -> {
                 resources.getString(R.string.alert_title_battery, lot)
+            }
+
+            AlertTitleKind.NodeBatteryLow -> {
+                resources.getString(R.string.alert_title_node_battery, device)
+            }
+
+            AlertTitleKind.NodeOnLotBattery -> {
+                resources.getString(R.string.alert_title_battery_level, level, lot)
+            }
+
+            AlertTitleKind.NodeBattery -> {
+                resources.getString(R.string.alert_title_node_battery_level, device, level)
             }
 
             AlertTitleKind.Uncalibrated -> {

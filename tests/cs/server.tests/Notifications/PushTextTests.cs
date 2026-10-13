@@ -460,6 +460,93 @@ public sealed class PushTextTests
         Assert.Equal(("Hub 3F2A silent for 5 min", "Lots behind it can't be read."), (hub!.Title, hub.Body));
     }
 
+    // Story 7.3, the copy matrix: a low battery says its level, and the Lot in the body.
+    [Fact]
+    public async Task ALowBatteryOnALotSaysTheLevelAndNamesTheLotInTheBody()
+    {
+        var lookups = LettuceLookups();
+        var battery = Battery(LettuceLot);
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [battery] }, SentAt);
+
+        Assert.Equal(
+            ("Node battery 14 %, not charging", "Lot 'Lettuce'.", LettuceLot, (Guid?)battery.AlertId),
+            (alert!.Title, alert.Body, alert.LotId, alert.AlertId));
+
+        // The Site's name and the Lot's name: nothing of a Sensor, and no Device lookup.
+        Assert.Equal(2, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task ALowBatteryOnNoLotIsNamedByItsIdAndHasNoBody()
+    {
+        var lookups = new FakeLookups();
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [Battery(lotId: null)] }, SentAt);
+
+        Assert.Equal(("Node 9C0D battery 14 %, not charging", null, null), (alert!.Title, alert.Body, alert.LotId));
+        Assert.Equal(1, lookups.Calls);
+    }
+
+    [Fact]
+    public async Task AReminderOfALowBatteryKeepsTheTitleAndSaysStillLow()
+    {
+        var dayLater = SentAt.AddDays(1);
+
+        var onLot = await Builder(LettuceLookups()).BuildAsync(Reminder(IPhone) with { Entries = [Battery(LettuceLot)] }, dayLater);
+        var onNone = await Builder(LettuceLookups()).BuildAsync(Reminder(IPhone) with { Entries = [Battery(lotId: null)] }, dayLater);
+
+        Assert.Equal(("reminder", "Node battery 14 %, not charging", "Still low. Lot 'Lettuce'."), (onLot!.Kind, onLot.Title, onLot.Body));
+        Assert.Equal(("Node 9C0D battery 14 %, not charging", "Still low."), (onNone!.Title, onNone.Body));
+    }
+
+    [Fact]
+    public async Task ASummaryListsALowBatteryUnderToCheckWithTheLotFirst()
+    {
+        var lookups = LettuceLookups();
+        var summary = Summary(new FakeLookups(), IPhone) with { Entries = [Battery(LettuceLot), Battery(lotId: null)] };
+
+        var content = await Builder(lookups).BuildAsync(summary, SentAt);
+
+        Assert.Equal("Home garden: 2 to check", content!.Title);
+        Assert.Equal(
+            ["Lettuce: Node battery 14 %, not charging", "Node 9C0D battery 14 %, not charging", "Held overnight, 22:00–07:00"],
+            content.Body!.Split('\n'));
+    }
+
+    [Fact]
+    public async Task ALowBatteryWithoutALevelKeepsTheNeutralText()
+    {
+        var lookups = LettuceLookups();
+        var onLot = Battery(LettuceLot) with { BatteryPercent = null };
+        var onNone = Battery(lotId: null) with { BatteryPercent = null };
+
+        var alert = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [onLot] }, SentAt);
+        var alone = await Builder(lookups).BuildAsync(Alert(IPhone) with { Entries = [onNone] }, SentAt);
+        var reminder = await Builder(lookups).BuildAsync(Reminder(IPhone) with { Entries = [onLot] }, SentAt.AddDays(1));
+
+        Assert.Equal(("Lettuce needs attention", null), (alert!.Title, alert.Body));
+        Assert.Equal(("A device needs attention", null), (alone!.Title, alone.Body));
+        Assert.Equal(("Lettuce needs attention", "Still open."), (reminder!.Title, reminder.Body));
+    }
+
+    [Fact]
+    public async Task ALowBatteryWhoseLotIsGoneOrNotFoundKeepsItsLineUnderItsOwnName()
+    {
+        var gone = new FakeLookups();
+        var summary = Summary(gone, IPhone) with { Entries = [Battery(LettuceLot)] };
+        gone.Lots.Clear();
+        var failing = new FakeLookups { Fail = true };
+
+        var listed = await Builder(gone).BuildAsync(summary, SentAt);
+        var alert = await Builder(failing).BuildAsync(Alert(IPhone) with { Entries = [Battery(LettuceLot)] }, SentAt);
+        var reminder = await Builder(failing).BuildAsync(Reminder(IPhone) with { Entries = [Battery(LettuceLot)] }, SentAt.AddDays(1));
+
+        Assert.Equal(["Node 9C0D battery 14 %, not charging", "Held overnight, 22:00–07:00"], listed!.Body!.Split('\n'));
+        Assert.Equal(("Node 9C0D battery 14 %, not charging", null), (alert!.Title, alert.Body));
+        Assert.Equal(("Node 9C0D battery 14 %, not charging", "Still low."), (reminder!.Title, reminder.Body));
+    }
+
     [Theory]
     [InlineData(0, "0 min")]
     [InlineData(59, "0 min")]
@@ -501,6 +588,21 @@ public sealed class PushTextTests
 
         return lookups;
     }
+
+    private const string LettuceLot = "0199c1f0-5a00-7000-8000-0000000000b5";
+
+    // The Lot "Lettuce".
+    private static FakeLookups LettuceLookups()
+    {
+        var lookups = new FakeLookups();
+        lookups.Lots[LettuceLot] = "Lettuce";
+
+        return lookups;
+    }
+
+    // A low-battery Alert of a Node (Story 7.3): the level of the report that opened it, and no silent-since.
+    private static NotificationEntry Battery(string? lotId) =>
+        new(Guid.NewGuid(), AlertKind.Battery, null, lotId, null, NodeId, null, AlertDueAt.AddMinutes(-30), DeviceKind.Node, BatteryPercent: 14);
 
     // A Silent Device Alert as the User grain held it before Story 7.2: no side, no Sensor, no quantity, a Lot
     // only for a Node that is on one, and neither the Device kind nor when it was last heard.

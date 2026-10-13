@@ -119,6 +119,9 @@ inside the grain and returns `DeviceHeartbeatResult(Outcome)` with `Outcome` one
 | `DeviceSilenceStarted(Episode, AlertId, SiteId, LotId?, DueAt, StartedAt, SilentSince?)` | `device.silence-started` | The Silence Window expired: the Device's next silence episode, journaled before its Alert is opened. `SilentSince` (Story 7.2) is when the Device was last heard; absent in an older event |
 | `DeviceSilenceEnded(Episode, AlertId, Reason, EndedAt)` | `device.silence-ended` | The Device reported again inside its window: the episode's Alert closes |
 | `DeviceAlertDelivered(AlertId, Change, DeliveredAt)` | `device.alert-delivered` | The Alert grain acknowledged the open or the close of one of the Device's Alerts |
+| `DeviceBatteryStreakChanged(Low, Recovered, MeasuredAt)` | `device.battery-streak-changed` | A counted device report of the Node moved a battery streak (Story 7.3); never journaled for a report that leaves both as they are |
+| `DeviceBatteryLowStarted(Episode, AlertId, SiteId, LotId?, BatteryPercent, MeasuredAt, StartedAt)` | `device.battery-low-started` | The third consecutive low report: the Node's next low-battery episode, journaled before its Alert is opened, with the level of that report |
+| `DeviceBatteryLowEnded(Episode, AlertId, Reason, MeasuredAt?, EndedAt)` | `device.battery-low-ended` | The third consecutive recovered report: the episode's Alert closes |
 
 Silence (Story 7.1) adds `IDeviceGrain.SetSilenceWindow(siteId, window?)`, which returns
 `DeviceSilenceWindowResult(Outcome, Window)` with `Outcome` one of `Set`, `Unchanged`, `NotFound` and `OutOfRange`
@@ -131,3 +134,10 @@ an Alert. Story 7.2 adds the last two members, the Device's kind and when it was
 nullable members through `AlertOpened`, `AlertSnapshot`, `SiteAlert` and `NotificationEntry`: they are journaled,
 so an event written before reads without them. See
 [`apps/cs/README.md`](../../apps/cs/README.md#silent-devices).
+
+Low battery (Story 7.3) adds `AlertKind.Battery`, which `OpenForDevice` accepts for a Node only, and one more
+nullable member on the same records: `BatteryPercent`, the battery level of the device report that opened the
+Alert, on `OpenDeviceAlert`, `AlertOpened`, `AlertSnapshot`, `SiteAlert` and `NotificationEntry`. Only the level
+travels: a `battery` Alert opens only from a report that is not charging, so the kind states the charger status.
+`DeviceSilence` gains `OpenBatteryAlert` (`DeviceBatteryAlert(AlertId, Episode, OpenedAt, BatteryPercent)`), the
+Node's open `battery` Alert. See [`apps/cs/README.md`](../../apps/cs/README.md#low-battery).

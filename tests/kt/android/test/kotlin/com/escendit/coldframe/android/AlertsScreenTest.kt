@@ -384,6 +384,65 @@ class AlertsScreenTest {
         assertFalse(calls.any { it.startsWith("openLot") })
     }
 
+    // Story 7.3: Health rows of low batteries.
+
+    @Test
+    fun `UX-DR25 a low battery says the level it opened with, by its Lot or by its Node's short name`() {
+        assertEquals("Node battery 14 %, not charging — Lot 'Lettuce'", copy.title(AlertFixtures.lowBattery))
+        assertEquals("Node 7C19 battery 9 %, not charging", copy.title(AlertFixtures.lowBatterySpareNode))
+        assertEquals("Health Alert", copy.eyebrow(AlertFixtures.lowBattery))
+        assertEquals(
+            "Node battery 14 %, not charging — Lot 'Lettuce', since 06:45",
+            copy.spoken(AlertFixtures.lowBattery),
+        )
+        // An empty battery is a level.
+        assertEquals(
+            "Node 7C19 battery 0 %, not charging",
+            copy.title(AlertFixtures.lowBatterySpareNode.copy(batteryPercent = 0)),
+        )
+    }
+
+    @Test
+    fun `UX-DR25 a closed low battery and one without a level read battery low`() {
+        assertEquals("Node battery low on Lot 'Lettuce'", copy.title(AlertFixtures.closedLowBattery))
+        assertEquals("Health Alert · closed Thu", copy.eyebrow(AlertFixtures.closedLowBattery))
+        assertEquals("Node battery low on Lot 'Herbs'", copy.title(AlertFixtures.lowBatteryNoLevel))
+        assertEquals(
+            "Node 7C19 battery low",
+            copy.title(AlertFixtures.lowBatterySpareNode.copy(batteryPercent = null)),
+        )
+        assertEquals(
+            "Node 7C19 battery low",
+            copy.title(AlertFixtures.lowBatterySpareNode.copy(closedAtEpochMs = AlertFixtures.now.toEpochMilli())),
+        )
+    }
+
+    @Test
+    fun `UX-DR25 UX-DR26 low-battery rows stand in the Health group and open Devices`() {
+        show(AlertFixtures.ready(AlertFixtures.lowBatteries))
+
+        assertTrue(top("Threshold Alerts") < top("Health Alerts"))
+        assertTrue(top("Health Alerts") < top("Closed"))
+        assertEquals(
+            listOf(
+                "Tomatoes needs water, since 5:45 AM",
+                "Node battery 14 %, not charging — Lot 'Lettuce', since 6:45 AM",
+                "Node 7C19 battery 9 %, not charging, since 6:15 AM",
+                "Node battery low on Lot 'Herbs', since 5:55 AM",
+                "Node battery low on Lot 'Lettuce', since Thu, closed Thu",
+            ),
+            rows(),
+        )
+
+        // A low battery leads to Devices, with or without a Lot: never to Lot detail.
+        row("Node battery 14 %, not charging — Lot 'Lettuce', since 6:45 AM").performClick()
+        assertEquals("Devices", selectedTab())
+        alertsTab().performClick()
+        row("Node 7C19 battery 9 %, not charging, since 6:15 AM").performScrollTo().performClick()
+        assertEquals("Devices", selectedTab())
+        assertFalse(calls.any { it.startsWith("openLot") })
+    }
+
     @Test
     fun `UX-DR82 without Alerts the surface says No open Alerts and never All good`() {
         show(AlertFixtures.ready(emptyList()))

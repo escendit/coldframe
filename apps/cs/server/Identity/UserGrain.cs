@@ -410,7 +410,7 @@ public sealed partial class UserGrain(
         Task.FromResult(State.OrderedPushRegistrations());
 
     private static NotificationEntry Entry(SiteAlert alert) =>
-        new(alert.AlertId, alert.Kind, alert.Side, alert.LotId, alert.SensorId, alert.DeviceId, alert.Quantity, alert.OpenedAt, alert.DeviceKind, alert.SilentSince);
+        new(alert.AlertId, alert.Kind, alert.Side, alert.LotId, alert.SensorId, alert.DeviceId, alert.Quantity, alert.OpenedAt, alert.DeviceKind, alert.SilentSince, alert.BatteryPercent);
 
     // One wake: pulls what is to be pulled, delivers everything overdue, then keeps or drops the timer and the
     // reminder. Never throws: whatever failed stays due or pending for the next wake.

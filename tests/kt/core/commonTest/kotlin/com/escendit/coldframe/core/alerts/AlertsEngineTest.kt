@@ -559,6 +559,7 @@ class AlertsEngineTest {
                     alertSilentSince = listOf("", "", ""),
                     alertDurationValues = listOf("", "", ""),
                     alertDurationUnits = listOf("", "", ""),
+                    alertBatteryPercents = listOf("", "", ""),
                 ),
                 snapshot,
             )
@@ -593,6 +594,7 @@ class AlertsEngineTest {
         silentSince: String? = null,
         openedAt: String = opened,
         closedAt: String? = null,
+        batteryPercent: Int? = null,
     ) = HealthAlertDto(
         id = id,
         kind = kind,
@@ -604,6 +606,7 @@ class AlertsEngineTest {
         silentSince = silentSince,
         closedAt = closedAt,
         reason = closedAt?.let { "recovered" },
+        batteryPercent = batteryPercent,
     )
 
     /** A Node on Beans last heard at 01:05 and a Hub last heard at 07:05, both told at 07:10. */
@@ -720,7 +723,7 @@ class AlertsEngineTest {
                     health("none", deviceKind = null),
                     // Never sent by the Server; if it were, it is not shown as a Threshold Alert.
                     health("thr", kind = "threshold", lotName = "Beans"),
-                    health("bat", kind = "battery"),
+                    health("unc", kind = "uncalibrated"),
                 )
 
             val ready = alertsFor().ready()
@@ -736,7 +739,7 @@ class AlertsEngineTest {
             assertEquals(AlertTitle(AlertTitleKind.Health), titles["none"])
             assertEquals(AlertTitle(AlertTitleKind.HealthOnLot, lotName = "Beans"), titles["thr"])
             // A kind that names a Lot, on a Device without one, falls back to the neutral title too.
-            assertEquals(AlertTitle(AlertTitleKind.Health), titles["bat"])
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["unc"])
             assertTrue(ready.alerts.all { it.target == AlertTarget.Devices })
             assertEquals(AlertCondition.Unknown, ready.alerts.first().condition)
         }
@@ -832,6 +835,118 @@ class AlertsEngineTest {
                 listOf("1", "h"),
                 alertsFor().ready().alerts.map { it.id },
             )
+        }
+
+    // Story 7.3: a low battery says the level it opened with.
+
+    private val spareId = "7c19000000000004"
+
+    @Test
+    fun uxDr25ALowBatterySaysTheLevelItOpenedWithByItsLotOrByItsNodesShortName() =
+        runTest {
+            api.health["a"] =
+                listOf(
+                    health("lot", kind = "battery", lotName = "Lettuce", batteryPercent = 14),
+                    health("spare", spareId, kind = "battery", batteryPercent = 14),
+                    health("empty", kind = "battery", lotName = "Lettuce", batteryPercent = 0),
+                )
+
+            val ready = alertsFor().ready()
+
+            assertEquals(listOf("lot", "spare", "empty"), ready.health.map { it.id })
+            val (onLot, spare, empty) = ready.health
+            // "Node battery 14 %, not charging — Lot 'Lettuce'" and "Node 7C19 battery 14 %, not charging".
+            assertEquals(
+                AlertTitle(AlertTitleKind.NodeOnLotBattery, lotName = "Lettuce", batteryPercent = 14),
+                onLot.titleNow(),
+            )
+            assertEquals(
+                AlertTitle(AlertTitleKind.NodeBattery, deviceName = "7C19", batteryPercent = 14),
+                spare.titleNow(),
+            )
+            // An empty battery is a level.
+            assertEquals(0, empty.titleNow().batteryPercent)
+            for (alert in ready.health) {
+                assertEquals(AlertCondition.Battery, alert.condition)
+                assertEquals(AlertGroup.Health, alert.group)
+                assertEquals(AlertVariant.Health, alert.variant)
+                assertEquals(AlertIcon.BatteryLow, alert.icon)
+                assertEquals(AlertEyebrow.Health, alert.eyebrow)
+                // A low battery leads to Devices, with or without a Lot.
+                assertEquals(AlertTarget.Devices, alert.target)
+                assertEquals(AlertDeviceKind.Node, alert.deviceKind)
+                assertNull(alert.silentSinceEpochMs)
+            }
+            assertEquals(14, onLot.batteryPercent)
+        }
+
+    @Test
+    fun uxDr25AClosedLowBatteryAndOneWithoutALevelReadBatteryLow() =
+        runTest {
+            api.alerts["a"] = listOf(alert("old", kind = "battery", side = null, lotName = "Peppers"))
+            api.health["a"] =
+                listOf(
+                    health("none", kind = "battery", lotName = "Lettuce"),
+                    health("spare", spareId, kind = "battery"),
+                    // A level the contract cannot describe is dropped; the Alert stays.
+                    health("high", kind = "battery", lotName = "Lettuce", batteryPercent = 140),
+                    health("neg", spareId, kind = "battery", batteryPercent = -1),
+                    // Never sent by the Server: a Hub has no battery to report.
+                    health("hub", hubId, "hub", kind = "battery", batteryPercent = 14),
+                    health("was", kind = "battery", lotName = "Lettuce", batteryPercent = 14, closedAt = closed),
+                    health("gone", spareId, kind = "battery", batteryPercent = 14, closedAt = closed),
+                )
+
+            val ready = alertsFor().ready()
+            val titles = ready.alerts.associate { it.id to it.titleNow() }
+
+            // "Node battery low on Lot 'Lettuce'" and "Node 7C19 battery low".
+            assertEquals(AlertTitle(AlertTitleKind.Battery, lotName = "Lettuce"), titles["none"])
+            assertEquals(AlertTitle(AlertTitleKind.NodeBatteryLow, deviceName = "7C19"), titles["spare"])
+            assertEquals(AlertTitle(AlertTitleKind.Battery, lotName = "Lettuce"), titles["high"])
+            assertEquals(AlertTitle(AlertTitleKind.NodeBatteryLow, deviceName = "7C19"), titles["neg"])
+            assertEquals(AlertTitle(AlertTitleKind.Health), titles["hub"])
+            // The level at opening is no longer true once the Alert closed.
+            assertEquals(AlertTitle(AlertTitleKind.Battery, lotName = "Lettuce"), titles["was"])
+            assertEquals(AlertTitle(AlertTitleKind.NodeBatteryLow, deviceName = "7C19"), titles["gone"])
+            assertEquals(14, ready.alerts.single { it.id == "was" }.batteryPercent)
+            assertNull(ready.alerts.single { it.id == "high" }.batteryPercent)
+            // An Alert of the Threshold list that is a battery Alert reads as before.
+            assertEquals(AlertTitle(AlertTitleKind.Battery, lotName = "Peppers"), titles["old"])
+        }
+
+    @Test
+    fun uxDr26TheSnapshotCarriesTheLevelOfALowBatteryTitleForSwift() =
+        runTest {
+            api.health["a"] =
+                listOf(
+                    health("lot", kind = "battery", lotName = "Lettuce", batteryPercent = 14),
+                    health("spare", spareId, kind = "battery", batteryPercent = 9),
+                    health("none", kind = "battery", lotName = "Lettuce"),
+                    silentNode,
+                    health("was", kind = "battery", lotName = "Lettuce", batteryPercent = 14, closedAt = closed),
+                    health("gone", spareId, kind = "battery", batteryPercent = 14, closedAt = closed),
+                )
+
+            val snapshot = snapshotOf(alertsFor().state.value)
+
+            assertEquals(listOf("lot", "spare", "none", "n", "was", "gone"), snapshot.alertIds)
+            assertEquals(
+                listOf("nodeOnLotBattery", "nodeBattery", "battery", "nodeOnLotSilent", "battery", "nodeBatteryLow"),
+                snapshot.alertTitles,
+            )
+            assertEquals(listOf("14", "9", "", "", "", ""), snapshot.alertBatteryPercents)
+            assertEquals(listOf("9C0D", "7C19", "9C0D", "9C0D", "9C0D", "7C19"), snapshot.alertDeviceNames)
+            assertEquals(
+                listOf("battery", "battery", "battery", "silent", "battery", "battery"),
+                snapshot.alertConditions,
+            )
+            assertEquals(
+                listOf("battery--low", "battery--low", "battery--low", "help", "battery--low", "battery--low"),
+                snapshot.alertIcons,
+            )
+            assertEquals(List(6) { "devices" }, snapshot.alertTargets)
+            assertEquals(listOf("", "", "", "6", "", ""), snapshot.alertDurationValues)
         }
 
     @Test

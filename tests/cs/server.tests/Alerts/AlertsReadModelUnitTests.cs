@@ -62,6 +62,7 @@ public sealed class AlertsReadModelUnitTests
     {
         Assert.Equal("threshold", AlertNames.Kind(AlertKind.Threshold));
         Assert.Equal("silent", AlertNames.Kind(AlertKind.Silent));
+        Assert.Equal("battery", AlertNames.Kind(AlertKind.Battery));
         Assert.Equal("low", AlertNames.Side(ThresholdSide.Low));
         Assert.Equal("high", AlertNames.Side(ThresholdSide.High));
         Assert.Null(AlertNames.Side(null));
@@ -88,6 +89,24 @@ public sealed class AlertsReadModelUnitTests
         Assert.Equal("0b7f2a8e-5d0c-5e1b-9d53-3d1b5f6f2a10", alert.GetProperty("id").GetString());
         Assert.Equal("2026-10-09T05:45:00.000Z", alert.GetProperty("openedAt").GetString());
         Assert.Equal(1, json.RootElement.GetProperty("openCount").GetInt32());
+    }
+
+    // Story 7.3: a battery Alert says the level it opened with; any other Health Alert has no such member.
+    [Fact]
+    public void AnOpenBatteryAlertCarriesTheLevelItOpenedWith()
+    {
+        var opened = new DateTimeOffset(2026, 10, 13, 9, 30, 0, TimeSpan.Zero);
+        var view = new HealthAlertView(Guid.Parse("ae0cf71d-0fe1-50b9-b548-f4b9e57572b7"), "battery", "9c0d1e2f3a4b5c68", "node", "lot-5", "Lettuce", null, opened, null, null, 14);
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(new AlertListResponse([], 1, HealthAlerts: [EdgeApi.ToHealthAlert(view)]), Web));
+
+        var alert = json.RootElement.GetProperty("healthAlerts")[0];
+        Assert.Equal(["batteryPercent", "deviceId", "deviceKind", "id", "kind", "lotId", "lotName", "openedAt"], Names(alert));
+        Assert.Equal(("battery", 14, "Lettuce"), (alert.GetProperty("kind").GetString(), alert.GetProperty("batteryPercent").GetInt32(), alert.GetProperty("lotName").GetString()));
+
+        // A level the contract cannot describe is left out rather than sent.
+        Assert.Null(EdgeApi.ToHealthAlert(view with { BatteryPercent = 101 }).BatteryPercent);
+        Assert.Null(EdgeApi.ToHealthAlert(view with { BatteryPercent = null }).BatteryPercent);
     }
 
     // Story 7.2: Health Alerts are listed beside the Threshold Alerts, and only without the cursor.

@@ -147,8 +147,17 @@ public enum class AlertTitleKind(
     /** "Hub ‹3F2A› silent for ‹duration›"; without a duration "Hub ‹3F2A› silent". */
     HubSilent("hubSilent"),
 
-    /** "Node battery low on Lot '‹Lot›'". */
+    /** A low battery without a level: "Node battery low on Lot '‹Lot›'". */
     Battery("battery"),
+
+    /** A Node on no Lot, without a level: "Node ‹9C0D› battery low". */
+    NodeBatteryLow("nodeBatteryLow"),
+
+    /** "Node battery ‹14› %, not charging — Lot '‹Lot›'" (Story 7.3). */
+    NodeOnLotBattery("nodeOnLotBattery"),
+
+    /** A Node on no Lot: "Node ‹9C0D› battery ‹14› %, not charging". */
+    NodeBattery("nodeBattery"),
 
     /** "Soil Sensor on Lot '‹Lot›' needs Calibration". */
     Uncalibrated("uncalibrated"),
@@ -165,13 +174,15 @@ public enum class AlertTitleKind(
  * the kinds that name a Lot, [deviceName] (the short name, "3F2A") for the kinds that name a Device.
  * [duration] is the silence of an open silent Alert whose silent-since the Server sent, rounded
  * down; `null` drops " for …" from the title (a closed row, or an Alert opened before the Server
- * recorded it).
+ * recorded it). [batteryPercent] is the level an open low-battery Alert opened with (Story 7.3), set
+ * exactly for [AlertTitleKind.NodeOnLotBattery] and [AlertTitleKind.NodeBattery].
  */
 public data class AlertTitle(
     val kind: AlertTitleKind,
     val lotName: String? = null,
     val deviceName: String? = null,
     val duration: LotDuration? = null,
+    val batteryPercent: Int? = null,
 )
 
 /**
@@ -183,6 +194,8 @@ public data class AlertTitle(
  * for a Threshold Alert and for a kind this app does not know), [lotId] and [lotName] are `null`
  * for a Hub and for a Node on no Lot, and [silentSinceEpochMs] is when a silent Device was last
  * heard, `null` for another kind and for an Alert opened before the Server recorded it.
+ * [batteryPercent] is the level a low-battery Alert opened with (Story 7.3), 0 to 100; `null` for
+ * another kind and for an Alert that states none this app can read.
  */
 public data class AlertSummary(
     val id: String,
@@ -196,6 +209,7 @@ public data class AlertSummary(
     val closedAtEpochMs: Long?,
     val deviceKind: AlertDeviceKind? = null,
     val silentSinceEpochMs: Long? = null,
+    val batteryPercent: Int? = null,
 ) {
     val open: Boolean get() = closedAtEpochMs == null
 
@@ -284,7 +298,8 @@ public data class AlertSummary(
 
     /**
      * The title of the row at [nowEpochMs]. A silent Hub is named by its short name, a silent Node by
-     * its Lot, or by its short name when it is on none. Anything the row cannot name that way (a kind
+     * its Lot, or by its short name when it is on none. A low battery says the level it opened with while
+     * it is open and "battery low" otherwise. Anything the row cannot name that way (a kind
      * this app does not know, a Lot-bound kind without a Lot) gets the neutral Health title.
      */
     public fun title(nowEpochMs: Long): AlertTitle =
@@ -294,7 +309,7 @@ public data class AlertSummary(
             AlertCondition.TooLow -> lotTitle(AlertTitleKind.TooLow)
             AlertCondition.TooHigh -> lotTitle(AlertTitleKind.TooHigh)
             AlertCondition.Silent -> silentTitle(nowEpochMs)
-            AlertCondition.Battery -> lotTitle(AlertTitleKind.Battery)
+            AlertCondition.Battery -> batteryTitle()
             AlertCondition.Uncalibrated -> lotTitle(AlertTitleKind.Uncalibrated)
             AlertCondition.Unknown -> neutralTitle()
         }
@@ -325,6 +340,32 @@ public data class AlertSummary(
         }
     }
 
+    private fun batteryTitle(): AlertTitle {
+        // The level is the one the Alert opened with: a closed row, and an Alert without one, say "battery low".
+        val level = batteryPercent?.takeIf { open && it in BATTERY_RANGE }
+        return when {
+            lotName != null && level != null -> {
+                AlertTitle(AlertTitleKind.NodeOnLotBattery, lotName = lotName, batteryPercent = level)
+            }
+
+            lotName != null -> {
+                AlertTitle(AlertTitleKind.Battery, lotName = lotName)
+            }
+
+            deviceKind != AlertDeviceKind.Node -> {
+                neutralTitle()
+            }
+
+            level != null -> {
+                AlertTitle(AlertTitleKind.NodeBattery, deviceName = deviceName, batteryPercent = level)
+            }
+
+            else -> {
+                AlertTitle(AlertTitleKind.NodeBatteryLow, deviceName = deviceName)
+            }
+        }
+    }
+
     private fun neutralTitle(): AlertTitle =
         if (lotName == null) {
             AlertTitle(AlertTitleKind.Health)
@@ -338,6 +379,9 @@ public data class AlertSummary(
         public const val KIND_SILENT: String = "silent"
         public const val KIND_BATTERY: String = "battery"
         public const val KIND_UNCALIBRATED: String = "uncalibrated"
+
+        /** The battery levels the contract describes. */
+        public val BATTERY_RANGE: IntRange = 0..100
     }
 }
 
