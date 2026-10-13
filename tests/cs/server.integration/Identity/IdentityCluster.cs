@@ -149,17 +149,19 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
         await ReminderTableReadyAsync();
     }
 
-    // The in-memory reminder table is a grain of the silo. Right after a restart its placement can time out,
-    // once and for 30 s (Orleans' own timeout: "Grain placement operation timed out", then "ReminderService
-    // failed initial load of reminders"), and every grain that registers or reads a reminder meanwhile waits that
-    // long: a User grain does so in the turn that tells it of an Alert, which a Device's wake or frame awaits,
-    // so the test's own call times out. A restart is therefore over only once the table answered a read: with
-    // this read the stall was not seen again, and should it come it is spent here.
+    // The in-memory reminder table is a grain of the silo. Right after a restart its placement can time out for
+    // 30 s at a time (Orleans' own timeout: "Grain placement operation timed out", then "ReminderService failed
+    // initial load of reminders"), and every grain that registers or reads a reminder meanwhile waits that long:
+    // a User grain does so in the turn that tells it of an Alert, which a Device's wake or frame awaits, so the
+    // test's own call times out. The restart therefore reads the table before it hands back: a stall is spent
+    // here. The wait never fails a test by itself: on CI four reads in a row timed out (DW-110), in a test that
+    // needs no reminder, so after a few reads the restart is over as it was before this wait existed, and a test
+    // that does need the table fails on its own call.
     private async Task ReminderTableReadyAsync()
     {
         var table = SiloServices.GetRequiredService<IReminderTable>();
 
-        for (var attempt = 1; ; attempt++)
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
             try
             {
@@ -167,10 +169,10 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
                 return;
             }
 #pragma warning disable CA1031 // Whatever kept the table from answering, it is asked again, a few times.
-            catch (Exception) when (attempt < 4)
+            catch (Exception)
 #pragma warning restore CA1031
             {
-                // Asked again.
+                // Asked again, and then left alone.
             }
         }
     }
@@ -493,7 +495,13 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
     /// </summary>
     public int FailedContexts => _failedContexts;
 
+    /// <summary>
+    /// How many evaluation contexts reached a Sensor grain (Story 7.4): what the Device sent and nothing failed.
+    /// </summary>
+    public int PassedContexts => _passedContexts;
+
     private int _failedContexts;
+    private int _passedContexts;
 
     /// <summary>
     /// Makes the next <paramref name="calls"/> evaluation contexts fail, whichever Sensor they are for (Story 7.4);
@@ -538,6 +546,8 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
                     throw new InvalidOperationException("The test failed this evaluation context.");
                 }
             }
+
+            Interlocked.Increment(ref _passedContexts);
         }
 
         if (context.Grain is ISensorGrain && string.Equals(context.MethodName, nameof(ISensorGrain.Evaluate), StringComparison.Ordinal))

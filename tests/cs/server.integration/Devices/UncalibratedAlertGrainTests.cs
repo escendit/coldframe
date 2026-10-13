@@ -198,6 +198,40 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
     }
 
     [Fact]
+    public async Task TheSamePairSentAgainDeliversTheCloseTheAlertGrainDidNotTake()
+    {
+        var site = await SiteAsync();
+        var (node, _) = await NodeAsync(site, "Peppers");
+        var soil = node.SensorId(0, Quantity.SoilMoisture);
+        var alertId = AlertIds.Uncalibrated(soil, 1);
+        var dry = await ReadAsync(node, new SimulatedReading(0, Quantity.SoilMoisture, DryRaw));
+        var wet = await ReadAsync(node, new SimulatedReading(0, Quantity.SoilMoisture, WetRaw));
+        var pair = new CalibrateSensor(new CalibrationPointRef(SeqOf(dry)), new CalibrationPointRef(SeqOf(wet)));
+
+        identity.AlertFaults.FailNext(int.MaxValue);
+
+        try
+        {
+            Assert.Equal(SensorCalibrationOutcome.Calibrated, (await identity.Sensor(soil).Calibrate(pair, Ct)).Outcome);
+            Assert.Single((await SensorStateAsync(soil)).PendingAlertDeliveries);
+        }
+        finally
+        {
+            identity.AlertFaults.FailNext(0);
+        }
+
+        // The request is sent again, as a client does after a slow answer: it saves nothing, and it delivers the
+        // close before it answers, without waiting for the Sensor's timer.
+        Assert.Equal(SensorCalibrationOutcome.Calibrated, (await identity.Sensor(soil).Calibrate(pair, Ct)).Outcome);
+
+        Assert.Empty((await SensorStateAsync(soil)).PendingAlertDeliveries);
+        var closed = (await identity.Alert(alertId).Describe(Ct))!;
+        Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Calibrated), (closed.Lifecycle, closed.Reason));
+        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Single(await identity.AliasesAsync($"sensor/{soil}"), alias => alias == "sensor.calibrated");
+    }
+
+    [Fact]
     public async Task AContextLostBeforeASiloRestartIsSentAgainOnceTheDeviceIsActivatedWithNobodyWakingIt()
     {
         var site = await SiteAsync();
@@ -605,10 +639,83 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Unassigned), (closed.Lifecycle, closed.Reason));
         Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
 
-        // Confirmed: another wake sends nothing.
+        // Confirmed: another wake sends nothing. No Sensor is called, which its journal alone would not show.
         var journaled = await identity.AliasesAsync($"sensor/{soil}");
+        var sentBefore = identity.SensorFaults.PassedContexts;
         await identity.WakeDeviceAsync(nodeId);
+        Assert.Equal(sentBefore, identity.SensorFaults.PassedContexts);
         Assert.Equal(journaled, await identity.AliasesAsync($"sensor/{soil}"));
+    }
+
+    [Fact]
+    public async Task AContextThatDidNotReachTheSensorsIsSentAgainWithTheNodesNextReport()
+    {
+        var site = await SiteAsync();
+        var (node, _) = await NodeAsync(site, "Peppers");
+        var nodeId = node.DeviceId.ToString();
+        var soil = node.SensorId(0, Quantity.SoilMoisture);
+        var alertId = AlertIds.Uncalibrated(soil, 1);
+
+        identity.SensorFaults.FailNextContexts(int.MaxValue);
+
+        try
+        {
+            Assert.Equal(DeviceAssignmentOutcome.Unassigned, (await identity.Device(nodeId).Unassign(site.SiteId, Ct)).Outcome);
+            Assert.Equal(AlertLifecycle.Open, (await identity.Alert(alertId).Describe(Ct))!.Lifecycle);
+        }
+        finally
+        {
+            identity.SensorFaults.FailNextContexts(0);
+        }
+
+        // Nobody wakes the Device and no silo restarts: the Node reports. On no Lot its Readings are not
+        // evaluated, so only the context the frame sends again can end the episode.
+        var sentBefore = identity.SensorFaults.PassedContexts;
+        await ReadAsync(node);
+
+        Assert.Equal(4, identity.SensorFaults.PassedContexts - sentBefore);
+        var closed = (await identity.Alert(alertId).Describe(Ct))!;
+        Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Unassigned), (closed.Lifecycle, closed.Reason));
+        Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Equal(new SensorContext(site.SiteId, null, false, 2), (await SensorStateAsync(soil)).Context);
+
+        // Confirmed: the next report sends nothing.
+        await ReadAsync(node);
+        Assert.Equal(4, identity.SensorFaults.PassedContexts - sentBefore);
+    }
+
+    [Fact]
+    public async Task ASensorThatHoldsNoContextTakesItsFirstOneFromAReading()
+    {
+        var site = await SiteAsync();
+        var lotId = await SeedLotAsync(site.SiteId, "Peppers");
+        var node = await EnrolAsync(site, lotId);
+        var soil = node.SensorId(0, Quantity.SoilMoisture);
+
+        // No context the Device sends reaches the Sensors, from the frame that declares them on: the Sensor is
+        // as one journaled before Story 7.4, declared and without a context, when that frame's Reading arrives.
+        var failedBefore = identity.SensorFaults.FailedContexts;
+        var sentBefore = identity.SensorFaults.PassedContexts;
+        identity.SensorFaults.FailNextContexts(int.MaxValue);
+
+        try
+        {
+            await DeclareAsync(node);
+        }
+        finally
+        {
+            identity.SensorFaults.FailNextContexts(0);
+        }
+
+        // The Reading said the Site, the Lot and the epoch.
+        Assert.Equal(4, identity.SensorFaults.FailedContexts - failedBefore);
+        Assert.Equal(sentBefore, identity.SensorFaults.PassedContexts);
+        Assert.Equal(new SensorContext(site.SiteId, lotId, false, 1), (await SensorStateAsync(soil)).Context);
+        var open = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
+        Assert.Equal((AlertIds.Uncalibrated(soil, 1), AlertKind.Uncalibrated, lotId), (open.AlertId, open.Kind, open.LotId));
+        var aliases = await identity.AliasesAsync($"sensor/{soil}");
+        Assert.Single(aliases, alias => alias == ContextChanged);
+        Assert.Single(aliases, alias => alias == Opened);
     }
 
     [Fact]

@@ -601,8 +601,13 @@ public sealed class PushTextTests
         Assert.Equal(("A Lot needs attention", null, PeppersLot), (alert!.Title, alert.Body, alert.LotId));
         Assert.Equal(("A Lot needs attention", "Still open."), (reminder!.Title, reminder.Body));
 
-        // The Alert is about its Lot, like a Threshold Alert: a Lot that is gone has no line.
+        // The Alert is about its Lot, like a Threshold Alert: a Lot that is gone has no line in a summary. Sent
+        // alone, the Alert and its Reminder keep the neutral text, as for a name that was not found.
         Assert.Null(await Builder(gone).BuildAsync(summary, SentAt));
+        var alone = await Builder(gone).BuildAsync(Alert(IPhone) with { Entries = [Uncalibrated(PeppersLot)] }, SentAt);
+        var again = await Builder(gone).BuildAsync(Reminder(IPhone) with { Entries = [Uncalibrated(PeppersLot)] }, SentAt.AddDays(1));
+        Assert.Equal(("A Lot needs attention", null), (alone!.Title, alone.Body));
+        Assert.Equal(("A Lot needs attention", "Still open."), (again!.Title, again.Body));
     }
 
     [Theory]

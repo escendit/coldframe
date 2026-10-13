@@ -5,7 +5,7 @@ created: '2026-10-13'
 baseline_revision: 725edaf5bd6dd828bc7669ea2db9c4050ac76537
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-7-3-low-battery-alert.md'
@@ -188,6 +188,47 @@ Contract and clients (already render the kind; tests and wording only)
   - `[false]` `[reject]` Intent: the macOS CI result is listed as a manual check, not as an operator action — it is a pull-request check the pipeline reads before it merges; nothing is owed by a human outside the repository.
   - `[low]` `[reject]` Intent: the spec's boxes, logs and status were not final in the reviewed diff — this file's bookkeeping, written at finalization.
 
+### 2026-10-13 — Review pass (follow-up)
+- verdicts: 37 findings — high 0, medium 6, low 25, false 6, maybe-false 0
+- findings:
+  - `[low]` `[reject]` Blind: a Specification that starts requiring calibration leaves an open Threshold Alert stuck — verified in `SensorGrain.Declare` and the eligibility gate of `Evaluate`, and it was so before this story (the gate is Story 6.1's). It needs a changed Specification set, which V1 firmware does not produce; closing it adds a branch and a reason for a state nobody reaches.
+  - `[low]` `[reject]` Blind: a context that is both moved and paused closes the Threshold Alert as `paused` and the uncalibrated one as `unassigned` — verified (`RaiseContext`, `UncalibratedRule.Decide`); both reasons are true of that context, and it needs a Pause, which nothing raises before Epic 8, together with a lost push.
+  - `[false]` `[reject]` Blind: `removed` is given a meaning that conflicts with the one DW-84 plans — the intent names `removed` for a Specification that stops requiring calibration; a dropped Sensor also no longer requires one, so the wording holds for both, and the fix would edit the intent.
+  - `[low]` `[reject]` Blind: DW-108 repeats DW-84 without a link — the ledger entries are written and resolved by the orchestrator, not by this run.
+  - `[low]` `[reject]` Blind: the OpenAPI `Alert` schema does not say a Threshold Alert can close as `unassigned` or `paused` — `AlertCloseReason` lists both for every Alert and `reason` is described without a kind; an example and a client test per reason would repeat what the generic reason rendering already pins.
+  - `[low]` `[patch]` Blind: the `HealthAlert` description says an uncalibrated Alert "always names the Lot the Node is on" — a closed one names the Lot the Node left, and `lotId`/`lotName` are optional. Now "names the Lot the Node was on when it opened (lotId and lotName are absent only while that Lot cannot be read)" in `coldframe.openapi.json` and the README; `schema.ts` regenerated.
+  - `[low]` `[reject]` Blind: `Calibrate` and `Declare` also wait for the Alert fan-out — true, by the same delivery the first pass kept for Move, Unassign, Enrol and Ingest; answering first would add a second delivery path.
+  - `[low]` `[reject]` Blind: a Sensor that answers `NotDeclared` is asked again on every frame without a log line, and `_contextConfirmed` keeps dropped Sensors — it needs a declaration that failed and was never repeated, which the next frame repairs; the map holds a handful of IDs for one activation.
+  - `[low]` `[reject]` Blind: no test applies a first context to a Sensor journaled before the story that has an open Threshold Alert — the close is raised in `RaiseContext` whatever context was held before, and the Threshold tests pin it; only the null check in `SetContext` differs.
+  - `[false]` `[reject]` Blind: `SetContext` adds wait cycles DW-86 does not name — `Sensor.Calibrate` awaits `Device.SetCalibration`, which interleaves, so a Device waiting in `SetContext` is not waited on in turn; DW-86 already names the awaits of Move and Unassign.
+  - `[low]` `[patch]` Blind: a gone Lot was asserted for the summary only — `PushTextTests` now also pins that the Alert and its Reminder, sent alone, keep the neutral text.
+  - `[medium]` `[patch]` Blind: `ReminderTableReadyAsync` swallows three failures and then fails the test — verified on CI: run 38417960926 of this branch failed `NotificationSettingsGrainTests.EverySettingSurvivesASiloRestart` after four reads of 30 s each timed out, in a test that needs no reminder. The wait now gives up after three reads and never throws, so a restart is what it was before the wait existed; the comment no longer says "once". The remarks on DW-110's text are the orchestrator's ledger.
+  - `[low]` `[reject]` Blind: carried — the spec's status, loop counter and empty change log were not final in the reviewed diff; this file's bookkeeping, written at finalization, and `sprint-status.yaml` is the orchestrator's.
+  - `[low]` `[reject]` Edge: carried — the rule is not limited to soil moisture while the copy says "Soil sensor"; only soil-moisture Specifications carry `calibration: true`.
+  - `[low]` `[reject]` Edge: carried — a slow `SetContext` delays Move, Unassign, Enrol and Ingest; as Ingest already waited for Alerts.
+  - `[low]` `[reject]` Edge: carried — a Pause change reaches the Sensors only with the next wake or frame; no grain method raises a Pause before Epic 8.
+  - `[medium]` `[patch]` Gap: a lost context was never shown to be sent again by the Node's next report — `AContextThatDidNotReachTheSensorsIsSentAgainWithTheNodesNextReport` added: after an unassignment whose contexts failed, one frame sends four contexts and closes the Alert as `unassigned`; the frame after it sends none.
+  - `[low]` `[patch]` Gap: a Reading as the first context of a Sensor that holds none was not exercised — filed as defer; the test was a few lines, so `ASensorThatHoldsNoContextTakesItsFirstOneFromAReading` was added instead (every context of the declaring frame fails, its Reading opens the Alert).
+  - `[medium]` `[patch]` Gap: "another wake sends nothing" did not observe whether anything was sent — `SensorFaults.PassedContexts` counts the contexts that reached a Sensor, and the wake test and the new report test assert it stays put. With the confirmation assignment removed from `PushContextsAsync` both tests fail (checked, then restored).
+  - `[low]` `[patch]` Gap: the repeated-pair path of `Calibrate` was not seen to deliver a pending close — filed as defer; `TheSamePairSentAgainDeliversTheCloseTheAlertGrainDidNotTake` added instead.
+  - `[low]` `[reject]` Intent: carried — title, body and route are asserted on the built content, not on a tapped notification.
+  - `[low]` `[reject]` Intent: the Reminder's timing and its text are asserted in two tests, never together — the timing test names the Alert the Reminder is for and the text test builds from that kind; one more integration test would join two things that share no code path.
+  - `[low]` `[reject]` Intent: carried — Administrator and Member run against the fake Server and the journey calibrates through the API.
+  - `[low]` `[reject]` Intent: `AlertsListTests` lists a hand-written `AlertOpened` — the grain-produced Alert is read through `AlertsReadModel` in the grain tests and through the web page in the journey; the Edge test pins the JSON shape.
+  - `[false]` `[reject]` Intent: carried — iOS changes one coverage line; the tests it points at exist since Story 6.2.
+  - `[medium]` `[patch]` Intent: the resend "on the next report" has no test — same gap as the Gap row; one entry.
+  - `[low]` `[reject]` Intent: "only the Sensor grain closes it" is shown for a client, not for another grain — the check compares the caller with the one opener (`AlertGrain.Close`), the same line Story 6.1 tests for Threshold Alerts; no other grain calls it.
+  - `[low]` `[patch]` Intent: replay of older journals does not exercise the first Reading of a Sensor without a context — same gap as the Gap row; one entry.
+  - `[false]` `[reject]` Intent: a gone Lot is handled beside the matrix — the matrix row "Lot name unknown" holds as written; a gone Lot follows the rule of a Threshold Alert, and the behaviour is now pinned for the summary, the Alert and the Reminder.
+  - `[low]` `[reject]` Intent: carried — other suites filter the new kind out, a journey counts from a baseline, and stream shapes were pinned again.
+  - `[medium]` `[patch]` Intent: `ReminderTableReadyAsync` is new test infrastructure after every restart — same defect as the Blind row; one entry.
+  - `[medium]` `[defer]` Intent: carried — the dropped Sensor and the missing grace period are recorded, not closed; both deferred in the first pass.
+  - `[low]` `[reject]` Intent: carried — `sprint-status.yaml` says done while the spec says in-review; bookkeeping.
+  - `[false]` `[reject]` Intent: `PendingAlertDelivery.Side` was retyped to nullable — the record is state rebuilt from events (CustomStorage journal), never written; the fixture holds no such row and replays.
+  - `[low]` `[reject]` Intent: carried — a Pause reaches the Sensors with the next wake.
+  - `[low]` `[reject]` Intent: carried — "Soil sensor" is fixed copy.
+  - `[false]` `[reject]` Intent: carried — the Alert opens with the declaring frame, the Node's second.
+
 ## Design Notes
 
 - **Context push, not a query.** The Sensor never asks the Device (deadlock, DW-86); it journals what it was told. The epoch orders contexts, and Readings carry it as a second path, so a lost push heals with the next Reading; unassignment has no Reading after it, hence the Device-side resend.
@@ -218,40 +259,38 @@ Contract and clients (already render the kind; tests and wording only)
 
 Status: done
 
-**Summary:** A Node's Device grain now tells each of its Sensor grains where the Node is (Site, Lot or none, paused, epoch) after an enrolment that assigns a Lot, a move, an unassignment and a declared Specification set, and again on the next report, wake or activation until the Sensor confirmed it. The Sensor grain journals that context and keeps a Health Alert of kind `uncalibrated` open exactly while it requires calibration, has none, and its Node is on a Lot and not paused. The Alert closes as `calibrated`, `unassigned` (a move opens a new one for the new Lot), `paused` or `removed`. An unassigned or paused context also closes the Sensor's open Threshold Alert. Push text is "Soil sensor on Lot 'Peppers' needs calibration" / "An Owner or Administrator can calibrate it.", routed to Lot detail. The clients already rendered the kind; they gained tests, not code.
+**Summary:** A Node's Device grain tells each of its Sensor grains where the Node is (Site, Lot or none, paused, epoch) after an enrolment that assigns a Lot, a move, an unassignment and a declared Specification set, and again on the next report, wake or activation until the Sensor confirmed it. The Sensor grain journals that context and keeps a Health Alert of kind `uncalibrated` open exactly while it requires calibration, has none, and its Node is on a Lot and not paused; it closes as `calibrated`, `unassigned`, `paused` or `removed`. An unassigned or paused context also closes the Sensor's open Threshold Alert. Push text is "Soil sensor on Lot 'Peppers' needs calibration" / "An Owner or Administrator can calibrate it.", routed to Lot detail. This follow-up pass changed no production code: it fixed the test fixture that failed the pull request's `.NET` job, added four tests and corrected one contract description.
 
-**Files changed:**
-- `packages/cs/contracts/Sensors/SensorGrains.cs`, `SensorEvents.cs` -- `ISensorGrain.SetContext`, `SensorContext`, and the events `sensor.context-changed`, `sensor.uncalibrated-episode-opened`, `sensor.uncalibrated-episode-closed`.
-- `packages/cs/contracts/Alerts/AlertGrains.cs`, `AlertEvents.cs` -- `AlertKind.Uncalibrated`, `IAlertGrain.OpenForSensor` and its request.
-- `apps/cs/server/Sensors/UncalibratedRule.cs` (new), `SensorState.cs`, `SensorGrain.cs` -- the pure rule, the held context, the episode and open Alert, the close of the Threshold Alert on an unassigned or paused context, delivery through the existing queue.
-- `apps/cs/server/Devices/DeviceGrain.cs`, `DeviceState.cs` -- `PushContextsAsync` at Enrol, Move, Unassign, Ingest, the wake and one tick after activation.
-- `apps/cs/server/Alerts/AlertGrain.cs`, `AlertIds.cs`, `AlertNames.cs`, `AlertsReadModel.cs`, `Lots/LotsProjector.cs`, `Notifications/ReminderIntervalRule.cs` -- the kind's ID, name and open; comments.
-- `apps/cs/server/Notifications/Push/PushText.cs`, `PushText.en.json`, `PushContent.cs` -- title, body, Reminder body and summary line.
-- `packages/openapi/coldframe.openapi.json`, `packages/openapi/README.md`, `packages/ts/api-client/src/schema.ts` -- descriptions and two examples; no schema change.
-- `tests/cs/server.tests/**`, `tests/cs/server.integration/**` -- `SensorStateContextTests` and `UncalibratedAlertGrainTests` (new, 23 tests), journal fixture rows, kind, Reminder, push-text and Alerts-list tests; existing suites adjusted to the Alert every uncalibrated simulated Node now has; `IdentityCluster` gained a context fault and a reminder-table read after a restart.
-- `tests/cs/web.e2e/UncalibratedSensorJourneyTests.cs` (new), `JourneyTests.cs`, and the three existing journeys.
-- `tests/ts/web/alerts.test.ts`, `tests/ts/web.e2e/specs/uncalibrated.spec.ts` (new, light and dark baselines), `tests/kt/core/**/AlertsEngineTest.kt`, `tests/kt/android/**` (`AlertFixtures.kt`, `AlertsScreenTest.kt`, `CoverageTest.kt`), `tests/swift/ios/ColdframeIOSTests/CatalogueTests.swift`.
-- `apps/cs/README.md`, `packages/cs/README.md`, `apps/ts/web/README.md`, `apps/kt/README.md`, `apps/swift/README.md`, `packages/kt/core/README.md`, `_bmad-output/implementation-artifacts/deferred-work.md` (DW-85 narrowed to a moved Node's Threshold Alert).
+**Files changed (first pass, commit 39b0d70):**
+- `packages/cs/contracts/Sensors/**`, `packages/cs/contracts/Alerts/**` -- `ISensorGrain.SetContext`, `SensorContext`, the three Sensor events, `AlertKind.Uncalibrated`, `IAlertGrain.OpenForSensor`.
+- `apps/cs/server/Sensors/**`, `Devices/**`, `Alerts/**`, `Lots/LotsProjector.cs`, `Notifications/**` -- the rule, the held context, the context push, the kind's ID, name and open, the push text.
+- `packages/openapi/**`, `packages/ts/api-client/src/schema.ts` -- descriptions and examples.
+- `tests/**`, the six READMEs, `deferred-work.md` (DW-85 narrowed).
 
-**Review:** 33 findings from four layers. Patched 4 entries: three missing tests (the context push in `Enrol`, the resend on activation, a close the Alert grain did not take), one OpenAPI example, two comment lines. Deferred 3: a Sensor dropped from a Specification set is never told anything again (medium, predates this story); the Alert notifies at once during onboarding and after the upgrade (medium, a product decision on FR21); the reminder-table stall after a restart (unverified for production). Rejected 16 low and 8 false findings; each reason is in the triage log. Patched counts by verdict: high 0, medium 3 entries (4 rows, two of them the same gap), low 1.
+**Files changed (this pass):**
+- `tests/cs/server.integration/Identity/IdentityCluster.cs` -- `ReminderTableReadyAsync` reads three times and never throws; `SensorFaults.PassedContexts` counts the contexts that reached a Sensor.
+- `tests/cs/server.integration/Devices/UncalibratedAlertGrainTests.cs` -- three tests (resend with the next report, first context from a Reading, the same pair delivering a pending close) and the "sends nothing" assertion of the wake test.
+- `tests/cs/server.tests/Notifications/PushTextTests.cs` -- a gone Lot for the Alert and its Reminder sent alone.
+- `packages/openapi/coldframe.openapi.json`, `packages/openapi/README.md`, `packages/ts/api-client/src/schema.ts` -- an uncalibrated Alert "names the Lot the Node was on when it opened".
 
-**Follow-up review recommended: true.** Three `medium` entries were patched. All three are tests, and the unverified risk they point at is the Device-side resend: which Sensor confirmed which epoch is kept in memory only, and the activation leg rests on a one-second timer that had no test before this pass. A second read of `PushContextsAsync` and its five call sites is worthwhile.
+**Review (this pass):** 37 findings from four layers. Patched 7 entries: the reminder-table wait that failed CI, three test gaps on the Device-side resend and its confirmation, two smaller test gaps, one description. Deferred none; the three entries of the first pass stand. Rejected 20 low and 6 false findings; 13 rows are carried from the first pass. Each reason is in the triage log. Patched counts by verdict: high 0, medium 3, low 4.
 
-**Verification:**
-- `dotnet restore --locked-mode && dotnet build --no-restore -warnaserror && dotnet format --verify-no-changes --no-restore` -- clean, before and after the patches.
-- `tests/cs/server.tests` -- 999 passed, before and after the patches.
-- `tests/cs/server.integration` -- 552 passed, none skipped, run in eight pieces because the suite exceeds the 10-minute command limit (the Edge classes take about 25 s per test on this host; the `.NET` job on `main` takes 28 minutes). After the patches only `UncalibratedAlertGrainTests` was run again: 23 passed. The patches changed that test file, one OpenAPI example and two doc comments.
-- `tests/cs/web.e2e` -- 4 journeys passed (before the patches).
-- `packages/proto/check-compat.sh` -- no breaking Protobuf or OpenAPI change, before and after the patches.
-- `pnpm --filter @coldframe/api-client generate`, `@coldframe/openapi` check, `pnpm -r typecheck`, `pnpm -r lint`, web tests (744), api-client tests (14) -- pass; schema not stale. Typecheck and api-client tests repeated after the patches.
-- `pnpm --filter @coldframe/web-e2e test` -- 137 passed (before the patches).
-- `./gradlew check --rerun-tasks` -- successful; `:core:jvmTest` repeated after the patches.
-- Swift build, 354 tests and format lint in the container -- pass (before the patches).
+**Follow-up review recommended: false.** No `high` entry was patched in this follow-up pass.
+
+**Verification (this pass):**
+- `dotnet build --no-restore -warnaserror && dotnet format --verify-no-changes --no-restore` -- clean.
+- `tests/cs/server.tests` -- 999 passed.
+- `tests/cs/server.integration`, by class -- `UncalibratedAlertGrainTests` 26 passed; `NotificationSettingsGrainTests` and `NodeMoveTests` (the restart-heavy classes) 35 passed. The whole suite and `tests/cs/web.e2e` were not run again: the pass changed tests and a description only, and the `.NET` job runs them.
+- Mutation check: with the confirmation assignment removed from `DeviceGrain.PushContextsAsync`, the wake test and the new report test fail; restored.
+- `packages/proto/check-compat.sh` -- no breaking Protobuf or OpenAPI change.
+- `pnpm --filter @coldframe/api-client generate`, `@coldframe/openapi` check, `pnpm -r typecheck`, `pnpm -r lint`, web tests (744), api-client tests (14) -- pass.
+- `./gradlew :core:jvmTest` -- successful.
+- Not run again: `web-e2e`, the Android checks, the Swift container (none of their inputs changed).
 
 **Residual risks:**
+- The reminder-table stall itself is not fixed (DW-110): the fixture no longer fails a test on it, but a test that needs a reminder right after a restart can still time out on CI, as `NodeMoveTests` did before this story. The stall did not occur locally, so the fixture change is confirmed only by the next `.NET` job.
 - The context confirmation is in memory: every Device activation calls each of its Sensors once.
-- Move, Unassign and an assigning Enrol now wait for the Sensors' Alert delivery, as Ingest did; when that chain stalls they answer late, with the same answer.
+- Move, Unassign, an assigning Enrol, Calibrate and a changed declaration wait for the Sensors' Alert delivery.
 - The Alert notifies as soon as a newly assigned Node declares its Sensor, and once for every never-calibrated Sensor after the upgrade (deferred).
 - A Pause reaches the Sensors with the Node's next wake or frame; Epic 8 has to call the push where it raises the Pause.
 - A moved Node's open Threshold Alert still names the Lot it left (DW-85).
-- The iOS edit is one line of a test file; the macOS `Swift` and `iOS app` jobs of the pull request are its only compile check outside the Linux container.

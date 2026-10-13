@@ -138,8 +138,8 @@ is planned today.
   Hub's Alert and the Alert of a Node on no Lot have no Lot. A `battery` Alert (Story 7.3: a Node below 20 % while
   not charging) carries `batteryPercent`, the level of the device report that opened it; without it a client words
   the Alert without a level. An `uncalibrated` Alert (Story 7.4) concerns a Sensor of the Node `deviceId` names
-  that requires Calibration and has none; it adds no property, always names the Lot the Node is on, and leads to
-  Lot detail, where Calibrate is offered. It closes as `calibrated`, as `unassigned` when the Node leaves that Lot
+  that requires Calibration and has none; it adds no property, names the Lot the Node was on when it opened, and leads
+  to Lot detail, where Calibrate is offered. It closes as `calibrated`, as `unassigned` when the Node leaves that Lot
   (a moved Node gets a new Alert for the new Lot), as `paused`, or as `removed`. The list is not paged and holds
   at most 200: a Device has at most one open Alert per kind (a Node can hold a `silent` and a `battery` Alert at
   once), a Sensor at most one open `uncalibrated` Alert, and every closed one stays for
