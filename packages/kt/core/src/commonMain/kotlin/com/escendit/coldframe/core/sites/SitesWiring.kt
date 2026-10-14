@@ -173,6 +173,17 @@ public object SitesWiring {
         pause: PauseApi?,
     ): DevicesEngine = DevicesEngine(api = api, sites = sites, scope = scope, pauseApi = pause)
 
+    /**
+     * Members of the current Site of [sites] (Story 9.1, Owner only): the Member tiles and the Invite form. The
+     * signed-in User of [signIn] gets their own tile marked.
+     */
+    public fun members(
+        api: MembersApi,
+        sites: SitesEngine,
+        signIn: SignInEngine,
+        scope: CoroutineScope,
+    ): MembersEngine = MembersEngine(api = api, sites = sites, scope = scope, currentUserId = { signIn.userId() })
+
     /** The Alerts engine, following the current Site of [sites]: it reads as soon as a Site is current. */
     public fun alerts(
         api: AlertsApi,

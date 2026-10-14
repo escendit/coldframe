@@ -6,7 +6,8 @@ using Temporalio.Exceptions;
 namespace Coldframe.Server.Identity.Reconciliation;
 
 /// <summary>
-/// The one activity of the Keycloak event pipeline: routes an admin event to its Site grain, then brings
+/// The activities of the Keycloak event pipeline: route an admin event, or an accepted invitation's user event,
+/// to its Site grain, then brings
 /// the User grains of the Site's current and former members in line with it (AD-3). The Site grain never
 /// calls User grains itself, so there is no grain-to-grain cycle with Create Site.
 /// </summary>
@@ -50,6 +51,34 @@ public sealed partial class IdentityReconciliationActivities(
             return;
         }
 
+        await ReconcileRouteAsync(route, adminEvent.Id).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reconciles the Site a user event touches (Story 9.1): an accepted Phase Two invitation
+    /// (<see cref="UserEventRoute"/>), with the same retries and fan-out as an admin event. Every other user
+    /// event completes.
+    /// </summary>
+    /// <param name="userEvent">The user event.</param>
+    [Activity("ReconcileUserEvent")]
+    public async Task ReconcileUserEventAsync(KeycloakUserEvent userEvent)
+    {
+        ArgumentNullException.ThrowIfNull(userEvent);
+
+        var realmId = options.Value.RealmId
+            ?? throw new InvalidOperationException("KeycloakEvents:RealmId is not configured.");
+
+        if (UserEventRoute.From(userEvent, realmId) is not { } route)
+        {
+            return;
+        }
+
+        await ReconcileRouteAsync(route, userEvent.Id).ConfigureAwait(false);
+    }
+
+    // Reconciles one Site, then brings its current and former members' User grains in line with it.
+    private async Task ReconcileRouteAsync(AdminEventRoute route, string? eventId)
+    {
         var context = ActivityExecutionContext.Current;
         var cancellationToken = context.CancellationToken;
         var acceptUnconfirmed = context.Info.Attempt >= AcceptUnconfirmedFromAttempt;
@@ -63,7 +92,7 @@ public sealed partial class IdentityReconciliationActivities(
         {
             case SiteReconciliationOutcome.NotYetVisible:
                 throw new ApplicationFailureException(
-                    $"Keycloak does not show yet what admin event {adminEvent.Id} says about Site {route.SiteId}.",
+                    $"Keycloak does not show yet what event {eventId} says about Site {route.SiteId}.",
                     NotYetVisibleFailure);
             case SiteReconciliationOutcome.IdentityProviderUnavailable:
                 throw new ApplicationFailureException(

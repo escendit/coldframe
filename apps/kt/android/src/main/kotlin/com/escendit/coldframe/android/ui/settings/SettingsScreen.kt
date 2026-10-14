@@ -33,8 +33,9 @@ import com.escendit.coldframe.designtokens.Spacing
 import com.escendit.coldframe.designtokens.Typography
 
 /**
- * Settings index (UX-DR71): My notifications (UX-DR72), Site settings for the current Site
- * (UX-DR74), Appearance and Account. Members joins them with its story.
+ * Settings index (UX-DR71): My notifications (UX-DR72), Members for an Owner of the current Site
+ * (UX-DR73; hidden, never disabled, for anyone else, UX-DR76), Site settings for the current Site
+ * (UX-DR74), Appearance and Account.
  */
 @Composable
 fun SettingsScreen(
@@ -44,6 +45,8 @@ fun SettingsScreen(
     siteName: String? = null,
     onOpenSiteSettings: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    canManageMembers: Boolean = false,
+    onOpenMembers: () -> Unit = {},
 ) {
     val colors = Coldframe.colors
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
@@ -55,6 +58,14 @@ fun SettingsScreen(
             onClick = onOpenNotifications,
         )
         HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+        if (siteName != null && canManageMembers) {
+            SettingsRow(
+                label = stringResource(R.string.settings_members),
+                helper = stringResource(R.string.settings_members_helper, siteName),
+                onClick = onOpenMembers,
+            )
+            HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+        }
         if (siteName != null) {
             SettingsRow(
                 label = stringResource(R.string.settings_site_settings),

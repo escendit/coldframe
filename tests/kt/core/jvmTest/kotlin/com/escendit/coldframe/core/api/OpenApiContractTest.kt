@@ -714,6 +714,35 @@ class OpenApiContractTest {
         assertTrue("urn:coldframe:problem:device-not-found" in problemTypes())
     }
 
+    @Test
+    fun story91TheMembersOperationsExistForOwnersWithTheirProblems() {
+        val list = operation("/sites/{siteId}/members", "get")
+        assertEquals("listSiteMembers", list["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Owner", list["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId"), parameterNames(list))
+        val invite = operation("/sites/{siteId}/invitations", "post")
+        assertEquals("inviteToSite", invite["operationId"]!!.jsonPrimitive.content)
+        assertEquals("Owner", invite["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+        assertEquals(listOf("siteId"), parameterNames(invite))
+        val responses = invite["responses"]!!.jsonObject.keys
+        assertTrue(responses.containsAll(setOf("202", "400", "403", "404", "409", "503")), responses.toString())
+        assertTrue(ColdframeApi.PROBLEM_ALREADY_INVITED in problemTypes())
+    }
+
+    @Test
+    fun story91TheMembersDtosMirrorTheContract() {
+        for (
+        (name, descriptor) in
+        listOf(
+            "InvitationRequest" to InvitationRequestDto.serializer().descriptor,
+            "SiteMember" to SiteMemberDto.serializer().descriptor,
+            "SiteMemberList" to SiteMemberListDto.serializer().descriptor,
+        )
+        ) {
+            assertMirrors(name, descriptor)
+        }
+    }
+
     private fun problemTypes(): List<String> =
         schema("ProblemDetails")["properties"]!!
             .jsonObject["type"]!!

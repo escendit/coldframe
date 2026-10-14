@@ -98,6 +98,22 @@ site values ([`deploy/SECRETS.md`](../../deploy/SECRETS.md#push-notifications),
 A missing Secret leaves its pod in `CreateContainerConfigError` and its bundle not Ready, which
 holds back every bundle after it.
 
+**Invitation emails (Story 9.1).** Before upgrading an existing installation to this release, create the
+Secret `coldframe-smtp` (`host`, `port`, `from`, `username`, `password`): the `keycloak` chart now reads it,
+and without it Keycloak stays in `CreateContainerConfigError`. Owners invite people by email; Phase Two
+sends the email through the realm's SMTP server, in the `coldframe` email theme the Keycloak image ships (its text says to
+accept on the home network). `coldframe-smtp` (`host`, `port`, `from`, `username`, `password`) and the
+`keycloak` values `smtp.auth`, `smtp.starttls` and `smtp.ssl` are substituted into the realm only when
+it is imported, on the first start. **A realm that exists already is never re-imported**, so after
+upgrading an existing installation set both by hand once, in the Keycloak admin console of the
+`coldframe` realm: Realm settings → Themes → Email theme `coldframe`; Realm settings → Email → the SMTP
+host, port, from address, authentication and encryption; and Authentication → Required actions → enable
+**Invitation** (`invitation-required-action`), which shows the invitee the invitation after signing in. Also set
+`keycloak.invitationRedirectUri` under the `server` key of your site values to `https://<domain>/garden` (the example values do), so that
+someone who accepts lands in the web app. Without SMTP, Phase Two still creates the invitation but
+cannot email it: it only logs `Unable to send invitation email`, and the Owner sees the invitation as
+sent.
+
 ## 3. The site values
 
 Copy [`deploy/fleet/values.example.yaml`](../../deploy/fleet/values.example.yaml), replace every

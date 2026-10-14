@@ -27,7 +27,7 @@
 <div class="cf-app-shell">
   <AppHeader {user} {menuOpen} onmenu={() => (menuOpen = !menuOpen)} {sites} {currentSite} {currentPath} {stale} {onsitemenu} />
   <div class="cf-app-shell__body">
-    <SideNav {currentPath} open={menuOpen} onnavigate={() => (menuOpen = false)} />
+    <SideNav {currentPath} role={currentSite?.role ?? null} open={menuOpen} onnavigate={() => (menuOpen = false)} />
     <main id="cf-main" class="cf-app-shell__main">
       {@render children()}
     </main>

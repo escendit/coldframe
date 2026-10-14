@@ -31,7 +31,7 @@ public sealed class PhaseTwoOrganizationsTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public static TheoryData<string> Operations() => ["find", "get", "create", "role", "member", "grant", "roster"];
+    public static TheoryData<string> Operations() => ["find", "get", "create", "role", "member", "grant", "roster", "invite", "profiles"];
 
     [Theory]
     [MemberData(nameof(Operations))]
@@ -250,6 +250,94 @@ public sealed class PhaseTwoOrganizationsTests
         Assert.Equal(PhaseTwoOrganizations.RosterPageSize, roster!.MemberIds.Count);
     }
 
+    [Fact]
+    public async Task InviteAsksPhaseTwoToEmailTheInvitationWithOneRoleAndTheRedirect()
+    {
+        string? path = null;
+        string? body = null;
+        var stub = new StubHandler(async (request, cancellationToken) =>
+        {
+            path = $"{request.Method} {request.RequestUri!.AbsolutePath}";
+            body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.Created);
+        });
+
+        var outcome = await Create(stub).Organizations.InviteAsync(
+            Organization.Id,
+            "ana@example.com",
+            "member",
+            new Uri("https://coldframe.example.org/garden"),
+            Ct);
+
+        Assert.Equal(PhaseTwoInviteOutcome.Sent, outcome);
+        Assert.Equal($"POST /realms/coldframe/orgs/{Organization.Id}/invitations", path);
+        Assert.Equal(
+            """{"email":"ana@example.com","roles":["member"],"send":true,"redirectUri":"https://coldframe.example.org/garden"}""",
+            body);
+    }
+
+    [Fact]
+    public async Task InviteWithoutARedirectSendsNone()
+    {
+        string? body = null;
+        var stub = new StubHandler(async (request, cancellationToken) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.Created);
+        });
+
+        await Create(stub).Organizations.InviteAsync(Organization.Id, "ana@example.com", "owner", redirectUri: null, Ct);
+
+        Assert.Equal("""{"email":"ana@example.com","roles":["owner"],"send":true}""", body);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Conflict, PhaseTwoInviteOutcome.Conflict)]
+    [InlineData(HttpStatusCode.NotFound, PhaseTwoInviteOutcome.NotFound)]
+    public async Task InviteReportsAnAlreadyInvitedOrMemberEmailAndAMissingOrganization(HttpStatusCode status, PhaseTwoInviteOutcome expected)
+    {
+        var stub = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(status)));
+
+        Assert.Equal(expected, await Create(stub).Organizations.InviteAsync(Organization.Id, "ana@example.com", "member", null, Ct));
+    }
+
+    [Fact]
+    public async Task TheMemberProfilesAreReadPageByPageWithNameAndEmail()
+    {
+        static object User(string id, string username, string? firstName, string? lastName, string? email) =>
+            new { id, username, firstName, lastName, email };
+
+        List<object> users =
+        [
+            .. Enumerable.Range(0, PhaseTwoOrganizations.RosterPageSize + 2)
+                .Select(index => User($"user-{index}", $"u{index}", $"First{index}", null, $"u{index}@example.com")),
+            User("user-named", "simon", " Simon ", "Novak", "simon@example.com"),
+            User("user-plain", "neighbour", null, " ", null),
+        ];
+        var stub = new StubHandler((request, _) =>
+        {
+            var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query);
+            var page = users.Skip(int.Parse(query["first"]!, CultureInfo.InvariantCulture)).Take(int.Parse(query["max"]!, CultureInfo.InvariantCulture));
+            return Task.FromResult(Json(HttpStatusCode.OK, JsonSerializer.Serialize(page)));
+        });
+
+        var profiles = await Create(stub).Organizations.GetMemberProfilesAsync(Organization.Id, Ct);
+
+        Assert.NotNull(profiles);
+        Assert.Equal(users.Count, profiles.Count);
+        Assert.Contains(new PhaseTwoMemberProfile("user-named", "Simon Novak", "simon@example.com"), profiles);
+        Assert.Contains(new PhaseTwoMemberProfile("user-plain", "neighbour", null), profiles);
+        Assert.Contains(new PhaseTwoMemberProfile("user-0", "First0", "u0@example.com"), profiles);
+    }
+
+    [Fact]
+    public async Task AMissingOrganizationHasNoMemberProfiles()
+    {
+        var stub = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)));
+
+        Assert.Null(await Create(stub).Organizations.GetMemberProfilesAsync(Organization.Id, Ct));
+    }
+
     private static Task Call(PhaseTwoOrganizations organizations, string operation) => operation switch
     {
         "find" => organizations.FindByAttributeAsync(IPhaseTwoOrganizations.IdempotencyKeyAttribute, "user-1:k1", Ct),
@@ -259,6 +347,8 @@ public sealed class PhaseTwoOrganizationsTests
         "member" => organizations.AddMemberAsync(Organization.Id, "user-1", Ct),
         "grant" => organizations.GrantRoleAsync(Organization.Id, "owner", "user-1", Ct),
         "roster" => organizations.GetRosterAsync(Organization.Id, Ct),
+        "invite" => organizations.InviteAsync(Organization.Id, "ana@example.com", "member", redirectUri: null, Ct),
+        "profiles" => organizations.GetMemberProfilesAsync(Organization.Id, Ct),
         _ => throw new ArgumentOutOfRangeException(nameof(operation)),
     };
 

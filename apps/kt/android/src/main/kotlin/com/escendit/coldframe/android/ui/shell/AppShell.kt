@@ -44,6 +44,8 @@ import com.escendit.coldframe.android.ui.components.ButtonVariant
 import com.escendit.coldframe.android.ui.components.ColdframeButton
 import com.escendit.coldframe.android.ui.devices.DevicesActions
 import com.escendit.coldframe.android.ui.devices.DevicesScreen
+import com.escendit.coldframe.android.ui.members.MembersActions
+import com.escendit.coldframe.android.ui.members.MembersScreen
 import com.escendit.coldframe.android.ui.notifications.MyNotificationsScreen
 import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
 import com.escendit.coldframe.android.ui.notifications.PushActions
@@ -71,6 +73,8 @@ import com.escendit.coldframe.core.lots.LotsState
 import com.escendit.coldframe.core.notifications.NotificationSettingsState
 import com.escendit.coldframe.core.push.PushRoute
 import com.escendit.coldframe.core.push.PushState
+import com.escendit.coldframe.core.sites.MembersAccess
+import com.escendit.coldframe.core.sites.MembersState
 import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.designtokens.Spacing
@@ -116,6 +120,9 @@ enum class Tab(
  *
  * [gardenPause], [lotDetailPause] and [devicesPause] are the core's Pause state of the three surfaces that can
  * pause (Story 8.2): each draws its own sheet and its own notice.
+ *
+ * [members] is the core's Members state (Story 9.1): Settings lists Members only for an Owner of the current Site,
+ * and every entry reads the Memberships again. A Role that drops below Owner closes it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,23 +156,32 @@ fun AppShell(
     gardenPause: PauseState = PauseState(),
     lotDetailPause: PauseState = PauseState(),
     devicesPause: PauseState = PauseState(),
+    members: MembersState = MembersState.Hidden,
+    membersActions: MembersActions = MembersActions.None,
 ) {
     val colors = Coldframe.colors
     var tab by tabState
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
     var siteSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var notificationsOpen by rememberSaveable { mutableStateOf(false) }
+    var membersOpen by rememberSaveable { mutableStateOf(false) }
+    val canManageMembers = MembersAccess.canManage(sites.current.role)
     val showingAppearance = tab == Tab.Settings && appearanceOpen
     val showingSiteSettings = tab == Tab.Settings && siteSettingsOpen && !appearanceOpen
     val showingNotifications = tab == Tab.Settings && notificationsOpen && !appearanceOpen && !siteSettingsOpen
+    val showingMembers =
+        tab == Tab.Settings && membersOpen && canManageMembers && !appearanceOpen && !siteSettingsOpen &&
+            !notificationsOpen
     // Lot detail is open while the core's detail state is not idle (it goes idle with the Site).
     val showingLotDetail = tab == Tab.Garden && lotDetail !is LotDetailState.Idle
-    val showingSub = showingAppearance || showingSiteSettings || showingNotifications || showingLotDetail
+    val showingSub =
+        showingAppearance || showingSiteSettings || showingNotifications || showingMembers || showingLotDetail
     val closeSub = {
         if (showingLotDetail) lotDetailActions.close()
         appearanceOpen = false
         siteSettingsOpen = false
         notificationsOpen = false
+        membersOpen = false
     }
 
     BackHandler(enabled = showingSub) { closeSub() }
@@ -194,6 +210,11 @@ fun AppShell(
         }
         tab = Tab.Garden
         pushActions.routeHandled()
+    }
+
+    // Every entry of Members reads the Memberships again.
+    LaunchedEffect(showingMembers) {
+        if (showingMembers) membersActions.load()
     }
 
     // Every entry of My notifications reads the settings again from the Server.
@@ -231,6 +252,7 @@ fun AppShell(
                                         showingAppearance -> R.string.appearance_title
                                         showingSiteSettings -> R.string.site_settings_title
                                         showingNotifications -> R.string.notifications_title
+                                        showingMembers -> R.string.members_title
                                         else -> tab.title
                                     },
                                 ),
@@ -343,6 +365,7 @@ fun AppShell(
                     onOpenSiteSettings = {
                         appearanceOpen = false
                         notificationsOpen = false
+                        membersOpen = false
                         siteSettingsOpen = true
                         tab = Tab.Settings
                     },
@@ -369,6 +392,8 @@ fun AppShell(
                     notificationsOff = push.noticeVisible,
                     onOpenSettings = pushActions.openSettings,
                 )
+            } else if (showingMembers) {
+                MembersScreen(state = members, actions = membersActions)
             } else if (tab == Tab.Settings) {
                 SettingsScreen(
                     onOpenAppearance = { appearanceOpen = true },
@@ -376,6 +401,8 @@ fun AppShell(
                     siteName = sites.current.name,
                     onOpenSiteSettings = { siteSettingsOpen = true },
                     onOpenNotifications = { notificationsOpen = true },
+                    canManageMembers = canManageMembers,
+                    onOpenMembers = { membersOpen = true },
                 )
             }
         }

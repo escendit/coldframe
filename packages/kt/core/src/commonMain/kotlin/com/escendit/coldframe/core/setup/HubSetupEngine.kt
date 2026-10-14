@@ -936,6 +936,7 @@ public class HubSetupEngine(
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.LotClaimed,
                 ApiFailure.DeviceAssigned,
+                ApiFailure.AlreadyInvited,
                 -> OutcomeKind.OnAnotherSite
 
                 ApiFailure.Forbidden -> OutcomeKind.NotAllowed

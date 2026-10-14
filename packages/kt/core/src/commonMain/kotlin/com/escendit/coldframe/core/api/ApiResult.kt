@@ -26,6 +26,9 @@ public enum class ApiFailure {
     /** 409 `device-assigned`: the Node is assigned to another Lot; nothing changed. */
     DeviceAssigned,
 
+    /** 409 `already-invited`: the invitee is already invited to the Site or a member of it; nothing was sent. */
+    AlreadyInvited,
+
     /** 503 `calibration-not-delivered`: the Calibration is saved but the Node's Device has not acknowledged it yet. */
     CalibrationNotDelivered,
 

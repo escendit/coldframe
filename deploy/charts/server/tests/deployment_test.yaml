@@ -144,3 +144,21 @@ tests:
           content:
             name: Identity__RequireHttpsMetadata
             value: "true"
+
+  - it: leaves the invitation redirect to Phase Two by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: Keycloak__InvitationRedirectUri
+          any: true
+
+  - it: hands the invitation redirect to the Server when it is set
+    set:
+      keycloak.invitationRedirectUri: https://coldframe.example.org/garden
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: Keycloak__InvitationRedirectUri
+            value: https://coldframe.example.org/garden

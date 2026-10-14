@@ -478,6 +478,46 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Site's Members
+         * @description Only an Owner (Story 9.1); an Administrator or a Member gets 403. One entry per Membership: the Role comes from the Server's identity projection, the name and email from Keycloak, read with the request. Owners first, then by name. There are no pending invitations here: an invited person appears once they accept.
+         */
+        get: operations["listSiteMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sites/{siteId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite someone to the Site
+         * @description Only an Owner (Story 9.1); an Administrator or a Member gets 403. The Server asks Keycloak (Phase Two) to create the invitation and email it; the invitee accepts from the email, on the home network, and appears in the Members list once the Server hears of it. The Server keeps no invitation state: there is no list of pending invitations and nothing to read back. Sending it again for the same email answers 409.
+         */
+        post: operations["inviteToSite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -1403,6 +1443,42 @@ export type components = {
             pausedUntil?: string;
         };
         /**
+         * @example {
+         *       "email": "ana@example.com",
+         *       "role": "Member"
+         *     }
+         */
+        InvitationRequest: {
+            /**
+             * Format: email
+             * @description The invitee's email address. Trimmed; one address with exactly one @, at most 254 characters.
+             */
+            email: string;
+            role: components["schemas"]["SiteRole"];
+        };
+        /**
+         * @description One Membership of a Site.
+         * @example {
+         *       "userId": "5b8e0f1c-2a43-4d7e-9c6b-1f0a2e3d4c5b",
+         *       "name": "Simon Novak",
+         *       "email": "simon@example.com",
+         *       "role": "Owner"
+         *     }
+         */
+        SiteMember: {
+            /** @description The User ID (the Keycloak user's ID). */
+            userId: string;
+            /** @description First and last name from Keycloak, else the username; empty when Keycloak does not know the User. */
+            name: string;
+            /** @description The User's email in Keycloak. Absent when Keycloak has none. */
+            email?: string;
+            role: components["schemas"]["SiteRole"];
+        };
+        SiteMemberList: {
+            /** @description Owners first, then by name. */
+            members: components["schemas"]["SiteMember"][];
+        };
+        /**
          * @description How often a Reminder repeats while a Threshold Alert stays open: once per day or every 2 days. There is no never.
          * @enum {string}
          */
@@ -1651,6 +1727,33 @@ export type components = {
         };
         /** @description urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. urn:coldframe:problem:lot-claimed: this Lot already has a Node. urn:coldframe:problem:device-assigned: the Node is in another Lot already; move it instead. Nothing was enrolled or assigned. */
         DeviceEnrolmentConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:already-invited: that person is already invited or a member of this Site. No invitation was sent. */
+        AlreadyInvited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached, answered with a server error, or the operation budget ran out. The invitation was not created; try again. */
+        InvitationNotSent: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached for the names and emails. Try again. */
+        MembersUnavailable: {
             headers: {
                 [name: string]: unknown;
             };
@@ -2726,6 +2829,64 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["SiteNotFound"];
+        };
+    };
+    listSiteMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Site's Members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteMemberList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+            503: components["responses"]["MembersUnavailable"];
+        };
+    };
+    inviteToSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Phase Two created the invitation and was asked to email it. A failed send is not reported to the Server. No body. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["SiteNotFound"];
+            409: components["responses"]["AlreadyInvited"];
+            503: components["responses"]["InvitationNotSent"];
         };
     };
 }

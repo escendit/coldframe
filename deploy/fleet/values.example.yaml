@@ -28,10 +28,13 @@ data:
     hostname: auth.<domain>
     realmImport:
       configMap: coldframe-realm
-  # The token issuer the Server trusts: Keycloak's public URL.
+  # The token issuer the Server trusts: Keycloak's public URL, and where an accepted invitation
+  # sends the invitee: the web app's /garden.
   server: |
     identity:
       authority: https://auth.<domain>/realms/coldframe
+    keycloak:
+      invitationRedirectUri: https://<domain>/garden
   # The issuer and the web app's public origin.
   web: |
     keycloak:

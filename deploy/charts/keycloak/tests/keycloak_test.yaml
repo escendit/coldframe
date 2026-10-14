@@ -63,6 +63,68 @@ tests:
               secretKeyRef:
                 name: coldframe-oidc-clients
                 key: server-client-secret
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_HOST
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-smtp
+                key: host
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_PORT
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-smtp
+                key: port
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_FROM
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-smtp
+                key: from
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_USER
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-smtp
+                key: username
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: coldframe-smtp
+                key: password
+
+  - it: passes the SMTP transport settings as values
+    template: templates/deployment.yaml
+    set:
+      smtp.starttls: false
+      smtp.ssl: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_AUTH
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_STARTTLS
+            value: "false"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COLDFRAME_SMTP_SSL
+            value: "true"
 
   - it: starts optimized without a realm import by default
     template: templates/deployment.yaml

@@ -29,6 +29,9 @@ public static class IdentityHostingExtensions
             .Validate(options => !string.IsNullOrWhiteSpace(options.ClientId), "Keycloak:ClientId is required.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.ClientSecret), "Keycloak:ClientSecret is required.")
             .Validate(
+                options => options.InvitationRedirectUri is null or { IsAbsoluteUri: true },
+                "Keycloak:InvitationRedirectUri must be an absolute URL when set.")
+            .Validate(
                 options => options.RequestTimeout > TimeSpan.Zero && options.RequestTimeout < TimeSpan.FromSeconds(20),
                 "Keycloak:RequestTimeout must be positive and under 20 s.")
             .Validate(
@@ -53,7 +56,8 @@ public static class IdentityHostingExtensions
     /// Adds the Temporal workers of the Keycloak event pipeline (configuration section
     /// <see cref="KeycloakEventOptions.SectionName"/>, AD-3, AD-5): one for the <c>IdentityAdminEvent</c>
     /// workflow, which reconciles Sites and Users, and one for the <c>IdentityUserEvent</c> workflow, which
-    /// only completes. Temporal carries nothing else.
+    /// reconciles the Site of an accepted invitation (Story 9.1) and completes every other user event.
+    /// Temporal carries nothing else.
     /// </summary>
     public static TBuilder AddKeycloakEventPipeline<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
@@ -91,6 +95,7 @@ public static class IdentityHostingExtensions
 
         builder.Services
             .AddHostedTemporalWorker(queues.UserTaskQueue)
+            .AddScopedActivities<IdentityReconciliationActivities>()
             .AddWorkflow<IdentityUserEventWorkflow>();
 
         return builder;

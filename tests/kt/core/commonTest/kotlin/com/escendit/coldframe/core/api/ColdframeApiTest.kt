@@ -1308,4 +1308,70 @@ class ColdframeApiTest {
                 api().listDevices("a"),
             )
         }
+
+    @Test
+    fun uxDr73ListMembersReadsTheMembershipsInTheServerOrder() =
+        runTest {
+            answer = {
+                respond(
+                    """{"members":[{"userId":"u1","name":"Simon Novak","email":"simon@example.com","role":"Owner"},""" +
+                        """{"userId":"u2","name":"","role":"Member"}]}""",
+                    HttpStatusCode.OK,
+                    json,
+                )
+            }
+
+            val result = api().listMembers("a")
+
+            assertEquals(
+                ApiResult.Ok(
+                    SiteMemberListDto(
+                        listOf(
+                            SiteMemberDto("u1", "Simon Novak", "Owner", "simon@example.com"),
+                            SiteMemberDto("u2", "", "Member"),
+                        ),
+                    ),
+                ),
+                result,
+            )
+            val request = requests.single()
+            assertEquals(HttpMethod.Get, request.method)
+            assertEquals("https://server.example/sites/a/members", request.url.toString())
+        }
+
+    @Test
+    fun uxDr52InviteSendsTheEmailAndTheRoleAndReads202WithoutABody() =
+        runTest {
+            answer = { respond("", HttpStatusCode.Accepted) }
+
+            val result = api().invite("a", "ana@example.com", "Member")
+
+            assertEquals(ApiResult.Ok(Unit), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("https://server.example/sites/a/invitations", request.url.toString())
+            assertEquals(
+                """{"email":"ana@example.com","role":"Member"}""",
+                (request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString(),
+            )
+        }
+
+    @Test
+    fun uxDr52AnAlreadyInvitedConflictIsAlreadyInvited() =
+        runTest {
+            answer = { respond(problem("already-invited"), HttpStatusCode.Conflict, problem) }
+
+            assertEquals(ApiResult.Failed(ApiFailure.AlreadyInvited), api().invite("a", "ana@example.com", "Member"))
+        }
+
+    @Test
+    fun uxDr52AnInvitationKeycloakCouldNotSendIsIdentityProviderUnavailable() =
+        runTest {
+            answer = { respond(problem("identity-provider-unavailable"), HttpStatusCode.ServiceUnavailable, problem) }
+
+            assertEquals(
+                ApiResult.Failed(ApiFailure.IdentityProviderUnavailable),
+                api().invite("a", "ana@example.com", "Owner"),
+            )
+        }
 }

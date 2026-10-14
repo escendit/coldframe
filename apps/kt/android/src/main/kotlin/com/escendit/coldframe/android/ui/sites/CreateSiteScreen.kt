@@ -38,6 +38,9 @@ import com.escendit.coldframe.designtokens.Typography
  * whose working label replaces it in place. Shown on first sign-in with no Membership, and over
  * the shell from "New Site", where Cancel (top-left) and back return to the Garden. Every value
  * and decision comes from [form]; this screen only renders it.
+ *
+ * Without a Membership it also says "Accepted an invitation? It can take a minute to appear." (UX-DR90): the
+ * core reads the Sites again every 10 s meanwhile and opens the first Site that arrives.
  */
 @Composable
 fun CreateSiteScreen(
@@ -76,6 +79,13 @@ fun CreateSiteScreen(
             style = Typography.body.textStyle(),
             color = colors.textPrimary,
         )
+        if (!form.cancellable) {
+            Text(
+                text = stringResource(R.string.create_site_invitation_hint),
+                style = Typography.body.textStyle(),
+                color = colors.textSecondary,
+            )
+        }
         TextInput(
             label = stringResource(R.string.create_site_name),
             value = form.name,

@@ -14,6 +14,7 @@ import com.escendit.coldframe.core.setup.AndroidRadioState
 import com.escendit.coldframe.core.setup.HubSetupEngine
 import com.escendit.coldframe.core.setup.KableSetupRadio
 import com.escendit.coldframe.core.setup.NodeSetupEngine
+import com.escendit.coldframe.core.sites.MembersEngine
 import com.escendit.coldframe.core.sites.SitesEngine
 import com.escendit.coldframe.core.sites.SitesWiring
 import com.escendit.coldframe.core.thresholds.ThresholdsEngine
@@ -95,6 +96,9 @@ public class AndroidSignIn private constructor(
 
     /** The Devices of the current Site; the shell loads it on every entry of the Devices tab. */
     public val devices: DevicesEngine = SitesWiring.devices(api, sites, scope, pause = api)
+
+    /** Members of the current Site (Owner only): the Member tiles and the Invite form; the shell loads it on entry. */
+    public val members: MembersEngine = SitesWiring.members(api, sites, engine, scope)
 
     /** The Alerts of the current Site, read as soon as a Site is current; the shell refreshes on foreground. */
     public val alerts: AlertsEngine = SitesWiring.alerts(api, sites, scope)

@@ -22,6 +22,7 @@ import com.escendit.coldframe.android.push.openNotificationSettings
 import com.escendit.coldframe.android.ui.alerts.AlertsActions
 import com.escendit.coldframe.android.ui.calibrate.CalibrateActions
 import com.escendit.coldframe.android.ui.devices.DevicesActions
+import com.escendit.coldframe.android.ui.members.MembersActions
 import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
 import com.escendit.coldframe.android.ui.notifications.PushActions
 import com.escendit.coldframe.android.ui.setup.HubSetupActions
@@ -86,6 +87,8 @@ class MainActivity : ComponentActivity() {
         // The core reads these when the session starts; the shell reads them again on every entry of the surface.
         val notifications = app.signIn.notifications
         val notificationsActions = NotificationSettingsActions.of(notifications)
+        val members = app.signIn.members
+        val membersActions = MembersActions.of(members)
         val hubSetup = app.signIn.hubSetup
         val hubSetupActions = HubSetupActions.of(hubSetup)
         val nodeSetup = app.signIn.nodeSetup
@@ -102,6 +105,7 @@ class MainActivity : ComponentActivity() {
             val alertsState by alerts.state.collectAsStateWithLifecycle()
             val notificationsState by notifications.state.collectAsStateWithLifecycle()
             val pushState by push.state.collectAsStateWithLifecycle()
+            val membersState by members.state.collectAsStateWithLifecycle()
             // Pause belongs to the surface it was asked on: the Site menu, Lot detail, a Devices row.
             val gardenPause by lots.pause.state.collectAsStateWithLifecycle()
             val lotDetailPause by lotDetail.pause.state.collectAsStateWithLifecycle()
@@ -184,6 +188,8 @@ class MainActivity : ComponentActivity() {
                 gardenPause = gardenPause,
                 lotDetailPause = lotDetailPause,
                 devicesPause = devicesPause,
+                members = membersState,
+                membersActions = membersActions,
             )
         }
     }

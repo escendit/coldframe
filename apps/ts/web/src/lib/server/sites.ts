@@ -83,7 +83,8 @@ export async function call<T>(
     if (response.ok && data !== undefined) {
       return { ok: data };
     }
-    if (response.status === 204) {
+    // 204, and 202 for an invitation (Story 9.1): accepted, with no body.
+    if (response.status === 204 || response.status === 202) {
       return { ok: undefined as T };
     }
     return { error: statusError(response.status) };

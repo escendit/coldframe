@@ -64,12 +64,23 @@ var deviceKek = builder.AddParameter(
     new GenerateParameterDefault { MinLength = 32, Special = false },
     secret: true);
 
-// Phase Two Keycloak with keycloak-temporal-extensions, built from ../keycloak/Dockerfile.
+// Mailpit catches every email Keycloak sends (Story 9.1: Phase Two's invitation emails), so the local stack
+// and the integration tests can read them on its web UI and API. Nothing leaves the machine.
+var mailpit = builder
+    .AddContainer("mailpit", "axllent/mailpit", "v1.31.3")
+    .WithImageRegistry("docker.io")
+    .WithEndpoint(name: "smtp", scheme: "tcp", targetPort: 1025)
+    .WithHttpEndpoint(name: "http", targetPort: 8025)
+    .WithHttpHealthCheck("/livez", endpointName: "http");
+
+// Phase Two Keycloak with keycloak-temporal-extensions, built from ../keycloak/Dockerfile with the
+// repository root as its context, as the release builds it (it copies aspire/keycloak/themes).
 var postgresEndpoint = postgres.GetEndpoint("tcp");
 var temporalEndpoint = temporal.GetEndpoint("grpc");
+var mailpitSmtp = mailpit.GetEndpoint("smtp");
 
 var keycloak = builder
-    .AddDockerfile("keycloak", "../keycloak")
+    .AddDockerfile("keycloak", "../..", "aspire/keycloak/Dockerfile")
     .WithArgs("start", "--optimized", "--import-realm")
     // The coldframe realm and its coldframe-web client. A realm that already exists is left as it is.
     // The files are copied into the container rather than bind-mounted, so SELinux labels on the
@@ -88,11 +99,16 @@ var keycloak = builder
     .WithEnvironment("KC_HOSTNAME_STRICT", "false")
     .WithEnvironment("KC_SPI_EVENTS_LISTENER__TEMPORAL__TARGET_HOST", temporalEndpoint.Property(EndpointProperty.HostAndPort))
     .WithEnvironment("KC_SPI_EVENTS_LISTENER__TEMPORAL__NAMESPACE", TemporalNamespace)
+    // The realm's SMTP server (Story 9.1): Mailpit, without authentication or TLS.
+    .WithEnvironment("COLDFRAME_SMTP_HOST", mailpitSmtp.Property(EndpointProperty.Host))
+    .WithEnvironment("COLDFRAME_SMTP_PORT", mailpitSmtp.Property(EndpointProperty.Port))
+    .WithEnvironment("COLDFRAME_SMTP_FROM", "coldframe@localhost")
     .WithHttpEndpoint(name: "http", targetPort: 8080)
     .WithHttpEndpoint(name: "management", targetPort: 9000)
     .WithHttpHealthCheck("/health/ready", endpointName: "management")
     .WaitFor(keycloakDatabase)
-    .WaitFor(temporal);
+    .WaitFor(temporal)
+    .WaitFor(mailpit);
 
 // The migration job applies the one forward-only migration set, then exits (AD-22).
 // The Server starts only after it has finished successfully; the Server itself never runs DDL.
@@ -119,6 +135,9 @@ var server = builder
     .WithEnvironment("Keycloak__Realm", "coldframe")
     .WithEnvironment("Keycloak__ClientId", "coldframe-server")
     .WithEnvironment("Keycloak__ClientSecret", coldframeServerClientSecret)
+    // An accepted invitation opens the web app (Story 9.1); without a Site yet it shows Create Site, which
+    // opens the Site once the Membership arrives. Port 5173 is the coldframe-web client's registered origin.
+    .WithEnvironment("Keycloak__InvitationRedirectUri", "http://localhost:5173/garden")
     .WithEnvironment("KeycloakEvents__TargetHost", temporalEndpoint.Property(EndpointProperty.HostAndPort))
     .WithEnvironment("KeycloakEvents__Namespace", TemporalNamespace)
     .WithEnvironment("KeycloakEvents__RealmId", "coldframe")

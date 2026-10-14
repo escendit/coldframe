@@ -44,6 +44,12 @@ public sealed class KeycloakOptions
     public TimeSpan OperationBudget { get; set; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
+    /// Where Phase Two sends an invitee after accepting an invitation (Story 9.1), such as the web app's
+    /// <c>/garden</c>. Absolute when set; without it Phase Two uses its own default.
+    /// </summary>
+    public Uri? InvitationRedirectUri { get; set; }
+
+    /// <summary>
     /// Returns an address below the realm, such as <c>{BaseUrl}/realms/{Realm}/orgs</c>.
     /// </summary>
     /// <param name="relative">The path below the realm, without a leading slash.</param>

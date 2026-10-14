@@ -6751,6 +6751,281 @@
           }
         }
       }
+    },
+    "settings_members": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members"
+          }
+        }
+      }
+    },
+    "settings_members_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People on %@ and their Roles"
+          }
+        }
+      }
+    },
+    "members_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members"
+          }
+        }
+      }
+    },
+    "members_invite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invite someone"
+          }
+        }
+      }
+    },
+    "members_email": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email"
+          }
+        }
+      }
+    },
+    "members_email_helper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They get an email with a link to accept."
+          }
+        }
+      }
+    },
+    "members_email_blank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an email address."
+          }
+        }
+      }
+    },
+    "members_email_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter one email address, like ana@example.com."
+          }
+        }
+      }
+    },
+    "members_role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Role"
+          }
+        }
+      }
+    },
+    "members_role_member_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Member sees everything and gets the same Alerts, but can't change settings."
+          }
+        }
+      }
+    },
+    "members_role_administrator_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administrator also changes Devices, Thresholds, Calibration and Pause, but not Members."
+          }
+        }
+      }
+    },
+    "members_role_owner_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owner can do everything, including inviting people and changing Roles."
+          }
+        }
+      }
+    },
+    "members_send_invite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send invite"
+          }
+        }
+      }
+    },
+    "members_sending_invite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending invite…"
+          }
+        }
+      }
+    },
+    "members_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitation sent to %@. They accept from the email, on the garden's Wi-Fi."
+          }
+        }
+      }
+    },
+    "members_already_invited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That person is already invited or a member of this Site."
+          }
+        }
+      }
+    },
+    "members_not_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The invitation was not sent. Try again."
+          }
+        }
+      }
+    },
+    "members_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Names and emails can't be read: your Server's sign-in service didn't answer. Try again."
+          }
+        }
+      }
+    },
+    "members_forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't change this on %@. Ask an Owner or Administrator."
+          }
+        }
+      }
+    },
+    "members_site_gone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is no longer one of your Sites. Nothing was changed."
+          }
+        }
+      }
+    },
+    "members_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reach your Server, so nothing was sent. Check that this phone is on your home Wi-Fi and try again."
+          }
+        }
+      }
+    },
+    "members_unexpected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That didn't work: your Server returned an error. Try again."
+          }
+        }
+      }
+    },
+    "members_tile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "members_tile_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@, you"
+          }
+        }
+      }
+    },
+    "create_site_invitation_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accepted an invitation? It can take a minute to appear."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

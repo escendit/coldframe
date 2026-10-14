@@ -103,6 +103,8 @@
     let notificationsActions: NotificationSettingsActions
     let push: PushPresentation
     let pushActions: PushActions
+    let members: MembersPresentation
+    let membersActions: MembersActions
     let hoistedSelection: Binding<AppTab>?
     let hoistedGardenPath: Binding<GardenPath>?
     @State private var ownSelection: AppTab = .garden
@@ -127,8 +129,11 @@
       notifications: NotificationSettingsPresentation = .idle,
       notificationsActions: NotificationSettingsActions = .none,
       push: PushPresentation = .idle, pushActions: PushActions = .none,
-      gardenPath: Binding<GardenPath>? = nil
+      gardenPath: Binding<GardenPath>? = nil, members: MembersPresentation = .hidden,
+      membersActions: MembersActions = .none
     ) {
+      self.members = members
+      self.membersActions = membersActions
       self.push = push
       self.pushActions = pushActions
       self.hoistedGardenPath = gardenPath
@@ -199,7 +204,8 @@
           theme: theme, onSelectTheme: onSelectTheme, onSignOut: onSignOut,
           siteName: garden?.siteName, lots: lots, lotsActions: lotsActions,
           notifications: notifications, notificationsActions: notificationsActions,
-          push: push, pushActions: pushActions)
+          push: push, pushActions: pushActions, role: garden?.role, members: members,
+          membersActions: membersActions)
       case .garden:
         if let garden {
           GardenView(
@@ -227,9 +233,10 @@
     }
   }
 
-  /// Settings index (UX-DR71): My notifications (UX-DR72), Site settings of the current Site,
-  /// Appearance, then Account with Sign out, confirmed in a native dialog that names the result
-  /// (UX-DR113).
+  /// Settings index (UX-DR71): My notifications (UX-DR72), Members for an Owner of the current
+  /// Site (UX-DR73; hidden, never disabled, for anyone else, UX-DR76), Site settings of the current
+  /// Site, Appearance, then Account with Sign out, confirmed in a native dialog that names the
+  /// result (UX-DR113).
   public struct SettingsView: View {
     let theme: ThemePreference
     let onSelectTheme: (ThemePreference) -> Void
@@ -241,6 +248,9 @@
     let notificationsActions: NotificationSettingsActions
     let push: PushPresentation
     let pushActions: PushActions
+    let role: SiteRoleKind?
+    let members: MembersPresentation
+    let membersActions: MembersActions
     @State private var confirmingSignOut = false
     @Environment(\.palette) private var palette
 
@@ -250,8 +260,13 @@
       lots: LotsPresentation = .waiting, lotsActions: LotsActions = .none,
       notifications: NotificationSettingsPresentation = .idle,
       notificationsActions: NotificationSettingsActions = .none,
-      push: PushPresentation = .idle, pushActions: PushActions = .none
+      push: PushPresentation = .idle, pushActions: PushActions = .none,
+      role: SiteRoleKind? = nil, members: MembersPresentation = .hidden,
+      membersActions: MembersActions = .none
     ) {
+      self.role = role
+      self.members = members
+      self.membersActions = membersActions
       self.push = push
       self.pushActions = pushActions
       self.notifications = notifications
@@ -280,6 +295,20 @@
               .foregroundStyle(palette.textHelper)
           }
           .frame(minHeight: TouchTarget.minimum)
+        }
+        if let siteName, SettingsRow.rows(role: role).contains(.members) {
+          NavigationLink {
+            MembersView(presentation: members, actions: membersActions)
+          } label: {
+            VStack(alignment: .leading, spacing: Spacing.step1) {
+              SettingsRow.members.title.text.role(Typography.bodyLg)
+                .foregroundStyle(palette.textPrimary)
+              Text(verbatim: L10n.settingsMembersHelper.string(siteName))
+                .role(Typography.helper)
+                .foregroundStyle(palette.textHelper)
+            }
+            .frame(minHeight: TouchTarget.minimum)
+          }
         }
         if let siteName {
           NavigationLink {
@@ -381,6 +410,8 @@
     let notificationsActions: NotificationSettingsActions
     let push: PushPresentation
     let pushActions: PushActions
+    let members: MembersPresentation
+    let membersActions: MembersActions
     /// The selected tab outlives the tab shell, which Add a Hub and Add a Node replace while
     /// their flow is open.
     @State private var tab: AppTab = .garden
@@ -403,8 +434,11 @@
       alerts: AlertsPresentation = .waiting, alertsActions: AlertsActions = .none,
       notifications: NotificationSettingsPresentation = .idle,
       notificationsActions: NotificationSettingsActions = .none,
-      push: PushPresentation = .idle, pushActions: PushActions = .none
+      push: PushPresentation = .idle, pushActions: PushActions = .none,
+      members: MembersPresentation = .hidden, membersActions: MembersActions = .none
     ) {
+      self.members = members
+      self.membersActions = membersActions
       self.push = push
       self.pushActions = pushActions
       self.notifications = notifications
@@ -497,7 +531,7 @@
           lotDetailActions: lotDetailActions, selection: $tab, alerts: alerts,
           alertsActions: alertsActions, notifications: notifications,
           notificationsActions: notificationsActions, push: push, pushActions: pushActions,
-          gardenPath: $gardenPath
+          gardenPath: $gardenPath, members: members, membersActions: membersActions
         )
         // Thresholds is a modal over the shell, so the open Lot detail stays and reads again once saved.
         .coverOrSheet(
@@ -539,6 +573,7 @@
     @Published public private(set) var alerts = AlertsPresentation.waiting
     @Published public private(set) var notifications = NotificationSettingsPresentation.idle
     @Published public private(set) var push = PushPresentation.idle
+    @Published public private(set) var members = MembersPresentation.hidden
     public let signIn: SignInService
     public let appearance: AppearanceService
     public let sitesService: SitesService?
@@ -552,6 +587,7 @@
     public let alertsService: AlertsService?
     public let notificationsService: NotificationSettingsService?
     public let pushService: PushService?
+    public let membersService: MembersService?
 
     public init(
       signIn: SignInService, appearance: AppearanceService, sites: SitesService? = nil,
@@ -559,8 +595,10 @@
       devices: DevicesService? = nil, nodeSetup: NodeSetupService? = nil,
       lotDetail: LotDetailService? = nil, calibrate: CalibrateService? = nil,
       thresholds: ThresholdsService? = nil, alerts: AlertsService? = nil,
-      notifications: NotificationSettingsService? = nil, push: PushService? = nil
+      notifications: NotificationSettingsService? = nil, push: PushService? = nil,
+      members: MembersService? = nil
     ) {
+      self.membersService = members
       self.pushService = push
       self.notificationsService = notifications
       self.alertsService = alerts
@@ -600,6 +638,7 @@
       alerts?.observe { [weak self] in self?.alerts = $0 }
       notifications?.observe { [weak self] in self?.notifications = $0 }
       push?.observe { [weak self] in self?.push = $0 }
+      members?.observe { [weak self] in self?.members = $0 }
     }
 
     private static func announce(_ event: LotsEventPresentation) {
@@ -621,6 +660,11 @@
 
     private static func post(_ text: String) {
       AccessibilityNotification.Announcement(AttributedString(text)).post()
+    }
+
+    /// The Members actions for the views; nothing happens without a service.
+    public var membersActions: MembersActions {
+      membersService.map(MembersActions.init(service:)) ?? .none
     }
 
     /// The push actions for the views; nothing happens without a service.

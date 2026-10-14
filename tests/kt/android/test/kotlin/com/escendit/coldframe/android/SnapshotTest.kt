@@ -56,6 +56,10 @@ import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.CreateSiteForm
+import com.escendit.coldframe.core.sites.InviteForm
+import com.escendit.coldframe.core.sites.Member
+import com.escendit.coldframe.core.sites.MembersNotice
+import com.escendit.coldframe.core.sites.MembersState
 import com.escendit.coldframe.core.sites.PauseForm
 import com.escendit.coldframe.core.sites.PauseScope
 import com.escendit.coldframe.core.sites.SiteRole
@@ -77,7 +81,7 @@ import java.util.TimeZone
 import kotlin.test.assertTrue
 
 /**
- * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings, Devices, every Add a
+ * Roborazzi snapshots of Create Site, the Garden with Lots, Site settings, Members, Devices, every Add a
  * Hub step and outcome and every Add a Node step with its outcomes, light and dark, at
  * the largest font scale (2×). The Site overview (Story 4.7) and its Lot tiles of every status,
  * stale and skeleton are taken at the default font scale (two columns) and at 2× (one column).
@@ -223,6 +227,54 @@ class SnapshotTest {
             ThemePreference.Light,
             siteSettings = true,
         )
+
+    // Story 9.1: Members, the Member tiles and the Invite form after an invitation was sent.
+
+    private fun members(
+        name: String,
+        theme: ThemePreference,
+    ) {
+        compose.setContent {
+            AtFontScale(2f) {
+                ColdframeRoot(
+                    state = SignInState.SignedIn("Simon"),
+                    sites = readySites(),
+                    theme = theme,
+                    onSignIn = {},
+                    onSignOut = {},
+                    onSelectTheme = {},
+                    lots = lotsOf(SiteRole.Owner),
+                    members =
+                        MembersState.Ready(
+                            siteName = "Home garden",
+                            members =
+                                listOf(
+                                    Member("u-simon", "Simon Novak", "simon@example.com", SiteRole.Owner, you = true),
+                                    Member("u-ana", "Ana Costa", "ana@example.com", SiteRole.Member, you = false),
+                                ),
+                            form = InviteForm(role = SiteRole.Member),
+                            notice = MembersNotice.Sent,
+                            sentTo = "bo@example.com",
+                        ),
+                )
+            }
+        }
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Members").performClick()
+        compose.onNode(isHeading().and(hasText("Members"))).assertExists()
+        compose.assertNothingOverflows(name)
+        compose.onRoot().captureRoboImage(Repo.file("tests/kt/android/snapshots/$name.png").path)
+    }
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR51 UX-DR52 UX-DR73 Members for an Owner after sending an invitation, light, font scale 2`() =
+        members("members-light", ThemePreference.Light)
+
+    @Test
+    @Config(qualifiers = NOTIFICATIONS)
+    fun `UX-DR51 UX-DR52 UX-DR73 Members for an Owner after sending an invitation, dark, font scale 2`() =
+        members("members-dark", ThemePreference.Dark)
 
     // Story 6.3: My notifications, and the Reminders section of Site settings, in a window that holds the whole surface.
 

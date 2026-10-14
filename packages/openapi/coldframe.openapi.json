@@ -984,6 +984,55 @@
           "404": { "$ref": "#/components/responses/SiteNotFound" }
         }
       }
+    },
+    "/sites/{siteId}/members": {
+      "get": {
+        "operationId": "listSiteMembers",
+        "summary": "List the Site's Members",
+        "description": "Only an Owner (Story 9.1); an Administrator or a Member gets 403. One entry per Membership: the Role comes from the Server's identity projection, the name and email from Keycloak, read with the request. Owners first, then by name. There are no pending invitations here: an invited person appears once they accept.",
+        "x-coldframe-minimum-role": "Owner",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "responses": {
+          "200": {
+            "description": "The Site's Members.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SiteMemberList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" },
+          "503": { "$ref": "#/components/responses/MembersUnavailable" }
+        }
+      }
+    },
+    "/sites/{siteId}/invitations": {
+      "post": {
+        "operationId": "inviteToSite",
+        "summary": "Invite someone to the Site",
+        "description": "Only an Owner (Story 9.1); an Administrator or a Member gets 403. The Server asks Keycloak (Phase Two) to create the invitation and email it; the invitee accepts from the email, on the home network, and appears in the Members list once the Server hears of it. The Server keeps no invitation state: there is no list of pending invitations and nothing to read back. Sending it again for the same email answers 409.",
+        "x-coldframe-minimum-role": "Owner",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvitationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Phase Two created the invitation and was asked to email it. A failed send is not reported to the Server. No body." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/SiteNotFound" },
+          "409": { "$ref": "#/components/responses/AlreadyInvited" },
+          "503": { "$ref": "#/components/responses/InvitationNotSent" }
+        }
+      }
     }
   },
   "components": {
@@ -1912,6 +1961,54 @@
         },
         "examples": [{ "paused": true, "pausedUntil": "2027-02-28T23:00:00.000Z" }, { "paused": true }, { "paused": false }]
       },
+      "InvitationRequest": {
+        "type": "object",
+        "required": ["email", "role"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "The invitee's email address. Trimmed; one address with exactly one @, at most 254 characters.",
+            "minLength": 3,
+            "maxLength": 254
+          },
+          "role": { "$ref": "#/components/schemas/SiteRole" }
+        },
+        "examples": [{ "email": "ana@example.com", "role": "Member" }]
+      },
+      "SiteMember": {
+        "type": "object",
+        "description": "One Membership of a Site.",
+        "required": ["userId", "name", "role"],
+        "properties": {
+          "userId": { "type": "string", "description": "The User ID (the Keycloak user's ID)." },
+          "name": {
+            "type": "string",
+            "description": "First and last name from Keycloak, else the username; empty when Keycloak does not know the User."
+          },
+          "email": { "type": "string", "description": "The User's email in Keycloak. Absent when Keycloak has none." },
+          "role": { "$ref": "#/components/schemas/SiteRole" }
+        },
+        "examples": [
+          {
+            "userId": "5b8e0f1c-2a43-4d7e-9c6b-1f0a2e3d4c5b",
+            "name": "Simon Novak",
+            "email": "simon@example.com",
+            "role": "Owner"
+          }
+        ]
+      },
+      "SiteMemberList": {
+        "type": "object",
+        "required": ["members"],
+        "properties": {
+          "members": {
+            "type": "array",
+            "description": "Owners first, then by name.",
+            "items": { "$ref": "#/components/schemas/SiteMember" }
+          }
+        }
+      },
       "ReminderCadence": {
         "type": "string",
         "enum": ["daily", "every2Days"],
@@ -2037,6 +2134,7 @@
               "urn:coldframe:problem:sensor-not-found",
               "urn:coldframe:problem:calibration-not-delivered",
               "urn:coldframe:problem:reminder-cadence-not-delivered",
+              "urn:coldframe:problem:already-invited",
               "urn:coldframe:problem:ingest-unavailable"
             ]
           },
@@ -2110,6 +2208,18 @@
       },
       "DeviceEnrolmentConflict": {
         "description": "urn:coldframe:problem:device-on-another-site: the Device is already enrolled on another Site. urn:coldframe:problem:lot-claimed: this Lot already has a Node. urn:coldframe:problem:device-assigned: the Node is in another Lot already; move it instead. Nothing was enrolled or assigned.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "AlreadyInvited": {
+        "description": "urn:coldframe:problem:already-invited: that person is already invited or a member of this Site. No invitation was sent.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "InvitationNotSent": {
+        "description": "urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached, answered with a server error, or the operation budget ran out. The invitation was not created; try again.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "MembersUnavailable": {
+        "description": "urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached for the names and emails. Try again.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "IdentityProviderUnavailable": {

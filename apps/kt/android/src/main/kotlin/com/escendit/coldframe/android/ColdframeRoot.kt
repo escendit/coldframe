@@ -23,6 +23,7 @@ import com.escendit.coldframe.android.ui.components.Announcement
 import com.escendit.coldframe.android.ui.components.InlineNotice
 import com.escendit.coldframe.android.ui.components.NoticeActionUi
 import com.escendit.coldframe.android.ui.devices.DevicesActions
+import com.escendit.coldframe.android.ui.members.MembersActions
 import com.escendit.coldframe.android.ui.notifications.NotificationSettingsActions
 import com.escendit.coldframe.android.ui.notifications.PushActions
 import com.escendit.coldframe.android.ui.setup.AddHubFlow
@@ -53,6 +54,7 @@ import com.escendit.coldframe.core.push.PushState
 import com.escendit.coldframe.core.setup.HubSetupState
 import com.escendit.coldframe.core.setup.NodeSetupState
 import com.escendit.coldframe.core.signin.SignInState
+import com.escendit.coldframe.core.sites.MembersState
 import com.escendit.coldframe.core.sites.PauseState
 import com.escendit.coldframe.core.sites.SitesState
 import com.escendit.coldframe.core.thresholds.ThresholdsState
@@ -76,6 +78,7 @@ import java.time.Instant
  * notifications-off notice on the overview and in My notifications, and the route of a tapped
  * notification, which the tab shell shows. [gardenPause], [lotDetailPause] and [devicesPause] are the core's
  * Pause state of the overview, Lot detail and Devices (Story 8.2): the sheet and the notice of each surface.
+ * [members] is the core's Members state (Story 9.1), for an Owner of the current Site.
  */
 @Composable
 fun ColdframeRoot(
@@ -114,6 +117,8 @@ fun ColdframeRoot(
     gardenPause: PauseState = PauseState(),
     lotDetailPause: PauseState = PauseState(),
     devicesPause: PauseState = PauseState(),
+    members: MembersState = MembersState.Hidden,
+    membersActions: MembersActions = MembersActions.None,
 ) {
     // Every start of the activity, the first one and each return to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { onForeground() }
@@ -164,6 +169,8 @@ fun ColdframeRoot(
                     gardenPause,
                     lotDetailPause,
                     devicesPause,
+                    members,
+                    membersActions,
                 )
             }
         }
@@ -203,6 +210,8 @@ private fun SignedIn(
     gardenPause: PauseState,
     lotDetailPause: PauseState,
     devicesPause: PauseState,
+    members: MembersState,
+    membersActions: MembersActions,
 ) {
     when (sites) {
         SitesState.Idle, SitesState.Loading -> {
@@ -282,6 +291,8 @@ private fun SignedIn(
                     gardenPause = gardenPause,
                     lotDetailPause = lotDetailPause,
                     devicesPause = devicesPause,
+                    members = members,
+                    membersActions = membersActions,
                 )
             }
         }

@@ -180,7 +180,8 @@ describe('App shell', () => {
   const user = { displayName: 'Simon Novak', initials: 'SN' };
 
   test('UX-DR58 Garden · Alerts · Devices · Members with Settings in the nav footer and aria-current', () => {
-    const { body } = render(AppShell, { props: { user, currentPath: '/alerts', children } });
+    const home = { id: 'a', name: 'Home', role: 'Owner' as const };
+    const { body } = render(AppShell, { props: { user, currentPath: '/alerts', sites: [home], currentSite: home, children } });
     const labels = ['Garden', 'Alerts', 'Devices', 'Members', 'Settings'];
     const positions = labels.map((label) => body.indexOf(`>${label}<`));
     for (const position of positions) {
@@ -192,6 +193,21 @@ describe('App shell', () => {
     expect(body).toMatch(/<nav[^>]*aria-label="Main"/u);
     expect(body).toContain('SN');
     expect(body).toContain('aria-label="Signed in as Simon Novak"');
+  });
+
+  test('UX-DR76 UX-DR73 Members is in the nav for an Owner only: hidden, never disabled, for an Administrator, a Member or no Site', () => {
+    for (const [role, shown] of [
+      ['Owner', true],
+      ['Administrator', false],
+      ['Member', false],
+    ] as const) {
+      const site = { id: 'a', name: 'Home', role };
+      const { body } = render(AppShell, { props: { user, currentPath: '/garden', sites: [site], currentSite: site, children } });
+      const nav = body.slice(body.indexOf('<nav'));
+      expect(nav.includes('href="/members"'), role).toBe(shown);
+      expect(nav).not.toContain('disabled');
+    }
+    expect(render(AppShell, { props: { user, currentPath: '/sites/new', children } }).body).not.toContain('href="/members"');
   });
 
   test('UX-DR58 below 672 px the nav sits behind a header menu button', () => {
