@@ -65,7 +65,7 @@ public object SitesWiring {
         settings: Settings,
         scope: CoroutineScope,
         cadence: SiteReminderCadenceApi?,
-        pause: PauseApi? = null,
+        pause: PauseApi?,
     ): LotsEngine =
         LotsEngine(
             api = api,
@@ -134,7 +134,7 @@ public object SitesWiring {
         sites: SitesEngine,
         settings: Settings,
         scope: CoroutineScope,
-        pause: PauseApi? = null,
+        pause: PauseApi?,
     ): LotDetailEngine = LotDetailEngine(api = api, sites = sites, settings = settings, scope = scope, pauseApi = pause)
 
     /** Calibrate of one Lot's soil Sensor, following the current Site of [sites]. */
@@ -170,7 +170,7 @@ public object SitesWiring {
         api: DevicesApi,
         sites: SitesEngine,
         scope: CoroutineScope,
-        pause: PauseApi? = null,
+        pause: PauseApi?,
     ): DevicesEngine = DevicesEngine(api = api, sites = sites, scope = scope, pauseApi = pause)
 
     /** The Alerts engine, following the current Site of [sites]: it reads as soon as a Site is current. */

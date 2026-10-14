@@ -138,9 +138,10 @@ public data class PauseDate(
             return PauseDate(year, month, day).takeIf { day <= daysIn(year, month) }
         }
 
-        /** Reads `yyyy-MM-dd`; anything else is `null`. */
+        /** Reads `yyyy-MM-dd`, digits and the two hyphens only; anything else is `null`. */
         public fun parse(text: String): PauseDate? {
             if (text.length != LENGTH || text[4] != '-' || text[7] != '-') return null
+            if (text.count { it in '0'..'9' } != LENGTH - 2) return null
             val year = text.substring(0, 4).toIntOrNull() ?: return null
             val month = text.substring(5, 7).toIntOrNull() ?: return null
             val day = text.substring(8, 10).toIntOrNull() ?: return null

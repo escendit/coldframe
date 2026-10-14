@@ -5,7 +5,7 @@ created: '2026-10-13'
 baseline_revision: c9fe6a79956d2109e39e27109bb4075c93aaa43e
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context.md'
   - '{project-root}/apps/cs/README.md'
@@ -216,6 +216,51 @@ Web, `apps/ts/web/src/`:
   - `[false]` `[reject]` Intent: existing baselines were re-recorded — expected: an Owner's Devices rows and Lot detail now carry Pause; two of each kind were looked at before finalizing.
   - `[false]` `[reject]` Intent: no finalized status, commit or Auto Run Result — the diff was taken before finalization.
 
+### 2026-10-14 — Review pass (follow-up)
+- verdicts: 41 findings — high 0, medium 2, low 25, false 14, maybe-false 0
+- findings:
+  - `[low]` `[reject]` Blind: the `SiteGone` notice is dropped as soon as the Sites are read again — real: the re-read drops the Site, the current Site changes and `PauseEngine` resets; the test's fake keeps listing the Site. It needs a Site deleted or a Membership revoked while the sheet is open; the app then shows another Site, and keeping the notice across the reset is new state, not a direct correction.
+  - `[low]` `[patch]` Blind: an accepted Pause that answers after Cancel closes the modal that was opened since — real, shown by a failing Playwright case. Patched: `PauseModal.svelte` closes the modal only for the save that is still current; the page is still read again and the Pause announced.
+  - `[low]` `[reject]` Blind: `Site.pausedUntil` is rendered nowhere — real and as designed (Design Notes, "Which end a surface shows"): the headline keeps its Lot-derived rule, the line and the menu follow `Site.paused`. Showing the Site's own end is a new display.
+  - `[low]` `[reject]` Blind: no test shows the overview following a Site Pause on the live hint alone — real as stated; the Server's hints (`ProjectorHintsTests`) and the web's re-read on a hint (Story 6.6) are each tested, and a real-stack case for the pair is a new journey.
+  - `[low]` `[reject]` Blind: the second read in `SitesEngine.refresh()` does not cover a `load()` in flight — real: it needs a Pause answered while the sign-in read of the Sites is still on its way; the next refresh repairs it. `pauseAnswered()` not writing the cache is followed by `refresh()`, which does.
+  - `[low]` `[reject]` Blind: Android and iOS announce nothing after a Pause or a Resume — real; the mobile apps announce stale mode and Calibrate only, the row and the headline change in place, and the intent asks for no announcement.
+  - `[low]` `[reject]` Blind: a Site Resume from the menu shows no progress — real for one round trip (`workingOnSite` has no reader); the menu item changes when the answer lands. A progress state on the overview is a new surface.
+  - `[false]` `[reject]` Blind: Android puts every Devices row into the working state — the row buttons have no working label; `working` only ignores presses, which is the one-request-at-a-time rule the engine and iOS (`isEnabled`) apply too.
+  - `[low]` `[reject]` Blind: the web's Pause opener on a row is named "Pause" only — real, and the page's convention: "Unassign" beside it is named the same way inside the group "Actions for Node ‹id›". One button named differently would not help; a page-wide change is not this story's.
+  - `[low]` `[reject]` Blind: the same Pause sent again does not repeat a catch-up that failed — real after a logged `PauseCatchUpFailed` only; the projection follows on its next poll, as the log line says.
+  - `[low]` `[patch]` Blind: `PauseDate.parse` accepts signs ("+027-03-01") — real, though no picker produces one. Patched: digits and the two hyphens only; test cases added first.
+  - `[false]` `[reject]` Blind: the bookkeeping contradicts itself — `sprint-status.yaml` is written by the orchestrator, not by this build; the spec's `in-review` is this pass under way; correcting the task list is an edit of this spec.
+  - `[low]` `[reject]` Edge: `SiteGone` and the reset — same as the first Blind row.
+  - `[low]` `[reject]` Edge: a Pause answered while `load()`, Create Site or rename reads the Sites — same as the Blind row on `refresh()`.
+  - `[low]` `[reject]` Edge: a refresh in flight when Create Site or rename answers can land an older list — real and older than this story (`created()` and `refresh()` are unchanged in substance); it needs a read begun before the write and landing two round trips later.
+  - `[low]` `[reject]` Edge: a Resume that answers 404 shows nothing because its row is gone — carried: the list is read again and the Device is no longer in it, which is the news.
+  - `[low]` `[reject]` Edge: a failed read of the Devices after an accepted Pause replaces the rows with the failure surface — real and the engine's pattern for every write on that list (`refresh()` after Move and Unassign); Try again reads them.
+  - `[low]` `[reject]` Edge: mobile reads the Lots once right after a Site Pause, possibly before delivery reached the Devices — real, and what the intent states: Devices follow through delivery and clients re-read on the live hint or their next refresh. A timed second read would be a guess; awaiting delivery changes the endpoint. Named under residual risks.
+  - `[low]` `[patch]` Edge: a re-tapped day leaves the Android calendar open — carried (the first pass's hygiene row, where this part was left as it is): the calendar closes with its field. Not patched again.
+  - `[low]` `[reject]` Edge: the Devices list leaving Ready while its Pause sheet is open hides the sheet until the rows return — it needs a failed re-read during an open sheet, which only a 404 on the sheet's own save starts.
+  - `[false]` `[reject]` Edge: a second submit of the Pause form counts as current too — the primary button ignores presses while working, and an implicit submit clicks that button; Try again shows only when nothing is on its way.
+  - `[low]` `[reject]` Edge: a Resume posted before hydration that the Server refuses is shown nowhere — carried: the window before hydration only; the page then reads the Server's state.
+  - `[low]` `[patch]` Edge: `IdentityProjector` sends a hint for a Site without a row — carried (the first pass's hygiene row, where this part was left as it is): a Site event is not applied twice and a hint for an unchanged row costs one read. Not patched again.
+  - `[low]` `[patch]` Gap: the refusal of an abandoned save is guarded by source-text assertions only — as filed. Patched: the fake Server can hold pause writes (`holdPauses`), and `pause.spec.ts` cancels while a Pause is on its way and reopens, for a 403 and for an accepted Pause. Both fail with `attempts.abandon()` removed.
+  - `[low]` `[patch]` Gap: the Site menu's one-Resume-at-a-time guard is asserted as source text — as filed, taken with the row above: `pause.spec.ts` chooses Resume twice while the first is held and expects one `DELETE`. It fails with the guard removed.
+  - `[medium]` `[patch]` Gap: the app's own Pause wiring runs in no test, and leaving it out is a silent no-op — as filed. Patched: `SitesWiring.lots`, `lotDetail` and `devices` take `pause` without a default, so `AndroidSignIn` and `IosSignIn` no longer compile without it; a `ColdframeRoot` test shows Lot detail gets its own Pause state (it fails when `AppShell` passes the Garden's). The `MainActivity` collection stays unverified, like its siblings.
+  - `[low]` `[reject]` Gap, other: two more `PauseModal` tests assert source text (one modal level, the re-read after a save) — the re-read is observed by every `pause.spec.ts` flow; a second modal cannot be opened over an open one, because a modal `<dialog>` makes the page behind it inert.
+  - `[medium]` `[patch]` Gap, other: `PauseWiringTest` pins the silent no-op — same root as the wiring row: the test now passes `pause = null` on purpose.
+  - `[low]` `[reject]` Intent: no client test of the re-read on the live hint after a Site Pause — same as the Blind row.
+  - `[false]` `[reject]` Intent: only the Site-menu Pause is driven on the real stack — carried: the acceptance criterion names UJ-4, which is that path.
+  - `[false]` `[reject]` Intent: mobile is covered by fixtures; the iOS bridge is compiled only and the iOS render tests are not image comparisons — carried: the bridge is in `deferred`, the render tests are DW-20.
+  - `[false]` `[reject]` Intent: the Devices-list row is seeded with journal events and the migration test with hand-written payloads — the read right after the endpoint calls is `PauseEndpointTests.AReadRightAfterAPauseOrAResumeAnsweredShowsItForTheSiteAndForTheDevice`; the payloads are carried from the first pass.
+  - `[false]` `[reject]` Intent: the real-stack theme check reads classes and ink — carried.
+  - `[false]` `[reject]` Intent: `sprint-status.yaml` is written — by the orchestrator; this build does not touch it.
+  - `[false]` `[reject]` Intent: a 404 has no retry, and a Pause failure shows in the sheet — the existing notice for a Device or Site that is gone has no retry, because sending the same again cannot help; the sheet keeping its entries and saying why is the Always list's wording.
+  - `[false]` `[reject]` Intent: "Mar 1" on web and Android, "1 Mar" on iOS — the existing day formatters follow the locale, as the intent asks.
+  - `[false]` `[reject]` Intent: the web uses a new `PauseModal.svelte`, not `Modal.svelte` — the task list allows either; it is a native `<dialog>` on the same modal stack.
+  - `[false]` `[reject]` Intent: the web action marks a text that is no calendar date without calling the Server — a date field produces none; the Server's 400 remains the refusal the matrix describes.
+  - `[low]` `[reject]` Intent: iOS selects tomorrow when the calendar opens; Android adds "Clear date" and "No end date" — carried for iOS; the Android texts are how an optional date is shown empty and emptied.
+  - `[false]` `[reject]` Intent: the Lot detail hero shows "Resume the Site to resume this Node" also when both sources pause the Node — the hero note is older than this story and the same on web and mobile (`lot-detail.ts`, `LotDetail.kt`); the matrix row is about the Site-only case and holds.
+  - `[false]` `[reject]` Intent: stale mode hides the line, the Member notice and the Lot detail controls — nothing shown in stale mode is live and a change needs the Server; the Lot detail gates were hidden in stale mode before this story.
+
 ## Design Notes
 
 - **Line wording.** The story's acceptance text abbreviates the line as "No Alerts are sent while paused."; the UX source (UX-DR83, EXPERIENCE.md "All paused") gives the product string "No Alerts are sent while the Site is paused." followed by an attribution. The first sentence is used verbatim and the attribution is left out (see Never).
@@ -243,43 +288,42 @@ Web, `apps/ts/web/src/`:
 
 Status: done
 
-**Summary.** Pause and Resume now work in the web, Android and iOS apps. The Server gained the read surface they need (DW-112): `Site` carries optional `paused` and `pausedUntil`, `DeviceListItem` optional `pausedBy` and `pausedUntil`, projected from the journaled events into new columns of `identity_sites` and `devices`, with a read right after a pause or resume showing it. Each app has the Pause sheet (scope, optional "Until" date, a primary button naming the result) on the Site menu, Lot detail and every Devices row, one-tap Resume, paused Devices rows, the line "No Alerts are sent while the Site is paused." and the Member read-only state. Android and iOS share one `PauseEngine` in the Kotlin core; the web goes through two form actions. The winter journey (UJ-4) runs on the real stack with the manual clock in light and dark.
+**Summary.** Follow-up review of Story 8.2 after its first run (PR #102, merged). The story itself is unchanged: Pause and Resume work in the web, Android and iOS apps over the Server's new read surface (`Site.paused` / `pausedUntil`, `DeviceListItem.pausedBy` / `pausedUntil`), with the winter journey (UJ-4) on the real stack. This pass read the whole change again, the first pass's patches included, and made four small corrections: one web defect in the Pause modal, one stricter date parse in the Kotlin core, executed browser tests in place of source-text assertions for two guards, and Pause wiring that no longer compiles when it is left out.
 
-**Files changed.**
-- `packages/openapi/coldframe.openapi.json`, `packages/openapi/README.md`, `packages/ts/api-client/src/{schema,index}.ts` -- the new optional members, regenerated client, type aliases.
-- `apps/cs/migrations/Migrations/M20261014090000AddPauseReadColumns.cs` -- pause columns; `identity_sites` filled from the journal, `devices` replayed with its rows kept.
-- `apps/cs/server/Identity/{IdentityProjector,IdentityReadModel,SiteGrain}.cs`, `apps/cs/server/Devices/{DevicesProjector,DevicesReadModel,DeviceGrain}.cs`, `apps/cs/server/Edge/EdgeApi.cs` -- projection of the four events, live hints, read-your-writes, response mapping.
-- `packages/kt/core/.../sites/{Pause,PauseEngine,SitesEngine,SiteMenu,Sites,SitesSnapshot,SitesWiring}.kt`, `api/{ApiDtos,ColdframeApi}.kt`, `lots/*`, `devices/*`, `iosMain/.../Ios{Pause,Lots,LotDetail,Devices}.kt`, sign-in wiring -- DTOs, four calls, the pause engine, gates, snapshots and the iOS bridge.
-- `apps/kt/android/.../ui/pause/{PauseSheet,PauseActions}.kt`, `ui/sites/*`, `ui/devices/*`, `ui/shell/AppShell.kt`, `ColdframeRoot.kt`, `MainActivity.kt`, `res/values/strings.xml` -- sheet, entry points, Resume, paused rows, notices.
-- `apps/swift/ios/Sources/ColdframeIOS/PausePresentation.swift`, `UI/PauseViews.swift`, `{Sites,Lots,LotDetail,Devices}Presentation.swift`, `UI/{SitesViews,LotDetailViews,DevicesViews,SiteSettingsViews}.swift`, `L10n.swift`, `Resources/Localizable.xcstrings`, `App/Core{Lots,LotDetail,Devices}Service.swift` -- the same on iOS.
-- `apps/ts/web/src/lib/{pause,site-menu,garden,lot-detail,devices}.ts`, `lib/server/pause.ts`, `lib/components/{PauseModal,ResumeControl,SiteMenu,AppHeader,AppShell,SiteSummaryHeader,TextInput}.svelte`, `routes/(app)/+layout.svelte`, the garden, Lot detail and Devices pages and their `+page.server.ts`, `lib/i18n/en.json` -- the same on web.
-- Tests: `tests/cs/server.integration` (`DevicesListTests`, `PauseEndpointTests`, `ListSitesTests`, `EdgeApiTests`, `RenameSiteTests`, `MigrationTests`, `Live/ProjectorHintsTests`), `tests/cs/server.tests` (`SiteResponseTests`, `DeviceLivenessTests`), `tests/cs/web.e2e/WinterPauseJourneyTests.cs`, `tests/kt/core` (`PauseEngineTest`, `PauseWiringTest`, engine, snapshot and contract tests), `tests/kt/android` (`PauseSheetTest`, `PauseActionsTest`, screen tests, 26 new and 32 refreshed Roborazzi baselines), `tests/swift/ios` (`PausePresentationTests`, presentation, catalogue and render tests), `tests/ts/web` (`pause.test.ts` and the surface tests), `tests/ts/web.e2e` (`pause.spec.ts`, fake Server routes, 20 new baselines, refreshed Devices and Lot detail baselines).
-- Docs: `apps/cs/README.md`, `packages/cs/README.md`, `packages/kt/core/README.md`, `apps/kt/README.md`, `apps/swift/README.md`, `apps/ts/web/README.md`, `docs/quickstart.md`; `deferred-work.md` (DW-24, DW-112, DW-113 resolved; DW-72 progress).
+**Files changed in this pass.**
+- `apps/ts/web/src/lib/components/PauseModal.svelte` -- an accepted Pause that answers after Cancel no longer closes the modal opened since.
+- `packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/Pause.kt` -- `PauseDate.parse` reads digits and the two hyphens only.
+- `packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/sites/SitesWiring.kt` -- `pause` has no default on `lots`, `lotDetail` and `devices`.
+- `tests/ts/web.e2e/fixtures/fake-idp.ts`, `specs/helpers.ts` -- the fake Server can keep pause writes waiting (`holdPauses`).
+- `tests/ts/web.e2e/specs/pause.spec.ts` -- three cases: a refusal after Cancel, an accepted Pause after Cancel, a second Resume while the first is on its way.
+- `tests/kt/core/commonTest/.../sites/PauseEngineTest.kt`, `PauseWiringTest.kt`, `push/PushWiringTest.kt` -- signed dates are refused; `pause = null` is passed on purpose.
+- `tests/kt/android/test/.../LotDetailScreenTest.kt` -- the shell hands Lot detail its own Pause state.
+- This spec: the triage log of this pass and this result. `deferred-work.md` and `sprint-status.yaml` carry the loop's own bookkeeping and were not written by this build.
 
-**Review.** One pass, four layers, 46 findings (medium 8, low 28, false 10; no high, no intent gap, no spec fault). Every row and its reason is in the Review Triage Log.
-- Patched (13 fixes; entries by verdict: medium 4, low 9): the Sites refresh race that could undo a pause answer; the Lot detail pause state carried from one Lot to the next (its Try again acted on the other Node); missing tests for the projectors' live hints and for the Android glue to the pause engine; a 400 read as a refused date without a date or on a Resume; a Site-scope 404 treated as a missing Device; the resume-the-Site hint following different rules on web and mobile; a late refusal shown after the web modal was closed; a stale date mark on the web; a double Site-menu Resume; the untested `PATCH` pause members; DW-24's contradictory line; two tidy-ups.
-- Deferred (3): the iOS bridge and `App/` adapters for Pause are compiled only (medium); no "Paused by <name>" attribution on the overview (low); Calibrate has no Resume and its old wording, and rows have no swipe-to-Pause (low).
-- Rejected (low, 13 rows): unknown Pause source read differently on web and mobile; iOS selecting tomorrow when the calendar opens; a Pause shown up to a minute past its end; two catch-ups per Pause change; the replay window on the first start after the migration; hand-written payloads in the migration test; `paused` absent from `POST /sites`; the Role dropping while a sheet is open; a Pause during another Devices write; a 404 Resume whose row is gone; the Lot detail modal reopening after two live updates; a refusal before hydration; a stale Resume notice after a resume elsewhere.
-- Rejected (false, 10 rows): the line's wording; Whole Site alone from the Site menu; the cited additions; the journey's scope; class-based theme checks on the real stack; iOS render tests not being image comparisons (DW-20); iOS verified by macOS CI; no mobile end-to-end path; re-recorded baselines; the diff taken before finalization.
+**Review.** One pass, four layers, 41 findings (medium 2, low 25, false 14; no high, no intent gap, no spec fault). Every row and its reason is in the Review Triage Log.
+- Patched (4 entries; by verdict: medium 1, low 3): the Pause wiring that could be left out silently, with the test that pinned it (medium); the modal closed by an older accepted Pause (low); signed dates in `PauseDate.parse` (low); the two web guards that only source text asserted (low).
+- Deferred: none new. The three entries of the first pass stay in `deferred`.
+- Carried from the first pass, verdict and route kept, nothing patched again (8 rows): the re-tapped day in the Android calendar; the hint for a Site without a row; a 404 Resume whose row is gone; a refusal before hydration; iOS selecting tomorrow; the journey's scope; the iOS bridge and render tests; the theme check on the real stack.
+- Rejected (low, 16 new rows): the `SiteGone` notice dropped by the reset that follows it (two rows); a Pause answered during the sign-in read of the Sites (two rows); a refresh in flight during Create Site; `Site.pausedUntil` shown nowhere; no test of the overview following the hint alone (two rows); no announcement on mobile; no progress on a Site Resume; the unnamed "Pause" opener on web rows; a failed catch-up not repeated by the same Pause; the failure surface after a failed re-read of the Devices; the mobile Lots read before delivery; the sheet hidden while the Devices list is not Ready; two more source-text tests of the modal.
+- Rejected (false, 11 new rows): every Android row "working"; the bookkeeping; a second submit of the Pause form; journal-seeded rows; `sprint-status.yaml`; the 404 without retry; the date format; `PauseModal.svelte`; the client-side date check; the hero's resume-the-Site note; stale mode.
 
-**Follow-up review: recommended.** Four medium entries were patched. The patches themselves have been read by no reviewer: the second Sites read in `SitesEngine.refresh()`, `PauseEngine.reset()` on `LotDetailEngine.open()` and `close()`, the new `PauseNotice.SiteGone` (whose iOS mapping has not been compiled yet), and the abandoned-save tracking in `PauseModal.svelte`, which is asserted by matching the component source, not by rendering it in a browser.
+**Follow-up review: not recommended.** This is a follow-up pass and it patched no high entry.
 
 **Verification** (run after the patches, repo root, one command at a time):
 - `dotnet build --no-restore -warnaserror` -- 0 warnings, 0 errors; `dotnet format --verify-no-changes --no-restore` -- no changes.
 - `dotnet test --no-build --project tests/cs/server.tests` -- 1055 of 1055 passed.
-- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build --project tests/cs/server.integration` -- 602 of 602 passed. The run before the patches had 600 of 601: `NodeMoveTests.AMovedNodeCanReturnToALotThatIsStillPendingReleaseWithoutLosingIt` failed with `Npgsql.PostgresException 53300: too many clients already`, and that class passed 13 of 13 alone.
-- `pnpm --filter @coldframe/api-client generate` -- `schema.ts` unchanged; `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (web unit 816, Playwright fake-Server suite 156), `pnpm --filter @coldframe/openapi run check` -- all exit 0.
-- `pnpm --filter @coldframe/web build && ASPIRE_CONTAINER_RUNTIME=podman dotnet test --project tests/cs/web.e2e` -- 5 of 5 passed, `WinterPauseJourneyTests` in light and dark among them.
-- `ANDROID_HOME=$HOME/Android/Sdk ./gradlew ktlintFormat check :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64` -- build successful, Roborazzi verify included.
+- `ASPIRE_CONTAINER_RUNTIME=podman dotnet test --no-build --project tests/cs/server.integration` -- 602 of 602 passed (a first attempt was cut off by the session's ten-minute command limit at 460 passed, none failed; the full run took about 20 minutes).
+- `pnpm --filter @coldframe/api-client generate` -- `schema.ts` unchanged; `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (web unit 816, Playwright fake-Server suite 159), `pnpm --filter @coldframe/openapi run check` -- all exit 0.
+- `pnpm --filter @coldframe/web build && ASPIRE_CONTAINER_RUNTIME=podman dotnet test --project tests/cs/web.e2e` -- 5 of 5 passed.
+- `ANDROID_HOME=$HOME/Android/Sdk ./gradlew ktlintFormat check :core:compileKotlinIosArm64 :core:compileKotlinIosSimulatorArm64` -- exit 0, Roborazzi verify included; no baseline changed.
 - Swift container (`swift build && swift test && swift format lint --strict -r .`) -- 396 tests passed, lint clean.
-- Matrix audit: every row has a covering test that ran (server rows in `ListSitesTests`, `DevicesListTests`, `PauseEndpointTests`; client rows in `pause.test.ts`, `pause.spec.ts`, `PauseEngineTest`, `PauseSheetTest`, `PausePresentationTests` and the surface tests).
-- Looked at: the web overview of a paused Site (light), the web modal with a refused date (dark), the Android Devices list of an Owner (light) and the Android paused overview (dark).
-- Not verified on this host: the SwiftUI views, the `App/` adapters and `RenderTests`, which only the macOS `Swift` and `iOS app` CI jobs build and run.
+- The new tests fail without what they guard: the accepted-Pause case failed before the `PauseModal.svelte` patch; all three browser cases fail with `attempts.abandon()` and the Resume guard removed; the shell test fails when `AppShell` passes the Garden's Pause state to Lot detail; the signed-date cases failed before the parse was tightened.
+- Not verified on this host: the SwiftUI views, the `App/` adapters and `RenderTests`, which only the macOS `Swift` and `iOS app` CI jobs build and run. No Swift file changed in this pass; `IosSignIn.kt` already passes `pause`, and both iOS targets compile.
 
 **Residual risks.**
-- iOS: the Swift views and adapters were written against the Kotlin sources, not a generated header, and are first compiled by CI on the pull request; earlier stories needed follow-up fixes at this point.
-- A Site or Device read can show a Pause for up to about a minute after its end date, until the owning grain's next wake.
-- On the first Server start after the migration the Devices list shows paused Devices as not paused until the `devices` projection has replayed.
-- Apps format the end in the device's time zone while the Server resolves the picked date in the User's notification-settings zone; where they differ the shown day can be one off.
-- The review patches listed under the follow-up recommendation are unreviewed.
-- The integration suite exhausted the test Postgres's connections (`too many clients already`, one test each time) in two of the full runs of this build, the implementation agent's and the first one here.
+- Mobile, after a Site Pause: the Lots are read once right after the answer. If that read lands before the Pause reached the Devices, the overview shows the paused line over live tiles until the next refresh (foreground or pull). The intent accepts this; it is the most visible of the rejected findings.
+- A Site that is gone while its Pause sheet is open: the notice saying so is dropped when the Sites are read again and the app moves to another Site. The core test of that notice keeps the Site listed, so it does not show this.
+- A Pause answered while the sign-in read of the Sites is still on its way can be overwritten by that older list until the next refresh.
+- The iOS bridge and `App/` adapters for Pause are still compiled only (in `deferred`, DW-115).
+- A Site or Device read can show a Pause for up to about a minute after its end, until the owning grain's next wake.
+

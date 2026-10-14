@@ -503,4 +503,31 @@ class LotDetailScreenTest {
         assertEquals(listOf("open lot-peppers Peppers", "close"), seen)
         compose.onNode(isHeading().and(hasText("Lots"))).assertExists()
     }
+
+    @Test
+    fun `UX-DR70 the shell hands Lot detail its own Pause state, not the Garden's`() {
+        compose.setContent {
+            com.escendit.coldframe.android.ColdframeRoot(
+                state =
+                    com.escendit.coldframe.core.signin.SignInState
+                        .SignedIn("Simon"),
+                sites = readySites(),
+                theme = com.escendit.coldframe.core.appearance.ThemePreference.Light,
+                onSignIn = {},
+                onSignOut = {},
+                onSelectTheme = {},
+                lots = LotFixtures.ready(listOf(LotFixtures.ok)),
+                lotDetail = LotDetailFixtures.ready(LotDetailFixtures.ok, role = SiteRole.Administrator),
+                lotDetailActions = LotDetailActions(pause = PauseFixtures.recording(calls)),
+                lotDetailPause = PauseFixtures.sheet(PauseFixtures.forDevice),
+                now = { LotFixtures.now },
+            )
+        }
+        compose.waitForIdle()
+
+        // The sheet the core opened for Lot detail shows over it, and its button reaches Lot detail's actions.
+        compose.onNode(isSelectable().and(hasText("THIS DEVICE"))).assertIsSelected()
+        compose.onNodeWithText("PAUSE 7C19").performClick()
+        assertEquals(listOf("save"), calls)
+    }
 }

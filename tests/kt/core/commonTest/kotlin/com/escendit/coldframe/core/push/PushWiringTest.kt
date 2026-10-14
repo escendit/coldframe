@@ -73,7 +73,7 @@ class PushWiringTest {
             }
         val api = SitesWiring.api(testConfig, http, signIn)
         val sites = SitesWiring.engine(api, signIn, settings, backgroundScope)
-        val lots = SitesWiring.lots(api, sites, settings, backgroundScope, cadence = api)
+        val lots = SitesWiring.lots(api, sites, settings, backgroundScope, cadence = api, pause = null)
         val push = SitesWiring.push(api, sites, lots, signIn, settings, backgroundScope, PushPlatform.Fcm)
         signIn.resume()
         runCurrent()
