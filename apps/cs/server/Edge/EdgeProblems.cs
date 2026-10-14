@@ -59,6 +59,11 @@ public static class EdgeProblems
     public const string DeviceOnAnotherSite = "urn:coldframe:problem:device-on-another-site";
 
     /// <summary>
+    /// 409: the invitee is already invited to the Site or a member of it (Story 9.1); no invitation was sent.
+    /// </summary>
+    public const string AlreadyInvited = "urn:coldframe:problem:already-invited";
+
+    /// <summary>
     /// 401: the Device authentication failed (unknown Device, missing or malformed headers, a bad signature,
     /// skew, a replayed nonce or an old timestamp). The reason is never told.
     /// </summary>

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -1012,5 +1013,86 @@ class SitesEngineTest {
 
             engine.pauseChanged()
             assertEquals(1, changes)
+        }
+
+    @Test
+    fun uxDr90WithoutAMembershipCreateSiteReadsTheSitesEveryTenSecondsAndOpensTheFirstThatArrives() =
+        runTest {
+            val engine = signedIn()
+            assertIs<SitesState.NeedsSite>(engine.state.value)
+            val first = api.lists
+
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL)
+            runCurrent()
+            assertEquals(first + 1, api.lists)
+            assertIs<SitesState.NeedsSite>(engine.state.value)
+
+            // The invitation was accepted: the Membership reaches the Server.
+            api.sites += allotment
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL)
+            runCurrent()
+
+            val ready = assertIs<SitesState.Ready>(engine.state.value)
+            assertEquals("b", ready.current.id)
+            assertEquals(SiteRole.Member, ready.current.role)
+            assertNull(ready.creating)
+            assertEquals("b", choices.currentSiteId)
+
+            // Once a Site is open nothing is read on a timer any more.
+            val after = api.lists
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL * 3)
+            runCurrent()
+            assertEquals(after, api.lists)
+        }
+
+    @Test
+    fun uxDr90AFailedReadKeepsCreateSiteAndWhatWasTyped() =
+        runTest {
+            val engine = signedIn()
+            engine.setName("Balcony")
+            api.listFailure = ApiFailure.Unreachable
+
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL)
+            runCurrent()
+
+            val form = assertIs<SitesState.NeedsSite>(engine.state.value).form
+            assertEquals("Balcony", form.name)
+            assertNull(form.notice)
+        }
+
+    @Test
+    fun uxDr90A401DuringTheMembershipPollEndsTheSessionAndStopsThePoll() =
+        runTest {
+            val engine = signedIn()
+            assertIs<SitesState.NeedsSite>(engine.state.value)
+            api.listFailure = ApiFailure.Unauthorized
+
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL)
+            runCurrent()
+
+            assertEquals(SitesState.Idle, engine.state.value)
+            assertNull(SitesCache(settings).read())
+
+            val after = api.lists
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL * 3)
+            runCurrent()
+            assertEquals(after, api.lists)
+        }
+
+    @Test
+    fun uxDr90AUserWhoAlreadyHasSitesIsNeverSwitchedByTheTimer() =
+        runTest {
+            api.sites += home
+            val engine = signedIn()
+            engine.newSite()
+            val first = api.lists
+
+            api.sites.add(0, allotment)
+            advanceTimeBy(SitesEngine.MEMBERSHIP_POLL * 3)
+            runCurrent()
+
+            val ready = assertIs<SitesState.Ready>(engine.state.value)
+            assertEquals("a", ready.current.id)
+            assertEquals(first, api.lists)
         }
 }

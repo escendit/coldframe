@@ -95,6 +95,39 @@ spec:
                 secretKeyRef:
                   name: coldframe-oidc-clients
                   key: server-client-secret
+            # The realm's SMTP server (Story 9.1): Phase Two's invitation emails. Substituted into an
+            # imported realm; an existing realm takes them from the admin console (docs/operations).
+            - name: COLDFRAME_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-smtp
+                  key: host
+            - name: COLDFRAME_SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-smtp
+                  key: port
+            - name: COLDFRAME_SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-smtp
+                  key: from
+            - name: COLDFRAME_SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-smtp
+                  key: username
+            - name: COLDFRAME_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: coldframe-smtp
+                  key: password
+            - name: COLDFRAME_SMTP_AUTH
+              value: {{ .Values.smtp.auth | toString | quote }}
+            - name: COLDFRAME_SMTP_STARTTLS
+              value: {{ .Values.smtp.starttls | toString | quote }}
+            - name: COLDFRAME_SMTP_SSL
+              value: {{ .Values.smtp.ssl | toString | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

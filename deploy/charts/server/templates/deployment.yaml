@@ -69,6 +69,11 @@ spec:
                 secretKeyRef:
                   name: coldframe-oidc-clients
                   key: server-client-secret
+            {{- with .Values.keycloak.invitationRedirectUri }}
+            # Where an accepted invitation sends the invitee (Story 9.1), e.g. https://coldframe.example.org/garden.
+            - name: Keycloak__InvitationRedirectUri
+              value: {{ . | quote }}
+            {{- end }}
             # Device enrolment (AD-12): the X25519 enrolment private key and the key-encryption key of
             # every stored K_dev. Both are required; the Server refuses to start without them.
             - name: Enrolment__PrivateKeyPem

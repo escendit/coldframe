@@ -703,6 +703,7 @@ public class LotsEngine(
                 ApiFailure.Unauthorized,
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
+                ApiFailure.AlreadyInvited,
                 ApiFailure.CalibrationNotDelivered,
                 ApiFailure.ReminderCadenceNotDelivered,
                 ApiFailure.Unexpected,

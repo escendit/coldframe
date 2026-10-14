@@ -11,7 +11,13 @@ public enum SiteWrite
     AddMember,
     GrantRole,
     UpdateDisplayName,
+    Invite,
 }
+
+/// <summary>
+/// An invitation the fake holds as Phase Two would (Story 9.1).
+/// </summary>
+public sealed record FakeInvitation(string OrganizationId, string Email, string Role, Uri? RedirectUri);
 
 /// <summary>
 /// An in-memory Phase Two with switches that make it unavailable, so the TestCluster suite can check
@@ -25,6 +31,8 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
     private readonly HashSet<(string Organization, string Role)> _roles = [];
     private readonly HashSet<(string Organization, string User)> _members = [];
     private readonly HashSet<(string Organization, string Role, string User)> _grants = [];
+    private readonly List<FakeInvitation> _invitations = [];
+    private readonly Dictionary<string, PhaseTwoMemberProfile> _profiles = new(StringComparer.Ordinal);
     private bool _failOnceAfterCreate;
     private SiteWrite? _failOnceOn;
     private bool _stallOnce;
@@ -99,6 +107,43 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
         lock (_lock)
         {
             return _organizations.GetValueOrDefault(id);
+        }
+    }
+
+    /// <summary>
+    /// The invitations of an Organization, in the order they were made.
+    /// </summary>
+    public IReadOnlyList<FakeInvitation> Invitations(string organizationId)
+    {
+        lock (_lock)
+        {
+            return [.. _invitations.Where(invitation => invitation.OrganizationId == organizationId)];
+        }
+    }
+
+    /// <summary>
+    /// Sets the name and email Phase Two shows for a User.
+    /// </summary>
+    public void SetProfile(string userId, string name, string? email)
+    {
+        lock (_lock)
+        {
+            _profiles[userId] = new PhaseTwoMemberProfile(userId, name, email);
+        }
+    }
+
+    /// <summary>
+    /// The invitee accepts on the Phase Two page: the invitation goes, the User becomes a member with its roles.
+    /// </summary>
+    public void AcceptInvitation(string organizationId, string email, string userId)
+    {
+        lock (_lock)
+        {
+            var invitation = _invitations.Single(candidate => candidate.OrganizationId == organizationId && candidate.Email == email);
+            _invitations.Remove(invitation);
+            _members.Add((organizationId, userId));
+            _roles.Add((organizationId, invitation.Role));
+            _grants.Add((organizationId, invitation.Role, userId));
         }
     }
 
@@ -341,6 +386,61 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
             ThrowIfFailingOnce(SiteWrite.UpdateDisplayName);
             RequireOrganization(organizationId);
             _organizations[organizationId] = _organizations[organizationId] with { DisplayName = displayName };
+        }
+    }
+
+    public async Task<PhaseTwoInviteOutcome> InviteAsync(
+        string organizationId,
+        string email,
+        string role,
+        Uri? redirectUri,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfUnavailable();
+        await StallIfDueAsync(SiteWrite.Invite, cancellationToken);
+        Interlocked.Increment(ref _writes);
+
+        lock (_lock)
+        {
+            ThrowIfFailingOnce(SiteWrite.Invite);
+
+            if (!_organizations.ContainsKey(organizationId))
+            {
+                return PhaseTwoInviteOutcome.NotFound;
+            }
+
+            // As Phase Two: an open invitation for the email, or a member with that email, is a conflict.
+            if (_invitations.Any(invitation => invitation.OrganizationId == organizationId
+                    && string.Equals(invitation.Email, email, StringComparison.OrdinalIgnoreCase))
+                || _members.Any(member => member.Organization == organizationId
+                    && _profiles.TryGetValue(member.User, out var profile)
+                    && string.Equals(profile.Email, email, StringComparison.OrdinalIgnoreCase)))
+            {
+                return PhaseTwoInviteOutcome.Conflict;
+            }
+
+            _invitations.Add(new FakeInvitation(organizationId, email, role, redirectUri));
+            return PhaseTwoInviteOutcome.Sent;
+        }
+    }
+
+    public Task<IReadOnlyList<PhaseTwoMemberProfile>?> GetMemberProfilesAsync(string organizationId, CancellationToken cancellationToken)
+    {
+        ThrowIfUnavailable();
+
+        lock (_lock)
+        {
+            if (!_organizations.ContainsKey(organizationId))
+            {
+                return Task.FromResult<IReadOnlyList<PhaseTwoMemberProfile>?>(null);
+            }
+
+            return Task.FromResult<IReadOnlyList<PhaseTwoMemberProfile>?>(
+            [
+                .. _members
+                    .Where(member => member.Organization == organizationId)
+                    .Select(member => _profiles.GetValueOrDefault(member.User) ?? new PhaseTwoMemberProfile(member.User, member.User, null)),
+            ]);
         }
     }
 

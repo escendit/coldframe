@@ -189,8 +189,9 @@ Changes made in Keycloak itself (a break-glass edit in the admin console, a memb
 role granted or revoked, an Organization renamed or deleted) reach the Server through Temporal, which
 carries nothing else (AD-3, AD-5). `keycloak-temporal-extensions` starts the workflow `IdentityAdminEvent`
 on `keycloak-admin-queue` for every admin event and `IdentityUserEvent` on `keycloak-user-queue` for every
-user event. `AddKeycloakEventPipeline()` hosts a worker for each; the user-event workflow only completes.
-Everything lives in `server/Identity/Reconciliation/`.
+user event. `AddKeycloakEventPipeline()` hosts a worker for each. The user-event workflow completes every
+event at once except an accepted Phase Two invitation (Story 9.1, below). Everything lives in
+`server/Identity/Reconciliation/`.
 
 1. The workflow runs one activity, `Reconcile` (start-to-close 45 s; retries after 1 s, doubling, at most
    1 min apart, without limit). The workflow does no I/O.
@@ -217,6 +218,26 @@ Everything lives in `server/Identity/Reconciliation/`.
 
 The event is only a trigger: duplicates, echoes of the Server's own writes and events out of order diff
 to nothing, and any later event on the Site repairs a lost one.
+
+**Accepted invitations (Story 9.1).** Phase Two's invitation required action grants the Membership and the
+Organization role directly and emits no admin event, only the user event `CUSTOM_REQUIRED_ACTION` with the
+details `org_id` and `invitation_id`. `UserEventRoute` turns it into the same route as an admin event
+(expectation `MemberPresent` of the event's `userId`), and the activity `ReconcileUserEvent` runs steps 3 to 5
+with the same retries. A rejected invitation (the same type with an `error`), any other type, another realm,
+and an event without `userId` or `org_id` complete without reading Keycloak.
+
+### Invitations and Members
+
+`POST /sites/{siteId}/invitations` and `GET /sites/{siteId}/members` (Story 9.1) are Owner only. The handler
+validates `{email, role}` (`EdgeValidation.NormalizeEmail`, `NormalizeSiteRole`), then
+`SiteGrain.Invite` calls Phase Two's `POST orgs/{id}/invitations` with `{email, roles: [role], send: true,
+redirectUri}` under `Keycloak:OperationBudget`; `redirectUri` is `Keycloak:InvitationRedirectUri` when set (the
+web app's `/garden`). It is the only caller of Phase Two's invitations and journals nothing: Phase Two owns the
+invitation, its link and its email. 202 when sent; Phase Two's 409 is `already-invited`; a down Keycloak is 503.
+Phase Two answers 201 even when it could not send the email (it only logs `Unable to send invitation email`),
+so an SMTP failure is not seen here. The Members list reads the Memberships and Roles from `identity_memberships`
+and joins the names and emails Phase Two returns for `orgs/{id}/members` at request time; nothing about Users is
+stored.
 
 **Break-glass: a Site never loses its last Owner.** When Keycloak shows a Site without an Owner, every
 current Owner keeps Owner in the journal and the projection; all other differences still apply, and

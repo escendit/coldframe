@@ -64,6 +64,9 @@ keycloak:
   baseUrl: http://keycloak:8080
   realm: coldframe
   clientId: coldframe-server
+  # Where Phase Two sends someone who accepted an invitation (Story 9.1): the web app's /garden, such as
+  # https://coldframe.example.org/garden. Absolute. Empty: Phase Two's own default page.
+  invitationRedirectUri: ""
 
 # The Temporal frontend of the Keycloak event pipeline (the "temporal" release).
 keycloakEvents:

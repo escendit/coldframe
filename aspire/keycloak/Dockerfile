@@ -52,6 +52,10 @@ COPY --from=extension /opt/build/providers/*.jar /opt/keycloak/providers/
 ENV KC_DB=postgres
 ENV KC_HEALTH_ENABLED=true
 ENV KC_METRICS_ENABLED=true
+# Phase Two ships a second email template provider (freemarker-plus-mustache), so Keycloak has no default
+# one and Phase Two's invitation email fails with a null provider (Story 9.1). Keycloak's own FreeMarker
+# provider renders the coldframe email theme.
+ENV KC_SPI_EMAIL_TEMPLATE__PROVIDER=freemarker
 
 RUN /opt/keycloak/bin/kc.sh build
 
@@ -60,9 +64,14 @@ FROM quay.io/phasetwo/phasetwo-keycloak:26.6.7
 # The base image's "keycloak" user (UID and GID 2000) owns /opt/keycloak.
 COPY --from=build --chown=2000:2000 /opt/keycloak/ /opt/keycloak/
 
+# Coldframe's email theme (Story 9.1): the invitation email says to accept on the home network.
+# Themes are read at run time, so they need no "kc.sh build".
+COPY --chown=2000:2000 aspire/keycloak/themes /opt/keycloak/themes/
+
 ENV KC_DB=postgres
 ENV KC_HEALTH_ENABLED=true
 ENV KC_METRICS_ENABLED=true
+ENV KC_SPI_EMAIL_TEMPLATE__PROVIDER=freemarker
 
 # HTTP, HTTPS, management (health and metrics).
 EXPOSE 8080 8443 9000

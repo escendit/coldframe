@@ -20,7 +20,8 @@ struct ColdframeApp: App {
       thresholds: CoreThresholdsService(core: signIn.thresholds),
       alerts: CoreAlertsService(core: signIn.alerts),
       notifications: CoreNotificationSettingsService(core: signIn.notifications),
-      push: CorePushService(core: signIn.push))
+      push: CorePushService(core: signIn.push),
+      members: CoreMembersService(core: signIn.members))
   }()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -53,7 +54,9 @@ struct ColdframeApp: App {
         notifications: model.notifications,
         notificationsActions: model.notificationsActions,
         push: model.push,
-        pushActions: model.pushActions
+        pushActions: model.pushActions,
+        members: model.members,
+        membersActions: model.membersActions
       )
       .onChange(of: scenePhase, initial: true) { _, phase in
         if phase == .active {

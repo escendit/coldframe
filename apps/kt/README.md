@@ -159,6 +159,25 @@ Whether anything is paused is the Server's word only: `Site.paused`, a Lot's `pa
 Not built here: no "Paused by ‹name›" line, no notice on the Add a Hub and Add a Node outcome screens, no
 Resume inside Calibrate and no swipe on Device rows.
 
+## Members (Story 9.1)
+
+Settings lists Members, between My notifications and Site settings, for an Owner of the current Site only;
+for an Administrator or Member the row does not exist (UX-DR76). The screen (`ui/members/MembersScreen.kt`)
+reads the Memberships on every entry and renders the core's `MembersState`:
+
+- **Member tiles** (UX-DR51), display-only, in the Server's order: the initials square (the User's own in
+  `primary` with `ink-on-bright`, the others `layer-01`), the name and the Role in `status-label`. One
+  accessibility element: "Simon Novak, Owner, you".
+- **Invite form** (UX-DR52): the email field with the email keyboard (no capitalisation, no autocorrect), the
+  Role Segmented choice (Member, Administrator, Owner) with its one-line description, "Send invite" ("Sending
+  invite…" in place). After a send, the Inline notice "Invitation sent to ‹email›. They accept from the email,
+  on the garden's Wi-Fi."; "That person is already invited or a member of this Site." keeps the values;
+  "The invitation was not sent. Try again." offers Try again.
+
+Create Site without a Membership adds "Accepted an invitation? It can take a minute to appear." (UX-DR90);
+the core reads the Sites every 10 s meanwhile and opens the first Site that arrives. No pending invitations,
+no accept surface, no Role change or removal here (Story 9.2).
+
 ## My notifications and Reminders (Story 6.3)
 
 Settings lists My notifications first, above Site settings. The screen (`ui/notifications/`) renders the

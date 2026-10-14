@@ -120,6 +120,16 @@ public class SignInEngine(
             }
         }
 
+    /**
+     * The signed-in User's ID: the ID token's `sub`, which is the Keycloak user ID the Server names Members by.
+     * `null` while signed out or without an ID token. Members marks the current user's tile with it.
+     */
+    internal suspend fun userId(): String? {
+        if (mutableState.value !is SignInState.SignedIn) return null
+        val tokens = attempt { vault.read() } ?: return null
+        return subjectOf(tokens)
+    }
+
     /** The Server answered 401: the session is over. Shows the SignedOut notice. */
     internal suspend fun signOutExpired() {
         mutex.withLock {
@@ -257,6 +267,16 @@ public class SignInEngine(
     public companion object {
         /** Tokens with less than this left count as expired, as in the library's policy. */
         public val EXPIRY_TOLERANCE: Duration = 60.seconds
+
+        /** The ID token's `sub`; `null` without an ID token or one that does not parse. */
+        public fun subjectOf(tokens: AccessTokenResponse): String? {
+            val idToken = tokens.id_token ?: return null
+            return try {
+                idToken.parseJwt().payload.sub
+            } catch (_: OpenIdConnectException) {
+                null
+            }
+        }
 
         /** The ID token's `name`, else `preferred_username`; `null` without an ID token. */
         public fun displayNameOf(tokens: AccessTokenResponse): String? {

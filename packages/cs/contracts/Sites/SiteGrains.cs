@@ -224,6 +224,17 @@ public interface ISiteGrain : IGrainWithStringKey
     Task<SiteRenameResult> Rename(string name, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Invites someone to an <see cref="SiteLifecycle.Active"/> Site with a Role (Story 9.1): asks Phase Two to
+    /// create its native invitation and email it (AD-3). The Site keeps no invitation: it journals nothing and
+    /// stores nothing, and the Membership arrives through reconciliation once the invitee accepts.
+    /// </summary>
+    /// <param name="email">The invitee's email address, already trimmed and validated.</param>
+    /// <param name="role">The Role the invitee gets on accepting.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("invite")]
+    Task<SiteInviteResult> Invite(string email, SiteRole role, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Creates a Lot on an <see cref="SiteLifecycle.Active"/> Site, idempotently per caller and key for
     /// 24 h: the request is journaled with its new Lot ID before the Lot grain is called, so a retry
     /// resumes with the same Lot.
@@ -782,6 +793,43 @@ public enum SiteRenameOutcome
 [GenerateSerializer]
 [Alias("coldframe.site-rename-result")]
 public sealed record SiteRenameResult([property: Id(0)] SiteRenameOutcome Outcome, [property: Id(1)] string? Name = null);
+
+/// <summary>
+/// How an invitation ended (Story 9.1).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.site-invite-outcome")]
+public enum SiteInviteOutcome
+{
+    /// <summary>
+    /// Phase Two created the invitation and was asked to email it (a failed send is only logged by Phase Two).
+    /// </summary>
+    Sent = 0,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>, or Phase Two has no Organization for it. Nothing was sent.
+    /// </summary>
+    NotFound = 1,
+
+    /// <summary>
+    /// Phase Two refused: the email is invited already or belongs to a member. Nothing was sent.
+    /// </summary>
+    AlreadyInvited = 2,
+
+    /// <summary>
+    /// Keycloak could not be reached, answered with a server error, or took longer than the operation budget. The
+    /// invitation was not sent.
+    /// </summary>
+    IdentityProviderUnavailable = 3,
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.Invite"/>.
+/// </summary>
+/// <param name="Outcome">How the invitation ended.</param>
+[GenerateSerializer]
+[Alias("coldframe.site-invite-result")]
+public sealed record SiteInviteResult([property: Id(0)] SiteInviteOutcome Outcome);
 
 /// <summary>
 /// How a Lot creation ended.

@@ -35,6 +35,35 @@ public sealed record PhaseTwoRoster(
 }
 
 /// <summary>
+/// How a Phase Two invitation request ended (Story 9.1).
+/// </summary>
+public enum PhaseTwoInviteOutcome
+{
+    /// <summary>
+    /// Phase Two created the invitation and was asked to email it (a failed send is only logged by Phase Two).
+    /// </summary>
+    Sent,
+
+    /// <summary>
+    /// Phase Two answered 409: the email is invited already or belongs to a member.
+    /// </summary>
+    Conflict,
+
+    /// <summary>
+    /// There is no Organization with that ID.
+    /// </summary>
+    NotFound,
+}
+
+/// <summary>
+/// A member of an Organization with the profile fields Coldframe shows (Story 9.1).
+/// </summary>
+/// <param name="UserId">The User ID.</param>
+/// <param name="Name">First and last name, trimmed; the username when both are empty.</param>
+/// <param name="Email">The email, or <see langword="null"/> when the User has none.</param>
+public sealed record PhaseTwoMemberProfile(string UserId, string Name, string? Email);
+
+/// <summary>
 /// The Phase Two Organizations API (<c>{keycloak}/realms/{realm}/orgs</c>), as far as Coldframe uses it.
 /// </summary>
 /// <remarks>
@@ -93,4 +122,28 @@ public interface IPhaseTwoOrganizations
     /// </summary>
     /// <returns>The roster, or <see langword="null"/> when there is no Organization with that ID.</returns>
     Task<PhaseTwoRoster?> GetRosterAsync(string organizationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks Phase Two to create an invitation to the Organization with one Organization role and to email it
+    /// (<c>POST orgs/{id}/invitations</c>, <c>send: true</c>). Only the Site grain calls it. A 5xx throws
+    /// <see cref="IdentityProviderUnavailableException"/>. An email Phase Two cannot send is not reported: Phase Two
+    /// logs "Unable to send invitation email" and still answers 201, so this returns <see cref="PhaseTwoInviteOutcome.Sent"/>.
+    /// </summary>
+    /// <param name="organizationId">The Organization ID, which is the Site ID.</param>
+    /// <param name="email">The invitee's email address.</param>
+    /// <param name="role">The Organization role of <see cref="SiteGrain.OrganizationRoles"/> the invitee gets.</param>
+    /// <param name="redirectUri">Where Phase Two sends the invitee after accepting, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    Task<PhaseTwoInviteOutcome> InviteAsync(
+        string organizationId,
+        string email,
+        string role,
+        Uri? redirectUri,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads the Organization's members with their names and emails, page by page. Only reads.
+    /// </summary>
+    /// <returns>The members, or <see langword="null"/> when there is no Organization with that ID.</returns>
+    Task<IReadOnlyList<PhaseTwoMemberProfile>?> GetMemberProfilesAsync(string organizationId, CancellationToken cancellationToken);
 }

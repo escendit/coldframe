@@ -101,6 +101,27 @@ every answer into a value (`validation`, `unavailable`, `keyReused`, `unreachabl
   `Idempotency-Key` per attempt (kept after a 503 or network failure, replaced after a 422 or
   success). Remove asks in a Modal naming the Lot. A 403 says the change is not allowed on the
   Site; a 409 says to move or unassign the Node first.
+- **Members** (`/members`, Story 9.1; the side nav item and the Settings row between My notifications and
+  Site settings). Owners only: for an Administrator or a Member the nav item and the row are not rendered and the
+  page's load sends them to Garden, as does a 403 from a Role lowered meanwhile.
+  [`src/lib/server/members.ts`](src/lib/server/members.ts) reads `GET /sites/{siteId}/members` and marks the
+  signed-in User (the ID token's `sub`), and runs the `invite` action, `POST /sites/{siteId}/invitations` with
+  `{email, role}` (202, no body). One Member tile per Membership
+  ([`MemberTile.svelte`](src/lib/components/MemberTile.svelte)): an initials square (`primary` with `ink-on-bright` for
+  the signed-in User, "You" under the name; `layer-01` with `text-primary` for everyone else), the name (else the
+  email) and the Role, upper case by style. The tiles are display-only until Story 9.2. The Invite form has an email
+  field, the Role Segmented choice Member / Administrator / Owner (Member first and selected) whose one-line
+  description follows the pick, and "Send invite". The email is checked as the Server checks it (one address, one
+  `@`, at most 254 characters) before anything is sent; the reason is one line under the field. Sent, the form
+  clears and the notice reads "Invitation sent to ‹email›. They accept from the email, on the garden's Wi-Fi."; the
+  list is unchanged, since a Membership appears only once the invitee accepts on the Phase Two page. A 409 says
+  "That person is already invited or a member of this Site." and keeps the values; a 503 (Keycloak down, or its
+  email not sent) says "The invitation was not sent. Try again." with Try again, which sends the same address and
+  Role. There are no pending invitations and no accept surface ([`src/lib/members.ts`](src/lib/members.ts)).
+- **Invitation accepted, Membership not arrived yet** (UX-DR90). With no Site, Create Site says "Accepted an
+  invitation? It can take a minute to appear." and reads the Memberships again every 10 s (`invalidateAll()`) while
+  it is open; once a Site arrives it opens `/garden`. From New Site, with a Site already, there is no hint, no
+  polling and no switch.
 
 ## My notifications (Story 6.3)
 
@@ -517,6 +538,11 @@ Device from its Devices row and from Lot detail, checks the refused date, the 40
 screenshots in light and dark of the Pause modal (Whole Site, a Device, a refused date), the paused overview, the paused Devices rows, Lot detail with Resume and with
 "Resume the Site to resume this Node", and the Member's overview and Lot detail. The fake Server has the four pause endpoints (403 for a Member, 400 for an end that
 is no date or has passed, 404 for an unknown Device), sends `paused` on a Site and `pausedBy` on a Device, reads a Lot whose Node is paused as `paused`, lists every
-pause write as `GET /control/pause`, and `POST /control/pause` (`failNextPause`) makes the next one answer a status or drop the connection. Run the e2e tests with
+pause write as `GET /control/pause`, and `POST /control/pause` (`failNextPause`) makes the next one answer a status or drop the connection. `specs/members.spec.ts`
+(Story 9.1) lists the Members, picks each Role and invites as Administrator in light and dark at 200 % zoom with axe, and checks the
+invalid email, the 409, a 503 with Try again, what an Administrator and a Member do not see, and Create Site's hint with the Site
+opening once it arrives. The fake Server has `GET /sites/{id}/members` and `POST /sites/{id}/invitations` (403 unless Owner, 400,
+409 for an address already invited or a Member); `POST /control/members` (`setMembers`) seeds the Members and the status the next
+invitation answers, `GET /control/members` (`serverInvitations`) lists the invitations it received. Run the e2e tests with
 `pnpm --filter @coldframe/web-e2e test`; after an intended visual change, refresh the screenshots
 with `pnpm --filter @coldframe/web build && pnpm --filter @coldframe/web-e2e exec playwright test --update-snapshots`.

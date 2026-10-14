@@ -60,6 +60,26 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
         ["PATCH /sites/{siteId}"] = new(
             (server, siteId, cancellationToken) => LotsTests.PatchNameAsync(server, $"/sites/{siteId}", SiteAName, cancellationToken),
             HttpStatusCode.OK),
+
+        // Members and invitations (Story 9.1), Owner only. The matrix Sites have no Organization: the Members list
+        // joins the projection's Memberships with no Keycloak profiles (200), and an invitation meets Phase Two's
+        // 404 for the missing Organization (site-not-found). InvitationTests invites for real.
+        ["GET /sites/{siteId}/members"] = new(
+            (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/members", UriKind.Relative), cancellationToken),
+            HttpStatusCode.OK),
+        ["POST /sites/{siteId}/invitations"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PostAsJsonAsync(
+                    new Uri($"/sites/{siteId}/invitations", UriKind.Relative),
+                    new { email = "matrix@example.com", role = "Member" },
+                    cancellationToken),
+            HttpStatusCode.NotFound,
+            async (response, _, cancellationToken) =>
+            {
+                using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+                var type = body.RootElement.GetProperty("type").GetString();
+                return type == "urn:coldframe:problem:site-not-found" ? null : $"problem {type}, expected site-not-found";
+            }),
         ["GET /sites/{siteId}/devices"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/devices", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),

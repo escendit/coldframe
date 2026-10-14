@@ -14,6 +14,9 @@ metadataTest:
       value: postgres
     - key: KC_HEALTH_ENABLED
       value: "true"
+    # Keycloak's FreeMarker email templates: without a default provider no invitation email is sent.
+    - key: KC_SPI_EMAIL_TEMPLATE__PROVIDER
+      value: freemarker
 
 fileExistenceTests:
   - name: keycloak-temporal-extensions provider
@@ -30,3 +33,14 @@ fileExistenceTests:
     shouldExist: true
     uid: 2000
     gid: 2000
+  - name: Coldframe email theme (Story 9.1)
+    path: /opt/keycloak/themes/coldframe/email/theme.properties
+    shouldExist: true
+    uid: 2000
+    gid: 2000
+  - name: Coldframe invitation email template
+    path: /opt/keycloak/themes/coldframe/email/html/invitation-email.ftl
+    shouldExist: true
+  - name: Coldframe invitation email messages
+    path: /opt/keycloak/themes/coldframe/email/messages/messages_en.properties
+    shouldExist: true

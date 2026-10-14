@@ -10,9 +10,16 @@ namespace Coldframe.Server.IntegrationTests.Edge;
 
 /// <summary>
 /// A signed-in test User: the User ID (the <c>sub</c>) and an access token for the Server (or, when created
-/// without the Server audience, an access token of the realm that lacks it).
+/// without the Server audience, an access token of the realm that lacks it), with the password it signs in
+/// with and its email, <c>{username}@example.org</c>.
 /// </summary>
-public sealed record TestUser(string UserId, string Username, string AccessToken);
+public sealed record TestUser(string UserId, string Username, string AccessToken, string Password = "")
+{
+    /// <summary>
+    /// The User's email in Keycloak.
+    /// </summary>
+    public string Email => $"{Username}@example.org";
+}
 
 /// <summary>
 /// Talks to the AppHost's Server and Keycloak for the Edge API suites. It creates, through the admin API,
@@ -31,7 +38,11 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     private const string AdminPasswordParameter = "keycloak-admin-password";
     private const string ServerClientSecretParameter = "coldframe-server-client-secret";
 
+    private const string BrowserRedirectUri = "http://localhost/coldframe-tests/callback";
+
     private readonly SemaphoreSlim _enrolmentKeyLock = new(1, 1);
+    private readonly SemaphoreSlim _browserClientLock = new(1, 1);
+    private string? _browserClientId;
     private byte[]? _enrolmentPublicKey;
     private string? _testClientId;
     private string? _noAudienceClientId;
@@ -66,6 +77,7 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     public async ValueTask DisposeAsync()
     {
         _enrolmentKeyLock.Dispose();
+        _browserClientLock.Dispose();
 
         if (_dataSource is not null)
         {
@@ -135,7 +147,69 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
             },
             cancellationToken);
 
-        return new TestUser(userId, username, token);
+        return new TestUser(userId, username, token, password);
+    }
+
+    /// <summary>
+    /// Signs <paramref name="invitee"/> in on Keycloak's own pages, as a browser would, and accepts the Phase Two
+    /// invitation to <paramref name="organizationId"/> on the invitation page that the required action shows
+    /// (Story 9.1). Keycloak then emits the <c>CUSTOM_REQUIRED_ACTION</c> user event. Cookies are kept by hand:
+    /// Keycloak marks them Secure, which a cookie container does not send over the stack's plain HTTP.
+    /// </summary>
+    public async Task AcceptInvitationAsync(TestUser invitee, string organizationId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(invitee);
+
+        var clientId = await EnsureBrowserClientAsync(cancellationToken);
+        var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        using var addressed = fixture.App.CreateHttpClient(KeycloakResource, "http");
+        using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
+        using var keycloak = new HttpClient(handler) { BaseAddress = addressed.BaseAddress };
+
+        var authorize = new Uri(
+            $"/realms/{Realm}/protocol/openid-connect/auth?client_id={clientId}&response_type=code&scope=openid"
+            + $"&redirect_uri={Uri.EscapeDataString(BrowserRedirectUri)}",
+            UriKind.Relative);
+
+        using var loginPage = await BrowseAsync(keycloak, cookies, HttpMethod.Get, authorize, null, cancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.OK, loginPage.StatusCode);
+
+        var page = await BrowseAsync(
+            keycloak,
+            cookies,
+            HttpMethod.Post,
+            FormAction(await loginPage.Content.ReadAsStringAsync(cancellationToken)),
+            [new("username", invitee.Username), new("password", invitee.Password)],
+            cancellationToken);
+
+        // The required action redirects to its own page first.
+        while (page.StatusCode == System.Net.HttpStatusCode.Found
+            && page.Headers.Location is { } next
+            && !next.AbsoluteUri.StartsWith(BrowserRedirectUri, StringComparison.Ordinal))
+        {
+            page.Dispose();
+            page = await BrowseAsync(keycloak, cookies, HttpMethod.Get, next, null, cancellationToken);
+        }
+
+        using (page)
+        {
+            var html = await page.Content.ReadAsStringAsync(cancellationToken);
+            Assert.True(
+                html.Contains($"value=\"{organizationId}\"", StringComparison.Ordinal),
+                $"Keycloak showed no invitation to {organizationId} ({(int)page.StatusCode}).");
+
+            using var accepted = await BrowseAsync(
+                keycloak,
+                cookies,
+                HttpMethod.Post,
+                FormAction(html),
+                [new("orgs", organizationId), new("accept", "Accept")],
+                cancellationToken);
+
+            Assert.Equal(System.Net.HttpStatusCode.Found, accepted.StatusCode);
+            Assert.StartsWith(BrowserRedirectUri, accepted.Headers.Location?.AbsoluteUri ?? string.Empty, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
@@ -364,6 +438,87 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
         using var token = await ReadJsonAsync(response, cancellationToken);
         return token.RootElement.GetProperty("access_token").GetString()
             ?? throw new InvalidOperationException("Keycloak returned no access token.");
+    }
+
+    // A public client with the browser flow, for AcceptInvitationAsync; created once per fixture.
+    private async Task<string> EnsureBrowserClientAsync(CancellationToken cancellationToken)
+    {
+        await _browserClientLock.WaitAsync(cancellationToken);
+
+        try
+        {
+            if (_browserClientId is { } existing)
+            {
+                return existing;
+            }
+
+            var clientId = $"coldframe-tests-browser-{Guid.NewGuid():N}";
+            using var admin = await CreateAdminClientAsync(cancellationToken);
+            using var created = await admin.PostAsJsonAsync(
+                new Uri($"/admin/realms/{Realm}/clients", UriKind.Relative),
+                new
+                {
+                    clientId,
+                    enabled = true,
+                    publicClient = true,
+                    standardFlowEnabled = true,
+                    directAccessGrantsEnabled = false,
+                    redirectUris = new[] { BrowserRedirectUri },
+                },
+                cancellationToken);
+            created.EnsureSuccessStatusCode();
+
+            return _browserClientId = clientId;
+        }
+        finally
+        {
+            _browserClientLock.Release();
+        }
+    }
+
+    private static async Task<HttpResponseMessage> BrowseAsync(
+        HttpClient keycloak,
+        Dictionary<string, string> cookies,
+        HttpMethod method,
+        Uri uri,
+        IEnumerable<KeyValuePair<string, string>>? form,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, uri);
+
+        if (form is not null)
+        {
+            request.Content = new FormUrlEncodedContent(form);
+        }
+
+        if (cookies.Count > 0)
+        {
+            request.Headers.Add("Cookie", string.Join("; ", cookies.Select(cookie => $"{cookie.Key}={cookie.Value}")));
+        }
+
+        var response = await keycloak.SendAsync(request, cancellationToken);
+
+        if (response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+        {
+            foreach (var setCookie in setCookies)
+            {
+                var pair = setCookie.Split(';', 2)[0].Split('=', 2);
+                if (pair.Length == 2)
+                {
+                    cookies[pair[0].Trim()] = pair[1];
+                }
+            }
+        }
+
+        return response;
+    }
+
+    // The action of the page's first form, HTML-decoded.
+    private static Uri FormAction(string html)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(html, "<form[^>]*action=\"([^\"]+)\"", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+        Assert.True(match.Success, "The Keycloak page has no form.");
+        return new Uri(System.Net.WebUtility.HtmlDecode(match.Groups[1].Value), UriKind.Absolute);
     }
 
     private async Task<HttpClient> CreateAdminClientAsync(CancellationToken cancellationToken)

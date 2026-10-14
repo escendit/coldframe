@@ -12,6 +12,8 @@
  * Story 8.2: the four pause endpoints (`PUT`/`DELETE /sites/{id}/pause` and `…/devices/{id}/pause`);
  * a Site carries `paused`, a Device its `pausedBy`, and a Lot whose Node is paused reads `paused`, as the
  * Server would compute it. `POST /control/pause` makes the next pause write fail.
+ * Story 9.1: `GET /sites/{id}/members` and `POST /sites/{id}/invitations` (Owner). `POST /control/members` seeds the
+ * Members of a Site and makes the next invitation answer a status; `GET /control/members` lists the invitations sent.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -372,6 +374,25 @@ interface LiveConnection {
   ping: ReturnType<typeof setInterval> | null;
 }
 
+/** A Membership as `GET /sites/{id}/members` returns it (Story 9.1). */
+export interface FakeMember {
+  readonly siteId: string;
+  readonly userId: string;
+  readonly name: string;
+  readonly email?: string;
+  readonly role: 'Owner' | 'Administrator' | 'Member';
+}
+
+/** One `POST /sites/{id}/invitations` the fake Server received, with the status it answered. */
+export interface FakeInvitation {
+  readonly siteId: string;
+  readonly body: Record<string, unknown>;
+  readonly status: number;
+}
+
+/** The signed-in User of the fake IdP: the `sub` and profile of every token it issues. */
+export const fakeUser = { userId: 'b5f1c0de-0000-4000-8000-000000000001', name: 'Simon Novak', email: 'simon@example.com' } as const;
+
 export const defaultSites: readonly FakeSite[] = [{ id: '0192a000-0000-7000-8000-000000000001', name: 'Home garden', role: 'Owner' }];
 
 export interface FakeIdp {
@@ -460,6 +481,11 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let silenceWindowPuts: FakeSilenceWindowPut[] = [];
   /** Story 8.2: every pause write received, and what the next one does instead of pausing. */
   let pauseCalls: FakePauseCall[] = [];
+  // Story 9.1: seeded Memberships (a Site without any lists the signed-in User with their Role), the invitations
+  // sent, and the status the next invitation answers instead of 202.
+  let members: FakeMember[] = [];
+  let invitations: FakeInvitation[] = [];
+  let inviteFailNext: number | null = null;
   let pauseFailNext: FakePauseFailure | null = null;
   /** While set, every pause write waits here before it is answered: a Server that is slow to answer. */
   let pauseHold: { readonly held: Promise<void>; readonly release: () => void } | null = null;
@@ -549,7 +575,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
     // short-lived: long enough to land on Garden after sign-in on a slow runner (the web app
     // refreshes on the first request after expiry, with no margin), short enough to wait out.
     const lifetime = mode === 'short-lived' || mode === 'short-refresh' ? shortLivedSeconds : 300;
-    const subject = 'b5f1c0de-0000-4000-8000-000000000001';
+    const subject = fakeUser.userId;
     const profile = { name: 'Simon Novak', given_name: 'Simon', family_name: 'Novak', preferred_username: 'simon' };
     const accessToken = await sign({ sub: subject, aud: 'account', azp: clientId, sid, typ: 'Bearer', scope: 'openid profile' }, lifetime);
     const idToken = await sign({ sub: subject, aud: clientId, azp: clientId, sid, ...profile, ...(nonce === null ? {} : { nonce }) }, lifetime);
@@ -626,6 +652,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       pauseCalls = [];
       pauseFailNext = null;
       releasePauses();
+      members = [];
+      invitations = [];
+      inviteFailNext = null;
       alertsStatus = null;
       alertReads = 0;
       notificationSettings = defaultNotificationSettings;
@@ -664,6 +693,19 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         releasePauses();
       }
       send(response, 200, { failNext: pauseFailNext, hold: pauseHold !== null });
+      return;
+    }
+    if (path === '/control/members' && request.method === 'POST') {
+      const body = await readJson(request);
+      if (Array.isArray(body.members)) {
+        members = body.members as FakeMember[];
+      }
+      inviteFailNext = typeof body.failNext === 'number' ? body.failNext : null;
+      send(response, 200, { members, failNext: inviteFailNext });
+      return;
+    }
+    if (path === '/control/members') {
+      send(response, 200, { members, invitations });
       return;
     }
     if (path === '/control/pause') {
@@ -1266,6 +1308,64 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       }
       notificationSettings = next;
       send(response, 200, notificationSettings);
+      return;
+    }
+
+    // Story 9.1: the Members of a Site and an invitation to it, Owner only. The fake keeps the invitations it was sent
+    // only to answer 409 for the same address again; nothing appears in the Members until a test seeds it.
+    const membersMatch = /^\/sites\/([^/]+)\/(members|invitations)$/u.exec(path);
+    if (membersMatch !== null && ((membersMatch[2] === 'members' && request.method === 'GET') || (membersMatch[2] === 'invitations' && request.method === 'POST'))) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(membersMatch[1] ?? '');
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        problem(response, 404, 'site-not-found');
+        return;
+      }
+      const ofSite = members.filter((member) => member.siteId === siteId);
+      const listed = ofSite.length > 0 ? ofSite : [{ siteId, ...fakeUser, role: site.role }];
+      if (membersMatch[2] === 'members') {
+        if (site.role !== 'Owner') {
+          problem(response, 403, 'forbidden');
+          return;
+        }
+        send(response, 200, { members: listed.map(({ userId, name, email, role }) => ({ userId, name, ...(email === undefined ? {} : { email }), role })) });
+        return;
+      }
+      const body = await readJson(request);
+      const answer = (status: number, slug: string | null): void => {
+        invitations.push({ siteId, body, status });
+        if (slug === null) {
+          response.writeHead(status);
+          response.end();
+        } else {
+          problem(response, status, slug);
+        }
+      };
+      if (site.role !== 'Owner') {
+        answer(403, 'forbidden');
+        return;
+      }
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      if (!/^[^@\s]+@[^@\s]+$/u.test(email) || !['Owner', 'Administrator', 'Member'].includes(String(body.role))) {
+        answer(400, 'validation');
+        return;
+      }
+      if (inviteFailNext !== null) {
+        const status = inviteFailNext;
+        inviteFailNext = null;
+        answer(status, status === 503 ? 'identity-provider-unavailable' : status === 409 ? 'already-invited' : 'error');
+        return;
+      }
+      const known = listed.some((member) => member.email?.toLowerCase() === email) || invitations.some((sent) => sent.siteId === siteId && sent.status === 202 && String(sent.body.email).trim().toLowerCase() === email);
+      if (known) {
+        answer(409, 'already-invited');
+        return;
+      }
+      answer(202, null);
       return;
     }
 

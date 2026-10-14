@@ -2,6 +2,7 @@
   import Button from '$lib/components/Button.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { t } from '$lib/i18n';
+  import { membersAccessOf } from '$lib/members';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -15,7 +16,7 @@
 
 <h1 class="cf-page-title">{t('settings.title')}</h1>
 
-<!-- Settings index: My notifications sits above Site settings (UX-DR72). -->
+<!-- Settings index: My notifications, Members (Owner), Site settings, Appearance (UX-DR71, UX-DR72). -->
 <ul class="cf-settings">
   <li>
     <a class="cf-settings__row" href="/settings/notifications">
@@ -23,6 +24,15 @@
       <span class="cf-settings__helper">{t('settings.myNotificationsHelper')}</span>
     </a>
   </li>
+  {#if data.currentSite !== null && membersAccessOf(data.currentSite.role)}
+    <!-- Members is for Owners only: hidden, never disabled, for anyone else (UX-DR76). -->
+    <li>
+      <a class="cf-settings__row" href="/members">
+        <span class="cf-settings__name">{t('settings.members')}</span>
+        <span class="cf-settings__helper">{t('settings.membersHelper', { siteName: data.currentSite.name })}</span>
+      </a>
+    </li>
+  {/if}
   {#if data.currentSite !== null}
     <li>
       <a class="cf-settings__row" href="/settings/site">

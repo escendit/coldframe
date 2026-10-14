@@ -61,6 +61,9 @@ export type SiteNotificationSettings = components['schemas']['SiteNotificationSe
 export type SetSiteNotificationSettingsRequest = components['schemas']['SetSiteNotificationSettingsRequest'];
 export type ReminderCadence = components['schemas']['ReminderCadence'];
 export type SiteReminderCadence = components['schemas']['SiteReminderCadence'];
+export type SiteMember = components['schemas']['SiteMember'];
+export type SiteMemberList = components['schemas']['SiteMemberList'];
+export type InvitationRequest = components['schemas']['InvitationRequest'];
 export type ProblemDetails = components['schemas']['ProblemDetails'];
 
 export type ColdframeClient = Client<paths>;

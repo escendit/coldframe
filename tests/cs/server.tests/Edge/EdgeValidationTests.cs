@@ -183,4 +183,62 @@ public sealed class EdgeValidationTests
     {
         Assert.Null(EdgeValidation.NormalizeReminderCadence(cadence));
     }
+
+    [Theory]
+    [InlineData("ana@example.com", "ana@example.com")]
+    [InlineData("  ana@example.com\t", "ana@example.com")]
+    [InlineData("Ana.Novak+garden@sub.example.org", "Ana.Novak+garden@sub.example.org")]
+    public void AnEmailIsTrimmedAndKept(string email, string expected)
+    {
+        Assert.Equal(expected, EdgeValidation.NormalizeEmail(email));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("ana")]
+    [InlineData("@example.com")]
+    [InlineData("ana@")]
+    [InlineData("ana@@example.com")]
+    [InlineData("ana@b@example.com")]
+    [InlineData("ana novak@example.com")]
+    [InlineData("Ana <ana@example.com>")]
+    [InlineData("ana@example.com, bob@example.com")]
+    [InlineData("ana\u0000@example.com")]
+    public void AnythingButOneAddressIsNoEmail(string? email)
+    {
+        Assert.Null(EdgeValidation.NormalizeEmail(email));
+    }
+
+    [Fact]
+    public void AnEmailOf254CharactersIsValidAndOneMoreIsNot()
+    {
+        var domain = "@" + string.Join('.', Enumerable.Repeat(new string('d', 63), 3)) + ".org";
+        var local = new string('a', EdgeValidation.MaxEmailLength - domain.Length);
+
+        Assert.Equal(local + domain, EdgeValidation.NormalizeEmail(local + domain));
+        Assert.Null(EdgeValidation.NormalizeEmail("a" + local + domain));
+    }
+
+    [Theory]
+    [InlineData("Owner", SiteRole.Owner)]
+    [InlineData("Administrator", SiteRole.Administrator)]
+    [InlineData("Member", SiteRole.Member)]
+    public void ARoleIsNamedExactly(string role, SiteRole expected)
+    {
+        Assert.Equal(expected, EdgeValidation.NormalizeSiteRole(role));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("owner")]
+    [InlineData("member")]
+    [InlineData("Admin")]
+    [InlineData("3")]
+    public void AnythingElseIsNoRole(string? role)
+    {
+        Assert.Null(EdgeValidation.NormalizeSiteRole(role));
+    }
 }

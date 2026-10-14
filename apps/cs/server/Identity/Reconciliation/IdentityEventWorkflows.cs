@@ -37,16 +37,31 @@ public sealed class IdentityAdminEventWorkflow
 }
 
 /// <summary>
-/// The workflow <c>keycloak-temporal-extensions</c> starts for every Keycloak user event. The Server does
-/// not act on user events; it completes them so the queue never piles up.
+/// The workflow <c>keycloak-temporal-extensions</c> starts for every Keycloak user event. Deterministic: it only
+/// runs <see cref="IdentityReconciliationActivities.ReconcileUserEventAsync"/>, which reconciles the Site of an
+/// accepted Phase Two invitation (Story 9.1) and completes every other user event at once.
 /// </summary>
 [Workflow("IdentityUserEvent")]
 public sealed class IdentityUserEventWorkflow
 {
     /// <summary>
-    /// Completes at once.
+    /// Reconciles the Site the event touches, if any, bounded and retried like an admin event.
     /// </summary>
-    /// <param name="userEvent">The user event, unused.</param>
+    /// <param name="userEvent">The user event.</param>
     [WorkflowRun]
-    public Task RunAsync(KeycloakUserEvent userEvent) => Task.CompletedTask;
+    public Task RunAsync(KeycloakUserEvent userEvent)
+    {
+        ArgumentNullException.ThrowIfNull(userEvent);
+
+        // Sign-ins and the like complete without an activity; the activity checks the rest of the route.
+        if (userEvent.Error is not null
+            || !string.Equals(userEvent.Type, UserEventRoute.InvitationActionType, StringComparison.Ordinal))
+        {
+            return Task.CompletedTask;
+        }
+
+        return Workflow.ExecuteActivityAsync(
+            (IdentityReconciliationActivities activities) => activities.ReconcileUserEventAsync(userEvent),
+            IdentityAdminEventWorkflow.ReconcileOptions);
+    }
 }

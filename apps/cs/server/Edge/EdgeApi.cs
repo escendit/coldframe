@@ -51,6 +51,28 @@ public sealed record SiteListResponse(IReadOnlyList<SiteResponse> Sites);
 public sealed record RenameSiteRequest(string? Name);
 
 /// <summary>
+/// The body of <c>POST /sites/{siteId}/invitations</c> (Story 9.1).
+/// </summary>
+/// <param name="Email">The invitee's email address.</param>
+/// <param name="Role">The Role the invitee gets: <c>Owner</c>, <c>Administrator</c> or <c>Member</c>.</param>
+public sealed record InvitationRequest(string? Email, string? Role);
+
+/// <summary>
+/// One Membership as <c>GET /sites/{siteId}/members</c> returns it (Story 9.1).
+/// </summary>
+/// <param name="UserId">The member's User ID.</param>
+/// <param name="Name">First and last name from Keycloak, else the username; empty when Keycloak does not know the User.</param>
+/// <param name="Role">The member's Role, from the identity projection.</param>
+/// <param name="Email">The member's email in Keycloak; omitted without one.</param>
+public sealed record SiteMemberResponse(string UserId, string Name, SiteRole Role, string? Email = null);
+
+/// <summary>
+/// The body of <c>GET /sites/{siteId}/members</c>.
+/// </summary>
+/// <param name="Members">Owners first, then by name.</param>
+public sealed record SiteMemberListResponse(IReadOnlyList<SiteMemberResponse> Members);
+
+/// <summary>
 /// The body of <c>POST /sites/{siteId}/lots</c>.
 /// </summary>
 /// <param name="Name">The Lot name.</param>
@@ -600,6 +622,14 @@ public static partial class EdgeApi
             .WithName("renameSite")
             .RequireSiteRole(SiteRole.Owner);
 
+        endpoints.MapGet("/sites/{siteId}/members", ListSiteMembersAsync)
+            .WithName("listSiteMembers")
+            .RequireSiteRole(SiteRole.Owner);
+
+        endpoints.MapPost("/sites/{siteId}/invitations", InviteToSiteAsync)
+            .WithName("inviteToSite")
+            .RequireSiteRole(SiteRole.Owner);
+
         endpoints.MapPut("/sites/{siteId}/pause", PauseSiteAsync)
             .WithName("pauseSite")
             .RequireSiteRole(SiteRole.Administrator);
@@ -850,6 +880,128 @@ public static partial class EdgeApi
             EdgeProblems.IdentityProviderUnavailable,
             "The sign-in service is unavailable.",
             "The Site was not renamed. Try again."),
+        _ => SiteNotFound(),
+    };
+
+    private static async Task<IResult> ListSiteMembersAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IdentityReadModel readModel,
+        [FromServices] IPhaseTwoOrganizations organizations)
+    {
+        // The policy has allowed the request, so the Site ID is canonical.
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var memberships = await readModel.ListMembersAsync(canonical, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return await MembersResultAsync(organizations, canonical, memberships, httpContext.RequestAborted).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// How <c>GET /sites/{siteId}/members</c> answers: 200 with the Memberships joined to the profiles Phase Two
+    /// returns (none for a missing Organization), 503 <c>identity-provider-unavailable</c> when the read fails.
+    /// </summary>
+    internal static async Task<IResult> MembersResultAsync(
+        IPhaseTwoOrganizations organizations,
+        string siteId,
+        IReadOnlyList<SiteMembershipView> memberships,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<PhaseTwoMemberProfile>? profiles;
+
+        try
+        {
+            profiles = await organizations.GetMemberProfilesAsync(siteId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (IdentityProviderUnavailableException)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status503ServiceUnavailable,
+                EdgeProblems.IdentityProviderUnavailable,
+                "The sign-in service is unavailable.",
+                "The names and emails of the Members could not be read. Try again.");
+        }
+
+        return TypedResults.Ok(ToMemberList(memberships, profiles ?? []));
+    }
+
+    /// <summary>
+    /// Joins the Memberships of the identity projection (the Role) with the profiles Keycloak holds (name and
+    /// email): one entry per Membership, Owners first, then by name and User ID. A Membership Keycloak does not
+    /// show yet has an empty name; a Keycloak member without a Membership is left out.
+    /// </summary>
+    internal static SiteMemberListResponse ToMemberList(
+        IReadOnlyList<SiteMembershipView> memberships,
+        IReadOnlyList<PhaseTwoMemberProfile> profiles)
+    {
+        var byId = new Dictionary<string, PhaseTwoMemberProfile>(StringComparer.Ordinal);
+        foreach (var profile in profiles)
+        {
+            byId.TryAdd(profile.UserId, profile);
+        }
+
+        return new SiteMemberListResponse([
+            .. memberships
+                .Select(membership => byId.TryGetValue(membership.UserId, out var profile)
+                    ? new SiteMemberResponse(membership.UserId, profile.Name, membership.Role, profile.Email)
+                    : new SiteMemberResponse(membership.UserId, string.Empty, membership.Role))
+                .OrderBy(member => member.Role == SiteRole.Owner ? 0 : 1)
+                .ThenBy(member => member.Name, StringComparer.InvariantCultureIgnoreCase)
+                .ThenBy(member => member.UserId, StringComparer.Ordinal),
+        ]);
+    }
+
+    private static async Task<IResult> InviteToSiteAsync(
+        string siteId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions)
+    {
+        var request = await ReadJsonAsync<InvitationRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (EdgeValidation.NormalizeEmail(request?.Email) is not { } email)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The email is not valid.",
+                $"Send a JSON body with email, one address of at most {EdgeValidation.MaxEmailLength} characters. No invitation was sent.");
+        }
+
+        if (EdgeValidation.NormalizeSiteRole(request?.Role) is not { } role)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Role is not valid.",
+                "Send a JSON body with role Owner, Administrator or Member. No invitation was sent.");
+        }
+
+        // The policy has allowed the request, so the Site ID is canonical.
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var result = await grains.GetGrain<ISiteGrain>(canonical).Invite(email, role, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return ToHttpResult(result.Outcome);
+    }
+
+    /// <summary>
+    /// How <c>POST /sites/{siteId}/invitations</c> answers an outcome of <see cref="ISiteGrain.Invite"/>: 202 with
+    /// no body once Phase Two created the invitation, 409 <c>already-invited</c>, 503 when Keycloak did not answer or
+    /// answered with a server error, 404 otherwise.
+    /// </summary>
+    /// <param name="outcome">The Site grain's outcome.</param>
+    /// <returns>The HTTP result.</returns>
+    internal static IResult ToHttpResult(SiteInviteOutcome outcome) => outcome switch
+    {
+        SiteInviteOutcome.Sent => TypedResults.Accepted((string?)null),
+        SiteInviteOutcome.AlreadyInvited => EdgeProblems.Result(
+            StatusCodes.Status409Conflict,
+            EdgeProblems.AlreadyInvited,
+            "That person is already invited or a member of this Site."),
+        SiteInviteOutcome.IdentityProviderUnavailable => EdgeProblems.Result(
+            StatusCodes.Status503ServiceUnavailable,
+            EdgeProblems.IdentityProviderUnavailable,
+            "The sign-in service is unavailable.",
+            "The invitation was not sent. Try again."),
         _ => SiteNotFound(),
     };
 

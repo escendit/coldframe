@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
@@ -213,6 +214,90 @@ public sealed class PhaseTwoOrganizations(
         return new PhaseTwoRoster(organization.DisplayName, members, holders);
     }
 
+    /// <inheritdoc />
+    public async Task<PhaseTwoInviteOutcome> InviteAsync(
+        string organizationId,
+        string email,
+        string role,
+        Uri? redirectUri,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+
+        var body = new InvitationRepresentation(email, [role], Send: true, redirectUri?.AbsoluteUri);
+
+        using var response = await SendAuthorizedAsync(
+            HttpMethod.Post,
+            $"orgs/{Escape(organizationId)}/invitations",
+            body,
+            cancellationToken).ConfigureAwait(false);
+
+        switch (response.StatusCode)
+        {
+            case HttpStatusCode.Conflict:
+                return PhaseTwoInviteOutcome.Conflict;
+            case HttpStatusCode.NotFound:
+                return PhaseTwoInviteOutcome.NotFound;
+        }
+
+        EnsureStatus(response, $"invite to Organization {organizationId}", HttpStatusCode.Created, HttpStatusCode.OK, HttpStatusCode.NoContent);
+        return PhaseTwoInviteOutcome.Sent;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PhaseTwoMemberProfile>?> GetMemberProfilesAsync(string organizationId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+
+        var profiles = new Dictionary<string, PhaseTwoMemberProfile>(StringComparer.Ordinal);
+
+        // Paged like the roster: until a short page, or a page that adds nothing new.
+        for (var first = 0; ; first += RosterPageSize)
+        {
+            using var response = await SendAuthorizedAsync(
+                HttpMethod.Get,
+                $"orgs/{Escape(organizationId)}/members?first={first}&max={RosterPageSize}",
+                null,
+                cancellationToken).ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            EnsureStatus(response, $"read the members of Organization {organizationId}", HttpStatusCode.OK);
+
+            var page = await response.Content
+                .ReadFromJsonAsync<List<UserRepresentation>>(Json, cancellationToken)
+                .ConfigureAwait(false) ?? [];
+
+            var added = 0;
+            foreach (var user in page)
+            {
+                if (!string.IsNullOrEmpty(user.Id) && profiles.TryAdd(user.Id, ToProfile(user)))
+                {
+                    added++;
+                }
+            }
+
+            if (page.Count < RosterPageSize || added == 0)
+            {
+                return [.. profiles.Values];
+            }
+        }
+    }
+
+    /// <summary>
+    /// The name Coldframe shows for a User: first and last name, trimmed, else the username.
+    /// </summary>
+    internal static string DisplayNameOf(string? firstName, string? lastName, string? username)
+    {
+        var name = $"{firstName?.Trim()} {lastName?.Trim()}".Trim();
+        return name.Length > 0 ? name : username?.Trim() ?? string.Empty;
+    }
+
     /// <summary>
     /// Sends a request and turns every transport failure, timeout and server error into
     /// <see cref="IdentityProviderUnavailableException"/>. Cancellation by the caller propagates as is.
@@ -350,5 +435,14 @@ public sealed class PhaseTwoOrganizations(
         string? DisplayName,
         Dictionary<string, List<string>?>? Attributes);
 
-    private sealed record UserRepresentation(string? Id);
+    private static PhaseTwoMemberProfile ToProfile(UserRepresentation user) =>
+        new(user.Id!, DisplayNameOf(user.FirstName, user.LastName, user.Username), string.IsNullOrWhiteSpace(user.Email) ? null : user.Email);
+
+    private sealed record UserRepresentation(string? Id, string? Username = null, string? FirstName = null, string? LastName = null, string? Email = null);
+
+    private sealed record InvitationRepresentation(
+        string Email,
+        List<string> Roles,
+        bool Send,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RedirectUri);
 }

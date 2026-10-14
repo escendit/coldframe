@@ -9,9 +9,11 @@ import type {
   FakeDevice,
   FakeDeviceAction,
   FakeHealthAlert,
+  FakeInvitation,
   FakeLiveControl,
   FakeLiveState,
   FakeLot,
+  FakeMember,
   FakeNotificationsSeed,
   FakeNotificationsState,
   FakePauseCall,
@@ -130,6 +132,25 @@ export async function holdPauses(hold: boolean): Promise<void> {
     body: JSON.stringify({ hold }),
   });
   expect(response.ok).toBe(true);
+}
+
+/**
+ * Seeds the Members of Sites (Story 9.1); a Site with none lists the signed-in User with their Role. `failNext` makes the
+ * next invitation answer that status instead of 202. `resetSites` clears both and the invitations sent.
+ */
+export async function setMembers(members: readonly FakeMember[], failNext: number | null = null): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/members`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ members, ...(failNext === null ? {} : { failNext }) }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** Every invitation the fake Server received since the last reset, with the status it answered. */
+export async function serverInvitations(): Promise<FakeInvitation[]> {
+  const response = await fetch(`${idpOrigin}/control/members`);
+  return ((await response.json()) as { invitations: FakeInvitation[] }).invitations;
 }
 
 /** How often the Alerts were read from the fake Server since they were last seeded. */

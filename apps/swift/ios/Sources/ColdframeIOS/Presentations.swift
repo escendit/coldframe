@@ -34,6 +34,15 @@ public func themeSegments(selected: ThemePreference) -> [SegmentPresentation<The
   }
 }
 
+/// What a Text input takes (UX-DR35): plain text, or one email address, which gets the email
+/// keyboard and content type, no auto-capitalisation and no autocorrection (Invite form, UX-DR52).
+public enum TextInputKind: Sendable {
+  case text
+  case email
+
+  public var autocorrects: Bool { self == .text }
+}
+
 /// The four mobile tabs (UX-DR57), in order.
 public enum AppTab: String, CaseIterable, Hashable, Sendable {
   case garden
@@ -85,10 +94,11 @@ public enum AppTab: String, CaseIterable, Hashable, Sendable {
   }
 }
 
-/// Rows of the Settings index (UX-DR71): My notifications (Story 6.3, UX-DR72), Site settings
-/// (Story 1.9), Appearance, then Account. Members joins with its story.
+/// Rows of the Settings index (UX-DR71): My notifications (Story 6.3, UX-DR72), Members (Story
+/// 9.1, UX-DR73; Owner only), Site settings (Story 1.9), Appearance, then Account.
 public enum SettingsRow: CaseIterable, Sendable {
   case notifications
+  case members
   case siteSettings
   case appearance
   case account
@@ -96,16 +106,30 @@ public enum SettingsRow: CaseIterable, Sendable {
   public var title: L10n {
     switch self {
     case .notifications: .settingsNotifications
+    case .members: .settingsMembers
     case .siteSettings: .settingsSiteSettings
     case .appearance: .settingsAppearance
     case .account: .settingsAccount
     }
   }
 
-  /// The line under the title; Site settings names the current Site (`%@`).
+  /// The line under the title; Members and Site settings name the current Site (`%@`).
+  /// The rows a Role sees on a Site: Members only for an Owner, hidden (never disabled) for anyone
+  /// else (UX-DR76); without a current Site neither Members nor Site settings.
+  public static func rows(role: SiteRoleKind?) -> [SettingsRow] {
+    allCases.filter {
+      switch $0 {
+      case .members: role == .owner
+      case .siteSettings: role != nil
+      default: true
+      }
+    }
+  }
+
   public var helper: L10n? {
     switch self {
     case .notifications: .settingsNotificationsHelper
+    case .members: .settingsMembersHelper
     case .siteSettings: .settingsSiteSettingsHelper
     case .appearance: .settingsAppearanceHelper
     case .account: nil

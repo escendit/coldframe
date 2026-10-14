@@ -35,6 +35,8 @@ The REST contract, written before the code that serves it (AD-10):
 | `PUT /sites/{siteId}/notification-settings` | `Member` | Story 6.3 |
 | `GET /sites/{siteId}/reminder-cadence` | `Member` | Story 6.3 |
 | `PUT /sites/{siteId}/reminder-cadence` | `Administrator` | Story 6.3 |
+| `GET /sites/{siteId}/members` | `Owner` | Story 9.1 |
+| `POST /sites/{siteId}/invitations` | `Owner` | Story 9.1 |
 | `PUT /me/push-registrations/{installationId}` | `Authenticated` | Story 6.5 |
 | `DELETE /me/push-registrations/{installationId}` | `Authenticated` | Story 6.5 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
@@ -70,7 +72,8 @@ is planned today.
   ingest envelope could be committed), `sensor-not-found` (404, no such Sensor on a Node of this Site),
   `calibration-not-delivered` (503, the Calibration is saved but the Node's Device grain has not acknowledged it
   yet; the Server keeps delivering it), `reminder-cadence-not-delivered` (503, the Site holds the Reminder
-  cadence but not every member was handed it; send the request again). Enrolling a Node with a `lotId` answers
+  cadence but not every member was handed it; send the request again), `already-invited` (409, the invitee is
+  already invited to or a member of this Site; no invitation was sent). Enrolling a Node with a `lotId` answers
   `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
   when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an
   `x-extensible-enum`.
@@ -180,6 +183,16 @@ is planned today.
   most 20. `DELETE` removes the caller's registration and answers 204 also when there was none. Both answer 204,
   400 `validation` for a malformed ID or body. There is no read: the token never leaves the Server. What a push
   carries is in [`packages/asyncapi`](../asyncapi).
+- **Members and invitations** (Story 9.1, Owner only). `GET /sites/{siteId}/members` answers `{members}`, one
+  `{userId, name, email?, role}` per Membership, Owners first, then by name: the Role from the identity projection,
+  name and email read from Keycloak with the request (503 `identity-provider-unavailable` while it is down).
+  `POST /sites/{siteId}/invitations` takes `{email, role}` and answers 202 with no body once Phase Two created the
+  invitation and was asked to email it; a failed send is not reported to the Server (Phase Two only logs it).
+  The Server keeps no invitation: no pending list, no state, no deadline (Phase Two owns the link and its expiry).
+  400 `validation` is an email that is no single address or longer than 254 characters, or a missing or unknown Role; 409 `already-invited` someone already invited or already a Member;
+  503 `identity-provider-unavailable` a Keycloak that is unreachable, answers with a server error, or takes longer
+  than the operation budget (no invitation was created).
+  Accepting happens on the Phase Two page; the Membership then reaches the Server asynchronously.
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

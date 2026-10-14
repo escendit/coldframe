@@ -2,7 +2,7 @@
 
 The shared Kotlin Multiplatform core (Gradle project `:core`). The overview of the whole module is
 in [`packages/kt`](../README.md); this file covers Lot status and stale mode (Story 4.7) and what was built on
-them since, up to Pause and Resume (Story 8.2). Tests
+them since, up to Pause and Resume (Story 8.2) and Members (Story 9.1). Tests
 live in [`tests/kt/core`](../../../tests/kt/core).
 
 ## Lot status
@@ -278,6 +278,28 @@ sheet, the Resume under way, the last failure), and `IosLots.pause`, `IosLotDeta
 (`IosPause`) hold the calls; each surface's `watch` also fires when its Pause state changes. `SitesSnapshot` and
 `LotsSnapshot` carry the Site's `paused` members, `LotDetailSnapshot` the gates, and `DevicesSnapshot` the
 parallel `hubPaused…` / `nodePaused…` lists.
+
+**Members (Story 9.1).** Only an Owner has Members (`MembersAccess.canManage`); for anyone else
+`MembersEngine.state` is `MembersState.Hidden`, `canManageMembers` is false and every call is ignored, so the
+shells hide the Settings row and the surface, never disable them.
+
+- **Calls.** `sites/MembersApi`: `listMembers` (`GET /sites/{siteId}/members`) and `invite` (`POST
+  /sites/{siteId}/invitations`, `{email, role}`, 202 without a body). 409 `already-invited` is
+  `ApiFailure.AlreadyInvited`; the 503 of an email Keycloak could not send stays `IdentityProviderUnavailable`.
+- **`sites/MembersEngine`** follows the current Site and its Role. `load()` on every entry reads the tiles
+  (`Member`: `initials`, `shownName`, `role`, `you`, the latter from the ID token's `sub`,
+  `SignInEngine.userId()`), in the Server's order. The Invite form (`InviteForm`) starts on Member; `setEmail`,
+  `setRole`, `sendInvite()`. The email is checked as the Server checks it (`InviteForm.validate`: one address,
+  one `@`, no spaces, at most 254 characters), `InviteEmailError.Blank` / `Invalid` under the field. Accepted,
+  the form clears and `MembersNotice.Sent` names `sentTo`; the tiles are not read again, since the invitee
+  appears only once they accepted. `AlreadyInvited` (409) keeps the values; `NotSent` (503) and `Unreachable`
+  offer `retry()`, which sends the same invitation; a 400 marks the email; a 403 (`Forbidden`) or 404
+  (`SiteGone`) reads the Sites again. For Swift: `MembersSnapshot` and `IosMembers` (`IosSignIn.members`); on
+  Android `AndroidSignIn.members`.
+- **Create Site while an invitation is on its way** (UX-DR90). While `SitesState.NeedsSite` shows, the Sites
+  engine reads the Sites every `SitesEngine.MEMBERSHIP_POLL` (10 s). When a Site arrives it becomes current and
+  the overview opens, where `PushEngine` asks for the notification permission (UX-DR122). A failed read changes
+  nothing; a user who already has Sites is never switched by it.
 
 For Swift, `IosNotificationSettings` (`IosSignIn.notifications`) observes a flat `NotificationSettingsSnapshot`,
 and `LotsSnapshot` gains `reminderCadence`, `reminderCadenceWorking`, `canSetReminderCadence` and

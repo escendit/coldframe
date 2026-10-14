@@ -10,6 +10,7 @@ import com.escendit.coldframe.core.notifications.SiteReminderCadenceApi
 import com.escendit.coldframe.core.push.PushApi
 import com.escendit.coldframe.core.setup.EnrolmentApi
 import com.escendit.coldframe.core.signin.isCertificateError
+import com.escendit.coldframe.core.sites.MembersApi
 import com.escendit.coldframe.core.sites.PauseApi
 import com.escendit.coldframe.core.sites.SitesApi
 import com.escendit.coldframe.core.thresholds.ThresholdsApi
@@ -66,6 +67,7 @@ public class ColdframeApi(
     SiteReminderCadenceApi,
     PushApi,
     PauseApi,
+    MembersApi,
     EnrolmentApi {
     private val base = serverUrl.trimEnd('/')
 
@@ -400,6 +402,27 @@ public class ColdframeApi(
     override suspend fun removePushDevice(installationId: String): ApiResult<Unit> =
         call({ http.delete(pushRegistration(installationId)) { it() } }) { }
 
+    /** `GET /sites/{siteId}/members` (`listSiteMembers`, Owner): Owners first, then by name. */
+    override suspend fun listMembers(siteId: String): ApiResult<SiteMemberListDto> =
+        call({ http.get("$base/sites/${siteId.encoded()}/members") { it() } }) { it.body<SiteMemberListDto>() }
+
+    /**
+     * `POST /sites/{siteId}/invitations` (`inviteToSite`, Owner): 202 without a body once Keycloak sent the email.
+     * Someone already invited or a member is 409 `already-invited`; an email Keycloak could not send is 503.
+     */
+    override suspend fun invite(
+        siteId: String,
+        email: String,
+        role: String,
+    ): ApiResult<Unit> =
+        call({
+            http.post("$base/sites/${siteId.encoded()}/invitations") {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(InvitationRequestDto(email, role))
+            }
+        }) { }
+
     private fun sitePause(siteId: String): String = "$base/sites/${siteId.encoded()}/pause"
 
     private fun devicePause(
@@ -480,6 +503,7 @@ public class ColdframeApi(
                 when (problemType(response)) {
                     PROBLEM_DEVICE_ON_ANOTHER_SITE -> ApiFailure.DeviceOnAnotherSite
                     PROBLEM_DEVICE_ASSIGNED -> ApiFailure.DeviceAssigned
+                    PROBLEM_ALREADY_INVITED -> ApiFailure.AlreadyInvited
                     else -> ApiFailure.LotClaimed
                 }
             }
@@ -524,6 +548,7 @@ public class ColdframeApi(
         public const val PROBLEM_VALIDATION: String = "urn:coldframe:problem:validation"
         public const val PROBLEM_DEVICE_ON_ANOTHER_SITE: String = "urn:coldframe:problem:device-on-another-site"
         public const val PROBLEM_DEVICE_ASSIGNED: String = "urn:coldframe:problem:device-assigned"
+        public const val PROBLEM_ALREADY_INVITED: String = "urn:coldframe:problem:already-invited"
         public const val PROBLEM_CALIBRATION_NOT_DELIVERED: String = "urn:coldframe:problem:calibration-not-delivered"
 
         public const val PROBLEM_REMINDER_CADENCE_NOT_DELIVERED: String =
