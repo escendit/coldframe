@@ -91,6 +91,8 @@ function noticeOf(action: SiteSettingsAction, error: Exclude<SitesError, 'unauth
       }
       return action === 'renameSite' ? 'unavailable' : 'unexpected';
     case 'unexpected':
+    case 'lastOwner':
+    case 'memberNotFound':
       return 'unexpected';
   }
 }

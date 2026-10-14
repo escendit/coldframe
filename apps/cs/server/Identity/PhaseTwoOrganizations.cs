@@ -151,6 +151,39 @@ public sealed class PhaseTwoOrganizations(
     }
 
     /// <inheritdoc />
+    public async Task RevokeRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
+        using var response = await SendAuthorizedAsync(
+            HttpMethod.Delete,
+            $"orgs/{Escape(organizationId)}/roles/{Escape(role)}/users/{Escape(userId)}",
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+        // 404: the User does not hold the role (or is no member), which is what was asked for.
+        EnsureStatus(response, $"revoke role {role} from {userId} in Organization {organizationId}", HttpStatusCode.NoContent, HttpStatusCode.OK, HttpStatusCode.NotFound);
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveMemberAsync(string organizationId, string userId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
+        using var response = await SendAuthorizedAsync(
+            HttpMethod.Delete,
+            $"orgs/{Escape(organizationId)}/members/{Escape(userId)}",
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+        // 404: the User is no member, which is what was asked for.
+        EnsureStatus(response, $"remove member {userId} from Organization {organizationId}", HttpStatusCode.NoContent, HttpStatusCode.OK, HttpStatusCode.NotFound);
+    }
+
+    /// <inheritdoc />
     public async Task UpdateDisplayNameAsync(string organizationId, string displayName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(organizationId);

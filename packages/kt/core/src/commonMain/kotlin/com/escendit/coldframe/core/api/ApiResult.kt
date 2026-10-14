@@ -29,6 +29,12 @@ public enum class ApiFailure {
     /** 409 `already-invited`: the invitee is already invited to the Site or a member of it; nothing was sent. */
     AlreadyInvited,
 
+    /** 409 `last-owner` (Story 9.2): the change would leave the Site without an Owner; nothing changed. */
+    LastOwner,
+
+    /** 404 `member-not-found` (Story 9.2): the person is not a member of the Site; nothing changed. */
+    MemberNotFound,
+
     /** 503 `calibration-not-delivered`: the Calibration is saved but the Node's Device has not acknowledged it yet. */
     CalibrationNotDelivered,
 

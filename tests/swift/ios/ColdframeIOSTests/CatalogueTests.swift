@@ -119,6 +119,8 @@ private let coveredUxDrs: [String: [Int]] = [
   "7.3 Low-battery Alert": [25, 26],
   "7.4 Uncalibrated Sensor Alert": [25, 26],
   "8.2 Pause and resume in the apps": [46, 70, 83],
+  "9.1 Invite someone to my Site": [51, 52, 73, 76, 84, 90],
+  "9.2 Change and remove Roles, always keeping an Owner": [51, 73, 84, 113],
 ]
 
 @Test("UX-DR124 every UX-DR of a listed story has an iOS test whose name starts with its ID")

@@ -518,6 +518,30 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/sites/{siteId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change a Member's Role
+         * @description Only an Owner (Story 9.2); an Administrator or a Member gets 403. Changes the Role of one Membership, also the caller's own. The Site keeps at least one Owner: lowering the only Owner answers 409 last-owner and changes nothing; of two Owners lowering each other at the same moment, one succeeds and the other gets last-owner. The Server asks Keycloak (Phase Two) to grant the new Role, then to revoke the others; it saves the change only once Keycloak holds it, and the person's next request is authorized with the new Role. The same Role again answers 204 and saves nothing.
+         */
+        put: operations["changeMemberRole"];
+        post?: never;
+        /**
+         * Remove a Membership
+         * @description Only an Owner (Story 9.2); an Administrator or a Member gets 403. Removes one person from the Site, also the caller. Removing the only Owner answers 409 last-owner and changes nothing. The Server asks Keycloak (Phase Two) to revoke the person's Roles and remove them from the Organization, and saves the removal only once Keycloak did: the person's next request on the Site gets 403, and they stop getting its Alerts.
+         */
+        delete: operations["removeSiteMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -1457,6 +1481,14 @@ export type components = {
             role: components["schemas"]["SiteRole"];
         };
         /**
+         * @example {
+         *       "role": "Administrator"
+         *     }
+         */
+        MemberRoleRequest: {
+            role: components["schemas"]["SiteRole"];
+        };
+        /**
          * @description One Membership of a Site.
          * @example {
          *       "userId": "5b8e0f1c-2a43-4d7e-9c6b-1f0a2e3d4c5b",
@@ -1752,6 +1784,33 @@ export type components = {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
+        /** @description urn:coldframe:problem:last-owner: the change would leave the Site without an Owner. Nothing changed. */
+        LastOwner: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:member-not-found: the person is not a member of this Site. Nothing changed. */
+        MemberNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
+        /** @description urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached, answered with a server error, or the operation budget ran out. The Server saved nothing; try again. */
+        MembershipNotChanged: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
         /** @description urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached for the names and emails. Try again. */
         MembersUnavailable: {
             headers: {
@@ -1778,6 +1837,8 @@ export type components = {
         SiteId: string;
         /** @description Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters. */
         IdempotencyKey: string;
+        /** @description The User ID (the Keycloak user's ID), as SiteMember.userId gives it. */
+        UserId: string;
         /** @description The Lot ID, a UUIDv7. */
         LotId: string;
         /** @description The Sensor ID, a UUIDv5 of its Device ID, slot and quantity, in lowercase hyphenated form. */
@@ -2887,6 +2948,67 @@ export interface operations {
             404: components["responses"]["SiteNotFound"];
             409: components["responses"]["AlreadyInvited"];
             503: components["responses"]["InvitationNotSent"];
+        };
+    };
+    changeMemberRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The User ID (the Keycloak user's ID), as SiteMember.userId gives it. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description The Membership has the Role. No body. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["MemberNotFound"];
+            409: components["responses"]["LastOwner"];
+            503: components["responses"]["MembershipNotChanged"];
+        };
+    };
+    removeSiteMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Site ID, which is the Keycloak Organization ID. */
+                siteId: components["parameters"]["SiteId"];
+                /** @description The User ID (the Keycloak user's ID), as SiteMember.userId gives it. */
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person is no longer a member of the Site. No body. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["MemberNotFound"];
+            409: components["responses"]["LastOwner"];
+            503: components["responses"]["MembershipNotChanged"];
         };
     };
 }

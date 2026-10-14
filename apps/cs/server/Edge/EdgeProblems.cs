@@ -64,6 +64,16 @@ public static class EdgeProblems
     public const string AlreadyInvited = "urn:coldframe:problem:already-invited";
 
     /// <summary>
+    /// 409: the Role change or removal would leave the Site without an Owner (Story 9.2); nothing changed.
+    /// </summary>
+    public const string LastOwner = "urn:coldframe:problem:last-owner";
+
+    /// <summary>
+    /// 404: the person is not a member of the Site (Story 9.2); nothing changed.
+    /// </summary>
+    public const string MemberNotFound = "urn:coldframe:problem:member-not-found";
+
+    /// <summary>
     /// 401: the Device authentication failed (unknown Device, missing or malformed headers, a bad signature,
     /// skew, a replayed nonce or an old timestamp). The reason is never told.
     /// </summary>

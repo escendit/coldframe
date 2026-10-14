@@ -257,6 +257,124 @@ public sealed partial class SiteGrain(
     }
 
     /// <inheritdoc />
+    public async Task<SiteMembershipChangeResult> ChangeRole(string userId, SiteRole role, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
+        if (!OrganizationRoles.TryGetValue(role, out var organizationRole))
+        {
+            throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown Site Role.");
+        }
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.NotFound);
+        }
+
+        if (!State.Members.TryGetValue(userId, out var current))
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.MemberNotFound);
+        }
+
+        if (current == role)
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.Unchanged, role);
+        }
+
+        // AD-3: checked against the Site's own Owners, the last valid set also during a break-glass episode.
+        // Calls are serialized, so of two Owners lowering each other the second finds one Owner left.
+        if (current == SiteRole.Owner && IsLastOwner(userId))
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.LastOwner);
+        }
+
+        // Keycloak first, the new role before the old ones go: the roster never looks lower than either Role,
+        // so a reconciliation in between never sees the Site without its Owner.
+        using (var budget = new CancellationTokenSource(options.Value.OperationBudget, Clock))
+        using (var linked = CancellationTokenSource.CreateLinkedTokenSource(budget.Token, cancellationToken))
+        {
+            try
+            {
+                await organizations.GrantRoleAsync(SiteId, organizationRole, userId, linked.Token);
+
+                foreach (var other in OrganizationRoles.Values.Where(other => !string.Equals(other, organizationRole, StringComparison.Ordinal)))
+                {
+                    await organizations.RevokeRoleAsync(SiteId, other, userId, linked.Token);
+                }
+            }
+            catch (Exception exception) when (exception is IdentityProviderUnavailableException or OperationCanceledException)
+            {
+                // Nothing journaled. A grant that went through leaves Keycloak with the higher Role: a retry is
+                // idempotent, and the reconciliation of the echoed admin events converges the Site to Keycloak.
+                LogRoleChangeUnavailable(logger, SiteId, exception);
+                return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.IdentityProviderUnavailable);
+            }
+        }
+
+        RaiseEvent(new MembershipGranted(userId, role));
+        await ConfirmEvents();
+
+        // Not cancelled by the caller: the change is journaled, so the projection follows (read-your-writes).
+        await CatchUpIdentityAsync(CancellationToken.None);
+
+        return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.Changed, role);
+    }
+
+    /// <inheritdoc />
+    public async Task<SiteMembershipChangeResult> RemoveMember(string userId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.NotFound);
+        }
+
+        if (!State.Members.TryGetValue(userId, out var current))
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.MemberNotFound);
+        }
+
+        if (current == SiteRole.Owner && IsLastOwner(userId))
+        {
+            return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.LastOwner);
+        }
+
+        using (var budget = new CancellationTokenSource(options.Value.OperationBudget, Clock))
+        using (var linked = CancellationTokenSource.CreateLinkedTokenSource(budget.Token, cancellationToken))
+        {
+            try
+            {
+                foreach (var organizationRole in OrganizationRoles.Values)
+                {
+                    await organizations.RevokeRoleAsync(SiteId, organizationRole, userId, linked.Token);
+                }
+
+                await organizations.RemoveMemberAsync(SiteId, userId, linked.Token);
+            }
+            catch (Exception exception) when (exception is IdentityProviderUnavailableException or OperationCanceledException)
+            {
+                LogRemoveMemberUnavailable(logger, SiteId, exception);
+                return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.IdentityProviderUnavailable);
+            }
+        }
+
+        RaiseEvent(new MembershipRevoked(userId));
+        await ConfirmEvents();
+
+        // Not cancelled by the caller: the removal is journaled, so the projection follows (read-your-writes).
+        await CatchUpIdentityAsync(CancellationToken.None);
+
+        return new SiteMembershipChangeResult(SiteMembershipChangeOutcome.Changed);
+    }
+
+    private bool IsLastOwner(string userId)
+    {
+        var owners = State.Owners;
+        return owners.Count <= 1 && owners.Contains(userId);
+    }
+
+    /// <inheritdoc />
     public async Task<LotCreationResult> CreateLot(string callerId, string idempotencyKey, string name, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(callerId);
@@ -839,6 +957,12 @@ public sealed partial class SiteGrain(
 
     [LoggerMessage(EventId = 9, EventName = "InviteUnavailable", Level = LogLevel.Warning, Message = "Keycloak is unavailable while inviting to Site {SiteId}; no invitation was sent.")]
     private static partial void LogInviteUnavailable(ILogger logger, string siteId, Exception exception);
+
+    [LoggerMessage(EventId = 10, EventName = "RoleChangeUnavailable", Level = LogLevel.Warning, Message = "Keycloak is unavailable while changing a Role on Site {SiteId}; nothing was journaled.")]
+    private static partial void LogRoleChangeUnavailable(ILogger logger, string siteId, Exception exception);
+
+    [LoggerMessage(EventId = 11, EventName = "RemoveMemberUnavailable", Level = LogLevel.Warning, Message = "Keycloak is unavailable while removing a member from Site {SiteId}; nothing was journaled.")]
+    private static partial void LogRemoveMemberUnavailable(ILogger logger, string siteId, Exception exception);
 
     [LoggerMessage(EventId = 5, EventName = "PauseNotDelivered", Level = LogLevel.Warning, Message = "The Pause of Site {SiteId} did not reach Device {DeviceId}; it stays pending and is delivered again.")]
     private static partial void LogPauseNotDelivered(ILogger logger, string siteId, string deviceId, Exception exception);

@@ -1374,4 +1374,48 @@ class ColdframeApiTest {
                 api().invite("a", "ana@example.com", "Owner"),
             )
         }
+
+    @Test
+    fun uxDr84ChangeRolePutsTheRoleOnTheMemberAndReads204WithoutABody() =
+        runTest {
+            answer = { respond("", HttpStatusCode.NoContent) }
+
+            val result = api().changeRole("a", "u 2", "Administrator")
+
+            assertEquals(ApiResult.Ok(Unit), result)
+            val request = requests.single()
+            assertEquals(HttpMethod.Put, request.method)
+            assertEquals("https://server.example/sites/a/members/u%202", request.url.toString())
+            assertEquals(
+                """{"role":"Administrator"}""",
+                (request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString(),
+            )
+        }
+
+    @Test
+    fun uxDr113RemoveMemberDeletesTheMembershipAndReads204() =
+        runTest {
+            answer = { respond("", HttpStatusCode.NoContent) }
+
+            assertEquals(ApiResult.Ok(Unit), api().removeMember("a", "u2"))
+            val request = requests.single()
+            assertEquals(HttpMethod.Delete, request.method)
+            assertEquals("https://server.example/sites/a/members/u2", request.url.toString())
+        }
+
+    @Test
+    fun uxDr84LastOwnerAndMemberNotFoundAreTheirOwnFailures() =
+        runTest {
+            answer = { respond(problem("last-owner"), HttpStatusCode.Conflict, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.LastOwner), api().changeRole("a", "u1", "Member"))
+
+            answer = { respond(problem("member-not-found"), HttpStatusCode.NotFound, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.MemberNotFound), api().removeMember("a", "u9"))
+
+            answer = { respond(problem("site-not-found"), HttpStatusCode.NotFound, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.NotFound), api().removeMember("a", "u9"))
+
+            answer = { respond(problem("identity-provider-unavailable"), HttpStatusCode.ServiceUnavailable, problem) }
+            assertEquals(ApiResult.Failed(ApiFailure.IdentityProviderUnavailable), api().removeMember("a", "u2"))
+        }
 }

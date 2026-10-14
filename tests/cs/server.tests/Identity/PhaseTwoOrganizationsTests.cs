@@ -31,7 +31,7 @@ public sealed class PhaseTwoOrganizationsTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public static TheoryData<string> Operations() => ["find", "get", "create", "role", "member", "grant", "roster", "invite", "profiles"];
+    public static TheoryData<string> Operations() => ["find", "get", "create", "role", "member", "grant", "roster", "invite", "profiles", "revoke", "remove"];
 
     [Theory]
     [MemberData(nameof(Operations))]
@@ -301,6 +301,52 @@ public sealed class PhaseTwoOrganizationsTests
         Assert.Equal(expected, await Create(stub).Organizations.InviteAsync(Organization.Id, "ana@example.com", "member", null, Ct));
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.NoContent)]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.NotFound)]
+    public async Task RevokingARoleDeletesTheGrantAndTakesAMissingOneAsDone(HttpStatusCode status)
+    {
+        string? call = null;
+        var stub = new StubHandler((request, _) =>
+        {
+            call = $"{request.Method} {request.RequestUri!.AbsolutePath}";
+            return Task.FromResult(new HttpResponseMessage(status));
+        });
+
+        await Create(stub).Organizations.RevokeRoleAsync(Organization.Id, "administrator", "user-1", Ct);
+
+        Assert.Equal($"DELETE /realms/coldframe/orgs/{Organization.Id}/roles/administrator/users/user-1", call);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NoContent)]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.NotFound)]
+    public async Task RemovingAMemberDeletesTheMembershipAndTakesAMissingOneAsDone(HttpStatusCode status)
+    {
+        string? call = null;
+        var stub = new StubHandler((request, _) =>
+        {
+            call = $"{request.Method} {request.RequestUri!.AbsolutePath}";
+            return Task.FromResult(new HttpResponseMessage(status));
+        });
+
+        await Create(stub).Organizations.RemoveMemberAsync(Organization.Id, "user-1", Ct);
+
+        Assert.Equal($"DELETE /realms/coldframe/orgs/{Organization.Id}/members/user-1", call);
+    }
+
+    [Fact]
+    public async Task ARefusedRevocationOrRemovalIsUnexpected()
+    {
+        var stub = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)));
+        var organizations = Create(stub).Organizations;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => organizations.RevokeRoleAsync(Organization.Id, "member", "user-1", Ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => organizations.RemoveMemberAsync(Organization.Id, "user-1", Ct));
+    }
+
     [Fact]
     public async Task TheMemberProfilesAreReadPageByPageWithNameAndEmail()
     {
@@ -349,6 +395,8 @@ public sealed class PhaseTwoOrganizationsTests
         "roster" => organizations.GetRosterAsync(Organization.Id, Ct),
         "invite" => organizations.InviteAsync(Organization.Id, "ana@example.com", "member", redirectUri: null, Ct),
         "profiles" => organizations.GetMemberProfilesAsync(Organization.Id, Ct),
+        "revoke" => organizations.RevokeRoleAsync(Organization.Id, "member", "user-1", Ct),
+        "remove" => organizations.RemoveMemberAsync(Organization.Id, "user-1", Ct),
         _ => throw new ArgumentOutOfRangeException(nameof(operation)),
     };
 

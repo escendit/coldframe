@@ -24,6 +24,14 @@ public enum MembersNoticeKind: String, CaseIterable, Sendable {
   case unreachable
   case certificate
   case unexpected
+  /// Story 9.2: "‹name› is now ‹Role›."
+  case roleChanged
+  /// Story 9.2: "‹name› was removed from ‹Site›."
+  case removed
+  /// Story 9.2, 404: "‹name› is no longer a member of ‹Site›." The list is read again.
+  case memberGone
+  /// Story 9.2, 503: "The change was not saved. Try again." Try again sends it again.
+  case notChanged
 
   public var message: L10n {
     switch self {
@@ -36,22 +44,34 @@ public enum MembersNoticeKind: String, CaseIterable, Sendable {
     case .unreachable: .membersUnreachable
     case .certificate: .noticeCertificate
     case .unexpected: .membersUnexpected
+    case .roleChanged: .membersRoleChanged
+    case .removed: .membersRemoved
+    case .memberGone: .membersMemberGone
+    case .notChanged: .membersNotChanged
     }
   }
 
-  /// "Invitation sent to ‹email›…" names the email; the 403 and 404 notices name the Site.
+  /// "Invitation sent to ‹email›…" names the email; the 403 and 404 notices name the Site; the
+  /// Role change and removal notices name the person, then the Role or the Site.
   var argument: Argument? {
     switch self {
     case .sent: .email
     case .forbidden, .siteGone: .site
+    case .roleChanged: .personAndRole
+    case .removed, .memberGone: .personAndSite
     default: nil
     }
   }
 
-  enum Argument { case email, site }
+  enum Argument { case email, site, personAndRole, personAndSite }
 
-  /// The sent notice is said politely; anything that did not happen at once.
-  public var announcement: Announcement { self == .sent ? .polite : .assertive }
+  /// What was done is said politely; anything that did not happen, assertively.
+  public var announcement: Announcement {
+    switch self {
+    case .sent, .roleChanged, .removed: .polite
+    default: .assertive
+    }
+  }
 }
 
 extension SiteRoleKind {
@@ -67,7 +87,9 @@ extension SiteRoleKind {
 
 /// One Member tile (UX-DR51): the initials square, the name and the Role line, upper case by
 /// style. The signed-in User's own square is `primary` with `ink-on-bright`; the others are
-/// `layer-01` with `text-primary`. One accessibility element. Display-only in Story 9.1.
+/// `layer-01` with `text-primary`. One accessibility element. Story 9.2: the Owner taps a tile to
+/// change the Role or remove the Membership ("Member · change"); the only Owner's tile is locked
+/// ("Owner · last one", with "A Site always keeps at least one Owner.") and does nothing.
 public struct MemberTilePresentation: Equatable, Sendable, Identifiable {
   public let id: String
   public let name: String
@@ -75,9 +97,12 @@ public struct MemberTilePresentation: Equatable, Sendable, Identifiable {
   public let role: SiteRoleKind
   public let initials: String
   public let isYou: Bool
+  /// The Site's only Owner: locked, never a button.
+  public let isLastOwner: Bool
 
   public init(
-    id: String, name: String, email: String, role: SiteRoleKind, initials: String, isYou: Bool
+    id: String, name: String, email: String, role: SiteRoleKind, initials: String, isYou: Bool,
+    isLastOwner: Bool = false
   ) {
     self.id = id
     self.name = name
@@ -85,14 +110,106 @@ public struct MemberTilePresentation: Equatable, Sendable, Identifiable {
     self.role = role
     self.initials = initials
     self.isYou = isYou
+    self.isLastOwner = isLastOwner
   }
 
   public var roleLabel: L10n { role.label }
+
+  /// Whether the tile is a button that opens the Role editor.
+  public var isChangeable: Bool { !isLastOwner }
+
+  /// "Member · change", or "Owner · last one" on the locked tile; upper case by style.
+  public var roleLine: Copy {
+    isLastOwner ? Copy(.membersTileLastOwner) : Copy(.membersTileChange, .entry(role.label))
+  }
+
+  /// "A Site always keeps at least one Owner." under the locked tile's Role line.
+  public var lockExplanation: L10n? { isLastOwner ? .membersLastOwner : nil }
 
   /// "Simon Novak, Owner, you" on the User's own tile, "Ana Costa, Member" on the others.
   public func spoken(_ context: CopyContext) -> String {
     context.text(
       isYou ? .membersTileYou : .membersTile, .text(name), .text(context.text(role.label)))
+  }
+}
+
+/// Why the one line under the editor's Role choice shows, as the core names it (Story 9.2).
+public enum MemberRoleErrorKind: String, CaseIterable, Sendable {
+  /// 409 last-owner: "A Site always keeps at least one Owner."
+  case lastOwner
+
+  public var message: L10n { .membersLastOwner }
+}
+
+/// The confirmation before a Membership is removed (Story 9.2): a native dialog naming the person
+/// and the Site, "Remove" destructive. Nothing is removed before it is confirmed.
+public struct MemberRemovalPresentation: Equatable, Sendable {
+  public let name: String
+  public let siteName: String
+  public let working: Bool
+
+  public init(name: String, siteName: String, working: Bool) {
+    self.name = name
+    self.siteName = siteName
+    self.working = working
+  }
+
+  /// "Remove Ana Costa from Home garden?"
+  public var title: Copy { Copy(.membersRemoveQuestion, .text(name), .text(siteName)) }
+  /// "They lose access to Home garden and stop getting its Alerts."
+  public var message: Copy { Copy(.membersRemoveDetail, .text(siteName)) }
+  public var confirm: L10n { working ? .membersRemoving : .membersRemoveConfirm }
+  public let cancel: L10n = .membersCancel
+}
+
+/// The Role editor of one Membership (Story 9.2), opened by tapping a tile: the Role choice with
+/// "Save Role", and "Remove from Site", which asks first. A refused last-Owner change shows one
+/// line under the Role choice.
+public struct MemberEditorPresentation: Equatable, Sendable, Identifiable {
+  public let id: String
+  public let name: String
+  public let siteName: String
+  /// The selected segment, the member's Role at first.
+  public let role: SiteRoleKind
+  public let roleError: MemberRoleErrorKind?
+  public let working: Bool
+  public let confirmingRemove: Bool
+
+  public init(
+    id: String, name: String, siteName: String, role: SiteRoleKind,
+    roleError: MemberRoleErrorKind? = nil, working: Bool = false, confirmingRemove: Bool = false
+  ) {
+    self.id = id
+    self.name = name
+    self.siteName = siteName
+    self.role = role
+    self.roleError = roleError
+    self.working = working
+    self.confirmingRemove = confirmingRemove
+  }
+
+  public var roleSegments: [SegmentPresentation<SiteRoleKind>] {
+    [SiteRoleKind.member, .administrator, .owner].map {
+      SegmentPresentation(value: $0, label: $0.label, isSelected: $0 == role)
+    }
+  }
+
+  /// "A Site always keeps at least one Owner." when the Server refused, else nothing.
+  public var roleLine: L10n? { roleError?.message }
+
+  /// "Save Role", or "Saving Role…" in place while it is saved.
+  public var saveLabel: L10n {
+    working && !confirmingRemove ? .membersSavingRole : .membersSaveRole
+  }
+
+  public let removeLabel: L10n = .membersRemove
+
+  public var areButtonsEnabled: Bool { !working }
+
+  /// The confirmation, while it is asked.
+  public var removal: MemberRemovalPresentation? {
+    confirmingRemove
+      ? MemberRemovalPresentation(name: name, siteName: siteName, working: working) : nil
   }
 }
 
@@ -125,6 +242,12 @@ public struct MembersPresentation: Equatable, Sendable {
   public let noticeTryAgain: Bool
   /// The email the sent notice names.
   public let sentTo: String
+  /// The open Role editor (Story 9.2); nil while none is open.
+  public let editor: MemberEditorPresentation?
+  /// The person the Role change, removal and gone notices name.
+  public let noticeName: String
+  /// The Role the Role change notice names.
+  public let noticeRole: SiteRoleKind
 
   public static let hidden = MembersPresentation(surface: .hidden)
 
@@ -133,7 +256,9 @@ public struct MembersPresentation: Equatable, Sendable {
     email: String = "", role: SiteRoleKind = .member,
     roles: [SiteRoleKind] = [.member, .administrator, .owner],
     emailError: InviteEmailErrorKind? = nil, working: Bool = false,
-    notice: MembersNoticeKind? = nil, noticeTryAgain: Bool = false, sentTo: String = ""
+    notice: MembersNoticeKind? = nil, noticeTryAgain: Bool = false, sentTo: String = "",
+    editor: MemberEditorPresentation? = nil, noticeName: String = "",
+    noticeRole: SiteRoleKind = .member
   ) {
     self.surface = surface
     self.siteName = siteName
@@ -146,6 +271,9 @@ public struct MembersPresentation: Equatable, Sendable {
     self.notice = notice
     self.noticeTryAgain = noticeTryAgain
     self.sentTo = sentTo
+    self.editor = editor
+    self.noticeName = noticeName
+    self.noticeRole = noticeRole
   }
 
   /// Mirrors the flat snapshot field for field. An unknown surface reads as hidden, an unknown
@@ -154,7 +282,10 @@ public struct MembersPresentation: Equatable, Sendable {
     surface: String, siteName: String, memberIds: [String], memberNames: [String],
     memberEmails: [String], memberRoles: [String], memberInitials: [String],
     memberIsYou: [Bool], email: String, role: String, roles: [String], emailError: String?,
-    working: Bool, notice: String?, noticeTryAgain: Bool, sentTo: String
+    working: Bool, notice: String?, noticeTryAgain: Bool, sentTo: String,
+    memberLastOwner: [Bool], editorUserId: String?, editorName: String,
+    editorRole: String, editorRoleError: String?, editorWorking: Bool,
+    confirmingRemove: Bool, noticeName: String, noticeRole: String
   ) {
     let kind: MembersSurface =
       switch surface {
@@ -170,14 +301,22 @@ public struct MembersPresentation: Equatable, Sendable {
         email: memberEmails[safe: index] ?? "",
         role: roleOf(memberRoles[safe: index] ?? ""),
         initials: memberInitials[safe: index] ?? "",
-        isYou: memberIsYou[safe: index] ?? false)
+        isYou: memberIsYou[safe: index] ?? false,
+        isLastOwner: memberLastOwner[safe: index] ?? false)
+    }
+    let editor = editorUserId.map {
+      MemberEditorPresentation(
+        id: $0, name: editorName, siteName: siteName, role: roleOf(editorRole),
+        roleError: editorRoleError.map { MemberRoleErrorKind(rawValue: $0) ?? .lastOwner },
+        working: editorWorking, confirmingRemove: confirmingRemove)
     }
     self.init(
       surface: kind, siteName: siteName, members: kind == .ready ? tiles : [], email: email,
       role: roleOf(role), roles: roles.compactMap(SiteRoleKind.init(rawValue:)),
       emailError: emailError.map { InviteEmailErrorKind(rawValue: $0) ?? .invalid },
       working: working, notice: notice.map { MembersNoticeKind(rawValue: $0) ?? .unexpected },
-      noticeTryAgain: noticeTryAgain, sentTo: sentTo)
+      noticeTryAgain: noticeTryAgain, sentTo: sentTo, editor: kind == .ready ? editor : nil,
+      noticeName: noticeName, noticeRole: roleOf(noticeRole))
   }
 
   /// Members exists for an Owner only; for anyone else the Settings row is not drawn.
@@ -205,6 +344,9 @@ public struct MembersPresentation: Equatable, Sendable {
     switch notice.argument {
     case .email: return Copy(notice.message, .text(sentTo))
     case .site: return Copy(notice.message, .text(siteName))
+    case .personAndRole:
+      return Copy(notice.message, .text(noticeName), .entry(noticeRole.label))
+    case .personAndSite: return Copy(notice.message, .text(noticeName), .text(siteName))
     case nil: return Copy(notice.message)
     }
   }
@@ -230,4 +372,15 @@ public protocol MembersService: AnyObject {
   func sendInvite()
   /// Try again, where the notice offers it.
   func retry()
+  /// Story 9.2: a tap on a changeable tile opens its Role editor.
+  func select(_ userId: String)
+  func closeEditor()
+  func setEditRole(_ role: SiteRoleKind)
+  /// "Save Role".
+  func saveRole()
+  /// "Remove from Site": asks first.
+  func askRemove()
+  func cancelRemove()
+  /// "Remove" in the confirmation.
+  func confirmRemove()
 }

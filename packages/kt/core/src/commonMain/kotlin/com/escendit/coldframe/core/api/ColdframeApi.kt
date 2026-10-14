@@ -423,6 +423,34 @@ public class ColdframeApi(
             }
         }) { }
 
+    /**
+     * `PUT /sites/{siteId}/members/{userId}` (`changeMemberRole`, Owner, Story 9.2): 204 without a body. The only
+     * Owner is 409 `last-owner`; someone who is no member is 404 `member-not-found`; Keycloak down is 503.
+     */
+    override suspend fun changeRole(
+        siteId: String,
+        userId: String,
+        role: String,
+    ): ApiResult<Unit> =
+        call({
+            http.put(member(siteId, userId)) {
+                it()
+                contentType(ContentType.Application.Json)
+                setBody(MemberRoleRequestDto(role))
+            }
+        }) { }
+
+    /** `DELETE /sites/{siteId}/members/{userId}` (`removeSiteMember`, Owner, Story 9.2): 204 without a body. */
+    override suspend fun removeMember(
+        siteId: String,
+        userId: String,
+    ): ApiResult<Unit> = call({ http.delete(member(siteId, userId)) { it() } }) { }
+
+    private fun member(
+        siteId: String,
+        userId: String,
+    ): String = "$base/sites/${siteId.encoded()}/members/${userId.encoded()}"
+
     private fun sitePause(siteId: String): String = "$base/sites/${siteId.encoded()}/pause"
 
     private fun devicePause(
@@ -496,7 +524,13 @@ public class ColdframeApi(
             }
 
             HttpStatusCode.NotFound -> {
-                ApiFailure.NotFound
+                if (problemType(response) ==
+                    PROBLEM_MEMBER_NOT_FOUND
+                ) {
+                    ApiFailure.MemberNotFound
+                } else {
+                    ApiFailure.NotFound
+                }
             }
 
             HttpStatusCode.Conflict -> {
@@ -504,6 +538,7 @@ public class ColdframeApi(
                     PROBLEM_DEVICE_ON_ANOTHER_SITE -> ApiFailure.DeviceOnAnotherSite
                     PROBLEM_DEVICE_ASSIGNED -> ApiFailure.DeviceAssigned
                     PROBLEM_ALREADY_INVITED -> ApiFailure.AlreadyInvited
+                    PROBLEM_LAST_OWNER -> ApiFailure.LastOwner
                     else -> ApiFailure.LotClaimed
                 }
             }
@@ -549,6 +584,8 @@ public class ColdframeApi(
         public const val PROBLEM_DEVICE_ON_ANOTHER_SITE: String = "urn:coldframe:problem:device-on-another-site"
         public const val PROBLEM_DEVICE_ASSIGNED: String = "urn:coldframe:problem:device-assigned"
         public const val PROBLEM_ALREADY_INVITED: String = "urn:coldframe:problem:already-invited"
+        public const val PROBLEM_LAST_OWNER: String = "urn:coldframe:problem:last-owner"
+        public const val PROBLEM_MEMBER_NOT_FOUND: String = "urn:coldframe:problem:member-not-found"
         public const val PROBLEM_CALIBRATION_NOT_DELIVERED: String = "urn:coldframe:problem:calibration-not-delivered"
 
         public const val PROBLEM_REMINDER_CADENCE_NOT_DELIVERED: String =
