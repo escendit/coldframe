@@ -213,6 +213,49 @@ public sealed class IdentityReconciliationActivitiesTests(IdentityCluster identi
         Assert.Equal(["site.created", "site.membership-granted"], await identity.AliasesAsync($"site/{siteId}"));
     }
 
+    [Fact]
+    public async Task AnAcceptedInvitationReachesTheSiteAndTheNewMembersUserGrain()
+    {
+        var (siteId, ownerId) = await CreateSiteAsync();
+        var invitee = NewUserId();
+        Assert.Equal(SiteInviteOutcome.Sent, (await identity.Site(siteId).Invite("neighbour@example.com", SiteRole.Member, Ct)).Outcome);
+
+        // Phase Two's required action grants the Membership and the role directly: no admin event, one user event.
+        identity.PhaseTwo.AcceptInvitation(siteId, "neighbour@example.com", invitee);
+        await RunUserEventAsync(InvitationEvent(siteId, invitee));
+
+        Assert.Equal(new Dictionary<string, SiteRole> { [siteId] = SiteRole.Member }, await identity.UserSitesAsync(invitee));
+        Assert.Equal(new Dictionary<string, SiteRole> { [siteId] = SiteRole.Owner }, await identity.UserSitesAsync(ownerId));
+        Assert.Equal(SiteRole.Member, (await identity.ReadModel.FindSiteAsync(siteId, invitee, Ct))?.CallerRole);
+    }
+
+    [Fact]
+    public async Task AnAcceptedInvitationKeycloakDoesNotShowYetFailsRetryablyUntilAttemptFive()
+    {
+        var (siteId, _) = await CreateSiteAsync();
+        var userEvent = InvitationEvent(siteId, NewUserId());
+
+        var failure = await Assert.ThrowsAsync<ApplicationFailureException>(() => RunUserEventAsync(userEvent));
+        Assert.Equal(IdentityReconciliationActivities.NotYetVisibleFailure, failure.ErrorType);
+
+        await RunUserEventAsync(userEvent, IdentityReconciliationActivities.AcceptUnconfirmedFromAttempt);
+        Assert.Equal(["site.created", "site.membership-granted"], await identity.AliasesAsync($"site/{siteId}"));
+    }
+
+    [Fact]
+    public async Task OtherUserEventsCompleteWithoutReadingKeycloak()
+    {
+        var (siteId, ownerId) = await CreateSiteAsync();
+        var reads = identity.PhaseTwo.RosterReads;
+
+        await RunUserEventAsync(InvitationEvent(siteId, ownerId) with { Error = "User invitation revoked." });
+        await RunUserEventAsync(InvitationEvent(siteId, ownerId) with { Type = "LOGIN" });
+        await RunUserEventAsync(InvitationEvent(siteId, ownerId) with { RealmId = "master" });
+        await RunUserEventAsync(InvitationEvent(siteId, ownerId) with { Details = null });
+
+        Assert.Equal(reads, identity.PhaseTwo.RosterReads);
+    }
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static string NewUserId() => Guid.NewGuid().ToString();
@@ -244,6 +287,26 @@ public sealed class IdentityReconciliationActivitiesTests(IdentityCluster identi
         var environment = new ActivityEnvironment { Info = ActivityEnvironment.DefaultInfo with { Attempt = attempt } };
 
         return environment.RunAsync(() => activities.ReconcileAsync(adminEvent));
+    }
+
+    private static KeycloakUserEvent InvitationEvent(string siteId, string userId) => new()
+    {
+        Id = Guid.NewGuid().ToString(),
+        Type = UserEventRoute.InvitationActionType,
+        RealmId = Realm,
+        UserId = userId,
+        Details = new Dictionary<string, string?> { [UserEventRoute.OrganizationDetail] = siteId, ["invitation_id"] = "i1" },
+    };
+
+    private Task RunUserEventAsync(KeycloakUserEvent userEvent, int attempt = 1)
+    {
+        var activities = new IdentityReconciliationActivities(
+            identity.Cluster.GrainFactory,
+            Options.Create(new KeycloakEventOptions { RealmId = Realm }),
+            NullLogger<IdentityReconciliationActivities>.Instance);
+        var environment = new ActivityEnvironment { Info = ActivityEnvironment.DefaultInfo with { Attempt = attempt } };
+
+        return environment.RunAsync(() => activities.ReconcileUserEventAsync(userEvent));
     }
 
     private async Task<(string SiteId, string OwnerId)> CreateSiteAsync()

@@ -458,3 +458,28 @@ public data class RegisterPushDeviceRequestDto(
     val token: String,
     val environment: String? = null,
 )
+
+/** `InvitationRequest` (Story 9.1): the invitee's email and the Role they get, a `SiteRole` name. */
+@Serializable
+public data class InvitationRequestDto(
+    val email: String,
+    val role: String,
+)
+
+/**
+ * `SiteMember`: one Membership of a Site. [role] is the Server's (its identity projection); [name] and
+ * [email] are read from Keycloak with the request. [name] may be empty, [email] absent.
+ */
+@Serializable
+public data class SiteMemberDto(
+    val userId: String,
+    val name: String,
+    val role: String,
+    val email: String? = null,
+)
+
+/** `SiteMemberList`: Owners first, then by name. */
+@Serializable
+public data class SiteMemberListDto(
+    val members: List<SiteMemberDto>,
+)

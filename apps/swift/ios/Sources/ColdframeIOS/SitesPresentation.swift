@@ -142,6 +142,10 @@ public struct CreateSitePresentation: Equatable, Sendable {
 
   public var isButtonEnabled: Bool { !working }
 
+  /// Without a Membership only: "Accepted an invitation? It can take a minute to appear."
+  /// (UX-DR90). The core meanwhile reads the Sites every 10 s and opens the first that arrives.
+  public var invitationHint: L10n? { cancellable ? nil : .createSiteInvitationHint }
+
   /// The helper shows until a reason replaces it.
   public var fieldHelper: L10n { nameError?.message ?? .createSiteNameHelper }
 }

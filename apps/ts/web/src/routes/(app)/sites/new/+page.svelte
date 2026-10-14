@@ -1,11 +1,13 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { goto, invalidateAll } from '$app/navigation';
   import Button from '$lib/components/Button.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
   import TextInput from '$lib/components/TextInput.svelte';
   import TimeZonePanel from '$lib/components/TimeZonePanel.svelte';
   import { announce } from '$lib/announcer.svelte';
   import { t, type MessageKey } from '$lib/i18n';
+  import { membershipRefreshMs } from '$lib/members';
   import type { NameError } from '$lib/sites';
   import type { PageProps } from './$types';
 
@@ -34,6 +36,31 @@
   };
   const notice = $derived(form?.notice !== undefined && form.notice !== null ? t(noticeKeys[form.notice]) : null);
 
+  /**
+   * Invitation accepted, Membership not arrived yet (UX-DR90): with no Site, the Memberships are read again
+   * every 10 s while this page is open, and the first Site that arrives opens its overview. From New Site,
+   * with a Site already, nothing is read again and nothing switches.
+   */
+  const awaitingMembership = $derived(data.sites.length === 0);
+  let startedWithoutSite = false;
+
+  $effect(() => {
+    if (!awaitingMembership) {
+      if (startedWithoutSite) {
+        startedWithoutSite = false;
+        void goto('/garden', { invalidateAll: true });
+      }
+      return;
+    }
+    startedWithoutSite = true;
+    const timer = setInterval(() => {
+      void invalidateAll();
+    }, membershipRefreshMs);
+    return () => {
+      clearInterval(timer);
+    };
+  });
+
   $effect(() => {
     // Detection runs in the browser only; a zone this browser chose before is never replaced.
     detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -58,6 +85,9 @@
 
 <h1 class="cf-page-title">{t('createSite.title')}</h1>
 <p class="cf-create-site__intro">{t('createSite.intro')}</p>
+{#if awaitingMembership}
+  <p class="cf-create-site__hint">{t('createSite.invitationHint')}</p>
+{/if}
 
 <form
   class="cf-create-site"
@@ -91,6 +121,14 @@
 
   .cf-create-site__intro {
     margin: 0 0 var(--cf-spacing-6);
+  }
+
+  .cf-create-site__hint {
+    margin: calc(-1 * var(--cf-spacing-4)) 0 var(--cf-spacing-6);
+    font-family: var(--cf-type-helper-font-family);
+    font-size: var(--cf-type-helper-font-size);
+    line-height: var(--cf-type-helper-line-height);
+    color: var(--cf-color-text-helper);
   }
 
   .cf-create-site__back {

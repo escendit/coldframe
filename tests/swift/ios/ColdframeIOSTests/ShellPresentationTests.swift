@@ -70,12 +70,15 @@ func appearanceOptions() {
   #expect(themeSegments(selected: .system)[0].isSelected)
 }
 
-@Test("UX-DR71 UX-DR74 Settings lists My notifications, Site settings, Appearance, then Account")
+@Test(
+  "UX-DR71 UX-DR74 Settings lists My notifications, Members, Site settings, Appearance, then Account"
+)
 func settingsIndex() {
-  #expect(SettingsRow.allCases == [.notifications, .siteSettings, .appearance, .account])
+  #expect(SettingsRow.allCases == [.notifications, .members, .siteSettings, .appearance, .account])
   #expect(
     SettingsRow.allCases.map(\.title) == [
-      .settingsNotifications, .settingsSiteSettings, .settingsAppearance, .settingsAccount,
+      .settingsNotifications, .settingsMembers, .settingsSiteSettings, .settingsAppearance,
+      .settingsAccount,
     ])
   #expect(SettingsRow.siteSettings.helper == .settingsSiteSettingsHelper)
   #expect(SettingsRow.account.helper == nil)

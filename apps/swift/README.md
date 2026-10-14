@@ -10,8 +10,8 @@ Swift runtimes.
   String Catalog and, where SwiftUI exists, the views. It is a SwiftPM target of the
   `Package.swift` in the repository root, so it builds and tests without Xcode. The views talk to
   the core only through service protocols such as `SignInService`, `AppearanceService`,
-  `SitesService`, `LotsService`, `AlertsService`, `NotificationSettingsService`, `PushService`
-  and `PauseService`.
+  `SitesService`, `LotsService`, `AlertsService`, `NotificationSettingsService`, `PushService`,
+  `PauseService` and `MembersService`.
   `SitesService` (Story 1.8) carries the Sites of the signed-in user as a `SitesPresentation`
   (Create Site, the empty Garden, the Site switcher and the Site menu) built from the core's flat
   `SitesSnapshot`, plus the actions `load`, `select`, `newSite`, `cancelNewSite`, `setName`,
@@ -144,6 +144,19 @@ Swift runtimes.
     the day formatter in the phone's zone. Purple and the pause icon mean paused and nothing
     else. There is no "Paused by ‹name›" line, no paused notice on the Add a Hub and Add a Node
     outcome screens, no Resume inside Calibrate and no swipe action.
+  `MembersService` (Story 9.1) carries Members as a `MembersPresentation` built from the core's flat
+  `MembersSnapshot`, with the actions `load`, `setEmail`, `setRole`, `sendInvite` and `retry`.
+  Settings lists Members between My notifications and Site settings for an Owner only
+  (`SettingsRow.rows(role:)`); for anyone else the row does not exist. `MembersView` reads the
+  Memberships on every entry and shows the Member tiles (`MemberTileView`, UX-DR51: the initials
+  square, `primary` for the User's own, `layer-01` for the others, the name and the Role upper case
+  by style, one accessibility element) and the Invite form (UX-DR52): `TextInputField` with
+  `kind: .email` (email keyboard and content type, no capitalisation or autocorrection), the Role
+  Segmented choice with its one-line description, and "Send invite". The notices are the core's:
+  "Invitation sent to ‹email›. They accept from the email, on the garden's Wi-Fi.", "That person is
+  already invited or a member of this Site.", "The invitation was not sent. Try again." with Try
+  again. Create Site without a Membership adds "Accepted an invitation? It can take a minute to
+  appear." (`CreateSitePresentation.invitationHint`, UX-DR90).
   `NotificationSettingsService` (Story 6.3) carries My notifications as a
   `NotificationSettingsPresentation` built from the core's flat `NotificationSettingsSnapshot`.
   Settings lists My notifications first, above Site settings; the screen calls `load` on every
@@ -181,7 +194,7 @@ Swift runtimes.
 - `ios/App` is the app target: `ColdframeApp` and the adapters that import `ColdframeCore`
   (`CoreSignInService`, `CoreAppearanceService`, `CoreSitesService`, `CoreLotsService`, `CoreDevicesService`,
   `CoreHubSetupService`, `CoreNodeSetupService`, `CoreAlertsService`,
-  `CoreNotificationSettingsService`, `CorePushService`, `CorePauseService`), the
+  `CoreNotificationSettingsService`, `CorePushService`, `CorePauseService`, `CoreMembersService`), the
   static framework Gradle builds from [`packages/kt/core`](../../packages/kt/core).
   `CorePushService` holds the OS calls of push: it reads `UNUserNotificationCenter`'s
   authorization, shows the prompt, opens the app's notification settings and, once the

@@ -8,12 +8,16 @@ import com.escendit.coldframe.core.api.SitePauseDto
 import com.escendit.coldframe.core.devices.DevicesEngine
 import com.escendit.coldframe.core.signin.SignInState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -42,6 +46,10 @@ public interface SitesApi {
  * retry fail for a transport reason, so the overview can show its last good Lots in stale mode.
  * A certificate failure or any other answer shows its notice instead. When the session ends
  * (sign-out, or a 401) the kept Sites are cleared and every listener of [onSessionEnded] is run.
+ *
+ * While Create Site shows because the user has no Membership, the Sites are read again every
+ * [MEMBERSHIP_POLL] (UX-DR90): an accepted invitation reaches the Server asynchronously, and the first
+ * Site that arrives opens its overview, where the notification prompt follows (UX-DR122).
  */
 public class SitesEngine(
     private val api: SitesApi,
@@ -51,6 +59,7 @@ public class SitesEngine(
     private val detectTimeZone: () -> String = ::detectedTimeZone,
     private val newKey: () -> String = ::randomKey,
     private val zones: () -> List<String> = ::availableTimeZones,
+    private val membershipPoll: Duration = MEMBERSHIP_POLL,
 ) {
     private val mutableState = MutableStateFlow<SitesState>(SitesState.Idle)
 
@@ -81,6 +90,14 @@ public class SitesEngine(
         scope.launch {
             // A sign-out clears what this device kept; a start that is still restoring does not.
             launch { signIn.collect { if (it is SignInState.SignedOut) forget() } }
+            launch {
+                mutableState.map { it is SitesState.NeedsSite }.distinctUntilChanged().collectLatest { needsSite ->
+                    while (needsSite) {
+                        delay(membershipPoll)
+                        awaitMembership()
+                    }
+                }
+            }
             signIn.map { it is SignInState.SignedIn }.distinctUntilChanged().collect { signedIn ->
                 session++
                 loadingSession = NOT_LOADING
@@ -173,6 +190,37 @@ public class SitesEngine(
             // Asked again while this read was on its way (a pause or a resume answered meanwhile): what just
             // landed may be the older list, so the Sites are read once more.
             if (again && started == session) refresh()
+        }
+    }
+
+    /**
+     * One read of the Sites while Create Site shows for a user without a Membership (UX-DR90). A Site
+     * that arrived (an accepted invitation) becomes current and its overview opens; an empty list or a
+     * read that fails changes nothing. Skipped while Create Site is sending or another read runs.
+     */
+    private suspend fun awaitMembership() {
+        val shown = mutableState.value as? SitesState.NeedsSite ?: return
+        if (shown.form.working || loadingSession == session) return
+        val started = session
+        val result = api.listSites()
+        if (started != session) return
+        val now = mutableState.value as? SitesState.NeedsSite ?: return
+        if (now.form.working) return
+        when (result) {
+            is ApiResult.Ok -> {
+                val sites = result.value.sites.map { it.toSummary() }
+                if (sites.isEmpty()) return
+                cache.store(result.value.sites)
+                choices.currentSiteId = sites.first().id
+                mutableState.value = SitesState.Ready(sites, sites.first(), creating = null)
+            }
+
+            is ApiResult.Failed -> {
+                if (result.failure == ApiFailure.Unauthorized) {
+                    forget()
+                    mutableState.value = SitesState.Idle
+                }
+            }
         }
     }
 
@@ -481,6 +529,9 @@ public class SitesEngine(
     public companion object {
         private const val NOT_LOADING = -1
 
+        /** How often Create Site reads the Sites again for a user without a Membership (UX-DR90). */
+        public val MEMBERSHIP_POLL: Duration = 10.seconds
+
         private fun noticeOf(failure: ApiFailure): SitesNotice =
             when (failure) {
                 ApiFailure.Unreachable -> SitesNotice.Unreachable
@@ -498,6 +549,7 @@ public class SitesEngine(
                 ApiFailure.LotClaimed,
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
+                ApiFailure.AlreadyInvited,
                 ApiFailure.CalibrationNotDelivered,
                 ApiFailure.ReminderCadenceNotDelivered,
                 ApiFailure.Unexpected,

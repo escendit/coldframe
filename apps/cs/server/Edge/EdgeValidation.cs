@@ -24,6 +24,11 @@ public static class EdgeValidation
     public const int MaxLotNameLength = MaxSiteNameLength;
 
     /// <summary>
+    /// The longest invitation email, after trimming (RFC 5321's path limit).
+    /// </summary>
+    public const int MaxEmailLength = 254;
+
+    /// <summary>
     /// The longest <c>Idempotency-Key</c>.
     /// </summary>
     public const int MaxIdempotencyKeyLength = 200;
@@ -256,6 +261,44 @@ public static class EdgeValidation
     {
         "daily" => ReminderCadence.Daily,
         "every2Days" => ReminderCadence.Every2Days,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Trims an invitation email (Story 9.1) and returns it when it is one address: at most 254 characters, exactly
+    /// one <c>@</c> with something on both sides, no whitespace or control characters, no display name, and parsed
+    /// by <see cref="System.Net.Mail.MailAddress"/> to the same address. Otherwise <see langword="null"/>.
+    /// </summary>
+    public static string? NormalizeEmail(string? email)
+    {
+        var trimmed = email?.Trim();
+
+        if (string.IsNullOrEmpty(trimmed)
+            || trimmed.Length > MaxEmailLength
+            || trimmed.Count(character => character == '@') != 1
+            || trimmed[0] == '@'
+            || trimmed[^1] == '@'
+            || trimmed.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
+        {
+            return null;
+        }
+
+        // A display name or angle brackets parse to another Address, so only the bare address passes.
+        return System.Net.Mail.MailAddress.TryCreate(trimmed, out var address)
+            && string.Equals(address.Address, trimmed, StringComparison.Ordinal)
+                ? trimmed
+                : null;
+    }
+
+    /// <summary>
+    /// The <see cref="SiteRole"/> a request names by its contract name (<c>Owner</c>, <c>Administrator</c>,
+    /// <c>Member</c>, exactly), otherwise <see langword="null"/>.
+    /// </summary>
+    public static SiteRole? NormalizeSiteRole(string? role) => role switch
+    {
+        "Owner" => SiteRole.Owner,
+        "Administrator" => SiteRole.Administrator,
+        "Member" => SiteRole.Member,
         _ => null,
     };
 

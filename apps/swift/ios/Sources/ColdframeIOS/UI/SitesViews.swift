@@ -120,6 +120,12 @@
             L10n.createSiteIntro.text.role(Typography.body)
               .foregroundStyle(palette.textSecondary)
               .fixedSize(horizontal: false, vertical: true)
+            // Without a Membership: an accepted invitation can take a minute (UX-DR90).
+            if let hint = presentation.invitationHint {
+              hint.text.role(Typography.body)
+                .foregroundStyle(palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
             TextInputField(
               label: L10n.createSiteName.string,
               value: Binding(get: { presentation.name }, set: { actions.setName($0) }),

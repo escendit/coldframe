@@ -127,25 +127,28 @@
 
   /// DS TextInput (UX-DR35): label above, helper below; an error replaces the helper, draws the
   /// 2 pt `support-error` border with `error--filled`, and is read with the field. A password
-  /// field reveals with the Carbon `view` icon.
+  /// field reveals with the Carbon `view` icon. An email field (`kind: .email`) gets the email
+  /// keyboard and content type, without auto-capitalisation or autocorrection.
   public struct TextInputField: View {
     let label: String
     @Binding var value: String
     let helper: String?
     let error: String?
     let isPassword: Bool
+    let kind: TextInputKind
     @State private var revealed = false
     @Environment(\.palette) private var palette
 
     public init(
       label: String, value: Binding<String>, helper: String? = nil, error: String? = nil,
-      isPassword: Bool = false
+      isPassword: Bool = false, kind: TextInputKind = .text
     ) {
       self.label = label
       _value = value
       self.helper = helper
       self.error = error
       self.isPassword = isPassword
+      self.kind = kind
     }
 
     public var body: some View {
@@ -159,6 +162,7 @@
               TextField(label, text: $value)
             }
           }
+          .textInputKind(kind)
           .role(Typography.bodyLg)
           .foregroundStyle(palette.textPrimary)
           .accessibilityHint(error ?? helper ?? "")
@@ -326,6 +330,25 @@
       SegmentedChoice(
         label: .appearanceTheme, segments: themeSegments(selected: selected),
         helper: .appearanceThemeHelper, onSelect: onSelect)
+    }
+  }
+
+  extension View {
+    /// The keyboard and content type of a Text input's kind. Keyboards exist on iOS only; macOS,
+    /// where the package is built and rendered for tests, keeps the plain field.
+    @ViewBuilder
+    fileprivate func textInputKind(_ kind: TextInputKind) -> some View {
+      switch kind {
+      case .text:
+        self
+      case .email:
+        #if os(iOS)
+          self.keyboardType(.emailAddress).textContentType(.emailAddress)
+            .textInputAutocapitalization(.never).autocorrectionDisabled(!kind.autocorrects)
+        #else
+          self.autocorrectionDisabled(!kind.autocorrects)
+        #endif
+      }
     }
   }
 #endif

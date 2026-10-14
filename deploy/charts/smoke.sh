@@ -248,6 +248,9 @@ kubectl "${ns[@]}" create secret generic coldframe-keycloak-admin \
   --from-literal=username=admin --from-literal=password="$(random_secret)"
 kubectl "${ns[@]}" create secret generic coldframe-oidc-clients \
   --from-literal=web-client-secret="$(random_secret)" --from-literal=server-client-secret="$(random_secret)"
+kubectl "${ns[@]}" create secret generic coldframe-smtp \
+  --from-literal=host=smtp.smoke.test --from-literal=port=587 --from-literal=from=coldframe@smoke.test \
+  --from-literal=username=coldframe --from-literal=password="$(random_secret)"
 kubectl "${ns[@]}" create secret generic coldframe-backup-s3 \
   --from-literal=access-key-id="smoke$(random_secret | cut -c1-12)" --from-literal=secret-access-key="$(random_secret)"
 openssl genpkey -algorithm X25519 -out "${work}/enrolment-private-key.pem"

@@ -13,6 +13,7 @@ import com.escendit.coldframe.core.setup.IosHubSetup
 import com.escendit.coldframe.core.setup.IosNodeSetup
 import com.escendit.coldframe.core.setup.IosRadioState
 import com.escendit.coldframe.core.setup.KableSetupRadio
+import com.escendit.coldframe.core.sites.IosMembers
 import com.escendit.coldframe.core.sites.IosSites
 import com.escendit.coldframe.core.sites.SitesWiring
 import com.escendit.coldframe.core.thresholds.IosThresholds
@@ -97,6 +98,9 @@ public class IosSignIn private constructor(
 
     /** The Devices of the current Site; Swift loads it on every entry of the Devices tab. */
     public val devices: IosDevices = IosDevices(devicesEngine, scope)
+
+    /** Members of the current Site (Owner only): the Member tiles and the Invite form; Swift loads it on entry. */
+    public val members: IosMembers = IosMembers(SitesWiring.members(api, sitesEngine, engine, scope), scope)
 
     /** The Alerts of the current Site, read as soon as a Site is current; Swift refreshes on foreground. */
     public val alerts: IosAlerts = IosAlerts(SitesWiring.alerts(api, sitesEngine, scope), scope)

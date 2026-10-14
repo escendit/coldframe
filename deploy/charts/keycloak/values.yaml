@@ -1,6 +1,6 @@
 # Keycloak (Phase Two + keycloak-temporal-extensions). Credentials are never values: they come
-# from the Secrets coldframe-db-keycloak, coldframe-keycloak-admin and coldframe-oidc-clients
-# (deploy/SECRETS.md).
+# from the Secrets coldframe-db-keycloak, coldframe-keycloak-admin, coldframe-oidc-clients and
+# coldframe-smtp (deploy/SECRETS.md).
 
 # Resource names default to the release name.
 fullnameOverride: ""
@@ -32,6 +32,16 @@ temporal:
 # with --import-realm. A realm that already exists is left as it is. Empty: no import.
 realmImport:
   configMap: ""
+
+# How Keycloak talks to the SMTP server of the Secret coldframe-smtp (Story 9.1: invitation emails).
+# Substituted into an imported realm with the Secret's host, port, from, username and password.
+smtp:
+  # Log in with username and password.
+  auth: true
+  # STARTTLS on a plain port (usually 587).
+  starttls: true
+  # Implicit TLS (usually port 465). Use either this or starttls.
+  ssl: false
 
 # The numeric UID of the image's "keycloak" user.
 runAsUser: 2000

@@ -1,26 +1,30 @@
 <script lang="ts">
   import { t, type MessageKey } from '$lib/i18n';
+  import { membersAccessOf } from '$lib/members';
+  import type { Role } from '$lib/roles';
 
   interface Props {
     currentPath: string;
     /** Below 672 px the nav is shown only while the header menu is open. */
     open: boolean;
     onnavigate?: () => void;
+    /** The user's Role on the current Site; Members is shown to an Owner only, hidden for anyone else (UX-DR76). */
+    role?: Role | null;
   }
 
-  let { currentPath, open, onnavigate }: Props = $props();
+  let { currentPath, open, onnavigate, role = null }: Props = $props();
 
   interface Item {
     readonly href: string;
     readonly label: MessageKey;
   }
 
-  const items: readonly Item[] = [
+  const items: readonly Item[] = $derived([
     { href: '/garden', label: 'nav.garden' },
     { href: '/alerts', label: 'nav.alerts' },
     { href: '/devices', label: 'nav.devices' },
-    { href: '/members', label: 'nav.members' },
-  ];
+    ...(membersAccessOf(role) ? [{ href: '/members', label: 'nav.members' } as const] : []),
+  ]);
 
   const footer: readonly Item[] = [{ href: '/settings', label: 'nav.settings' }];
 

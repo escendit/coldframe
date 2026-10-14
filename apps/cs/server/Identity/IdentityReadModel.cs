@@ -31,6 +31,13 @@ public sealed record SiteAccessView(
 public sealed record MemberSiteView(string SiteId, string Name, SiteRole Role, bool Paused = false, DateTimeOffset? PausedUntil = null);
 
 /// <summary>
+/// One Membership of a Site as the identity projection holds it (Story 9.1).
+/// </summary>
+/// <param name="UserId">The member's User ID.</param>
+/// <param name="Role">The member's Role on the Site.</param>
+public sealed record SiteMembershipView(string UserId, SiteRole Role);
+
+/// <summary>
 /// Reads the identity projection. The Edge API's handlers and its authorization policy read Sites and
 /// Roles only from here, never from token claims (AD-4). Grains never read it.
 /// </summary>
@@ -51,6 +58,14 @@ public sealed class IdentityReadModel(NpgsqlDataSource dataSource)
         JOIN identity_sites s ON s.site_id = m.site_id
         WHERE m.user_id = @user_id AND s.lifecycle = @lifecycle
         ORDER BY s.created_at, s.site_id
+        """;
+
+    private const string MembersSql =
+        """
+        SELECT m.user_id, m.role
+        FROM identity_memberships m
+        WHERE m.site_id = @site_id
+        ORDER BY m.user_id
         """;
 
     /// <summary>
@@ -117,5 +132,30 @@ public sealed class IdentityReadModel(NpgsqlDataSource dataSource)
         }
 
         return sites;
+    }
+
+    /// <summary>
+    /// Returns every Membership of a Site with its Role, by User ID (Story 9.1). Names and emails are not here:
+    /// the Server keeps nothing about Users beyond the Membership.
+    /// </summary>
+    /// <param name="siteId">The Site ID, in its canonical form.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    public async Task<IReadOnlyList<SiteMembershipView>> ListMembersAsync(string siteId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(siteId);
+
+        await using var command = dataSource.CreateCommand(MembersSql);
+        command.Parameters.AddWithValue("site_id", siteId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        var members = new List<SiteMembershipView>();
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            members.Add(new SiteMembershipView(reader.GetString(0), Enum.Parse<SiteRole>(reader.GetString(1))));
+        }
+
+        return members;
     }
 }

@@ -83,16 +83,17 @@ class ShellTest {
     }
 
     @Test
-    fun `UX-DR71 UX-DR72 Settings lists My notifications, Site settings, Appearance, then Account`() {
+    fun `UX-DR71 UX-DR72 UX-DR73 Settings lists My notifications, Members, Site settings, Appearance, then Account`() {
         show()
         tab("Settings").performClick()
 
+        // Positions, not clipped bounds: with Members for an Owner, Account sits below the fold.
         val tops =
-            listOf("My notifications", "Site settings", "Appearance", "Account").map {
+            listOf("My notifications", "Members", "Site settings", "Appearance", "Account").map {
                 compose
                     .onNodeWithText(it)
                     .fetchSemanticsNode()
-                    .boundsInRoot.top
+                    .positionInRoot.y
             }
         assertEquals(tops.sorted(), tops)
     }
@@ -123,12 +124,12 @@ class ShellTest {
             compose
                 .onNodeWithText("Appearance")
                 .fetchSemanticsNode()
-                .boundsInRoot.top
+                .positionInRoot.y
         val accountTop =
             compose
                 .onNodeWithText("Account")
                 .fetchSemanticsNode()
-                .boundsInRoot.top
+                .positionInRoot.y
         assert(appearanceTop < accountTop)
     }
 

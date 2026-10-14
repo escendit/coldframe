@@ -216,6 +216,47 @@ public sealed partial class SiteGrain(
     }
 
     /// <inheritdoc />
+    public async Task<SiteInviteResult> Invite(string email, SiteRole role, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+
+        if (!OrganizationRoles.TryGetValue(role, out var organizationRole))
+        {
+            throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown Site Role.");
+        }
+
+        if (State.Lifecycle != SiteLifecycle.Active)
+        {
+            return new SiteInviteResult(SiteInviteOutcome.NotFound);
+        }
+
+        // Phase Two's native invitation (AD-3): it holds the invitation, its link, expiry and email. The Site
+        // journals nothing; the Membership arrives through reconciliation once the invitee accepts.
+        PhaseTwoInviteOutcome outcome;
+
+        using (var budget = new CancellationTokenSource(options.Value.OperationBudget, Clock))
+        using (var linked = CancellationTokenSource.CreateLinkedTokenSource(budget.Token, cancellationToken))
+        {
+            try
+            {
+                outcome = await organizations.InviteAsync(SiteId, email, organizationRole, options.Value.InvitationRedirectUri, linked.Token);
+            }
+            catch (Exception exception) when (exception is IdentityProviderUnavailableException or OperationCanceledException)
+            {
+                LogInviteUnavailable(logger, SiteId, exception);
+                return new SiteInviteResult(SiteInviteOutcome.IdentityProviderUnavailable);
+            }
+        }
+
+        return new SiteInviteResult(outcome switch
+        {
+            PhaseTwoInviteOutcome.Sent => SiteInviteOutcome.Sent,
+            PhaseTwoInviteOutcome.Conflict => SiteInviteOutcome.AlreadyInvited,
+            _ => SiteInviteOutcome.NotFound,
+        });
+    }
+
+    /// <inheritdoc />
     public async Task<LotCreationResult> CreateLot(string callerId, string idempotencyKey, string name, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(callerId);
@@ -795,6 +836,9 @@ public sealed partial class SiteGrain(
 
     [LoggerMessage(EventId = 4, Level = LogLevel.Warning, Message = "Keycloak is unavailable while renaming Site {SiteId}; nothing was journaled.")]
     private static partial void LogRenameUnavailable(ILogger logger, string siteId, Exception exception);
+
+    [LoggerMessage(EventId = 9, EventName = "InviteUnavailable", Level = LogLevel.Warning, Message = "Keycloak is unavailable while inviting to Site {SiteId}; no invitation was sent.")]
+    private static partial void LogInviteUnavailable(ILogger logger, string siteId, Exception exception);
 
     [LoggerMessage(EventId = 5, EventName = "PauseNotDelivered", Level = LogLevel.Warning, Message = "The Pause of Site {SiteId} did not reach Device {DeviceId}; it stays pending and is delivered again.")]
     private static partial void LogPauseNotDelivered(ILogger logger, string siteId, string deviceId, Exception exception);
