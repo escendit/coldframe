@@ -915,3 +915,18 @@ source_spec: `spec-8-2-pause-and-resume-in-the-apps.md`
 severity: low
 reason: UX-DR87 asks for "<ID> is paused, so it sends no Readings. Calibrate after the Pause ends." with Resume where the Pause is the Device's own; the three clients show "This Node is paused. Readings resume after the Pause ends…" and no control (CalibrateScreen.kt, CalibrateViews.swift, calibrate/+page.svelte). The resume endpoint and the core PauseEngine now exist, so the branch can be completed. Swipe on a Device row (UX-DR31) is still marked [ASSUMPTION] in EXPERIENCE.md. Neither is in Story 8.2's acceptance criteria.
 status: open
+
+### DW-118: A Phase Two invitation whose email cannot be sent is reported to the Owner as sent.
+origin: spec-deferred 6eaa069fb322
+location: apps/cs/server/Identity/PhaseTwoOrganizations.cs InviteAsync
+source_spec: `spec-9-1-invite-someone-to-my-site.md`
+severity: medium
+reason: keycloak-orgs 0.183 InvitationsResource.createInvitation (and resendEmail) catch the send exception, log "Unable to send invitation email" and still answer 201/204, so the Server cannot tell; the Owner sees "Invitation sent to <email>" and a retry gets 409 already-invited. Detecting it would need a new approach (e.g. an SMTP precheck needing realm view permission) that this story's intent does not settle.
+status: open
+
+### DW-119: No test follows the emailed invitation link through the web app's /garden to the Phase Two page.
+origin: spec-deferred b3a96ae2f4c7
+location: tests/cs/server.integration/Edge/InvitationTests.cs
+source_spec: `spec-9-1-invite-someone-to-my-site.md`
+reason: InvitationTests asserts the link equals the configured redirect URI and accepts by signing in on Keycloak directly; the web app is not part of the AppHost, so link -> web sign-in -> invitation required action is unverified end to end. Settle by running the web app against the AppHost and following the Mailpit link.
+status: open

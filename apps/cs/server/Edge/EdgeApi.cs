@@ -58,6 +58,12 @@ public sealed record RenameSiteRequest(string? Name);
 public sealed record InvitationRequest(string? Email, string? Role);
 
 /// <summary>
+/// The body of <c>PUT /sites/{siteId}/members/{userId}</c> (Story 9.2).
+/// </summary>
+/// <param name="Role">The member's Role from now on: <c>Owner</c>, <c>Administrator</c> or <c>Member</c>.</param>
+public sealed record MemberRoleRequest(string? Role);
+
+/// <summary>
 /// One Membership as <c>GET /sites/{siteId}/members</c> returns it (Story 9.1).
 /// </summary>
 /// <param name="UserId">The member's User ID.</param>
@@ -630,6 +636,14 @@ public static partial class EdgeApi
             .WithName("inviteToSite")
             .RequireSiteRole(SiteRole.Owner);
 
+        endpoints.MapPut("/sites/{siteId}/members/{userId}", ChangeMemberRoleAsync)
+            .WithName("changeMemberRole")
+            .RequireSiteRole(SiteRole.Owner);
+
+        endpoints.MapDelete("/sites/{siteId}/members/{userId}", RemoveSiteMemberAsync)
+            .WithName("removeSiteMember")
+            .RequireSiteRole(SiteRole.Owner);
+
         endpoints.MapPut("/sites/{siteId}/pause", PauseSiteAsync)
             .WithName("pauseSite")
             .RequireSiteRole(SiteRole.Administrator);
@@ -1004,6 +1018,130 @@ public static partial class EdgeApi
             "The invitation was not sent. Try again."),
         _ => SiteNotFound(),
     };
+
+    private static async Task<IResult> ChangeMemberRoleAsync(
+        string siteId,
+        string userId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] IOptions<HttpJsonOptions> jsonOptions,
+        [FromServices] ILoggerFactory loggers)
+    {
+        var request = await ReadJsonAsync<MemberRoleRequest>(httpContext, jsonOptions.Value).ConfigureAwait(false);
+
+        if (EdgeValidation.NormalizeSiteRole(request?.Role) is not { } role)
+        {
+            return EdgeProblems.Result(
+                StatusCodes.Status400BadRequest,
+                EdgeProblems.Validation,
+                "The Role is not valid.",
+                "Send a JSON body with role Owner, Administrator or Member. Nothing changed.");
+        }
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return ToHttpResult(new SiteMembershipChangeResult(SiteMembershipChangeOutcome.MemberNotFound));
+        }
+
+        // The policy has allowed the request, so the Site ID is canonical.
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var result = await grains.GetGrain<ISiteGrain>(canonical).ChangeRole(userId, role, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return await MembershipChangedAsync(grains, canonical, userId, result, loggers.CreateLogger(MembershipLogCategory)).ConfigureAwait(false);
+    }
+
+    private static async Task<IResult> RemoveSiteMemberAsync(
+        string siteId,
+        string userId,
+        HttpContext httpContext,
+        [FromServices] IGrainFactory grains,
+        [FromServices] ILoggerFactory loggers)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return ToHttpResult(new SiteMembershipChangeResult(SiteMembershipChangeOutcome.MemberNotFound));
+        }
+
+        var canonical = SiteAccessHandler.Canonicalize(siteId)!;
+        var result = await grains.GetGrain<ISiteGrain>(canonical).RemoveMember(userId, httpContext.RequestAborted).ConfigureAwait(false);
+
+        return await MembershipChangedAsync(grains, canonical, userId, result, loggers.CreateLogger(MembershipLogCategory)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// After a Role change or removal the Site grain answered: tells the person's User grain their Role on the Site
+    /// (<see langword="null"/> after a removal, which drops the Site, its notification settings and its Alerts), then
+    /// maps the outcome. The Site grain never calls User grains (AD-3), so the Edge does, best-effort: a User grain
+    /// that does not answer is logged, and the reconciliation of the echoed Keycloak admin events syncs it again.
+    /// </summary>
+    /// <param name="grains">The grain factory.</param>
+    /// <param name="siteId">The canonical Site ID.</param>
+    /// <param name="userId">The member whose Membership changed.</param>
+    /// <param name="result">The Site grain's result.</param>
+    /// <param name="logger">Where a failed sync is logged.</param>
+    /// <returns>The HTTP result.</returns>
+    internal static async Task<IResult> MembershipChangedAsync(
+        IGrainFactory grains,
+        string siteId,
+        string userId,
+        SiteMembershipChangeResult result,
+        ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(grains);
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        if (result.Outcome == SiteMembershipChangeOutcome.Changed)
+        {
+            try
+            {
+                // Not cancelled by the caller: the Site holds the change, so the User grain follows.
+                await grains.GetGrain<IUserGrain>(userId).SyncSiteMembership(siteId, result.Role, CancellationToken.None).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // Whatever kept the User grain from answering, the change is in force; reconciliation syncs it again.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                LogMembershipSyncFailed(logger, siteId, userId, exception);
+            }
+        }
+
+        return ToHttpResult(result);
+    }
+
+    /// <summary>
+    /// How <c>PUT</c> and <c>DELETE /sites/{siteId}/members/{userId}</c> answer an outcome of
+    /// <see cref="ISiteGrain.ChangeRole"/> or <see cref="ISiteGrain.RemoveMember"/>: 204 with no body when changed or
+    /// unchanged, 409 <c>last-owner</c>, 404 <c>member-not-found</c>, 503 when Keycloak did not answer or answered
+    /// with a server error, 404 <c>site-not-found</c> otherwise.
+    /// </summary>
+    /// <param name="result">The Site grain's result.</param>
+    /// <returns>The HTTP result.</returns>
+    internal static IResult ToHttpResult(SiteMembershipChangeResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Outcome switch
+        {
+            SiteMembershipChangeOutcome.Changed or SiteMembershipChangeOutcome.Unchanged => TypedResults.NoContent(),
+            SiteMembershipChangeOutcome.LastOwner => EdgeProblems.Result(
+                StatusCodes.Status409Conflict,
+                EdgeProblems.LastOwner,
+                "A Site always keeps at least one Owner.",
+                "Make someone else Owner first. Nothing changed."),
+            SiteMembershipChangeOutcome.MemberNotFound => EdgeProblems.Result(
+                StatusCodes.Status404NotFound,
+                EdgeProblems.MemberNotFound,
+                "That person is not a member of this Site.",
+                "Nothing changed."),
+            SiteMembershipChangeOutcome.IdentityProviderUnavailable => EdgeProblems.Result(
+                StatusCodes.Status503ServiceUnavailable,
+                EdgeProblems.IdentityProviderUnavailable,
+                "The sign-in service is unavailable.",
+                "The change was not saved. Try again."),
+            _ => SiteNotFound(),
+        };
+    }
 
     private static async Task<IResult> GetMyNotificationSettingsAsync(
         HttpContext httpContext,
@@ -1979,6 +2117,11 @@ public static partial class EdgeApi
     }
 
     private const string IngestLogCategory = "Coldframe.Server.Edge.Ingest";
+
+    private const string MembershipLogCategory = "Coldframe.Server.Edge.Membership";
+
+    [LoggerMessage(EventId = 2, EventName = "MembershipSyncFailed", Level = LogLevel.Warning, Message = "The User grain of {UserId} did not take the changed Membership on Site {SiteId}; the reconciliation of the Keycloak events syncs it again.")]
+    private static partial void LogMembershipSyncFailed(ILogger logger, string siteId, string userId, Exception exception);
 
     // Never the frame or its payload: only the Device and the failure.
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "The grain of Device {DeviceId} did not answer a frame; the frame is answered with retry.")]

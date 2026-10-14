@@ -148,6 +148,21 @@ describe('InlineNotice', () => {
   });
 });
 
+describe('SegmentedChoice refusal', () => {
+  test('UX-DR51 a refused choice shows one line in place of the helper, linked to the group', () => {
+    const options = [
+      { value: 'Member', label: 'Member' },
+      { value: 'Owner', label: 'Owner' },
+    ];
+    const plain = render(SegmentedChoice, { props: { id: 'r', label: 'Role', options, value: 'Owner', helper: 'help' } }).body;
+    expect(plain).toMatch(/aria-describedby="r-helper"/u);
+    const refused = render(SegmentedChoice, { props: { id: 'r', label: 'Role', options, value: 'Member', helper: 'help', invalid: t('members.lastOwner') } }).body;
+    expect(refused).toMatch(/aria-describedby="r-reason"/u);
+    expect(refused).toMatch(/<p id="r-reason"[^>]*>A Site always keeps at least one Owner.<\/p>/u);
+    expect(refused).not.toContain('help');
+  });
+});
+
 describe('Modal and RoleGate', () => {
   test('UX-DR76 UX-DR113 Modal is a native dialog with Cancel and a named result action', () => {
     const { body } = render(Modal, {

@@ -10,7 +10,9 @@ import { getConfig } from './runtime';
 /**
  * `unavailable` is a 503 (Keycloak down, retry with the same key); `forbidden` a 403 (the Role is
  * missing or too low, e.g. it changed since the page loaded); `notFound` a 404 (the Site or Lot is
- * gone); `lotClaimed` a 409 (a Node holds the Lot); `unexpected` any other answer.
+ * gone); `lotClaimed` a 409 (a Node holds the Lot); `unexpected` any other answer. Two answers are told apart by
+ * their problem type (Story 9.2): `lastOwner` is the 409 `last-owner` (the Site would have no Owner),
+ * `memberNotFound` the 404 `member-not-found` (the person is no member of the Site).
  */
 export type SitesError =
   | 'validation'
@@ -22,7 +24,9 @@ export type SitesError =
   | 'unauthorized'
   | 'forbidden'
   | 'notFound'
-  | 'lotClaimed';
+  | 'lotClaimed'
+  | 'lastOwner'
+  | 'memberNotFound';
 
 export type SitesResult<T> = { readonly ok: T } | { readonly error: SitesError };
 
@@ -42,7 +46,24 @@ export function accessTokenOf(locals: Locals): string | null {
   return typeof token === 'string' && token !== '' ? token : null;
 }
 
-function statusError(status: number): SitesError {
+const problemPrefix = 'urn:coldframe:problem:';
+
+/** The slug of a Problem Details `type`, e.g. `last-owner`, or null when the body has none. */
+function problemSlugOf(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null || !('type' in body)) {
+    return null;
+  }
+  const { type } = body;
+  return typeof type === 'string' && type.startsWith(problemPrefix) ? type.slice(problemPrefix.length) : null;
+}
+
+function statusError(status: number, slug: string | null = null): SitesError {
+  if (status === 409 && slug === 'last-owner') {
+    return 'lastOwner';
+  }
+  if (status === 404 && slug === 'member-not-found') {
+    return 'memberNotFound';
+  }
   switch (status) {
     case 400:
       return 'validation';
@@ -70,7 +91,7 @@ function statusError(status: number): SitesError {
 export async function call<T>(
   locals: Locals,
   dependencies: SitesDependencies,
-  run: (client: ReturnType<typeof createColdframeClient>) => Promise<{ data?: T; response: Response }>,
+  run: (client: ReturnType<typeof createColdframeClient>) => Promise<{ data?: T; error?: unknown; response: Response }>,
 ): Promise<SitesResult<T>> {
   const accessToken = accessTokenOf(locals);
   if (accessToken === null) {
@@ -79,7 +100,7 @@ export async function call<T>(
   const fetcher = dependencies.fetch ?? ((request: Request) => fetch(request, { signal: AbortSignal.timeout(serverTimeoutMs) }));
   const client = createColdframeClient({ baseUrl: dependencies.serverUrl ?? getConfig().serverUrl, accessToken, fetch: fetcher });
   try {
-    const { data, response } = await run(client);
+    const { data, error, response } = await run(client);
     if (response.ok && data !== undefined) {
       return { ok: data };
     }
@@ -87,7 +108,7 @@ export async function call<T>(
     if (response.status === 204 || response.status === 202) {
       return { ok: undefined as T };
     }
-    return { error: statusError(response.status) };
+    return { error: statusError(response.status, problemSlugOf(error)) };
   } catch (error) {
     return { error: classifyFailure(error, 'server') === 'certificate' ? 'certificate' : 'unreachable' };
   }

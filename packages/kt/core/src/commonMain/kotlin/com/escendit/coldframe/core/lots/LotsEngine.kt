@@ -704,6 +704,8 @@ public class LotsEngine(
                 ApiFailure.DeviceOnAnotherSite,
                 ApiFailure.DeviceAssigned,
                 ApiFailure.AlreadyInvited,
+                ApiFailure.LastOwner,
+                ApiFailure.MemberNotFound,
                 ApiFailure.CalibrationNotDelivered,
                 ApiFailure.ReminderCadenceNotDelivered,
                 ApiFailure.Unexpected,

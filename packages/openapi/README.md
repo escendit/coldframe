@@ -37,6 +37,8 @@ The REST contract, written before the code that serves it (AD-10):
 | `PUT /sites/{siteId}/reminder-cadence` | `Administrator` | Story 6.3 |
 | `GET /sites/{siteId}/members` | `Owner` | Story 9.1 |
 | `POST /sites/{siteId}/invitations` | `Owner` | Story 9.1 |
+| `PUT /sites/{siteId}/members/{userId}` | `Owner` | Story 9.2 |
+| `DELETE /sites/{siteId}/members/{userId}` | `Owner` | Story 9.2 |
 | `PUT /me/push-registrations/{installationId}` | `Authenticated` | Story 6.5 |
 | `DELETE /me/push-registrations/{installationId}` | `Authenticated` | Story 6.5 |
 | `POST /device/heartbeat` | `Device` | Contract: Story 3.1; served since Story 3.5 |
@@ -73,7 +75,8 @@ is planned today.
   `calibration-not-delivered` (503, the Calibration is saved but the Node's Device grain has not acknowledged it
   yet; the Server keeps delivering it), `reminder-cadence-not-delivered` (503, the Site holds the Reminder
   cadence but not every member was handed it; send the request again), `already-invited` (409, the invitee is
-  already invited to or a member of this Site; no invitation was sent). Enrolling a Node with a `lotId` answers
+  already invited to or a member of this Site; no invitation was sent), `last-owner` (409, the change would leave
+  the Site without an Owner; nothing changed), `member-not-found` (404, the person is not a member of this Site). Enrolling a Node with a `lotId` answers
   `lot-not-found` (404) for a Lot that is unknown, removed or of another Site, and `lot-claimed` (409)
   when the Lot already has a Node. The set grows with the API, so `ProblemDetails.type` is an
   `x-extensible-enum`.
@@ -193,6 +196,15 @@ is planned today.
   503 `identity-provider-unavailable` a Keycloak that is unreachable, answers with a server error, or takes longer
   than the operation budget (no invitation was created).
   Accepting happens on the Phase Two page; the Membership then reaches the Server asynchronously.
+- **Changing and removing Memberships** (Story 9.2, Owner only). `PUT /sites/{siteId}/members/{userId}` takes
+  `{role}`; `DELETE /sites/{siteId}/members/{userId}` removes the Membership. Both answer 204 with no body, also
+  for the caller's own Membership, and the same Role again saves nothing. The Site grain checks that the Site keeps
+  an Owner (409 `last-owner`, also for two Owners lowering each other at once), asks Phase Two to grant the new
+  Role and then revoke the others (or to revoke every Role and remove the member), and saves only once Phase Two
+  did: the person's next request is authorized with the new Role or gets 403. 404 `member-not-found` a userId
+  without a Membership on the Site; 400 `validation` a missing or unknown Role; 503
+  `identity-provider-unavailable` a Keycloak that is unreachable, answers with a server error, or takes longer than
+  the operation budget (nothing saved; try again).
 - **JSON** is camelCase with enums as strings; absent optional fields are omitted.
 - Resources are plural nouns under `/sites/{siteId}/...`. The Site ID is the Keycloak Organization ID;
   Lot IDs are UUIDv7. A removed Lot stays readable by ID with `removed: true`; lists omit it.

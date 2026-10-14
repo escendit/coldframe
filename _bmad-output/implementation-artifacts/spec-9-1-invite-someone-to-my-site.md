@@ -2,7 +2,7 @@
 title: 'Story 9.1: Invite someone to my Site'
 type: 'feature'
 created: '2026-10-14'
-status: 'awaiting-operator'
+status: done
 baseline_revision: 'a5be0248dbac166872ec8880b0a058cd39ed9f16'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -245,3 +245,16 @@ Status: awaiting-operator
 - The AppHost now builds the Keycloak image from the repository root (to copy the theme).
 - iOS UI code is unbuilt on this host (CI macOS runner builds it).
 - A mobile invitee who already has Sites is not switched to the new Site (by design); only the no-Site state opens it automatically.
+
+## Operator Confirmation
+
+Confirmed 2026-10-14: the external actions this story owed were carried out.
+
+- Create the coldframe-smtp Secret (host, port, from, username, password) with the real SMTP account in the production namespace before deploying this release; the keycloak chart now requires it.
+- In the Keycloak admin console of the existing coldframe realm, set Realm settings > Themes > Email theme to coldframe.
+- In the same realm, fill in Realm settings > Email (SMTP host, port, from address, authentication, encryption) and send a test email.
+- In the same realm, enable Authentication > Required actions > Invitation (invitation-required-action).
+- Set keycloak.invitationRedirectUri under the server key of the site values to https://<domain>/garden and redeploy.
+- On the home network, invite a test address from the app, open the emailed link on the garden's Wi-Fi, accept, and confirm the person appears in Members with the invited Role.
+
+_Appended by the bmad-loop orchestrator (`bmad-loop confirm`, #335): a human confirmed these external actions out of band, and the story was advanced from `awaiting-operator` to `done`._

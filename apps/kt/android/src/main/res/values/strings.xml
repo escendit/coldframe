@@ -700,5 +700,20 @@
   <string name="members_unexpected">That didn\'t work: your Server returned an error. Try again.</string>
   <string name="members_tile">%1$s, %2$s</string>
   <string name="members_tile_you">%1$s, %2$s, you</string>
+  <string name="members_tile_change">%1$s · change</string>
+  <string name="members_tile_last_owner">Owner · last one</string>
+  <string name="members_last_owner">A Site always keeps at least one Owner.</string>
+  <string name="members_save_role">Save Role</string>
+  <string name="members_saving_role">Saving Role…</string>
+  <string name="members_remove">Remove from Site</string>
+  <string name="members_cancel">Cancel</string>
+  <string name="members_remove_question">Remove %1$s from %2$s?</string>
+  <string name="members_remove_detail">They lose access to %1$s and stop getting its Alerts.</string>
+  <string name="members_remove_confirm">Remove</string>
+  <string name="members_removing">Removing…</string>
+  <string name="members_role_changed">%1$s is now %2$s.</string>
+  <string name="members_removed">%1$s was removed from %2$s.</string>
+  <string name="members_member_gone">%1$s is no longer a member of %2$s.</string>
+  <string name="members_not_changed">The change was not saved. Try again.</string>
   <string name="create_site_invitation_hint">Accepted an invitation? It can take a minute to appear.</string>
 </resources>

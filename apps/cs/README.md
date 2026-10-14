@@ -239,6 +239,20 @@ so an SMTP failure is not seen here. The Members list reads the Memberships and 
 and joins the names and emails Phase Two returns for `orgs/{id}/members` at request time; nothing about Users is
 stored.
 
+**In-app Role changes and removals (Story 9.2) versus break-glass.** `PUT /sites/{siteId}/members/{userId}`
+(`{role}`) and `DELETE /sites/{siteId}/members/{userId}` are Owner only and go through `SiteGrain.ChangeRole` /
+`RemoveMember`, which refuse a change that would leave the Site without an Owner (409 `last-owner`) by checking the
+grain's own Owners, so the rule holds also during a break-glass episode, and two Owners lowering each other at once
+are serialized (the second gets `last-owner`). Phase Two is written first under `Keycloak:OperationBudget`: a
+change grants the new organization role, then revokes the other two; a removal revokes all three, then deletes the
+member (404 counts as done). Only then the grain journals `MembershipGranted` / `MembershipRevoked` and catches up
+the identity projection, so the person's next request already sees the new Role or gets 403; a down Keycloak is 503
+with nothing journaled (a grant that went through before a failed revoke leaves the higher role in Keycloak, and
+the echo reconciliation converges to it). The Edge then calls `IUserGrain.SyncSiteMembership` best-effort (EventId 2
+`MembershipSyncFailed` warning on failure); a removal drops the Site, its notification settings and its Alerts
+from the User grain. The admin events Keycloak emits for these writes reconcile as no-ops. Break-glass edits in the
+Keycloak console are the other way in, below: they are never refused, only reconciled.
+
 **Break-glass: a Site never loses its last Owner.** When Keycloak shows a Site without an Owner, every
 current Owner keeps Owner in the journal and the projection; all other differences still apply, and
 nothing is written back to Keycloak. Every such reconciliation logs an `Error` with EventId 3

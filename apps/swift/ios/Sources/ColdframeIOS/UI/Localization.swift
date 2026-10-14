@@ -35,6 +35,7 @@
         switch argument {
         case .text(let text): text as NSString
         case .number(let number): number
+        case .entry(let key): key.string as NSString
         }
       }
       return values.isEmpty

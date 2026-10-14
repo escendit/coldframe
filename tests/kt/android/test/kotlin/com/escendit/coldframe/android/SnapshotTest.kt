@@ -58,6 +58,7 @@ import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.CreateSiteForm
 import com.escendit.coldframe.core.sites.InviteForm
 import com.escendit.coldframe.core.sites.Member
+import com.escendit.coldframe.core.sites.MemberEditor
 import com.escendit.coldframe.core.sites.MembersNotice
 import com.escendit.coldframe.core.sites.MembersState
 import com.escendit.coldframe.core.sites.PauseForm
@@ -228,12 +229,15 @@ class SnapshotTest {
             siteSettings = true,
         )
 
-    // Story 9.1: Members, the Member tiles and the Invite form after an invitation was sent.
+    // Story 9.1: Members, the Member tiles and the Invite form after an invitation was sent. Story 9.2: the last
+    // Owner's tile locked, and Ana's tile with its editor open.
 
     private fun members(
         name: String,
         theme: ThemePreference,
     ) {
+        val simon = Member("u-simon", "Simon Novak", "simon@example.com", SiteRole.Owner, you = true, lastOwner = true)
+        val ana = Member("u-ana", "Ana Costa", "ana@example.com", SiteRole.Member, you = false)
         compose.setContent {
             AtFontScale(2f) {
                 ColdframeRoot(
@@ -249,12 +253,13 @@ class SnapshotTest {
                             siteName = "Home garden",
                             members =
                                 listOf(
-                                    Member("u-simon", "Simon Novak", "simon@example.com", SiteRole.Owner, you = true),
-                                    Member("u-ana", "Ana Costa", "ana@example.com", SiteRole.Member, you = false),
+                                    simon,
+                                    ana,
                                 ),
                             form = InviteForm(role = SiteRole.Member),
                             notice = MembersNotice.Sent,
                             sentTo = "bo@example.com",
+                            editor = MemberEditor(ana, SiteRole.Administrator),
                         ),
                 )
             }
@@ -268,12 +273,12 @@ class SnapshotTest {
 
     @Test
     @Config(qualifiers = NOTIFICATIONS)
-    fun `UX-DR51 UX-DR52 UX-DR73 Members for an Owner after sending an invitation, light, font scale 2`() =
+    fun `UX-DR51 UX-DR52 UX-DR73 UX-DR84 Members after inviting, with an editor open, light, font scale 2`() =
         members("members-light", ThemePreference.Light)
 
     @Test
     @Config(qualifiers = NOTIFICATIONS)
-    fun `UX-DR51 UX-DR52 UX-DR73 Members for an Owner after sending an invitation, dark, font scale 2`() =
+    fun `UX-DR51 UX-DR52 UX-DR73 UX-DR84 Members after inviting, with an editor open, dark, font scale 2`() =
         members("members-dark", ThemePreference.Dark)
 
     // Story 6.3: My notifications, and the Reminders section of Site settings, in a window that holds the whole surface.

@@ -17,7 +17,10 @@ private func members(
     memberEmails: ["simon@example.com", "ana@example.com"], memberRoles: ["owner", "member"],
     memberInitials: ["SN", "A"], memberIsYou: [true, false], email: email, role: role,
     roles: ["member", "administrator", "owner"], emailError: emailError, working: working,
-    notice: notice, noticeTryAgain: noticeTryAgain, sentTo: sentTo)
+    notice: notice, noticeTryAgain: noticeTryAgain, sentTo: sentTo,
+    memberLastOwner: [false, false], editorUserId: nil, editorName: "", editorRole: "member",
+    editorRoleError: nil, editorWorking: false, confirmingRemove: false, noticeName: "",
+    noticeRole: "")
 }
 
 @Test(
@@ -151,4 +154,120 @@ func createSiteInvitationHint() {
     first.invitationHint.map { context.text($0) }
       == "Accepted an invitation? It can take a minute to appear.")
   #expect(fromNewSite.invitationHint == nil)
+}
+
+/// Story 9.2: an Owner on Home garden with Simon (the User, the only Owner) and Ana (Member).
+private func editing(
+  lastOwner: [Bool] = [true, false], editorUserId: String? = nil, editorRole: String = "member",
+  editorRoleError: String? = nil, editorWorking: Bool = false, confirmingRemove: Bool = false,
+  notice: String? = nil, noticeTryAgain: Bool = false, noticeName: String = "",
+  noticeRole: String = ""
+) -> MembersPresentation {
+  MembersPresentation(
+    surface: "ready", siteName: "Home garden", memberIds: ["u-simon", "u-ana"],
+    memberNames: ["Simon Novak", "Ana Costa"],
+    memberEmails: ["simon@example.com", "ana@example.com"],
+    memberRoles: ["owner", "member"], memberInitials: ["SN", "AC"], memberIsYou: [true, false],
+    email: "", role: "member", roles: ["member", "administrator", "owner"], emailError: nil,
+    working: false, notice: notice, noticeTryAgain: noticeTryAgain, sentTo: "",
+    memberLastOwner: lastOwner, editorUserId: editorUserId,
+    editorName: editorUserId == nil ? "" : "Ana Costa", editorRole: editorRole,
+    editorRoleError: editorRoleError, editorWorking: editorWorking,
+    confirmingRemove: confirmingRemove, noticeName: noticeName, noticeRole: noticeRole)
+}
+
+@Test("UX-DR51 the only Owner's tile reads Owner · last one, locked with why; others · change")
+func lastOwnerTileLocked() {
+  let tiles = editing().members
+
+  #expect(tiles.map(\.isChangeable) == [false, true])
+  // Sentence case in the catalogue; the status-label style makes it upper case.
+  #expect(tiles.map { context.resolve($0.roleLine) } == ["Owner · last one", "Member · change"])
+  #expect(
+    tiles.map { $0.lockExplanation.map { context.text($0) } } == [
+      "A Site always keeps at least one Owner.", nil,
+    ])
+  // With a second Owner, every tile can be changed.
+  let twoOwners = editing(lastOwner: [false, false]).members
+  #expect(twoOwners.map(\.isChangeable) == [true, true])
+  #expect(context.resolve(twoOwners[0].roleLine) == "Owner · change")
+}
+
+@Test("UX-DR51 UX-DR73 a tapped tile opens its Role editor with Save Role and Remove from Site")
+func roleEditor() throws {
+  #expect(editing().editor == nil)
+  let editor = try #require(editing(editorUserId: "u-ana", editorRole: "administrator").editor)
+
+  #expect(editor.id == "u-ana")
+  #expect(editor.name == "Ana Costa")
+  #expect(editor.roleSegments.map(\.value) == [.member, .administrator, .owner])
+  #expect(editor.roleSegments.map(\.isSelected) == [false, true, false])
+  #expect(editor.roleLine == nil)
+  #expect(context.text(editor.saveLabel) == "Save Role")
+  #expect(context.text(editor.removeLabel) == "Remove from Site")
+  #expect(editor.areButtonsEnabled)
+  #expect(editor.removal == nil)
+
+  let saving = try #require(editing(editorUserId: "u-ana", editorWorking: true).editor)
+  #expect(context.text(saving.saveLabel) == "Saving Role…")
+  #expect(!saving.areButtonsEnabled)
+  // No editor on a surface that is not ready.
+  #expect(MembersPresentation.hidden.editor == nil)
+}
+
+@Test("UX-DR51 a refused last-Owner change shows one line under the Role choice")
+func lastOwnerRefused() throws {
+  let editor = try #require(
+    editing(editorUserId: "u-simon", editorRole: "member", editorRoleError: "lastOwner").editor)
+
+  #expect(editor.roleError == .lastOwner)
+  #expect(editor.roleLine.map { context.text($0) } == "A Site always keeps at least one Owner.")
+}
+
+@Test("UX-DR113 removing a Membership asks first in a dialog naming the person and the Site")
+func removalConfirmation() throws {
+  let editor = try #require(editing(editorUserId: "u-ana", confirmingRemove: true).editor)
+  let removal = try #require(editor.removal)
+
+  #expect(context.resolve(removal.title) == "Remove Ana Costa from Home garden?")
+  #expect(
+    context.resolve(removal.message)
+      == "They lose access to Home garden and stop getting its Alerts.")
+  #expect(context.text(removal.confirm) == "Remove")
+  #expect(context.text(removal.cancel) == "Cancel")
+  let removing = try #require(
+    editing(editorUserId: "u-ana", editorWorking: true, confirmingRemove: true).editor?.removal)
+  #expect(context.text(removing.confirm) == "Removing…")
+  #expect(removing.working)
+}
+
+@Test("UX-DR73 a changed Role and a removal are said politely, naming the person")
+func membershipChangedNotices() throws {
+  let changed = editing(notice: "roleChanged", noticeName: "Ana Costa", noticeRole: "administrator")
+  #expect(context.resolve(try #require(changed.noticeCopy)) == "Ana Costa is now Administrator.")
+  #expect(changed.notice?.announcement == .polite)
+
+  let removed = editing(notice: "removed", noticeName: "Ana Costa")
+  #expect(
+    context.resolve(try #require(removed.noticeCopy)) == "Ana Costa was removed from Home garden.")
+  #expect(removed.notice?.announcement == .polite)
+}
+
+@Test("UX-DR73 UX-DR84 a gone member, a change not saved and a 403 race each say what happened")
+func membershipChangeRefused() throws {
+  let gone = editing(notice: "memberGone", noticeName: "Ana Costa")
+  #expect(
+    context.resolve(try #require(gone.noticeCopy))
+      == "Ana Costa is no longer a member of Home garden.")
+  #expect(gone.notice?.announcement == .assertive)
+
+  let notChanged = editing(editorUserId: "u-ana", notice: "notChanged", noticeTryAgain: true)
+  #expect(
+    context.resolve(try #require(notChanged.noticeCopy)) == "The change was not saved. Try again.")
+  #expect(notChanged.noticeTryAgain)
+
+  let forbidden = editing(notice: "forbidden")
+  #expect(
+    context.resolve(try #require(forbidden.noticeCopy))
+      == "You can't change this on Home garden. Ask an Owner or Administrator.")
 }

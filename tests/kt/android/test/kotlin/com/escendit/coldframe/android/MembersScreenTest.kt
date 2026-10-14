@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
@@ -34,8 +36,11 @@ import com.escendit.coldframe.core.signin.SignInState
 import com.escendit.coldframe.core.sites.InviteEmailError
 import com.escendit.coldframe.core.sites.InviteForm
 import com.escendit.coldframe.core.sites.Member
+import com.escendit.coldframe.core.sites.MemberEditor
+import com.escendit.coldframe.core.sites.MemberRoleError
 import com.escendit.coldframe.core.sites.MembersNotice
 import com.escendit.coldframe.core.sites.MembersState
+import com.escendit.coldframe.core.sites.RemoveMemberConfirmation
 import com.escendit.coldframe.core.sites.SiteRole
 import com.escendit.coldframe.designtokens.ColorTokens
 import org.junit.Rule
@@ -62,16 +67,38 @@ class MembersScreenTest {
             setRole = { calls += "role $it" },
             sendInvite = { calls += "send" },
             retry = { calls += "retry" },
+            select = { calls += "select $it" },
+            closeEditor = { calls += "close" },
+            setEditRole = { calls += "edit role $it" },
+            saveRole = { calls += "save role" },
+            askRemove = { calls += "ask remove" },
+            cancelRemove = { calls += "cancel remove" },
+            confirmRemove = { calls += "confirm remove" },
         )
 
-    private val simon = Member("u-simon", "Simon Novak", "simon@example.com", SiteRole.Owner, you = true)
+    private val simon =
+        Member("u-simon", "Simon Novak", "simon@example.com", SiteRole.Owner, you = true, lastOwner = true)
     private val ana = Member("u-ana", "Ana Costa", "ana@example.com", SiteRole.Member, you = false)
 
     private fun ready(
         form: InviteForm = InviteForm(),
         notice: MembersNotice? = null,
         sentTo: String? = null,
-    ) = MembersState.Ready("Home garden", listOf(simon, ana), form, notice, sentTo)
+        editor: MemberEditor? = null,
+        removing: RemoveMemberConfirmation? = null,
+        noticeName: String? = null,
+        noticeRole: SiteRole? = null,
+    ) = MembersState.Ready(
+        "Home garden",
+        listOf(simon, ana),
+        form,
+        notice,
+        sentTo,
+        editor,
+        removing,
+        noticeName,
+        noticeRole,
+    )
 
     private var role by mutableStateOf(SiteRole.Owner)
     private var shown = false
@@ -144,17 +171,19 @@ class MembersScreenTest {
         openMembers(ready())
 
         compose.onAllNodesWithTag("member-tile").assertCountEquals(2)
-        compose.onNodeWithContentDescription("Simon Novak, Owner, you").assertExists()
-        compose.onNodeWithContentDescription("Ana Costa, Member").assertExists()
+        compose
+            .onNodeWithContentDescription("Simon Novak, Owner · last one, you. A Site always keeps at least one Owner.")
+            .assertExists()
+        compose.onNodeWithContentDescription("Ana Costa, Member · change").assertExists()
         compose.onNodeWithTag("member-initials-you", useUnmergedTree = true).assertExists()
         compose.onAllNodesWithTag("member-initials", useUnmergedTree = true).assertCountEquals(1)
         compose.onNodeWithText("SN", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("AC", useUnmergedTree = true).assertExists()
         compose
-            .onNode(hasText("OWNER").and(hasAnyAncestor(hasTestTag("member-tile"))), useUnmergedTree = true)
+            .onNode(hasText("OWNER · LAST ONE").and(hasAnyAncestor(hasTestTag("member-tile"))), useUnmergedTree = true)
             .assertExists()
         compose
-            .onNode(hasText("MEMBER").and(hasAnyAncestor(hasTestTag("member-tile"))), useUnmergedTree = true)
+            .onNode(hasText("MEMBER · CHANGE").and(hasAnyAncestor(hasTestTag("member-tile"))), useUnmergedTree = true)
             .assertExists()
     }
 
@@ -252,6 +281,88 @@ class MembersScreenTest {
 
         openMembers(ready(form = InviteForm("ana@example.com"), notice = MembersNotice.NotSent))
         compose.onNodeWithText("The invitation was not sent. Try again.").assertExists()
+        compose.onNodeWithText("TRY AGAIN").performScrollTo().performClick()
+        assertTrue("retry" in calls)
+    }
+
+    // Story 9.2: change and remove Roles, always keeping an Owner.
+
+    @Test
+    fun `UX-DR51 the last Owner's tile is locked with its reason and taps on it do nothing`() {
+        openMembers(ready())
+
+        compose
+            .onNode(
+                hasText("A Site always keeps at least one Owner.").and(hasAnyAncestor(hasTestTag("member-tile"))),
+                useUnmergedTree = true,
+            ).assertExists()
+        compose.onNodeWithContentDescription("Simon Novak", substring = true).assertHasNoClickAction()
+        compose.onNodeWithContentDescription("Ana Costa, Member · change").assertHasClickAction().performClick()
+        assertEquals(listOf("load", "select u-ana"), calls)
+    }
+
+    @Test
+    fun `UX-DR84 the editor offers the Role choice, Save Role and Remove from Site`() {
+        openMembers(ready(editor = MemberEditor(ana, SiteRole.Administrator)))
+
+        compose.onNodeWithTag("member-editor").assertExists()
+        compose
+            .onNode(isSelectable().and(hasText("ADMINISTRATOR")).and(hasAnyAncestor(hasTestTag("member-editor"))))
+            .assertIsSelected()
+        compose
+            .onNode(isSelectable().and(hasText("OWNER")).and(hasAnyAncestor(hasTestTag("member-editor"))))
+            .performScrollTo()
+            .performClick()
+        compose.onNodeWithText("SAVE ROLE").performScrollTo().performClick()
+        compose.onNodeWithText("REMOVE FROM SITE").performScrollTo().performClick()
+        compose.onNodeWithText("CANCEL").performScrollTo().performClick()
+
+        assertEquals(listOf("load", "edit role Owner", "save role", "ask remove", "close"), calls)
+    }
+
+    @Test
+    fun `UX-DR84 last-owner shows one line under the Role field and Saving Role works in place`() {
+        openMembers(ready(editor = MemberEditor(ana, SiteRole.Member, MemberRoleError.LastOwner)))
+        compose
+            .onNode(
+                hasText("A Site always keeps at least one Owner.").and(hasAnyAncestor(hasTestTag("member-editor"))),
+                useUnmergedTree = true,
+            ).assertExists()
+
+        openMembers(ready(editor = MemberEditor(ana, SiteRole.Owner, working = true)))
+        compose.onNodeWithText("SAVING ROLE…").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test
+    fun `UX-DR113 removing asks in a dialog that names the person and the Site`() {
+        openMembers(ready(removing = RemoveMemberConfirmation(ana)))
+
+        compose.onNodeWithText("Remove Ana Costa from Home garden?").assertExists()
+        compose.onNodeWithText("They lose access to Home garden and stop getting its Alerts.").assertExists()
+        compose.onNodeWithText("REMOVE").performClick()
+        compose.onNodeWithText("CANCEL").performClick()
+
+        assertEquals(listOf("load", "confirm remove", "cancel remove"), calls)
+    }
+
+    @Test
+    fun `UX-DR84 UX-DR113 notices name the person, Role and Site, and a change not saved offers Try again`() {
+        openMembers(
+            ready(notice = MembersNotice.RoleChanged, noticeName = "Ana Costa", noticeRole = SiteRole.Administrator),
+        )
+        compose.onNodeWithText("Ana Costa is now Administrator.").assertExists()
+
+        openMembers(ready(notice = MembersNotice.Removed, noticeName = "Ana Costa"))
+        compose.onNodeWithText("Ana Costa was removed from Home garden.").assertExists()
+
+        openMembers(ready(notice = MembersNotice.MemberGone, noticeName = "Ana Costa"))
+        compose.onNodeWithText("Ana Costa is no longer a member of Home garden.").assertExists()
+
+        openMembers(ready(notice = MembersNotice.Forbidden))
+        compose.onNodeWithText("You can't change this on Home garden. Ask an Owner or Administrator.").assertExists()
+
+        openMembers(ready(notice = MembersNotice.NotChanged))
+        compose.onNodeWithText("The change was not saved. Try again.").assertExists()
         compose.onNodeWithText("TRY AGAIN").performScrollTo().performClick()
         assertTrue("retry" in calls)
     }

@@ -14,6 +14,14 @@
     public var sendInvite: () -> Void
     /// Try again, where the notice offers it.
     public var retry: () -> Void
+    /// Story 9.2: the Role editor and the removal.
+    public var select: (String) -> Void
+    public var closeEditor: () -> Void
+    public var setEditRole: (SiteRoleKind) -> Void
+    public var saveRole: () -> Void
+    public var askRemove: () -> Void
+    public var cancelRemove: () -> Void
+    public var confirmRemove: () -> Void
 
     public init(service: MembersService) {
       load = { service.load() }
@@ -21,6 +29,13 @@
       setRole = { service.setRole($0) }
       sendInvite = { service.sendInvite() }
       retry = { service.retry() }
+      select = { service.select($0) }
+      closeEditor = { service.closeEditor() }
+      setEditRole = { service.setEditRole($0) }
+      saveRole = { service.saveRole() }
+      askRemove = { service.askRemove() }
+      cancelRemove = { service.cancelRemove() }
+      confirmRemove = { service.confirmRemove() }
     }
 
     private init() {
@@ -29,6 +44,13 @@
       setRole = { _ in }
       sendInvite = {}
       retry = {}
+      select = { _ in }
+      closeEditor = {}
+      setEditRole = { _ in }
+      saveRole = {}
+      askRemove = {}
+      cancelRemove = {}
+      confirmRemove = {}
     }
 
     public static let none = MembersActions()
@@ -66,6 +88,16 @@
       .background(palette.background)
       .navigationTitle(L10n.membersTitle.string)
       .onAppear { actions.load() }
+      .sheet(
+        item: Binding(
+          get: { presentation.editor },
+          set: { if $0 == nil { actions.closeEditor() } })
+      ) { editor in
+        NavigationStack {
+          MemberEditorView(editor: editor, actions: actions) { notice }
+        }
+        .interactiveDismissDisabled(editor.working)
+      }
     }
 
     @ViewBuilder
@@ -83,7 +115,9 @@
       VStack(alignment: .leading, spacing: Spacing.step6) {
         VStack(alignment: .leading, spacing: Spacing.step3) {
           // The Server's order, never re-sorted.
-          ForEach(presentation.members) { MemberTileView(presentation: $0) }
+          ForEach(presentation.members) { tile in
+            MemberTileView(presentation: tile) { actions.select(tile.id) }
+          }
         }
         L10n.membersInvite.text.role(Typography.section).foregroundStyle(palette.textPrimary)
           .accessibilityAddTraits(.isHeader)
@@ -95,7 +129,10 @@
         SegmentedChoice(
           label: .membersRole, segments: presentation.roleSegments,
           helper: presentation.roleDescription, onSelect: actions.setRole)
-        notice
+        // While the editor is open, its notice shows there.
+        if presentation.editor == nil {
+          notice
+        }
         PrimaryButton(
           presentation.buttonLabel, isEnabled: presentation.isButtonEnabled,
           action: actions.sendInvite)
@@ -106,11 +143,29 @@
   /// The Member tile (UX-DR51): the initials square (the User's own `primary` with
   /// `ink-on-bright`, the others `layer-01` with `text-primary`), the name and the Role line in
   /// `status-label` (upper case by style). One accessibility element: "Simon Novak, Owner, you".
+  /// Story 9.2: a button that opens the Role editor ("Member · change"); the only Owner's tile is
+  /// locked ("Owner · last one" and why) and is no button.
   struct MemberTileView: View {
     let presentation: MemberTilePresentation
+    let onSelect: () -> Void
     @Environment(\.palette) private var palette
 
     var body: some View {
+      if presentation.isChangeable {
+        Button(action: onSelect) { tile }
+          .buttonStyle(.plain)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(Text(verbatim: presentation.spoken(.catalogue())))
+          .accessibilityAddTraits(.isButton)
+      } else {
+        tile
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(Text(verbatim: presentation.spoken(.catalogue())))
+          .accessibilityHint(presentation.lockExplanation?.text ?? Text(verbatim: ""))
+      }
+    }
+
+    private var tile: some View {
       HStack(spacing: Spacing.step4) {
         Text(verbatim: presentation.initials).role(Typography.section)
           .foregroundStyle(presentation.isYou ? palette.inkOnBright : palette.textPrimary)
@@ -120,16 +175,68 @@
           Text(verbatim: presentation.name).role(Typography.bodyLg)
             .foregroundStyle(palette.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
-          presentation.roleLabel.text.role(Typography.statusLabel)
+          Text(verbatim: presentation.roleLine.string).role(Typography.statusLabel)
             .foregroundStyle(palette.textSecondary)
+          if let lock = presentation.lockExplanation {
+            lock.text.role(Typography.helper).foregroundStyle(palette.textHelper)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
         Spacer(minLength: 0)
       }
       .padding(Spacing.step4)
       .frame(maxWidth: .infinity, minHeight: TouchTarget.minimum, alignment: .leading)
+      .contentShape(Rectangle())
       .overlay { Rectangle().strokeBorder(palette.borderSubtle, lineWidth: 1) }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(Text(verbatim: presentation.spoken(.catalogue())))
+    }
+  }
+
+  /// The Role editor of one Membership (Story 9.2): the Role Segmented choice with one line under
+  /// it when the Server refused the last Owner, "Save Role", and "Remove from Site", which asks in
+  /// a native confirmation dialog naming the person and the Site.
+  struct MemberEditorView<Notice: View>: View {
+    let editor: MemberEditorPresentation
+    let actions: MembersActions
+    @ViewBuilder let notice: () -> Notice
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+      ScrollView {
+        VStack(alignment: .leading, spacing: Spacing.step6) {
+          SegmentedChoice(
+            label: .membersRole, segments: editor.roleSegments, helper: editor.roleLine,
+            onSelect: actions.setEditRole)
+          notice()
+          PrimaryButton(
+            editor.saveLabel, isEnabled: editor.areButtonsEnabled, action: actions.saveRole)
+          PrimaryButton(
+            editor.removeLabel, variant: .secondary, isEnabled: editor.areButtonsEnabled,
+            action: actions.askRemove)
+        }
+        .padding(Spacing.gutterMobile)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .background(palette.background)
+      .navigationTitle(Text(verbatim: editor.name))
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button(action: actions.closeEditor) { L10n.membersCancel.text }
+        }
+      }
+      .confirmationDialog(
+        Text(verbatim: editor.removal?.title.string ?? ""),
+        isPresented: Binding(
+          get: { editor.removal != nil },
+          set: { if !$0 { actions.cancelRemove() } }),
+        titleVisibility: .visible,
+        presenting: editor.removal
+      ) { removal in
+        Button(role: .destructive, action: actions.confirmRemove) { removal.confirm.text }
+          .disabled(removal.working)
+        Button(role: .cancel, action: actions.cancelRemove) { removal.cancel.text }
+      } message: { removal in
+        Text(verbatim: removal.message.string)
+      }
     }
   }
 #endif

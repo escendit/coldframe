@@ -139,6 +139,12 @@ public sealed class SiteInviteResponseTests
         public Task GrantRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task RevokeRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task RemoveMemberAsync(string organizationId, string userId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task UpdateDisplayNameAsync(string organizationId, string displayName, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

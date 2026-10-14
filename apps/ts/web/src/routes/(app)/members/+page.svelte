@@ -1,15 +1,32 @@
 <script lang="ts">
   import type { SubmitFunction } from '@sveltejs/kit';
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
   import Button from '$lib/components/Button.svelte';
   import InlineNotice from '$lib/components/InlineNotice.svelte';
+  import Modal from '$lib/components/Modal.svelte';
   import MemberTile from '$lib/components/MemberTile.svelte';
   import RetryNotice from '$lib/components/RetryNotice.svelte';
   import SegmentedChoice from '$lib/components/SegmentedChoice.svelte';
   import TextInput from '$lib/components/TextInput.svelte';
   import { announce } from '$lib/announcer.svelte';
   import { t, type MessageKey } from '$lib/i18n';
-  import { inviteNoticeOf, inviteRoles, membersNoticeOf, roleDescription, type EmailError, type InviteFailure } from '$lib/members';
+  import {
+    displayNameOf,
+    inviteNoticeOf,
+    inviteRoles,
+    isLastOwner,
+    memberChangedNoticeOf,
+    memberChangeNoticeOf,
+    membersNoticeOf,
+    roleDescription,
+    type EmailError,
+    type InviteFailure,
+    type InviteSuccess,
+    type MemberChangeAction,
+    type MemberChangeFailure,
+    type MemberChangeSuccess,
+  } from '$lib/members';
   import type { Role } from '$lib/roles';
   import { roleLabel } from '$lib/sites';
   import type { PageProps } from './$types';
@@ -17,8 +34,13 @@
   let { data, form }: PageProps = $props();
 
   const site = $derived(data.currentSite);
-  const failed: InviteFailure | null = $derived(form === null || 'done' in form ? null : form);
-  const sentTo: string | null = $derived(form !== null && 'done' in form ? form.email : null);
+  /** The answer of the Invite form, or of a Role change or removal (Story 9.2), told apart by `action`. */
+  const inviteAnswer: InviteSuccess | InviteFailure | null = $derived(form === null || form.action !== undefined ? null : (form as InviteSuccess | InviteFailure));
+  const changeAnswer: MemberChangeSuccess | MemberChangeFailure | null = $derived(form?.action !== undefined ? (form as MemberChangeSuccess | MemberChangeFailure) : null);
+  const failed: InviteFailure | null = $derived(inviteAnswer === null || 'done' in inviteAnswer ? null : inviteAnswer);
+  const sentTo: string | null = $derived(inviteAnswer !== null && 'done' in inviteAnswer ? inviteAnswer.email : null);
+  const changeFailed: MemberChangeFailure | null = $derived(changeAnswer === null || 'done' in changeAnswer ? null : changeAnswer);
+  const changeDone: MemberChangeSuccess | null = $derived(changeAnswer !== null && 'done' in changeAnswer ? changeAnswer : null);
   const listNotice = $derived(membersNoticeOf(data.membersNotice));
 
   let working = $state(false);
@@ -55,6 +77,90 @@
     };
   };
 
+  /**
+   * Role change and removal (UX-DR73): the tile an Owner taps opens the editor. Until a tile is tapped the editor
+   * follows the last answer: a refused change keeps it on that Member (except one who is gone), a saved one closes it.
+   */
+  let tapped = $state(false);
+  let openId: string | null = $state(null);
+  let editRole: Role | null = $state(null);
+  let changing: MemberChangeAction | null = $state(null);
+  let confirmOpen = $state(false);
+  let removeForm: HTMLFormElement | undefined = $state();
+
+  const editingId = $derived(tapped ? openId : changeFailed !== null && changeFailed.notice !== 'memberGone' ? changeFailed.userId : null);
+  const editing = $derived(data.members.find((member) => member.userId === editingId && !isLastOwner(data.members, member)) ?? null);
+  const editingName = $derived(editing === null ? '' : displayNameOf(editing));
+  const refusedHere = $derived(changeFailed !== null && editing !== null && changeFailed.userId === editing.userId && !tapped);
+  const editedRole: Role = $derived(editRole ?? (refusedHere && changeFailed?.action === 'changeRole' ? changeFailed.role : (editing?.role ?? 'Member')));
+  /** The Server's `last-owner`: one line under the Role field, until another Role is picked. */
+  const roleError = $derived(refusedHere && editRole === null && changeFailed?.notice === 'lastOwner' ? t('members.lastOwner') : null);
+
+  const changeNotice = $derived.by(() => {
+    if (site === null) {
+      return null;
+    }
+    if (changeDone !== null) {
+      return { message: t(memberChangedNoticeOf(changeDone.action), { name: changeDone.name, role: t(roleLabel[changeDone.role]), siteName: changeDone.siteName }), tryAgain: false };
+    }
+    if (changeFailed === null || changeFailed.notice === 'lastOwner') {
+      return null;
+    }
+    const { message, tryAgain } = memberChangeNoticeOf(changeFailed.notice);
+    return { message: t(message, { name: changeFailed.name, siteName: changeFailed.siteName }), tryAgain };
+  });
+
+  function select(userId: string): void {
+    openId = editingId === userId ? null : userId;
+    tapped = true;
+    editRole = null;
+  }
+
+  function closeEditor(): void {
+    openId = null;
+    tapped = true;
+    editRole = null;
+  }
+
+  function askRemove(): void {
+    confirmOpen = true;
+  }
+
+  function confirmRemove(): void {
+    confirmOpen = false;
+    removeForm?.requestSubmit();
+  }
+
+  /**
+   * A Role change or removal. Afterwards the editor follows the answer. On success update() runs the load again, so a
+   * User who is no longer Owner lands on Garden (the page's load sends them); a Member who is gone reads everything
+   * again, and the list reloads.
+   */
+  function changingMember(action: MemberChangeAction): SubmitFunction {
+    return () => {
+      changing = action;
+      return async ({ result, update }) => {
+        await update({ reset: false });
+        changing = null;
+        tapped = false;
+        openId = null;
+        editRole = null;
+        const answer = result.type === 'success' || result.type === 'failure' ? (result.data as Partial<MemberChangeSuccess & MemberChangeFailure> | undefined) : undefined;
+        if (result.type === 'failure' && answer?.notice === 'memberGone') {
+          await invalidateAll();
+        }
+      };
+    };
+  }
+
+  $effect(() => {
+    if (changeNotice !== null) {
+      announce(changeNotice.message, changeDone !== null ? 'polite' : 'assertive');
+    } else if (roleError !== null) {
+      announce(roleError, 'assertive');
+    }
+  });
+
   $effect(() => {
     if (sentTo !== null) {
       announce(t('members.sent', { email: sentTo }), 'polite');
@@ -82,9 +188,78 @@
     {:else}
       <ul class="cf-members__list" aria-labelledby="cf-members-list">
         {#each data.members as member (member.userId)}
-          <li><MemberTile {member} /></li>
+          <li>
+            <MemberTile
+              {member}
+              lastOwner={isLastOwner(data.members, member)}
+              selected={editing?.userId === member.userId}
+              controls="cf-member-editor"
+              onselect={() => {
+                select(member.userId);
+              }}
+            />
+          </li>
         {/each}
       </ul>
+    {/if}
+    {#if changeNotice !== null}
+      {#if changeNotice.tryAgain && changeFailed !== null}
+        <!-- Try again sends the same change once more. -->
+        <RetryNotice
+          id="cf-member-notice"
+          message={changeNotice.message}
+          action="?/{changeFailed.action}"
+          fields={{ siteId: site.id, siteName: site.name, userId: changeFailed.userId, name: changeFailed.name, role: changeFailed.role }}
+          submitting={changingMember(changeFailed.action)}
+        />
+      {:else}
+        <InlineNotice id="cf-member-notice" message={changeNotice.message} />
+      {/if}
+    {/if}
+    {#if editing !== null}
+      <!-- Role change and removal (UX-DR73), for the Owner only: the page exists for no one else. -->
+      <section id="cf-member-editor" class="cf-members__editor" aria-labelledby="cf-member-editor-title">
+        <h3 id="cf-member-editor-title" class="cf-members__editor-title">{t('members.editor', { name: editingName })}</h3>
+        <form class="cf-members__edit" method="POST" action="?/changeRole" novalidate use:enhance={changingMember('changeRole')}>
+          <input type="hidden" name="siteId" value={site.id} />
+          <input type="hidden" name="siteName" value={site.name} />
+          <input type="hidden" name="userId" value={editing.userId} />
+          <input type="hidden" name="name" value={editingName} />
+          <input type="hidden" name="role" value={editedRole} />
+          <SegmentedChoice
+            id="cf-member-role"
+            label={t('members.role')}
+            options={roleOptions}
+            value={editedRole}
+            helper={t(roleDescription[editedRole])}
+            invalid={roleError}
+            onchange={(value: Role) => {
+              editRole = value;
+            }}
+          />
+          <div class="cf-members__actions">
+            <Button type="submit" label={t('members.saveRole')} working={changing === 'changeRole'} workingLabel={t('members.savingRole')} />
+            <Button variant="secondary" label={t('members.remove')} working={changing === 'removeMember'} workingLabel={t('members.removing')} onclick={askRemove} />
+            <Button variant="ghost" label={t('members.closeEditor')} onclick={closeEditor} />
+          </div>
+        </form>
+        <!-- Remove confirms in a Modal naming the person and the Site; the Modal's action submits this form. -->
+        <form class="cf-members__remove" method="POST" action="?/removeMember" bind:this={removeForm} use:enhance={changingMember('removeMember')}>
+          <input type="hidden" name="siteId" value={site.id} />
+          <input type="hidden" name="siteName" value={site.name} />
+          <input type="hidden" name="userId" value={editing.userId} />
+          <input type="hidden" name="name" value={editingName} />
+          <input type="hidden" name="role" value={editing.role} />
+        </form>
+        <Modal
+          id="cf-remove-member"
+          bind:open={confirmOpen}
+          title={t('members.removeQuestion', { name: editingName, siteName: site.name })}
+          detail={t('members.removeDetail', { siteName: site.name })}
+          actionLabel={t('members.removeAction')}
+          onaction={confirmRemove}
+        />
+      </section>
     {/if}
   </section>
 
@@ -151,6 +326,30 @@
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+
+  .cf-members__editor,
+  .cf-members__edit {
+    display: grid;
+    gap: var(--cf-spacing-5);
+  }
+
+  .cf-members__editor {
+    padding: var(--cf-spacing-5);
+    border: 1px solid var(--cf-color-border-subtle);
+  }
+
+  .cf-members__editor-title {
+    margin: 0;
+    font-family: var(--cf-type-heading-compact-font-family, var(--cf-type-body-lg-font-family));
+    font-size: var(--cf-type-body-lg-font-size);
+    line-height: var(--cf-type-body-lg-line-height);
+  }
+
+  .cf-members__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cf-spacing-3);
   }
 
   .cf-members__invite {
