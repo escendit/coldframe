@@ -119,6 +119,19 @@ export async function failNextPause(failure: FakePauseFailure | null): Promise<v
   expect(response.ok).toBe(true);
 }
 
+/**
+ * Makes the fake Server keep every pause write waiting (`true`) until it is told to answer them (`false`): a
+ * Server that is slow, so a test can act while a Pause or a Resume is on its way. `resetSites` lets them go too.
+ */
+export async function holdPauses(hold: boolean): Promise<void> {
+  const response = await fetch(`${idpOrigin}/control/pause`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hold }),
+  });
+  expect(response.ok).toBe(true);
+}
+
 /** How often the Alerts were read from the fake Server since they were last seeded. */
 export async function alertReads(): Promise<number> {
   const response = await fetch(`${idpOrigin}/control/alerts`);

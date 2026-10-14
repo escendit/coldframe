@@ -891,3 +891,27 @@ source_spec: `spec-8-1-pause-and-resume-on-the-server.md`
 severity: low
 reason: DeviceGrain.Enrol applies the join reply's Pause also for a Device that is enrolled already and confirms and tells the Sensors when that changed something; every test that enrols into a paused Site uses a new Device. The window is narrow (a re-enrolment during a pending delivery) and the Site's own redelivery reaches the same state.
 status: open
+
+### DW-115: The iOS bridge and the App/ adapters for Pause are compiled only; no test runs them.
+origin: spec-deferred 635507b4d145
+location: packages/kt/core/src/iosMain/kotlin/com/escendit/coldframe/core/sites/IosPause.kt, apps/swift/ios/App/CoreLotsService.swift
+source_spec: `spec-8-2-pause-and-resume-in-the-apps.md`
+severity: medium
+reason: IosLots.watch, IosLotDetail.watch and IosDevices.watch now combine the engine state with its pause state, IosPause is new, and CorePauseService and the Core*Service adapters map each new snapshot field by position. tests/kt/core has commonTest and jvmTest only, CI compiles the iOS targets without running anything, and the App/ target is only built. Swapping canPause and canResume in CoreDevicesService.presentation, or dropping the pause state from IosLots.watch, compiles and passes every suite. The same holds for every earlier story's iOS adapters (DW-93); closing it needs an iosTest source set or an app-hosted test target.
+status: open
+
+### DW-116: The paused overview does not say who paused the Site and when ("Paused by Simon (Owner) on 2 Nov.", UX-DR83).
+origin: spec-deferred 162092a0487f
+location: packages/cs/contracts/Sites/SiteEvents.cs (SitePaused), apps/cs/server/Edge/EdgeApi.cs (ToSiteResponse)
+source_spec: `spec-8-2-pause-and-resume-in-the-apps.md`
+severity: low
+reason: UX-DR83 and EXPERIENCE.md (State Patterns, All paused) give the line as "No Alerts are sent while the Site is paused. Paused by <name> (<Role>) on <date>." Story 8.2's acceptance text asks for the first sentence only, and Story 8.1 stores no attribution by decision: site.paused carries the end, a revision and a timestamp, and SitePause exposes paused and pausedUntil. Showing it needs the acting User on the event and a member on the Site read.
+status: open
+
+### DW-117: Calibrate on a paused Device still offers no Resume and keeps its Story 5.2 wording; Device rows have no swipe-to-Pause.
+origin: spec-deferred 39fc78bd7d4b
+location: packages/kt/core/src/commonMain/kotlin/com/escendit/coldframe/core/calibrate/CalibrateEngine.kt, apps/ts/web/src/routes/(app)/garden/[lotId]/calibrate/+page.svelte
+source_spec: `spec-8-2-pause-and-resume-in-the-apps.md`
+severity: low
+reason: UX-DR87 asks for "<ID> is paused, so it sends no Readings. Calibrate after the Pause ends." with Resume where the Pause is the Device's own; the three clients show "This Node is paused. Readings resume after the Pause ends…" and no control (CalibrateScreen.kt, CalibrateViews.swift, calibrate/+page.svelte). The resume endpoint and the core PauseEngine now exist, so the branch can be completed. Swipe on a Device row (UX-DR31) is still marked [ASSUMPTION] in EXPERIENCE.md. Neither is in Story 8.2's acceptance criteria.
+status: open

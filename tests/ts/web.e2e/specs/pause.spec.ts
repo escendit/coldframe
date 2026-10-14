@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { FakeDevice, FakeHistoryDay, FakeLot, FakeSensorReading, FakeSite } from '../fixtures/fake-idp.ts';
 import { appUrl } from '../fixtures/ports.ts';
-import { axeClean, failNextPause, nothingClipped, pauseCalls, resetSites, setMode, signInButton, useTheme } from './helpers.ts';
+import { axeClean, failNextPause, holdPauses, nothingClipped, pauseCalls, resetSites, setMode, signInButton, useTheme } from './helpers.ts';
 
 /**
  * Story 8.2: Pause and Resume in the web app. The Pause modal from the Site menu, Lot detail and a Devices
@@ -337,6 +337,71 @@ test.describe('Pause and Resume of the Site', () => {
     await notice.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByRole('heading', { level: 2, name: 'Tomatoes needs water' })).toBeVisible();
     await expect(notice).toHaveCount(0);
+  });
+
+  test('UX-DR70 a refusal that arrives after Cancel says nothing in the next opening', async ({ page }) => {
+    await resetSites([{ ...home, role: 'Administrator' }], lots, devices);
+    await prepare(page);
+    await signInTo(page);
+    await openSitePause(page);
+
+    // The Server is slow, and will refuse: the User cancels while the Pause is on its way.
+    await holdPauses(true);
+    await failNextPause(403);
+    await modal(page).getByLabel('Until').fill(until);
+    await modal(page).getByRole('button', { name: 'Pause Home garden' }).click();
+    await modal(page).getByRole('button', { name: 'Cancel' }).click();
+    await expect(modal(page)).toHaveCount(0);
+    await openSitePause(page);
+    await expect(modal(page).getByLabel('Until')).toHaveValue('');
+
+    const answered = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes('?/pause'));
+    await holdPauses(false);
+    await answered;
+    await expect.poll(async () => (await pauseCalls()).map((call) => call.status)).toEqual([403]);
+    // The answer belonged to the opening that was cancelled: this one starts empty and stays so.
+    await expect(modal(page)).toBeVisible();
+    await expect(modal(page).locator('#cf-site-pause-notice')).toHaveCount(0);
+    await expect(modal(page).getByLabel('Until')).toHaveValue('');
+    await expect(modal(page).getByLabel('Until')).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(modal(page).getByRole('button', { name: 'Pause Home garden' })).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('UX-DR70 a Pause accepted after Cancel shows on the page and leaves the next opening open', async ({ page }) => {
+    await resetSites([home], lots, devices);
+    await prepare(page);
+    await signInTo(page);
+    await openSitePause(page);
+
+    await holdPauses(true);
+    await modal(page).getByRole('button', { name: 'Pause Home garden' }).click();
+    await modal(page).getByRole('button', { name: 'Cancel' }).click();
+    await expect(modal(page)).toHaveCount(0);
+    await openSitePause(page);
+    await modal(page).getByLabel('Until').fill(until);
+
+    await holdPauses(false);
+    // The Pause happened, so the page says so; the modal opened since is not closed by the older answer.
+    await expect(page.getByRole('status')).toHaveText('Home garden paused.');
+    await expect(page.locator('.cf-site-summary__line')).toHaveText(line);
+    await expect(modal(page)).toBeVisible();
+    await expect(modal(page).getByLabel('Until')).toHaveValue(until);
+    expect(await pauseCalls()).toEqual([{ method: 'PUT', path: sitePath, body: {}, status: 200 }]);
+  });
+
+  test('UX-DR22 a second Resume chosen while the first is on its way sends nothing', async ({ page }) => {
+    await resetSites([pausedSite], lots, devices);
+    await prepare(page);
+    await signInTo(page);
+
+    await holdPauses(true);
+    await (await siteMenu(page)).getByRole('menuitem', { name: 'Resume Home garden' }).click();
+    await (await siteMenu(page)).getByRole('menuitem', { name: 'Resume Home garden' }).click();
+    await holdPauses(false);
+
+    await expect(page.getByRole('status')).toHaveText('Home garden resumed.');
+    await expect(page.locator('.cf-site-summary__line')).toHaveCount(0);
+    expect(await pauseCalls()).toEqual([{ method: 'DELETE', path: sitePath, body: {}, status: 200 }]);
   });
 });
 

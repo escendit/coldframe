@@ -87,7 +87,15 @@ class PauseWiringTest {
     @Test
     fun anEngineWiredWithoutThePauseApiOpensNothing() =
         runTest {
-            val engine = SitesWiring.lots(FakeLotsApi(), sites(), settings, backgroundScope, cadence = null)
+            val engine =
+                SitesWiring.lots(
+                    FakeLotsApi(),
+                    sites(),
+                    settings,
+                    backgroundScope,
+                    cadence = null,
+                    pause = null,
+                )
             runCurrent()
 
             engine.pause.openForSite()

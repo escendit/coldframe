@@ -461,6 +461,12 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   /** Story 8.2: every pause write received, and what the next one does instead of pausing. */
   let pauseCalls: FakePauseCall[] = [];
   let pauseFailNext: FakePauseFailure | null = null;
+  /** While set, every pause write waits here before it is answered: a Server that is slow to answer. */
+  let pauseHold: { readonly held: Promise<void>; readonly release: () => void } | null = null;
+  const releasePauses = (): void => {
+    pauseHold?.release();
+    pauseHold = null;
+  };
   /** Set to answer the Alerts list with this status instead (a Server that is down). */
   let alertsStatus: number | null = null;
   /** How many times the Alerts of any Site were asked for since the last reset. */
@@ -619,6 +625,7 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       silenceWindowPuts = [];
       pauseCalls = [];
       pauseFailNext = null;
+      releasePauses();
       alertsStatus = null;
       alertReads = 0;
       notificationSettings = defaultNotificationSettings;
@@ -639,11 +646,24 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       send(response, 200, { sites, posts, lots, lotPosts, lotReads, devices, deviceActions, calibrations, calibrationPosts, thresholds, thresholdPuts, silenceWindowPuts });
       return;
     }
-    // Story 8.2: what the next pause write does instead of pausing; `POST /control/sites` clears it and the calls.
+    // Story 8.2: what the next pause write does instead of pausing (`failNext`), and whether pause writes wait
+    // before they are answered (`hold`); `POST /control/sites` clears both and the calls.
     if (path === '/control/pause' && request.method === 'POST') {
-      const requested = (await readJson(request)).failNext;
-      pauseFailNext = typeof requested === 'number' || requested === 'drop' ? requested : null;
-      send(response, 200, { failNext: pauseFailNext });
+      const body = await readJson(request);
+      if ('failNext' in body) {
+        const requested = body.failNext;
+        pauseFailNext = typeof requested === 'number' || requested === 'drop' ? requested : null;
+      }
+      if (body.hold === true && pauseHold === null) {
+        let release = (): void => undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        pauseHold = { held, release };
+      } else if (body.hold === false) {
+        releasePauses();
+      }
+      send(response, 200, { failNext: pauseFailNext, hold: pauseHold !== null });
       return;
     }
     if (path === '/control/pause') {
@@ -773,6 +793,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       const siteId = decodeURIComponent(pauseMatch[1] ?? '');
       const deviceId = pauseMatch[2] === undefined ? null : decodeURIComponent(pauseMatch[2]);
       const body = method === 'PUT' ? await readJson(request) : {};
+      if (pauseHold !== null) {
+        await pauseHold.held;
+      }
       const refuse = (status: number, slug: string): void => {
         pauseCalls.push({ method, path, body, status });
         problem(response, status, slug);

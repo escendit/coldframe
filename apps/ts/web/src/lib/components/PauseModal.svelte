@@ -101,7 +101,10 @@
         await applyAction(result);
       } else if (result.type === 'success') {
         const name = saved === 'device' && device !== null ? shortDeviceId(device.id) : siteName;
-        open = false;
+        // Closed meanwhile and perhaps opened again: the Pause still happened, but that opening is not this save's to close.
+        if (current()) {
+          open = false;
+        }
         announce(t('pause.paused', { name }), 'polite');
         await invalidateAll();
       } else if (!current()) {

@@ -215,6 +215,10 @@ class PauseEngineTest {
             // Not a date of the calendar: ignored.
             engine.setUntil("2027-02-30")
             engine.setUntil("1 March")
+            // Digits only, as the web's date field sends them: a sign is no part of a date.
+            engine.setUntil("+027-04-01")
+            engine.setUntil("2027-+4-01")
+            engine.setUntil("2027-04-+1")
             engine.setUntil(2027, 13, 1)
             assertEquals("2027-03-01", engine.sheet().until)
             engine.setUntil(2028, 2, 29)
