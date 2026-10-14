@@ -134,7 +134,6 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
         ClockStarts.TryRemove(Database.ConnectionString, out _);
         await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
         await Cluster.WaitForLivenessToStabilizeAsync();
-        await ReminderTableReadyAsync();
     }
 
     /// <summary>
@@ -147,35 +146,6 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
         ClockStarts[Database.ConnectionString] = startAt;
         await Cluster.RestartSiloAsync(Cluster.Primary ?? throw new InvalidOperationException("The cluster has no silo."));
         await Cluster.WaitForLivenessToStabilizeAsync();
-        await ReminderTableReadyAsync();
-    }
-
-    // The in-memory reminder table is a grain of the silo. Right after a restart its placement can time out for
-    // 30 s at a time (Orleans' own timeout: "Grain placement operation timed out", then "ReminderService failed
-    // initial load of reminders"), and every grain that registers or reads a reminder meanwhile waits that long:
-    // a User grain does so in the turn that tells it of an Alert, which a Device's wake or frame awaits, so the
-    // test's own call times out. The restart therefore reads the table before it hands back: a stall is spent
-    // here. The wait never fails a test by itself: on CI four reads in a row timed out (DW-110), in a test that
-    // needs no reminder, so after a few reads the restart is over as it was before this wait existed, and a test
-    // that does need the table fails on its own call.
-    private async Task ReminderTableReadyAsync()
-    {
-        var table = SiloServices.GetRequiredService<IReminderTable>();
-
-        for (var attempt = 1; attempt <= 3; attempt++)
-        {
-            try
-            {
-                await table.ReadRows(GrainId.Create("device", "0000000000000000"));
-                return;
-            }
-#pragma warning disable CA1031 // Whatever kept the table from answering, it is asked again, a few times.
-            catch (Exception)
-#pragma warning restore CA1031
-            {
-                // Asked again, and then left alone.
-            }
-        }
     }
 
     /// <summary>
@@ -398,8 +368,14 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
                 siloBuilder.Services.AddKeyedSingleton(clock, TimeProvider.System);
             }
 
-            // Reminders (a Device's pending Lot releases) need a service; in memory is enough for one silo.
-            siloBuilder.UseInMemoryReminderService();
+            // Reminders live in the class's own database, in the table the migration job creates, as on the Server
+            // (AD-22). The in-memory table was a grain of the silo, and right after a restart its placement could
+            // stall for 30 s at a time, so every grain that registered or read a reminder meanwhile timed out on CI.
+            siloBuilder.UseAdoNetReminderService(options =>
+            {
+                options.Invariant = "Npgsql";
+                options.ConnectionString = connectionString;
+            });
 
             siloBuilder.Services.AddSingleton<CapturingLoggerProvider>();
             siloBuilder.Services.AddSingleton<ILoggerProvider>(provider => provider.GetRequiredService<CapturingLoggerProvider>());
