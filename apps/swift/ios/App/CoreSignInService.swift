@@ -56,6 +56,9 @@ final class CoreSignInService: SignInService {
   /// Push of the same core instance, for `CorePushService`.
   var push: IosPush { core.push }
 
+  /// Members of the same core instance, for `CoreMembersService`.
+  var members: IosMembers { core.members }
+
   /// The Devices half of the same core instance, for `CoreDevicesService`.
   var devices: IosDevices { core.devices }
 
