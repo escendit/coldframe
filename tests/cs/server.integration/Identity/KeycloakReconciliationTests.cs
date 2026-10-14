@@ -24,8 +24,9 @@ public sealed class KeycloakReconciliationTests(EdgeApiFixture edge) : IClassFix
     private const string UserTaskQueue = "keycloak-user-queue";
     private const string Orgs = $"/realms/{EdgeApiFixture.Realm}/orgs";
 
-    // Reconciliation waits on Keycloak, Temporal and the worker's retries, which start at 1 s.
-    private static readonly TimeSpan Settle = TimeSpan.FromSeconds(60);
+    // Reconciliation waits on Keycloak, Temporal and the worker's retries, which start at 1 s. On a loaded CI runner
+    // a rename took longer than 60 s; the wait ends as soon as the Server answers.
+    private static readonly TimeSpan Settle = TimeSpan.FromSeconds(120);
 
     [Fact]
     public async Task AMemberAddedInKeycloakGetsTheirRoleAndLosesItWhenRemoved()
