@@ -743,6 +743,25 @@ class OpenApiContractTest {
         }
     }
 
+    @Test
+    fun story92TheMembershipChangeOperationsExistForOwnersWithTheirProblems() {
+        for ((method, id) in listOf("put" to "changeMemberRole", "delete" to "removeSiteMember")) {
+            val operation = operation("/sites/{siteId}/members/{userId}", method)
+            assertEquals(id, operation["operationId"]!!.jsonPrimitive.content)
+            assertEquals("Owner", operation["x-coldframe-minimum-role"]!!.jsonPrimitive.content)
+            assertEquals(listOf("siteId", "userId"), parameterNames(operation))
+            val responses = operation["responses"]!!.jsonObject.keys
+            assertTrue(responses.containsAll(setOf("204", "403", "404", "409", "503")), responses.toString())
+        }
+        assertTrue(ColdframeApi.PROBLEM_LAST_OWNER in problemTypes())
+        assertTrue(ColdframeApi.PROBLEM_MEMBER_NOT_FOUND in problemTypes())
+    }
+
+    @Test
+    fun story92TheMemberRoleRequestMirrorsTheContract() {
+        assertMirrors("MemberRoleRequest", MemberRoleRequestDto.serializer().descriptor)
+    }
+
     private fun problemTypes(): List<String> =
         schema("ProblemDetails")["properties"]!!
             .jsonObject["type"]!!

@@ -62,6 +62,8 @@ function noticeOf(error: Exclude<SitesError, 'unauthorized'>, dated: boolean): P
     case 'keyReused':
     case 'unavailable':
     case 'unexpected':
+    case 'lastOwner':
+    case 'memberNotFound':
       return 'unexpected';
   }
 }

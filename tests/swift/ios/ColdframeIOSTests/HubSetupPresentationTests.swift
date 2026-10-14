@@ -50,6 +50,9 @@ private func resolve(_ copy: Copy) throws -> String {
     case .text(let text): value = value.replacingOccurrences(of: "%\(index + 1)$@", with: text)
     case .number(let number):
       value = value.replacingOccurrences(of: "%\(index + 1)$lld", with: String(number))
+    case .entry(let key):
+      let text = try Catalogue.entries()[key.rawValue] ?? key.rawValue
+      value = value.replacingOccurrences(of: "%\(index + 1)$@", with: text)
     }
   }
   return value

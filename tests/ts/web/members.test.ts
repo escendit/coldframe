@@ -12,14 +12,19 @@ import {
   initialsOf,
   inviteNoticeOf,
   inviteRoles,
+  isLastOwner,
+  memberChangedNoticeOf,
+  memberChangeNoticeOf,
   membersAccessOf,
   membershipRefreshMs,
   type InviteFailure,
   type InviteSuccess,
+  type MemberChangeFailure,
+  type MemberChangeSuccess,
   type MemberEntry,
   type MembersNotice,
 } from '$lib/members';
-import { inviteAction, inviteToSite, listMembers, loadMembers } from '$lib/server/members';
+import { changeMemberRole, inviteAction, inviteToSite, listMembers, loadMembers, memberChangeAction, removeSiteMember } from '$lib/server/members';
 import type { Site } from '$lib/sites';
 import { fakeServer, fetchFailed, jsonResponse, problemResponse } from './fakes.ts';
 import { block, read, webSrc } from './helpers.ts';
@@ -239,7 +244,7 @@ describe('The invite form action', () => {
   });
 });
 
-function membersPage(members: readonly MemberEntry[], form: InviteSuccess | InviteFailure | null = null, membersNotice: MembersNotice | null = null): string {
+function membersPage(members: readonly MemberEntry[], form: InviteSuccess | InviteFailure | MemberChangeSuccess | MemberChangeFailure | null = null, membersNotice: MembersNotice | null = null): string {
   const data = { user: { displayName: 'Simon Novak', initials: 'SN' }, theme: 'system', sites: [home], currentSite: home, sitesNotice: null, sitesStale: null, members, membersNotice };
   return render(MembersPage, { props: { data, form, params: {} } as never }).body;
 }
@@ -253,7 +258,7 @@ describe('Members surface', () => {
   test('UX-DR73 UX-DR51 one tile per Membership, with initials, name and Role, and no pending invitations', () => {
     const body = membersPage(tiles);
     const list = block(body, 'cf-members__list');
-    expect(text(list)).toBe('SN Simon Novak You Owner AL Ana Lima Member');
+    expect(text(list)).toBe('SN Simon Novak You Owner · last one A Site always keeps at least one Owner. AL Ana Lima Member · change');
     expect(list).toMatch(/aria-labelledby="cf-members-list"/u);
     expect(body).toMatch(/<h2 id="cf-members-list"[^>]*>Members of Home<\/h2>/u);
     expect(body).not.toMatch(/pending/iu);
@@ -276,7 +281,7 @@ describe('Members surface', () => {
     const body = membersPage(tiles, { done: true, email: 'ana@example.com' });
     expect(text(body)).toContain("Invitation sent to ana@example.com. They accept from the email, on the garden's Wi-Fi.");
     expect(body).toMatch(/<input[^>]*name="email"[^>]*value=""|<input(?![^>]*value=)[^>]*name="email"/u);
-    expect(text(block(body, 'cf-members__list'))).toBe('SN Simon Novak You Owner AL Ana Lima Member');
+    expect(text(block(body, 'cf-members__list'))).toBe('SN Simon Novak You Owner · last one A Site always keeps at least one Owner. AL Ana Lima Member · change');
   });
 
   test('UX-DR52 already invited keeps the values with the notice, and no Try again', () => {
@@ -320,7 +325,7 @@ describe('Member tile', () => {
     expect(own).toMatch(/aria-hidden="true"[^>]*>SN</u);
   });
 
-  test('UX-DR51 the Role line is upper case by style only, and the tile is display-only in Story 9.1', () => {
+  test('UX-DR51 the Role line is upper case by style only, and a tile nobody can open is display-only', () => {
     const body = render(MemberTile, { props: { member: { ...ana, self: false } } }).body;
     expect(body).toMatch(/class="cf-member-tile__role[ "][^>]*>Member</u);
     expect(body).not.toMatch(/<button|<a /u);
@@ -371,5 +376,227 @@ describe('Create Site while an invitation is on its way', () => {
     expect(page).toContain('invalidateAll()');
     expect(page).toContain('membershipRefreshMs');
     expect(page).toMatch(/goto\(['"]\/garden['"]/u);
+  });
+});
+
+const anaPath = `${membersPath}/${ana.userId}`;
+const changeFields = { siteId, siteName: 'Home', userId: ana.userId, name: 'Ana Lima', role: 'Administrator' };
+
+async function changeFailureOf(result: Promise<MemberChangeSuccess | ActionFailure<MemberChangeFailure>>): Promise<{ status: number; data: MemberChangeFailure }> {
+  const value = await result;
+  if ('done' in value) {
+    throw new Error('Expected a failure.');
+  }
+  expect(isActionFailure(value)).toBe(true);
+  return { status: value.status, data: value.data };
+}
+
+describe('Role change and removal copy (Story 9.2)', () => {
+  test('UX-DR51 UX-DR73 UX-DR113 the tile, editor, confirmation and notices are the UX copy verbatim', () => {
+    expect(catalogue['members.roleLine']).toBe('{role} · change');
+    expect(catalogue['members.lastOwnerLine']).toBe('Owner · last one');
+    expect(catalogue['members.lastOwner']).toBe('A Site always keeps at least one Owner.');
+    expect(catalogue['members.saveRole']).toBe('Save Role');
+    expect(catalogue['members.remove']).toBe('Remove from Site');
+    expect(catalogue['members.removeQuestion']).toBe('Remove {name} from {siteName}?');
+    expect(catalogue['members.removeDetail']).toBe('They lose access to {siteName} and stop getting its Alerts.');
+    expect(catalogue['members.removeAction']).toBe('Remove');
+    expect(catalogue['members.roleChanged']).toBe('{name} is now {role}.');
+    expect(catalogue['members.removed']).toBe('{name} was removed from {siteName}.');
+    expect(catalogue['members.changeNotSaved']).toBe('The change was not saved. Try again.');
+    expect(catalogue['members.memberGone']).toBe('{name} is no longer a member of {siteName}.');
+  });
+
+  test('UX-DR84 a 403 race reuses the read-only copy', () => {
+    expect(catalogue['members.changeForbidden']).toBe("You can't change this on {siteName}. Ask an Owner or Administrator.");
+    expect(catalogue['members.changeForbidden']).toBe(catalogue['siteSettings.forbidden']);
+  });
+});
+
+describe('Role change and removal rules', () => {
+  test('UX-DR51 the only Owner is the last Owner; with two Owners neither is', () => {
+    const owner = { role: 'Owner' as const };
+    const member = { role: 'Member' as const };
+    expect(isLastOwner([owner, member], owner)).toBe(true);
+    expect(isLastOwner([owner, member], member)).toBe(false);
+    expect(isLastOwner([owner, { role: 'Owner' as const }, member], owner)).toBe(false);
+  });
+
+  test('UX-DR73 503 and an error offer Try again; last Owner, gone, refused and a certificate do not', () => {
+    expect(memberChangeNoticeOf('unavailable')).toEqual({ message: 'members.changeNotSaved', tryAgain: true });
+    expect(memberChangeNoticeOf('memberGone')).toEqual({ message: 'members.memberGone', tryAgain: false });
+    expect(memberChangeNoticeOf('lastOwner')).toEqual({ message: 'members.lastOwner', tryAgain: false });
+    expect(memberChangeNoticeOf('forbidden')).toEqual({ message: 'members.changeForbidden', tryAgain: false });
+    expect(memberChangeNoticeOf('unexpected').tryAgain).toBe(true);
+    expect(memberChangeNoticeOf('certificate').tryAgain).toBe(false);
+    expect(memberChangedNoticeOf('changeRole')).toBe('members.roleChanged');
+    expect(memberChangedNoticeOf('removeMember')).toBe('members.removed');
+  });
+});
+
+describe('The Role change and removal calls (AD-14)', () => {
+  test('UX-DR73 a Role change is PUT /sites/{siteId}/members/{userId} with {role}; 204 is saved', async () => {
+    const fake = fakeServer(() => new Response(null, { status: 204 }));
+    expect(await changeMemberRole(locals, siteId, ana.userId, 'Administrator', { serverUrl, fetch: fake.fetch })).toEqual({ ok: undefined });
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path} ${seen.body} ${seen.authorization ?? ''}`)).toEqual([`PUT ${anaPath} {"role":"Administrator"} Bearer access-token-1`]);
+  });
+
+  test('UX-DR73 a removal is DELETE /sites/{siteId}/members/{userId}; 204 is removed', async () => {
+    const fake = fakeServer(() => new Response(null, { status: 204 }));
+    expect(await removeSiteMember(locals, siteId, ana.userId, { serverUrl, fetch: fake.fetch })).toEqual({ ok: undefined });
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path}`)).toEqual([`DELETE ${anaPath}`]);
+  });
+
+  test('UX-DR51 a 409 last-owner and a 404 member-not-found are told apart from other 409s and 404s by their problem type', async () => {
+    expect(await changeMemberRole(locals, siteId, ana.userId, 'Member', { serverUrl, fetch: fakeServer(() => problemResponse(409, 'last-owner')).fetch })).toEqual({ error: 'lastOwner' });
+    expect(await removeSiteMember(locals, siteId, ana.userId, { serverUrl, fetch: fakeServer(() => problemResponse(404, 'member-not-found')).fetch })).toEqual({ error: 'memberNotFound' });
+    expect(await removeSiteMember(locals, siteId, ana.userId, { serverUrl, fetch: fakeServer(() => problemResponse(404, 'site-not-found')).fetch })).toEqual({ error: 'notFound' });
+  });
+
+  test('the browser never calls the Server for a change: the page names no member path', () => {
+    const page = read(`${webSrc}/routes/(app)/members/+page.svelte`);
+    expect(page).not.toMatch(/\/members\/\{|api-client|\$lib\/server/u);
+  });
+});
+
+describe('The changeRole and removeMember form actions', () => {
+  test('UX-DR73 a saved Role change answers the name and Role the notice names', async () => {
+    const fake = fakeServer(() => new Response(null, { status: 204 }));
+    expect(await memberChangeAction('changeRole', locals, formRequest(changeFields), { serverUrl, fetch: fake.fetch })).toEqual({
+      action: 'changeRole',
+      done: true,
+      name: 'Ana Lima',
+      role: 'Administrator',
+      siteName: 'Home',
+      self: false,
+    });
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path} ${seen.body}`)).toEqual([`PUT ${anaPath} {"role":"Administrator"}`]);
+  });
+
+  test('UX-DR73 a change to the signed-in User\'s own Membership is marked, so the page reads the Sites again', async () => {
+    const fake = fakeServer(() => new Response(null, { status: 204 }));
+    const done = await memberChangeAction('removeMember', locals, formRequest({ ...changeFields, userId: selfId, name: 'Simon Novak', role: 'Owner' }), { serverUrl, fetch: fake.fetch });
+    expect(done).toMatchObject({ action: 'removeMember', done: true, self: true });
+    expect(fake.seen.map((seen) => `${seen.method} ${seen.path}`)).toEqual([`DELETE ${membersPath}/${selfId}`]);
+  });
+
+  test('UX-DR51 UX-DR84 the refusals keep the editor: 409 last-owner, 404 gone, 503, 403, 404 Site, no answer, a certificate, anything else', async () => {
+    const cases: [() => Response | Promise<Response>, number, MemberChangeFailure['notice']][] = [
+      [() => problemResponse(409, 'last-owner'), 409, 'lastOwner'],
+      [() => problemResponse(404, 'member-not-found'), 404, 'memberGone'],
+      [() => problemResponse(503, 'identity-provider-unavailable'), 503, 'unavailable'],
+      [() => problemResponse(403, 'forbidden'), 403, 'forbidden'],
+      [() => problemResponse(404, 'site-not-found'), 404, 'siteNotFound'],
+      [() => Promise.reject(fetchFailed('ECONNREFUSED')), 502, 'unreachable'],
+      [() => Promise.reject(fetchFailed('UNABLE_TO_VERIFY_LEAF_SIGNATURE')), 502, 'certificate'],
+      [() => problemResponse(500, 'boom'), 502, 'unexpected'],
+    ];
+    for (const [answer, status, notice] of cases) {
+      for (const action of ['changeRole', 'removeMember'] as const) {
+        const failure = await changeFailureOf(memberChangeAction(action, locals, formRequest(changeFields), { serverUrl, fetch: fakeServer(answer).fetch }));
+        expect(failure.status, `${action} ${notice}`).toBe(status);
+        expect(failure.data).toEqual({ action, userId: ana.userId, name: 'Ana Lima', role: 'Administrator', siteName: 'Home', notice });
+      }
+    }
+  });
+
+  test('UX-DR73 a Role the editor does not offer, or no Member, is not sent', async () => {
+    const fake = fakeServer(() => new Response(null, { status: 204 }));
+    const role = await changeFailureOf(memberChangeAction('changeRole', locals, formRequest({ ...changeFields, role: 'Gardener' }), { serverUrl, fetch: fake.fetch }));
+    expect(role.data.notice).toBe('unexpected');
+    const nobody = await changeFailureOf(memberChangeAction('removeMember', locals, formRequest({ ...changeFields, userId: '' }), { serverUrl, fetch: fake.fetch }));
+    expect(nobody.data.notice).toBe('unexpected');
+    expect(fake.seen).toEqual([]);
+  });
+
+  test('UX-DR73 a 401 signs out', async () => {
+    const { location } = await redirectOf(() => memberChangeAction('changeRole', locals, formRequest(changeFields), { serverUrl, fetch: fakeServer(() => problemResponse(401, 'unauthorized')).fetch }));
+    expect(location).toContain('/.oidc/signout');
+  });
+});
+
+describe('Role change and removal surface', () => {
+  const two = [
+    { ...simon, self: true },
+    { ...ana, self: false, role: 'Owner' as const },
+  ];
+
+  test('UX-DR51 the last Owner is locked with the reason and is no button; everyone else is a button reading "<Role> · change"', () => {
+    const list = block(membersPage(tiles), 'cf-members__list');
+    expect(list).not.toMatch(/<button[^>]*>[\s\S]*?Simon Novak/u);
+    expect(list).toMatch(/<button[^>]*type="button"[^>]*aria-expanded="false"[^>]*aria-controls="cf-member-editor"[\s\S]*?Ana Lima[\s\S]*?Member · change/u);
+    expect(text(list)).toContain('Owner · last one A Site always keeps at least one Owner.');
+  });
+
+  test('UX-DR51 with two Owners neither is locked: both tiles open', () => {
+    const list = block(membersPage(two), 'cf-members__list');
+    expect([...list.matchAll(/<button/gu)]).toHaveLength(2);
+    expect(text(list)).not.toContain('last one');
+    expect(text(list)).toContain('Owner · change');
+  });
+
+  test('UX-DR73 no editor is open until a tile is tapped', () => {
+    expect(membersPage(tiles)).not.toContain('id="cf-member-editor"');
+  });
+
+  test('UX-DR51 a last-owner refusal keeps the editor open with one line under the Role field', () => {
+    const body = membersPage(two, { action: 'changeRole', userId: ana.userId, name: 'Ana Lima', role: 'Member', siteName: 'Home', notice: 'lastOwner' });
+    const editor = block(body, 'cf-members__editor');
+    expect(editor).toContain('id="cf-member-editor"');
+    expect(editor).toMatch(/<p id="cf-member-role-reason"[^>]*>A Site always keeps at least one Owner.<\/p>/u);
+    expect(editor).toMatch(/<fieldset[^>]*aria-describedby="cf-member-role-reason"/u);
+    expect(editor).toMatch(/<input[^>]*type="hidden"[^>]*name="role"[^>]*value="Member"/u);
+    expect(body).not.toContain('id="cf-member-notice"');
+  });
+
+  test('UX-DR73 UX-DR113 the editor: the Role choice, Save Role, Remove from Site, and a Modal naming the person and the Site', () => {
+    const body = membersPage(two, { action: 'removeMember', userId: ana.userId, name: 'Ana Lima', role: 'Owner', siteName: 'Home', notice: 'lastOwner' });
+    const editor = block(body, 'cf-members__editor');
+    expect(editor).toContain('action="?/changeRole"');
+    expect(editor).toContain('action="?/removeMember"');
+    const segments = [...editor.matchAll(/<button[^>]*class="cf-segmented__segment[^"]*"[^>]*>([\s\S]*?)<\/button>/gu)].map((match) => text(match[1] ?? ''));
+    expect(segments).toEqual(['Member', 'Administrator', 'Owner']);
+    expect(text(editor)).toContain('Save Role');
+    expect(text(editor)).toContain('Remove from Site');
+    expect(editor).toMatch(/<dialog[^>]*aria-labelledby="cf-remove-member-title"/u);
+    expect(text(editor)).toContain('Remove Ana Lima from Home?');
+    expect(text(editor)).toContain('They lose access to Home and stop getting its Alerts.');
+    expect(editor).toMatch(/<button[^>]*>\s*<span[^>]*>Remove<\/span>/u);
+  });
+
+  test('UX-DR73 saved: the notice names the person and the new Role, or the Site they left, and the editor is closed', () => {
+    const changed = membersPage(tiles, { action: 'changeRole', done: true, name: 'Ana Lima', role: 'Administrator', siteName: 'Home', self: false });
+    expect(text(changed)).toContain('Ana Lima is now Administrator.');
+    expect(changed).not.toContain('id="cf-member-editor"');
+    const removed = membersPage(tiles, { action: 'removeMember', done: true, name: 'Ana Lima', role: 'Member', siteName: 'Home', self: false });
+    expect(text(removed)).toContain('Ana Lima was removed from Home.');
+  });
+
+  test('UX-DR73 not saved (Keycloak down) offers Try again that sends the same change', () => {
+    const body = membersPage(tiles, { action: 'changeRole', userId: ana.userId, name: 'Ana Lima', role: 'Administrator', siteName: 'Home', notice: 'unavailable' });
+    expect(text(body)).toContain('The change was not saved. Try again.');
+    const retry = /<form[^>]*id="cf-member-notice-retry"[\s\S]*?<\/form>/u.exec(body)?.[0] ?? '';
+    expect(retry).toContain('action="?/changeRole"');
+    expect(retry).toMatch(/name="userId"[^>]*value="a0000000-0000-4000-8000-000000000002"/u);
+    expect(retry).toMatch(/name="role"[^>]*value="Administrator"/u);
+  });
+
+  test('UX-DR73 a Member who is gone is named, with no editor and no Try again', () => {
+    const body = membersPage(tiles, { action: 'removeMember', userId: ana.userId, name: 'Ana Lima', role: 'Member', siteName: 'Home', notice: 'memberGone' });
+    expect(text(body)).toContain('Ana Lima is no longer a member of Home.');
+    expect(body).not.toContain('id="cf-member-editor"');
+    expect(body).not.toContain('id="cf-member-notice-retry"');
+  });
+
+  test('UX-DR84 a 403 race shows the read-only copy for the Site', () => {
+    const body = membersPage(tiles, { action: 'changeRole', userId: ana.userId, name: 'Ana Lima', role: 'Administrator', siteName: 'Home', notice: 'forbidden' });
+    expect(text(body)).toContain("You can't change this on Home. Ask an Owner or Administrator.");
+  });
+
+  test('UX-DR73 only a gone Member reads everything again; a change to oneself is read again by the update (the load sends a non-Owner to Garden)', () => {
+    const page = read(`${webSrc}/routes/(app)/members/+page.svelte`);
+    expect(page).toContain('invalidateAll()');
+    expect(page).toMatch(/memberGone/u);
+    expect(page).not.toMatch(/self === true/u);
   });
 });

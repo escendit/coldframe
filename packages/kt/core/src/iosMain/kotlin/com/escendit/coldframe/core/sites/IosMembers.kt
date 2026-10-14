@@ -42,4 +42,39 @@ public class IosMembers internal constructor(
     public fun retry() {
         engine.retry()
     }
+
+    /** Story 9.2: opens the editor of a tile; the last Owner's tile is locked. */
+    public fun select(userId: String) {
+        engine.select(userId)
+    }
+
+    /** Closes the editor. */
+    public fun closeEditor() {
+        engine.closeEditor()
+    }
+
+    /** A segment of the editor's Role choice: `member`, `administrator` or `owner`. Anything else is ignored. */
+    public fun setEditRole(role: String) {
+        SiteRole.entries.firstOrNull { it.key() == role }?.let(engine::setEditRole)
+    }
+
+    /** "Save Role". */
+    public fun saveRole() {
+        engine.saveRole()
+    }
+
+    /** "Remove from Site": shows the confirmation. */
+    public fun askRemove() {
+        engine.askRemove()
+    }
+
+    /** Keeps the member. */
+    public fun cancelRemove() {
+        engine.cancelRemove()
+    }
+
+    /** "Remove". */
+    public fun confirmRemove() {
+        engine.confirmRemove()
+    }
 }

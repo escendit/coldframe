@@ -466,6 +466,12 @@ public data class InvitationRequestDto(
     val role: String,
 )
 
+/** `MemberRoleRequest` (Story 9.2): the member's Role from now on, a `SiteRole` name. */
+@Serializable
+public data class MemberRoleRequestDto(
+    val role: String,
+)
+
 /**
  * `SiteMember`: one Membership of a Site. [role] is the Server's (its identity projection); [name] and
  * [email] are read from Keycloak with the request. [name] may be empty, [email] absent.

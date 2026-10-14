@@ -111,6 +111,18 @@ public interface IPhaseTwoOrganizations
     Task GrantRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Revokes an Organization role from a User (<c>DELETE orgs/{id}/roles/{role}/users/{user}</c>, Story 9.2).
+    /// Idempotent: a role the User does not hold (404) is what was asked for. Only the Site grain calls it.
+    /// </summary>
+    Task RevokeRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes a User from the Organization (<c>DELETE orgs/{id}/members/{user}</c>, Story 9.2). Idempotent: a
+    /// User who is no member (404) is what was asked for. Only the Site grain calls it.
+    /// </summary>
+    Task RemoveMemberAsync(string organizationId, string userId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Sets the Organization's display name, which is the Site name, and keeps everything else. Only the
     /// Site grain calls it.
     /// </summary>

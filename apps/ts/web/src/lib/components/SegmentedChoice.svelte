@@ -19,13 +19,18 @@
      */
     name?: string;
     helper?: string;
+    /** The one-line reason the choice was refused; replaces the helper and is linked to the group. */
+    invalid?: string | null;
     id?: string;
   }
 
-  let { label, options, value, onchange, name, helper, id = 'cf-segmented' }: Props = $props();
+  let { label, options, value, onchange, name, helper, invalid = null, id = 'cf-segmented' }: Props = $props();
+
+  const isInvalid = $derived(invalid !== null && invalid !== '');
+  const describedBy = $derived(isInvalid ? `${id}-reason` : helper !== undefined ? `${id}-helper` : undefined);
 </script>
 
-<fieldset class="cf-segmented" aria-describedby={helper !== undefined ? `${id}-helper` : undefined}>
+<fieldset class="cf-segmented" aria-describedby={describedBy}>
   <legend class="cf-segmented__legend">{label}</legend>
   <div class="cf-segmented__segments">
     {#each options as option (option.value)}
@@ -53,7 +58,9 @@
       </button>
     {/each}
   </div>
-  {#if helper !== undefined}
+  {#if isInvalid}
+    <p id="{id}-reason" class="cf-segmented__reason">{invalid}</p>
+  {:else if helper !== undefined}
     <p id="{id}-helper" class="cf-segmented__helper">{helper}</p>
   {/if}
 </fieldset>
@@ -117,11 +124,16 @@
       inset 0 0 0 calc(var(--cf-spacing-focus-ring) + var(--cf-spacing-focus-offset)) var(--cf-color-focus-gap);
   }
 
-  .cf-segmented__helper {
+  .cf-segmented__helper,
+  .cf-segmented__reason {
     margin: var(--cf-spacing-3) 0 0;
     font-family: var(--cf-type-helper-font-family);
     font-size: var(--cf-type-helper-font-size);
     line-height: var(--cf-type-helper-line-height);
     color: var(--cf-color-text-helper);
+  }
+
+  .cf-segmented__reason {
+    color: var(--cf-color-support-error-text);
   }
 </style>

@@ -8,6 +8,12 @@ package com.escendit.coldframe.core.sites
  * `hidden`, and then the Settings row and the surface do not exist. [notice] is the [MembersNotice]
  * key with [noticeTryAgain]; [sentTo] is the email the `sent` notice names. [role] is the selected
  * segment of the Invite form, [roles] the segments in order, [emailError] the [InviteEmailError] key.
+ *
+ * Story 9.2: [memberLastOwner] marks the locked tile of the only Owner. [editorUserId] is the member whose
+ * editor is open (`null`: closed), [editorName] the name it shows, [editorRole] its selected segment and
+ * [editorRoleError] the [MemberRoleError] key under it; [editorWorking] while a change or removal is on its way;
+ * [confirmingRemove] while the removal confirmation is shown. [noticeName] and [noticeRole] are the person and
+ * the Role key the `roleChanged`, `removed` and `memberGone` notices name.
  */
 public data class MembersSnapshot(
     val surface: String,
@@ -27,6 +33,15 @@ public data class MembersSnapshot(
     val notice: String?,
     val noticeTryAgain: Boolean,
     val sentTo: String,
+    val memberLastOwner: List<Boolean>,
+    val editorUserId: String?,
+    val editorName: String,
+    val editorRole: String,
+    val editorRoleError: String?,
+    val editorWorking: Boolean,
+    val confirmingRemove: Boolean,
+    val noticeName: String,
+    val noticeRole: String,
 )
 
 /** The snapshot of [state]. */
@@ -70,5 +85,19 @@ public fun snapshotOf(state: MembersState): MembersSnapshot {
         notice = notice?.key(),
         noticeTryAgain = notice?.tryAgain == true,
         sentTo = ready?.sentTo.orEmpty(),
+        memberLastOwner = members.map { it.lastOwner },
+        editorUserId = ready?.editor?.member?.userId,
+        editorName =
+            ready
+                ?.editor
+                ?.member
+                ?.shownName
+                .orEmpty(),
+        editorRole = (ready?.editor?.role ?: SiteRole.Member).key(),
+        editorRoleError = ready?.editor?.roleError?.key(),
+        editorWorking = ready?.editor?.working == true || ready?.removing?.working == true,
+        confirmingRemove = ready?.removing != null,
+        noticeName = ready?.noticeName.orEmpty(),
+        noticeRole = ready?.noticeRole?.key().orEmpty(),
     )
 }
