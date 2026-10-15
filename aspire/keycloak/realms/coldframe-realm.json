@@ -4,6 +4,7 @@
   "displayName": "Coldframe",
   "enabled": true,
   "registrationAllowed": true,
+  "verifyEmail": true,
   "organizationsEnabled": true,
   "sslRequired": "external",
   "eventsListeners": ["jboss-logging", "temporal"],

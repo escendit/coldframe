@@ -67,7 +67,7 @@ Things to know:
   never written to the repository.
 - **Keycloak imports the realm `coldframe` on start** from
   [`aspire/keycloak/realms/coldframe-realm.json`](../aspire/keycloak/realms/coldframe-realm.json):
-  registration and Organizations on, and the confidential client `coldframe-web` for the web app
+  registration (with email verification) and Organizations on, and the confidential client `coldframe-web` for the web app
   (standard flow only, PKCE S256, redirect `http://localhost:5173/.oidc/signin/callback`). Its
   client secret is generated on every start; read it in the dashboard from the parameter
   `coldframe-web-client-secret`. It also holds the public client `coldframe-mobile` for the iOS
@@ -139,7 +139,8 @@ pnpm --filter @coldframe/web dev
 Open `http://localhost:5173`. Take the Keycloak port from the `http` endpoint of `keycloak` in the
 dashboard and the secret from the parameter `coldframe-web-client-secret`; both change on every
 start. The port 5173 must stay as it is, because it is the client's registered redirect. Create a
-user through *Register* on the Keycloak sign-in page. The variables can also go in
+user through *Register* on the Keycloak sign-in page, then open the verification link from the email
+that Mailpit caught (the `http` endpoint of `mailpit` in the dashboard). The variables can also go in
 `apps/ts/web/.env`, which git ignores. [`apps/ts/web/README.md`](../apps/ts/web/README.md) lists
 every variable.
 
@@ -171,7 +172,8 @@ them as Gradle properties, or put the same keys in `~/.gradle/gradle.properties`
 never-resolvable `.invalid` addresses, so an unconfigured build shows "Can't reach your Coldframe
 Server". `10.0.2.2` is the host as seen from the Android emulator; only the debug build allows
 plain HTTP, and only to `10.0.2.2` and `localhost`. Release builds trust public certificates only.
-Sign-in opens Keycloak in a Custom Tab; create a user through *Register* there.
+Sign-in opens Keycloak in a Custom Tab; create a user through *Register* there and verify the email
+through Mailpit, as for the web app.
 
 Push notifications need your own Firebase project; the repository holds no `google-services.json`.
 Add `-Pcoldframe.firebaseProjectId=…`, `-Pcoldframe.firebaseApplicationId=…`,
