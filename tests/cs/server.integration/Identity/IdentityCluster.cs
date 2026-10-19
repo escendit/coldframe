@@ -371,10 +371,17 @@ public sealed class IdentityCluster(AppHostFixture fixture) : IAsyncLifetime
             // Reminders live in the class's own database, in the table the migration job creates, as on the Server
             // (AD-22). The in-memory table was a grain of the silo, and right after a restart its placement could
             // stall for 30 s at a time, so every grain that registered or read a reminder meanwhile timed out on CI.
+            // Its connections are not pooled: a pool per test class kept idle connections open, and with the suite's
+            // classes side by side the AppHost's PostgreSQL ran out of them ("too many clients"). Reminder reads and
+            // writes are rare enough to open a connection each.
             siloBuilder.UseAdoNetReminderService(options =>
             {
                 options.Invariant = "Npgsql";
-                options.ConnectionString = connectionString;
+                options.ConnectionString = new NpgsqlConnectionStringBuilder(connectionString)
+                {
+                    Pooling = false,
+                    ApplicationName = "coldframe-tests-reminders",
+                }.ConnectionString;
             });
 
             siloBuilder.Services.AddSingleton<CapturingLoggerProvider>();
