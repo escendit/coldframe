@@ -203,8 +203,11 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
         otherCounter.Counter += 100;
         var otherDevice = template.Clone();
         otherDevice.DeviceId = ByteString.CopyFrom(other.DeviceId.ToBytes());
-        var otherVersion = template.Clone();
-        otherVersion.ProtocolVersion = 2;
+        // A major above the current one and one below the oldest the Server accepts.
+        var newerVersion = template.Clone();
+        newerVersion.ProtocolVersion = CryptoSpec.ProtocolMajor + 1u;
+        var olderVersion = template.Clone();
+        olderVersion.ProtocolVersion = CryptoSpec.OldestAcceptedProtocolMajor - 1u;
         var undecodable = node.SealFrame([0x0A, 0xFF]);
 
         string[] frames =
@@ -213,7 +216,8 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
             Convert.ToBase64String(Encoding.UTF8.GetBytes("not a SealedEnvelope")),
             SimulatedDevice.EncodeFrame(otherCounter),
             SimulatedDevice.EncodeFrame(otherDevice),
-            SimulatedDevice.EncodeFrame(otherVersion),
+            SimulatedDevice.EncodeFrame(newerVersion),
+            SimulatedDevice.EncodeFrame(olderVersion),
             SimulatedDevice.EncodeFrame(undecodable),
             SimulatedDevice.EncodeFrame(good),
         ];
@@ -221,10 +225,10 @@ public sealed class IngestTests(EdgeApiFixture edge) : IClassFixture<EdgeApiFixt
         var results = await IngestAsync(stage.Hub, SimulatedDevice.IngestBody(frames), cancellationToken);
 
         Assert.Equal(
-            ["rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "stored"],
+            ["rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "rejected_auth", "stored"],
             results.Select(result => result.Status));
-        Assert.All(results.Take(6), result => Assert.Null(result.Downlink));
-        Assert.Equal(good.Counter, node.OpenDownlink(results[6].Downlink!).AckedCounter);
+        Assert.All(results.Take(7), result => Assert.Null(result.Downlink));
+        Assert.Equal(good.Counter, node.OpenDownlink(results[7].Downlink!).AckedCounter);
         Assert.Equal((4L, 1L), await CountsAsync(node, cancellationToken));
         Assert.Equal((0L, 0L), await CountsAsync(other, cancellationToken));
     }

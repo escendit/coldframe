@@ -10,6 +10,9 @@ or a later one; no earlier tag has the bundles, and the tag in the file is a pla
 (step 4). Nothing secret is in Git: the Secrets, the realm and the site values are created once,
 out of band.
 
+What a release tag publishes (images, firmware, charts, `SHA256SUMS`) and how a maintainer cuts
+one: [`docs/operations/release.md`](release.md).
+
 | Bundle | Folder | Release (namespace) | Waits for |
 | --- | --- | --- | --- |
 | `cert-manager` | [`deploy/fleet/cert-manager`](../../deploy/fleet/cert-manager/fleet.yaml) | `cert-manager` (`cert-manager`) | nothing |
@@ -108,7 +111,10 @@ it is imported, on the first start. **A realm that exists already is never re-im
 upgrading an existing installation set both by hand once, in the Keycloak admin console of the
 `coldframe` realm: Realm settings → Themes → Email theme `coldframe`; Realm settings → Email → the SMTP
 host, port, from address, authentication and encryption; and Authentication → Required actions → enable
-**Invitation** (`invitation-required-action`), which shows the invitee the invitation after signing in. Also set
+**Invitation** (`invitation-required-action`), which shows the invitee the invitation after signing in;
+and Realm settings → Login → turn on **Verify email**. Registration needs a verified email: Phase Two offers
+an invitation only to a verified address, so without it an invitee who registers is never shown the
+invitation. Users who registered before are asked to verify their email at their next sign-in. Also set
 `keycloak.invitationRedirectUri` under the `server` key of your site values to `https://<domain>/garden` (the example values do), so that
 someone who accepts lands in the web app. Without SMTP, Phase Two still creates the invitation but
 cannot email it: it only logs `Unable to send invitation email`, and the Owner sees the invitation as

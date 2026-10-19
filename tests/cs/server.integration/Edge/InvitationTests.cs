@@ -96,6 +96,54 @@ public sealed class InvitationTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
     }
 
     [Fact]
+    public async Task AnInviteeWhoRegistersVerifiesTheirEmailBeforeAcceptingAndBecomesAMember()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var owner = await edge.CreateUserAsync("inviter-register", cancellationToken);
+        using var server = edge.CreateServerClient(owner.AccessToken);
+        var siteId = await CreateSiteAsync(server, "Home", cancellationToken);
+        var email = $"newcomer-{Guid.NewGuid():N}@example.org";
+
+        using (var invited = await InviteAsync(server, siteId, email, "Administrator", cancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, invited.StatusCode);
+        }
+
+        await WaitForEmailAsync(email, cancellationToken);
+
+        // Someone without an account registers on Keycloak's page. Phase Two offers an invitation only to a
+        // verified email, so the realm verifies it first; the invitation follows the link in that email.
+        var userId = await edge.RegisterAndAcceptInvitationAsync(
+            email,
+            Guid.NewGuid().ToString("N"),
+            siteId,
+            async ct =>
+            {
+                var verification = await WaitForEmailAsync(email, ct, subject: "Verify email");
+                var link = System.Text.RegularExpressions.Regex.Match(
+                    verification.GetProperty("Text").GetString()!,
+                    "https?://\\S+/login-actions/action-token\\S+",
+                    System.Text.RegularExpressions.RegexOptions.None,
+                    TimeSpan.FromSeconds(1));
+                Assert.True(link.Success, "The verification email has no link.");
+                return new Uri(link.Value, UriKind.Absolute);
+            },
+            cancellationToken);
+
+        using var arrival = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        arrival.CancelAfter(ArrivalTimeout);
+        IReadOnlyList<(string UserId, string Role)> members;
+        do
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500), arrival.Token);
+            members = await MembersAsync(server, siteId, cancellationToken);
+        }
+        while (members.Count < 2);
+
+        Assert.Equal([(owner.UserId, "Owner"), (userId, "Administrator")], members);
+    }
+
+    [Fact]
     public async Task AnInvalidEmailOrRoleIsRefusedAndNothingIsSent()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -119,7 +167,7 @@ public sealed class InvitationTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         }
 
         using var mailpit = edge.AppHost.App.CreateHttpClient(MailpitResource, "http");
-        Assert.Empty(await SearchAsync(mailpit, email, cancellationToken));
+        Assert.Empty(await SearchAsync(mailpit, email, subject: null, cancellationToken));
     }
 
     private static Task<HttpResponseMessage> InviteAsync(HttpClient server, string siteId, string email, string role, CancellationToken cancellationToken) =>
@@ -138,7 +186,7 @@ public sealed class InvitationTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         ];
     }
 
-    private async Task<JsonElement> WaitForEmailAsync(string to, CancellationToken cancellationToken)
+    private async Task<JsonElement> WaitForEmailAsync(string to, CancellationToken cancellationToken, string? subject = null)
     {
         using var mailpit = edge.AppHost.App.CreateHttpClient(MailpitResource, "http");
         using var arrival = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -146,7 +194,7 @@ public sealed class InvitationTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
 
         while (true)
         {
-            var found = await SearchAsync(mailpit, to, cancellationToken);
+            var found = await SearchAsync(mailpit, to, subject, cancellationToken);
 
             if (found.Count > 0)
             {
@@ -160,10 +208,11 @@ public sealed class InvitationTests(EdgeApiFixture edge) : IClassFixture<EdgeApi
         }
     }
 
-    private static async Task<IReadOnlyList<string>> SearchAsync(HttpClient mailpit, string to, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<string>> SearchAsync(HttpClient mailpit, string to, string? subject, CancellationToken cancellationToken)
     {
+        var query = subject is null ? $"to:\"{to}\"" : $"to:\"{to}\" subject:\"{subject}\"";
         using var response = await mailpit.GetAsync(
-            new Uri($"/api/v1/search?query={Uri.EscapeDataString($"to:\"{to}\"")}", UriKind.Relative),
+            new Uri($"/api/v1/search?query={Uri.EscapeDataString(query)}", UriKind.Relative),
             cancellationToken);
         response.EnsureSuccessStatusCode();
         using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);

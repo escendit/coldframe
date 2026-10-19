@@ -13,6 +13,9 @@ public object CryptoSpec {
     /** The current wire major; every frame and envelope carries it. */
     public const val PROTOCOL_MAJOR: Int = 1
 
+    /** The oldest wire major the Server still accepts. */
+    public const val OLDEST_ACCEPTED_PROTOCOL_MAJOR: Int = 1
+
     // Key hierarchy (AD-12)
 
     /** Length of the eFuse root key in bytes. */

@@ -160,20 +160,9 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
     {
         ArgumentNullException.ThrowIfNull(invitee);
 
-        var clientId = await EnsureBrowserClientAsync(cancellationToken);
         var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        using var addressed = fixture.App.CreateHttpClient(KeycloakResource, "http");
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
-        using var keycloak = new HttpClient(handler) { BaseAddress = addressed.BaseAddress };
-
-        var authorize = new Uri(
-            $"/realms/{Realm}/protocol/openid-connect/auth?client_id={clientId}&response_type=code&scope=openid"
-            + $"&redirect_uri={Uri.EscapeDataString(BrowserRedirectUri)}",
-            UriKind.Relative);
-
-        using var loginPage = await BrowseAsync(keycloak, cookies, HttpMethod.Get, authorize, null, cancellationToken);
-        Assert.Equal(System.Net.HttpStatusCode.OK, loginPage.StatusCode);
+        using var keycloak = CreateBrowser();
+        using var loginPage = await OpenSignInAsync(keycloak, cookies, cancellationToken);
 
         var page = await BrowseAsync(
             keycloak,
@@ -183,14 +172,127 @@ public sealed class EdgeApiFixture(AppHostFixture fixture) : IAsyncLifetime
             [new("username", invitee.Username), new("password", invitee.Password)],
             cancellationToken);
 
-        // The required action redirects to its own page first.
+        await AcceptOnInvitationPageAsync(keycloak, cookies, page, organizationId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Registers <paramref name="email"/> through Keycloak's own registration form, as an invitee without an
+    /// account does, and accepts the Phase Two invitation to <paramref name="organizationId"/>. Phase Two offers
+    /// an invitation only to a verified email, so the realm verifies it first: registration ends on the email
+    /// verification page, with no invitation offered, until the link from the verification email (read through
+    /// <paramref name="verificationLinkAsync"/>) is opened in the same browser. Returns the new User's ID.
+    /// </summary>
+    public async Task<string> RegisterAndAcceptInvitationAsync(
+        string email,
+        string password,
+        string organizationId,
+        Func<CancellationToken, Task<Uri>> verificationLinkAsync,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(verificationLinkAsync);
+
+        var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+        using var keycloak = CreateBrowser();
+
+        string registration;
+        using (var loginPage = await OpenSignInAsync(keycloak, cookies, cancellationToken))
+        {
+            var link = System.Text.RegularExpressions.Regex.Match(
+                await loginPage.Content.ReadAsStringAsync(cancellationToken),
+                "href=\"([^\"]*/login-actions/registration[^\"]*)\"",
+                System.Text.RegularExpressions.RegexOptions.None,
+                TimeSpan.FromSeconds(1));
+            Assert.True(link.Success, "The Keycloak sign-in page has no Register link.");
+            registration = System.Net.WebUtility.HtmlDecode(link.Groups[1].Value);
+        }
+
+        using var form = await BrowseAsync(keycloak, cookies, HttpMethod.Get, new Uri(registration, UriKind.RelativeOrAbsolute), null, cancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.OK, form.StatusCode);
+
+        var page = await BrowseAsync(
+            keycloak,
+            cookies,
+            HttpMethod.Post,
+            FormAction(await form.Content.ReadAsStringAsync(cancellationToken)),
+            [
+                new("username", email),
+                new("email", email),
+                new("firstName", "neighbour"),
+                new("lastName", "Test"),
+                new("password", password),
+                new("password-confirm", password),
+            ],
+            cancellationToken);
+        page = await FollowAsync(keycloak, cookies, page, cancellationToken);
+
+        using (page)
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, page.StatusCode);
+            Assert.Contains("execution=VERIFY_EMAIL", page.RequestMessage?.RequestUri?.Query ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain($"value=\"{organizationId}\"", await page.Content.ReadAsStringAsync(cancellationToken), StringComparison.Ordinal);
+        }
+
+        var verification = await BrowseAsync(keycloak, cookies, HttpMethod.Get, await verificationLinkAsync(cancellationToken), null, cancellationToken);
+        await AcceptOnInvitationPageAsync(keycloak, cookies, verification, organizationId, cancellationToken);
+
+        using var admin = await CreateAdminClientAsync(cancellationToken);
+        var users = await admin.GetFromJsonAsync<JsonElement>(
+            new Uri($"/admin/realms/{Realm}/users?email={Uri.EscapeDataString(email)}&exact=true", UriKind.Relative),
+            cancellationToken);
+        var user = Assert.Single(users.EnumerateArray());
+        Assert.True(user.GetProperty("emailVerified").GetBoolean());
+        return user.GetProperty("id").GetString()!;
+    }
+
+    // A browser on Keycloak's own address: redirects are followed by hand and cookies kept in a dictionary.
+    private HttpClient CreateBrowser()
+    {
+        using var addressed = fixture.App.CreateHttpClient(KeycloakResource, "http");
+        return new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }, disposeHandler: true)
+        {
+            BaseAddress = addressed.BaseAddress,
+        };
+    }
+
+    private async Task<HttpResponseMessage> OpenSignInAsync(HttpClient keycloak, Dictionary<string, string> cookies, CancellationToken cancellationToken)
+    {
+        var clientId = await EnsureBrowserClientAsync(cancellationToken);
+        var authorize = new Uri(
+            $"/realms/{Realm}/protocol/openid-connect/auth?client_id={clientId}&response_type=code&scope=openid"
+            + $"&redirect_uri={Uri.EscapeDataString(BrowserRedirectUri)}",
+            UriKind.Relative);
+
+        var loginPage = await BrowseAsync(keycloak, cookies, HttpMethod.Get, authorize, null, cancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.OK, loginPage.StatusCode);
+        return loginPage;
+    }
+
+    // Follows Keycloak's redirects (a required action redirects to its own page first) until a page or the client.
+    private static async Task<HttpResponseMessage> FollowAsync(
+        HttpClient keycloak,
+        Dictionary<string, string> cookies,
+        HttpResponseMessage page,
+        CancellationToken cancellationToken)
+    {
         while (page.StatusCode == System.Net.HttpStatusCode.Found
             && page.Headers.Location is { } next
-            && !next.AbsoluteUri.StartsWith(BrowserRedirectUri, StringComparison.Ordinal))
+            && !next.ToString().StartsWith(BrowserRedirectUri, StringComparison.Ordinal))
         {
             page.Dispose();
             page = await BrowseAsync(keycloak, cookies, HttpMethod.Get, next, null, cancellationToken);
         }
+
+        return page;
+    }
+
+    private static async Task AcceptOnInvitationPageAsync(
+        HttpClient keycloak,
+        Dictionary<string, string> cookies,
+        HttpResponseMessage page,
+        string organizationId,
+        CancellationToken cancellationToken)
+    {
+        page = await FollowAsync(keycloak, cookies, page, cancellationToken);
 
         using (page)
         {

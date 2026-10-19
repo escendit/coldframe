@@ -1,6 +1,7 @@
 {
   "$comment": "The normative Device crypto contract (AD-12, AD-17, AD-19, AD-25). Every label, size and header name here is generated into Rust, C# and Kotlin by scripts/generate.ts; no language types one by hand. Changing a value is a wire break: bump the label version instead.",
   "protocolMajor": 1,
+  "oldestAcceptedProtocolMajor": 1,
   "keyHierarchy": {
     "rootKeyLength": 32,
     "deviceKey": {

@@ -12,8 +12,8 @@
 # not list) and check-ingress.py (TLS on every Ingress and IngressRoute, DNS-01 on every ACME
 # issuer, nothing on port 80). The pinned rke2-traefik chart is rendered too: with its default
 # values it must fail check-ingress.py (port 80), with deploy/rke2/rke2-traefik-config.yaml pass.
-# The checks are proven able to fail on fixtures in testdata/, and check-version.sh is tested with a
-# matching and a mismatching version.
+# The checks are proven able to fail on fixtures in testdata/, check-version.sh is tested with a
+# matching and a mismatching version, and set-version.sh by a round trip through check-version.sh.
 #
 # Fleet bundles: `fleet apply --output -` renders the paths of deploy/fleet/gitrepo.yaml as gitjob
 # would, and deploy/fleet/check-fleet.py checks them (labels, the dependsOn order, the pins of
@@ -241,6 +241,35 @@ expect_failure "mismatching version names the chart" "server/Chart.yaml: version
   "${here}/check-version.sh" "${other}"
 expect_failure "mismatching appVersion names the chart" "keycloak/Chart.yaml: appVersion is '${current}', expected '${other}'" \
   "${here}/check-version.sh" "${other}"
+
+echo "# set-version.sh"
+# On a copy of every Chart.yaml: set-version.sh then check-version.sh round-trips, and the upstream
+# appVersion of temporal and nats is kept.
+version_work=$(mktemp -d)
+for chart_file in "${here}"/*/Chart.yaml; do
+  mkdir -p "${version_work}/$(basename "$(dirname "${chart_file}")")"
+  cp "${chart_file}" "${version_work}/$(basename "$(dirname "${chart_file}")")/Chart.yaml"
+done
+check          "set-version.sh sets a release version"     "${here}/set-version.sh" 9.8.7 "${version_work}"
+check          "check-version.sh passes after set-version.sh" "${here}/check-version.sh" 9.8.7 "${version_work}"
+check          "set-version.sh sets a pre-release version" "${here}/set-version.sh" 9.8.8-rc.1 "${version_work}"
+check          "check-version.sh passes on the pre-release"  "${here}/check-version.sh" 9.8.8-rc.1 "${version_work}"
+expect_failure "the previous version no longer passes"   "server/Chart.yaml: version is '9.8.8-rc.1', expected '9.8.7'" \
+  "${here}/check-version.sh" 9.8.7 "${version_work}"
+for upstream in temporal nats; do
+  want=$(sed -n -E 's/^appVersion:[[:space:]]*"?([^"[:space:]]*)"?[[:space:]]*$/\1/p' "${here}/${upstream}/Chart.yaml")
+  got=$(sed -n -E 's/^appVersion:[[:space:]]*"?([^"[:space:]]*)"?[[:space:]]*$/\1/p' "${version_work}/${upstream}/Chart.yaml")
+  if [[ ${got} == "${want}" ]]; then
+    pass "set-version.sh keeps the upstream appVersion of ${upstream}"
+  else
+    failed "set-version.sh keeps the upstream appVersion of ${upstream}" "appVersion '${got}', expected '${want}'"
+  fi
+done
+expect_failure "set-version.sh refuses a version that is not SemVer" "'9.8' is not a release version" \
+  "${here}/set-version.sh" 9.8 "${version_work}"
+expect_failure "set-version.sh refuses a version with a v" "'v9.8.7' is not a release version" \
+  "${here}/set-version.sh" v9.8.7 "${version_work}"
+rm -rf "${version_work}"
 
 for chart in "${charts[@]}"; do
   echo "# ${chart}"
