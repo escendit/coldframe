@@ -198,7 +198,9 @@ else
 fi
 for tag in "${smoke_tags[@]}"; do
   docker save "${tag}" | docker exec -i "${node_container}" ctr --namespace=k8s.io images import -
-  docker exec "${node_container}" ctr --namespace=k8s.io images ls --quiet | grep --quiet --fixed-strings --line-regexp "${tag}" \
+  # grep reads the whole list: with pipefail, "grep --quiet" stopping at the first match can
+  # kill ctr with SIGPIPE and fail the check on an image that is there.
+  docker exec "${node_container}" ctr --namespace=k8s.io images ls --quiet | grep --fixed-strings --line-regexp "${tag}" >/dev/null \
     || fail "image ${tag} is not in the containerd of ${node_container} after the import"
 done
 
@@ -479,7 +481,7 @@ for job in temporal-schema temporal-namespace; do
   succeeded=$(kubectl "${ns[@]}" get job "${job}" -o jsonpath='{.status.succeeded}')
   [[ ${succeeded} == "1" ]] || fail "the ${job} hook Job did not complete on upgrade (succeeded=${succeeded:-0})"
 done
-kubectl "${ns[@]}" logs job/temporal-namespace | grep -q "namespace coldframe exists" \
+kubectl "${ns[@]}" logs job/temporal-namespace | grep "namespace coldframe exists" >/dev/null \
   || fail "the namespace hook Job did not find the existing coldframe namespace"
 echo "ok: re-running the Temporal hooks on a current schema succeeds and keeps the namespace"
 
@@ -590,7 +592,7 @@ kubectl "${ns[@]}" create job advance-replay --from=cronjob/server-partitions --
   | kubectl "${ns[@]}" apply -f -
 kubectl "${ns[@]}" wait job/advance-replay --for=condition=Complete --timeout=300s \
   || fail "the advance-replay Job did not complete: $(kubectl "${ns[@]}" logs job/advance-replay --tail=20 2>&1)"
-kubectl "${ns[@]}" logs job/advance-replay | grep -q "Advanced the replay state" \
+kubectl "${ns[@]}" logs job/advance-replay | grep "Advanced the replay state" >/dev/null \
   || fail "the advance-replay Job did not report what it advanced"
 echo "ok: advance-replay ran on the restored database before the apps started"
 

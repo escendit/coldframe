@@ -31,12 +31,15 @@ paths = [
 ]
 
 # The Epic 10 context lists the firmware reference topics ("the eFuse root and HKDF purpose-key
-# hierarchy, ..."); the generic API key rule reads the prose as a key. Only that commit and file are
-# allowed.
+# hierarchy, ..."); the generic API key rule reads the prose as a key. Only those commits and that file
+# are allowed: the story 10-1 commit and the bmad-loop commit that records the story.
 [[allowlists]]
 description = "Epic 10 context names a key hierarchy, not a key"
 condition = "AND"
-commits = ["ee32e273dbf061a62ab15117f464144ea5bce61c"]
+commits = [
+  "ee32e273dbf061a62ab15117f464144ea5bce61c",
+  "41bb2582dd383ae8fb81a19a10d9c5b6bdd4ba1d",
+]
 paths = [
   '''^_bmad-output/implementation-artifacts/epic-10-context\.md$''',
 ]
