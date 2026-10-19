@@ -10,6 +10,9 @@ or a later one; no earlier tag has the bundles, and the tag in the file is a pla
 (step 4). Nothing secret is in Git: the Secrets, the realm and the site values are created once,
 out of band.
 
+What a release tag publishes (images, firmware, charts, `SHA256SUMS`) and how a maintainer cuts
+one: [`docs/operations/release.md`](release.md).
+
 | Bundle | Folder | Release (namespace) | Waits for |
 | --- | --- | --- | --- |
 | `cert-manager` | [`deploy/fleet/cert-manager`](../../deploy/fleet/cert-manager/fleet.yaml) | `cert-manager` (`cert-manager`) | nothing |

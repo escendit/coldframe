@@ -632,13 +632,16 @@ public sealed partial class DeviceGrain : JournaledStreamGrain<DeviceState>, IDe
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrEmpty(request.RelayHubId);
 
-        // 1. Only an enrolled Node, and only the supported protocol version.
+        // 1. Only an enrolled Node, and only a protocol major the Server accepts
+        // (CryptoSpec.OldestAcceptedProtocolMajor to CryptoSpec.ProtocolMajor).
         if (State.SiteId is null || State.Kind != DeviceKind.Node || State.WrappedKey is not { } wrapped)
         {
             return new DeviceIngestResult(DeviceIngestStatus.UnknownDevice);
         }
 
-        if (request.ProtocolVersion != CryptoSpec.ProtocolMajor || request.Ciphertext is null)
+        if (request.ProtocolVersion < CryptoSpec.OldestAcceptedProtocolMajor
+            || request.ProtocolVersion > CryptoSpec.ProtocolMajor
+            || request.Ciphertext is null)
         {
             return new DeviceIngestResult(DeviceIngestStatus.RejectedAuth);
         }

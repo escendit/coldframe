@@ -5,6 +5,7 @@ import { fromRoot, repoRoot, specPath } from './paths.ts';
 /** The shape of `crypto-spec.json`. */
 export interface CryptoSpec {
   protocolMajor: number;
+  oldestAcceptedProtocolMajor: number;
   keyHierarchy: {
     rootKeyLength: number;
     deviceKey: { algorithm: string; construction: string; label: string; length: number };
@@ -121,6 +122,7 @@ export function constantsOf(spec: CryptoSpec): ConstantGroup[] {
       title: 'Protocol',
       constants: [
         { name: 'protocolMajor', kind: 'u8', value: spec.protocolMajor, doc: 'The current wire major; every frame and envelope carries it.' },
+        { name: 'oldestAcceptedProtocolMajor', kind: 'u8', value: spec.oldestAcceptedProtocolMajor, doc: 'The oldest wire major the Server still accepts.' },
       ],
     },
     {

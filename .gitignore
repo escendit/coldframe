@@ -26,6 +26,8 @@ mono_crash.*
 !apps/kt/android/src/debug/**
 [Dd]ebugPublic/
 [Rr]elease/
+# ...except the release scripts (Story 10.1)
+!deploy/release/
 [Rr]eleases/
 
 [Dd]ebug/x64/
@@ -460,6 +462,8 @@ local.properties
 .kotlin/
 build/
 !gradle/wrapper/gradle-wrapper.jar
+# ...except the adopter build guide
+!docs/build/
 
 # SwiftPM, Xcode
 .build/

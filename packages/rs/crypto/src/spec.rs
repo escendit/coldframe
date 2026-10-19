@@ -9,6 +9,9 @@
 /// The current wire major; every frame and envelope carries it.
 pub const PROTOCOL_MAJOR: u8 = 1;
 
+/// The oldest wire major the Server still accepts.
+pub const OLDEST_ACCEPTED_PROTOCOL_MAJOR: u8 = 1;
+
 // Key hierarchy (AD-12)
 
 /// Length of the eFuse root key in bytes.
