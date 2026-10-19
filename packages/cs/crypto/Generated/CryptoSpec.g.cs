@@ -18,6 +18,11 @@ public static class CryptoSpec
     /// </summary>
     public const byte ProtocolMajor = 1;
 
+    /// <summary>
+    /// The oldest wire major the Server still accepts.
+    /// </summary>
+    public const byte OldestAcceptedProtocolMajor = 1;
+
     // Key hierarchy (AD-12)
 
     /// <summary>

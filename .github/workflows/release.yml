@@ -1,73 +1,467 @@
-# Publishes the container images of a release (Stories 2.1 and 2.2, AD-23). A tag vX.Y.Z (or
-# vX.Y.Z-<pre-release>) pushes ghcr.io/escendit/coldframe/{server,web,migrations,keycloak}:X.Y.Z
-# as linux/amd64 and linux/arm64 manifest lists, only after the same verification CI runs. The
-# tag must equal the version of every Helm chart in deploy/charts (and the appVersion of the
-# Coldframe charts), or nothing is pushed.
-# Only the exact version tag is pushed, never "latest".
+# Publishes a release (Stories 2.1, 2.2 and 10.1, AD-23). One tag vX.Y.Z (or vX.Y.Z-<pre-release>)
+# produces everything that belongs to the version X.Y.Z:
 #
-# A component whose final base image lacks a platform is pushed for the platforms it has; the
-# run warns and the step summary names the missing architecture.
+# - the container images ghcr.io/escendit/coldframe/{server,web,migrations,keycloak}:X.Y.Z as
+#   linux/amd64 and linux/arm64 manifest lists, only after the same verification CI runs. Only the
+#   exact version tag is pushed, never "latest". A component whose final base image lacks a
+#   platform is pushed for the platforms it has; the run warns and the step summary names it;
+# - a GitHub Release vX.Y.Z (a pre-release for vX.Y.Z-<pre-release>) with the release builds of the
+#   Hub and Node firmware (coldframe-{hub,node}-X.Y.Z.bin, a merged flash image for offset 0, and
+#   coldframe-{hub,node}-X.Y.Z.elf), every Helm chart of deploy/charts packaged as
+#   <chart>-X.Y.Z.tgz, a SHA256SUMS over those assets, and notes grouped by Conventional Commit
+#   type (deploy/release/release-notes.sh). No mobile store binaries are published.
 #
-# Actions are pinned to a commit; the comment names the release. Registry auth uses only
-# GITHUB_TOKEN, and only the publish job may write packages.
+# Gates, before anything is pushed: the tag must equal the version of every Helm chart (and the
+# appVersion of the Coldframe charts; deploy/charts/check-version.sh); the wire gate
+# (deploy/release/check-wire-compat.sh) fails a protocolMajor bump over the previous release tag
+# unless the Server still accepts the previous major; a release firmware build must refuse dev mode;
+# and the assets must be exactly the expected ones with a verified SHA256SUMS (the assets job). No
+# image is pushed and no Release is created unless the mode, checks, firmware, charts, notes and
+# assets jobs all succeed; the Release is created last, after the images are pushed.
+#
+# Dry run: on a pull request that touches the release paths, and on a manual dispatch, the same
+# jobs run with the version of deploy/charts/server/Chart.yaml: every asset is built and checked,
+# the images are built without being pushed, and the assets, SHA256SUMS and notes are uploaded as
+# one workflow artifact. Nothing is pushed or released. docs/operations/release.md is the runbook.
+#
+# Actions are pinned to a commit; the comment names the release. The helm download is checked
+# against a sha256; espup and espflash are pinned crates.io versions installed with --locked, as in
+# ci.yml, and espup installs the pinned esp toolchain version. Registry auth uses only GITHUB_TOKEN; only the publish job may write packages,
+# and only the release job may write contents.
 name: Release
 
 on:
   push:
     tags:
       - "v*"
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - deploy/release/**
+      - deploy/charts/*/Chart.yaml
+      - deploy/charts/check-version.sh
+      - deploy/charts/set-version.sh
+      - deploy/images/release-version.sh
+      - packages/crypto-spec/crypto-spec.json
+      - packages/crypto-spec/scripts/**
+      - apps/rs/hub/check-image.sh
+      - apps/rs/hub/Cargo.toml
+      - apps/rs/hub/Cargo.lock
+      - apps/rs/hub/partitions.csv
+      - apps/rs/node/Cargo.toml
+      - apps/rs/node/Cargo.lock
+      - apps/rs/node/partitions.csv
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  version:
-    name: Version
+  mode:
+    name: Mode
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      dry_run: ${{ steps.mode.outputs.dry_run }}
+      version: ${{ steps.mode.outputs.version }}
+      prerelease: ${{ steps.mode.outputs.prerelease }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Validate the tag
-        id: version
+      # A tag push releases the tag; anything else is a dry run at the version of the charts.
+      - name: Resolve the mode and the version
+        id: mode
         shell: bash
         env:
-          TAG: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if ! version=$(deploy/images/release-version.sh "${TAG}"); then
-            echo "::error::Tag '${TAG}' is not a release tag: expected vX.Y.Z or vX.Y.Z-<pre-release>. Nothing is pushed."
+          if [[ ${EVENT} == "push" ]]; then
+            dry_run=false
+            tag=${REF_NAME}
+          else
+            dry_run=true
+            tag="v$(sed -n -E 's/^version:[[:space:]]*"?([^"[:space:]]*)"?[[:space:]]*$/\1/p' deploy/charts/server/Chart.yaml)"
+          fi
+          if ! version=$(deploy/images/release-version.sh "${tag}"); then
+            echo "::error::Tag '${tag}' is not a release tag: expected vX.Y.Z or vX.Y.Z-<pre-release>. Nothing is pushed."
             exit 1
           fi
-          echo "Release version: ${version}"
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          prerelease=false
+          [[ ${version} == *-* ]] && prerelease=true
+          echo "Dry run: ${dry_run}; version: ${version}; pre-release: ${prerelease}"
+          {
+            echo "dry_run=${dry_run}"
+            echo "version=${version}"
+            echo "prerelease=${prerelease}"
+          } >> "${GITHUB_OUTPUT}"
+
+  checks:
+    name: Checks
+    needs: mode
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      previous_tag: ${{ steps.previous.outputs.tag }}
+    env:
+      VERSION: ${{ needs.mode.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the release scripts
+        run: deploy/release/test.sh
 
       - name: Check the chart versions
         shell: bash
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           if ! deploy/charts/check-version.sh "${VERSION}"; then
             echo "::error::The Helm charts in deploy/charts are not at ${VERSION}; see the output above. Nothing is pushed."
             exit 1
           fi
 
+      # The newest release tag before the release commit; a final release skips pre-release tags.
+      # "-" when this is the first release.
+      - name: Find the previous release
+        id: previous
+        shell: bash
+        run: |
+          exclude=()
+          if [[ ${VERSION} != *-* ]]; then
+            exclude=(--exclude 'v*-*')
+          fi
+          if previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${exclude[@]}" "${GITHUB_SHA}^" 2>/dev/null); then
+            echo "Previous release: ${previous}"
+          else
+            previous=-
+            echo "::notice::No earlier v* tag: this is the first release."
+          fi
+          echo "tag=${previous}" >> "${GITHUB_OUTPUT}"
+
+      - name: Wire-compatibility gate
+        shell: bash
+        env:
+          PREVIOUS: ${{ steps.previous.outputs.tag }}
+        run: |
+          spec=packages/crypto-spec/crypto-spec.json
+          previous_spec=-
+          if [[ ${PREVIOUS} != "-" ]]; then
+            if git cat-file -e "${PREVIOUS}:${spec}" 2>/dev/null; then
+              previous_spec="${RUNNER_TEMP}/previous-crypto-spec.json"
+              git show "${PREVIOUS}:${spec}" > "${previous_spec}"
+            else
+              echo "::notice::${PREVIOUS} has no ${spec}; the wire gate has nothing to compare against."
+            fi
+          fi
+          if ! output=$(deploy/release/check-wire-compat.sh "${previous_spec}" "${spec}" 2>&1); then
+            echo "${output}"
+            echo "::error::Wire gate: ${output} Nothing is pushed."
+            exit 1
+          fi
+          echo "${output}"
+          if [[ ${previous_spec} == "-" ]]; then
+            echo "::notice::${output}"
+          fi
+
+  firmware:
+    name: Firmware ${{ matrix.crate }}
+    needs: [mode, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [hub, node]
+    env:
+      # The pins of the firmware job of ci.yml.
+      ESPUP_VERSION: "0.17.1"
+      ESP_TOOLCHAIN_VERSION: "1.95.0.0"
+      ESPFLASH_VERSION: "4.5.0"
+      CRATE: ${{ matrix.crate }}
+      VERSION: ${{ needs.mode.outputs.version }}
+    defaults:
+      run:
+        working-directory: apps/rs/${{ matrix.crate }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # cmake and ninja for the mbedTLS rebuild of the Hub; libudev for espflash.
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends cmake ninja-build libudev-dev pkg-config
+
+      # Dry runs only: a release build starts clean, with no cached tools, toolchain or target.
+      - name: Cache
+        if: needs.mode.outputs.dry_run == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: apps/rs/${{ matrix.crate }}
+          key: release-${{ matrix.crate }}-espup-${{ env.ESPUP_VERSION }}-esp-${{ env.ESP_TOOLCHAIN_VERSION }}-espflash-${{ env.ESPFLASH_VERSION }}
+          cache-bin: "true"
+          cache-directories: |
+            ~/.rustup/toolchains/esp
+            ~/export-esp.sh
+
+      # On the runner's stable toolchain: the crate's rust-toolchain.toml names `esp`, which is not
+      # installed until the next step.
+      - name: Install espup and espflash
+        run: |
+          if [[ "$(espup --version 2>/dev/null)" != "espup ${ESPUP_VERSION}" ]]; then
+            rustup run stable cargo install espup --version "${ESPUP_VERSION}" --locked --force
+          fi
+          if [[ "$(espflash --version 2>/dev/null)" != "espflash ${ESPFLASH_VERSION}" ]]; then
+            rustup run stable cargo install espflash --version "${ESPFLASH_VERSION}" --locked --force
+          fi
+
+      - name: Install the esp toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! -f "${HOME}/export-esp.sh" ]] || ! rustup run esp rustc --version | grep -qF "(${ESP_TOOLCHAIN_VERSION})"; then
+            espup install --toolchain-version "${ESP_TOOLCHAIN_VERSION}" --targets esp32s3 --export-file "${HOME}/export-esp.sh"
+          fi
+          rustup run esp rustc --version
+
+      # AD-12: a release build with dev mode must fail with the compile_error! message.
+      - name: Assert the release build refuses dev-mode
+        run: |
+          source "${HOME}/export-esp.sh"
+          if cargo build --release --features dev-mode --locked > dev-mode-release.log 2>&1; then
+            cat dev-mode-release.log
+            echo "::error::${CRATE}: a release build with dev-mode succeeded"
+            exit 1
+          fi
+          # shellcheck disable=SC2016 # the backticks are part of the message
+          if ! grep -qF 'the `dev-mode` feature is refused in release builds' dev-mode-release.log; then
+            cat dev-mode-release.log
+            echo "::error::${CRATE}: the release + dev-mode build failed without the compile_error! message"
+            exit 1
+          fi
+
+      # FR-1: no credential canary reaches the Hub ELF or its flash image. It builds with canary
+      # values in the environment, so it runs before the release build whose ELF is shipped.
+      - name: Check the image
+        if: matrix.crate == 'hub'
+        run: |
+          source "${HOME}/export-esp.sh"
+          ./check-image.sh
+
+      - name: Release build
+        run: |
+          source "${HOME}/export-esp.sh"
+          cargo build --release --locked
+
+      # One merged image (bootloader, partition table, app) that flashes at offset 0.
+      - name: Save the flash image
+        run: |
+          elf="target/xtensa-esp32s3-none-elf/release/coldframe-${CRATE}"
+          out="${RUNNER_TEMP}/firmware"
+          mkdir -p "${out}"
+          espflash save-image --chip esp32s3 --merge --partition-table partitions.csv \
+            "${elf}" "${out}/coldframe-${CRATE}-${VERSION}.bin"
+          cp "${elf}" "${out}/coldframe-${CRATE}-${VERSION}.elf"
+          # An ESP image starts with the magic byte 0xE9; the merged one with the bootloader's.
+          magic=$(head -c 1 "${out}/coldframe-${CRATE}-${VERSION}.bin" | od -An -tx1 | tr -d ' ')
+          if [[ ${magic} != "e9" ]]; then
+            echo "::error::${CRATE}: the flash image does not start with an ESP image header (got '${magic}')"
+            exit 1
+          fi
+          ls -l "${out}"
+
+      - name: Upload the firmware
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: firmware-${{ matrix.crate }}
+          path: ${{ runner.temp }}/firmware/
+          if-no-files-found: error
+          retention-days: 7
+
+  charts:
+    name: Charts
+    needs: [mode, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      HELM_VERSION: v4.2.2
+      # sha256 of helm-v4.2.2-linux-amd64.tar.gz (get.helm.sh/<file>.sha256sum).
+      HELM_SHA256: 9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6
+      VERSION: ${{ needs.mode.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install helm
+        shell: bash
+        run: |
+          bin="${RUNNER_TEMP}/bin"
+          downloads="${RUNNER_TEMP}/downloads"
+          mkdir -p "${bin}" "${downloads}"
+          curl --fail --silent --show-error --location --output "${downloads}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${downloads}/helm.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "${downloads}/helm.tar.gz" --directory "${downloads}" linux-amd64/helm
+          install -m 0755 "${downloads}/linux-amd64/helm" "${bin}/helm"
+          echo "${bin}" >> "${GITHUB_PATH}"
+
+      - name: Package the charts
+        shell: bash
+        run: |
+          out="${RUNNER_TEMP}/charts"
+          mkdir -p "${out}"
+          for chart_file in deploy/charts/*/Chart.yaml; do
+            helm package "$(dirname "${chart_file}")" --destination "${out}"
+          done
+          for package in "${out}"/*.tgz; do
+            if [[ ${package} != *"-${VERSION}.tgz" ]]; then
+              echo "::error::$(basename "${package}") does not carry the version ${VERSION}"
+              exit 1
+            fi
+          done
+          ls -l "${out}"
+
+      - name: Upload the charts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: charts
+          path: ${{ runner.temp }}/charts/
+          if-no-files-found: error
+          retention-days: 7
+
+  notes:
+    name: Notes
+    needs: [mode, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERSION: ${{ needs.mode.outputs.version }}
+      PREVIOUS: ${{ needs.checks.outputs.previous_tag }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Write the release notes
+        shell: bash
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/notes"
+          deploy/release/release-notes.sh "${VERSION}" "${PREVIOUS}" "${GITHUB_SHA}" > "${RUNNER_TEMP}/notes/release-notes.md"
+          cat "${RUNNER_TEMP}/notes/release-notes.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the notes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  # Every Release asset, checked before any image is pushed: exactly the expected files and a
+  # verified SHA256SUMS. The verified bundle (assets, SHA256SUMS, notes) is what the release job
+  # publishes.
+  assets:
+    name: Assets
+    needs: [mode, checks, firmware, charts, notes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.mode.outputs.version }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the firmware
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: firmware-*
+          path: ${{ runner.temp }}/release/assets
+          merge-multiple: true
+
+      - name: Download the charts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: charts
+          path: ${{ runner.temp }}/release/assets
+
+      - name: Download the notes
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release
+
+      # Exactly the expected assets: the four firmware files and one package per chart.
+      - name: Check the assets
+        shell: bash
+        run: |
+          assets="${RUNNER_TEMP}/release/assets"
+          expected=()
+          for crate in hub node; do
+            expected+=("coldframe-${crate}-${VERSION}.bin" "coldframe-${crate}-${VERSION}.elf")
+          done
+          for chart_file in deploy/charts/*/Chart.yaml; do
+            name=$(sed -n -E 's/^name:[[:space:]]*"?([^"[:space:]]*)"?[[:space:]]*$/\1/p' "${chart_file}" | head -n 1)
+            expected+=("${name}-${VERSION}.tgz")
+          done
+          want=$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)
+          got=$(find "${assets}" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
+          if [[ ${want} != "${got}" ]]; then
+            echo "Expected:"; echo "${want}"
+            echo "Found:"; echo "${got}"
+            echo "::error::The release assets are not exactly the expected ones; see the output above."
+            exit 1
+          fi
+          echo "${got}"
+
+      - name: Write and verify SHA256SUMS
+        run: deploy/release/checksums.sh "${RUNNER_TEMP}/release/assets"
+
+      - name: Upload the verified bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
   verify:
     name: Verify
-    needs: version
+    needs: [mode, checks]
+    if: needs.mode.outputs.dry_run == 'false'
     uses: ./.github/workflows/images-verify.yml
 
   publish:
     name: Publish ${{ matrix.component }}
-    needs: [version, verify]
+    needs: [mode, checks, firmware, charts, notes, assets, verify]
+    # verify is skipped on a dry run; every other job must have succeeded.
+    if: >-
+      always()
+      && needs.mode.result == 'success'
+      && needs.checks.result == 'success'
+      && needs.firmware.result == 'success'
+      && needs.charts.result == 'success'
+      && needs.notes.result == 'success'
+      && needs.assets.result == 'success'
+      && (needs.verify.result == 'success'
+        || (needs.mode.outputs.dry_run == 'true' && needs.verify.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -88,7 +482,8 @@ jobs:
     env:
       COMPONENT: ${{ matrix.component }}
       DOCKERFILE: ${{ matrix.dockerfile }}
-      VERSION: ${{ needs.version.outputs.version }}
+      VERSION: ${{ needs.mode.outputs.version }}
+      DRY_RUN: ${{ needs.mode.outputs.dry_run }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,6 +496,7 @@ jobs:
           driver: docker-container
 
       - name: Log in to ghcr.io
+        if: needs.mode.outputs.dry_run == 'false'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -123,6 +519,7 @@ jobs:
           echo "platforms=${platforms}" >> "${GITHUB_OUTPUT}"
           echo "missing=${missing}" >> "${GITHUB_OUTPUT}"
 
+      # A dry run builds every platform the release would push, without --push.
       - name: Build and push
         id: push
         shell: bash
@@ -132,6 +529,11 @@ jobs:
           SOURCE: ${{ github.server_url }}/${{ github.repository }}
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}/${COMPONENT}:${VERSION}"
+          push=(--push)
+          if [[ ${DRY_RUN} == "true" ]]; then
+            push=()
+            echo "Dry run: ${image} is built, not pushed."
+          fi
           docker buildx build \
             --platform "${PLATFORMS}" \
             --file "${DOCKERFILE}" \
@@ -140,7 +542,7 @@ jobs:
             --label "org.opencontainers.image.version=${VERSION}" \
             --label "org.opencontainers.image.revision=${REVISION}" \
             --label "org.opencontainers.image.licenses=Apache-2.0" \
-            --push \
+            "${push[@]}" \
             .
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
 
@@ -149,12 +551,75 @@ jobs:
         env:
           IMAGE: ${{ steps.push.outputs.image }}
           MISSING: ${{ steps.platforms.outputs.missing }}
+          PLATFORMS: ${{ steps.platforms.outputs.platforms }}
         run: |
-          pushed=$(docker buildx imagetools inspect --raw "${IMAGE}" \
-            | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' \
-            | sort -u | paste -sd, -)
+          if [[ ${DRY_RUN} == "true" ]]; then
+            pushed="${PLATFORMS} (built, not pushed)"
+          else
+            pushed=$(docker buildx imagetools inspect --raw "${IMAGE}" \
+              | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' \
+              | sort -u | paste -sd, -)
+          fi
           {
             echo "| Component | Image | Platforms | Missing |"
             echo "| --- | --- | --- | --- |"
             echo "| ${COMPONENT} | \`${IMAGE}\` | ${pushed} | ${MISSING:-none} |"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  release:
+    name: Release
+    needs: [mode, assets, publish]
+    if: >-
+      always()
+      && needs.mode.result == 'success'
+      && needs.assets.result == 'success'
+      && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.mode.outputs.version }}
+      DRY_RUN: ${{ needs.mode.outputs.dry_run }}
+      PRERELEASE: ${{ needs.mode.outputs.prerelease }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the verified bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/release
+
+      - name: Verify SHA256SUMS
+        run: deploy/release/checksums.sh --check "${RUNNER_TEMP}/release/assets"
+
+      - name: Upload the dry-run release
+        if: needs.mode.outputs.dry_run == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ needs.mode.outputs.version }}-dry-run
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Create the GitHub Release
+        if: needs.mode.outputs.dry_run == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          flags=()
+          if [[ ${PRERELEASE} == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "v${VERSION}" \
+            --verify-tag \
+            --title "v${VERSION}" \
+            --notes-file "${RUNNER_TEMP}/release/release-notes.md" \
+            "${flags[@]}" \
+            "${RUNNER_TEMP}/release/assets/"*
