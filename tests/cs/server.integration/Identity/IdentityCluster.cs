@@ -502,27 +502,41 @@ public sealed class FaultyIngestionStore(NpgsqlDataSource dataSource) : DeviceIn
 public sealed class SensorFaults : IIncomingGrainCallFilter
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failing = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _failingContexts = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _failedContexts = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _passedContexts = new(StringComparer.Ordinal);
     private int _evaluationFailures;
-    private int _contextFailures;
 
     /// <summary>
-    /// How many evaluation contexts were failed (Story 7.4).
+    /// How many evaluation contexts for <paramref name="sensorIds"/> were failed (Story 7.4). Counted per Sensor:
+    /// the Devices of earlier tests on the same cluster send their own contexts again when they are activated.
     /// </summary>
-    public int FailedContexts => _failedContexts;
+    public int FailedContexts(IEnumerable<Guid> sensorIds) => Count(_failedContexts, sensorIds);
 
     /// <summary>
-    /// How many evaluation contexts reached a Sensor grain (Story 7.4): what the Device sent and nothing failed.
+    /// How many evaluation contexts for <paramref name="sensorIds"/> reached their Sensor grain (Story 7.4): what
+    /// the Device sent and nothing failed.
     /// </summary>
-    public int PassedContexts => _passedContexts;
-
-    private int _failedContexts;
-    private int _passedContexts;
+    public int PassedContexts(IEnumerable<Guid> sensorIds) => Count(_passedContexts, sensorIds);
 
     /// <summary>
-    /// Makes the next <paramref name="calls"/> evaluation contexts fail, whichever Sensor they are for (Story 7.4);
-    /// 0 lets them through again.
+    /// Makes every evaluation context for <paramref name="sensorIds"/> fail until <see cref="RestoreContexts"/>
+    /// (Story 7.4). The contexts of other Sensors pass, so another test's Device is left alone.
     /// </summary>
-    public void FailNextContexts(int calls) => Interlocked.Exchange(ref _contextFailures, calls);
+    public void FailContexts(IEnumerable<Guid> sensorIds)
+    {
+        ArgumentNullException.ThrowIfNull(sensorIds);
+
+        foreach (var sensorId in sensorIds)
+        {
+            _failingContexts[sensorId.ToString("D")] = true;
+        }
+    }
+
+    /// <summary>
+    /// Lets every evaluation context through again.
+    /// </summary>
+    public void RestoreContexts() => _failingContexts.Clear();
 
     /// <summary>
     /// Makes the next <paramref name="calls"/> evaluations fail, whichever Sensor they are for.
@@ -552,17 +566,15 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
 
         if (context.Grain is ISensorGrain && string.Equals(context.MethodName, nameof(ISensorGrain.SetContext), StringComparison.Ordinal))
         {
-            int left;
-            while ((left = Volatile.Read(ref _contextFailures)) > 0)
+            var sensorId = context.TargetId.Key.ToString()!;
+
+            if (_failingContexts.ContainsKey(sensorId))
             {
-                if (Interlocked.CompareExchange(ref _contextFailures, left - 1, left) == left)
-                {
-                    Interlocked.Increment(ref _failedContexts);
-                    throw new InvalidOperationException("The test failed this evaluation context.");
-                }
+                _failedContexts.AddOrUpdate(sensorId, 1, static (_, count) => count + 1);
+                throw new InvalidOperationException("The test failed this evaluation context.");
             }
 
-            Interlocked.Increment(ref _passedContexts);
+            _passedContexts.AddOrUpdate(sensorId, 1, static (_, count) => count + 1);
         }
 
         if (context.Grain is ISensorGrain && string.Equals(context.MethodName, nameof(ISensorGrain.Evaluate), StringComparison.Ordinal))
@@ -579,6 +591,13 @@ public sealed class SensorFaults : IIncomingGrainCallFilter
         }
 
         return context.Invoke();
+    }
+
+    private static int Count(System.Collections.Concurrent.ConcurrentDictionary<string, int> counts, IEnumerable<Guid> sensorIds)
+    {
+        ArgumentNullException.ThrowIfNull(sensorIds);
+
+        return sensorIds.Sum(sensorId => counts.GetValueOrDefault(sensorId.ToString("D")));
     }
 }
 

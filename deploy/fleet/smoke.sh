@@ -249,7 +249,9 @@ import_images() {
   # tarball, which leaves the upgrade's pods waiting for images that never arrive.
   for tag in "${tags[@]}"; do
     docker save "${tag}" | docker exec -i "${node_container}" ctr --namespace=k8s.io images import -
-    docker exec "${node_container}" ctr --namespace=k8s.io images ls --quiet | grep --quiet --fixed-strings --line-regexp "${tag}" \
+    # grep reads the whole list: with pipefail, "grep --quiet" stopping at the first match can
+    # kill ctr with SIGPIPE and fail the check on an image that is there.
+    docker exec "${node_container}" ctr --namespace=k8s.io images ls --quiet | grep --fixed-strings --line-regexp "${tag}" >/dev/null \
       || fail "image ${tag} is not in the containerd of ${node_container} after the import"
   done
 }

@@ -240,7 +240,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         var soil = node.SensorId(0, Quantity.SoilMoisture);
         var alertId = AlertIds.Uncalibrated(soil, 1);
 
-        identity.SensorFaults.FailNextContexts(int.MaxValue);
+        identity.SensorFaults.FailContexts(SensorsOf(node));
 
         try
         {
@@ -249,7 +249,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         }
         finally
         {
-            identity.SensorFaults.FailNextContexts(0);
+            identity.SensorFaults.RestoreContexts();
         }
 
         // Which Sensor confirmed the context was only in memory. The new silo activates the Device with a read
@@ -615,21 +615,21 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         var nodeId = node.DeviceId.ToString();
         var soil = node.SensorId(0, Quantity.SoilMoisture);
         var alertId = AlertIds.Uncalibrated(soil, 1);
-        var failedBefore = identity.SensorFaults.FailedContexts;
+        var failedBefore = identity.SensorFaults.FailedContexts(SensorsOf(node));
 
         // No Sensor can be reached while the Node is unassigned: the unassignment answers as it always did.
-        identity.SensorFaults.FailNextContexts(int.MaxValue);
+        identity.SensorFaults.FailContexts(SensorsOf(node));
 
         try
         {
             Assert.Equal(DeviceAssignmentOutcome.Unassigned, (await identity.Device(nodeId).Unassign(site.SiteId, Ct)).Outcome);
-            Assert.Equal(4, identity.SensorFaults.FailedContexts - failedBefore);
+            Assert.Equal(4, identity.SensorFaults.FailedContexts(SensorsOf(node)) - failedBefore);
             Assert.Null((await identity.DeviceStateAsync(nodeId)).LotId);
             Assert.Equal(AlertLifecycle.Open, (await identity.Alert(alertId).Describe(Ct))!.Lifecycle);
         }
         finally
         {
-            identity.SensorFaults.FailNextContexts(0);
+            identity.SensorFaults.RestoreContexts();
         }
 
         // No Reading follows an unassignment: the Device sends the context again when it is next woken.
@@ -641,9 +641,9 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
 
         // Confirmed: another wake sends nothing. No Sensor is called, which its journal alone would not show.
         var journaled = await identity.AliasesAsync($"sensor/{soil}");
-        var sentBefore = identity.SensorFaults.PassedContexts;
+        var sentBefore = identity.SensorFaults.PassedContexts(SensorsOf(node));
         await identity.WakeDeviceAsync(nodeId);
-        Assert.Equal(sentBefore, identity.SensorFaults.PassedContexts);
+        Assert.Equal(sentBefore, identity.SensorFaults.PassedContexts(SensorsOf(node)));
         Assert.Equal(journaled, await identity.AliasesAsync($"sensor/{soil}"));
     }
 
@@ -656,7 +656,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         var soil = node.SensorId(0, Quantity.SoilMoisture);
         var alertId = AlertIds.Uncalibrated(soil, 1);
 
-        identity.SensorFaults.FailNextContexts(int.MaxValue);
+        identity.SensorFaults.FailContexts(SensorsOf(node));
 
         try
         {
@@ -665,15 +665,15 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         }
         finally
         {
-            identity.SensorFaults.FailNextContexts(0);
+            identity.SensorFaults.RestoreContexts();
         }
 
         // Nobody wakes the Device and no silo restarts: the Node reports. On no Lot its Readings are not
         // evaluated, so only the context the frame sends again can end the episode.
-        var sentBefore = identity.SensorFaults.PassedContexts;
+        var sentBefore = identity.SensorFaults.PassedContexts(SensorsOf(node));
         await ReadAsync(node);
 
-        Assert.Equal(4, identity.SensorFaults.PassedContexts - sentBefore);
+        Assert.Equal(4, identity.SensorFaults.PassedContexts(SensorsOf(node)) - sentBefore);
         var closed = (await identity.Alert(alertId).Describe(Ct))!;
         Assert.Equal((AlertLifecycle.Closed, AlertCloseReason.Unassigned), (closed.Lifecycle, closed.Reason));
         Assert.Empty(await identity.Site(site.SiteId).OpenAlerts(Ct));
@@ -681,7 +681,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
 
         // Confirmed: the next report sends nothing.
         await ReadAsync(node);
-        Assert.Equal(4, identity.SensorFaults.PassedContexts - sentBefore);
+        Assert.Equal(4, identity.SensorFaults.PassedContexts(SensorsOf(node)) - sentBefore);
     }
 
     [Fact]
@@ -694,9 +694,9 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
 
         // No context the Device sends reaches the Sensors, from the frame that declares them on: the Sensor is
         // as one journaled before Story 7.4, declared and without a context, when that frame's Reading arrives.
-        var failedBefore = identity.SensorFaults.FailedContexts;
-        var sentBefore = identity.SensorFaults.PassedContexts;
-        identity.SensorFaults.FailNextContexts(int.MaxValue);
+        var failedBefore = identity.SensorFaults.FailedContexts(SensorsOf(node));
+        var sentBefore = identity.SensorFaults.PassedContexts(SensorsOf(node));
+        identity.SensorFaults.FailContexts(SensorsOf(node));
 
         try
         {
@@ -704,12 +704,12 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         }
         finally
         {
-            identity.SensorFaults.FailNextContexts(0);
+            identity.SensorFaults.RestoreContexts();
         }
 
         // The Reading said the Site, the Lot and the epoch.
-        Assert.Equal(4, identity.SensorFaults.FailedContexts - failedBefore);
-        Assert.Equal(sentBefore, identity.SensorFaults.PassedContexts);
+        Assert.Equal(4, identity.SensorFaults.FailedContexts(SensorsOf(node)) - failedBefore);
+        Assert.Equal(sentBefore, identity.SensorFaults.PassedContexts(SensorsOf(node)));
         Assert.Equal(new SensorContext(site.SiteId, lotId, false, 1), (await SensorStateAsync(soil)).Context);
         var open = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
         Assert.Equal((AlertIds.Uncalibrated(soil, 1), AlertKind.Uncalibrated, lotId), (open.AlertId, open.Kind, open.LotId));
@@ -727,7 +727,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         var soil = node.SensorId(0, Quantity.SoilMoisture);
         var peppers = await SeedLotAsync(site.SiteId, "Peppers");
 
-        identity.SensorFaults.FailNextContexts(int.MaxValue);
+        identity.SensorFaults.FailContexts(SensorsOf(node));
 
         try
         {
@@ -739,7 +739,7 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
         }
         finally
         {
-            identity.SensorFaults.FailNextContexts(0);
+            identity.SensorFaults.RestoreContexts();
         }
 
         var open = Assert.Single(await identity.Site(site.SiteId).OpenAlerts(Ct));
@@ -957,6 +957,15 @@ public sealed class UncalibratedAlertGrainTests(IdentityCluster identity) : ICla
     }
 
     // An Active Site created by its Owner, whose User grain therefore holds the Site and is told of its Alerts.
+    // The Node's four Sensors, whose evaluation contexts the Device sends.
+    private static Guid[] SensorsOf(SimulatedDevice node) =>
+    [
+        node.SensorId(0, Quantity.SoilMoisture),
+        node.SensorId(1, Quantity.AirTemperature),
+        node.SensorId(2, Quantity.RelativeHumidity),
+        node.SensorId(3, Quantity.GasResistance),
+    ];
+
     private async Task<(string SiteId, string OwnerId)> SiteAsync()
     {
         var ownerId = Guid.NewGuid().ToString();
