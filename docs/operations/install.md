@@ -108,7 +108,10 @@ it is imported, on the first start. **A realm that exists already is never re-im
 upgrading an existing installation set both by hand once, in the Keycloak admin console of the
 `coldframe` realm: Realm settings → Themes → Email theme `coldframe`; Realm settings → Email → the SMTP
 host, port, from address, authentication and encryption; and Authentication → Required actions → enable
-**Invitation** (`invitation-required-action`), which shows the invitee the invitation after signing in. Also set
+**Invitation** (`invitation-required-action`), which shows the invitee the invitation after signing in;
+and Realm settings → Login → turn on **Verify email**. Registration needs a verified email: Phase Two offers
+an invitation only to a verified address, so without it an invitee who registers is never shown the
+invitation. Users who registered before are asked to verify their email at their next sign-in. Also set
 `keycloak.invitationRedirectUri` under the `server` key of your site values to `https://<domain>/garden` (the example values do), so that
 someone who accepts lands in the web app. Without SMTP, Phase Two still creates the invitation but
 cannot email it: it only logs `Unable to send invitation email`, and the Owner sees the invitation as

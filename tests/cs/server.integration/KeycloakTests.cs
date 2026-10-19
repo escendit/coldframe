@@ -159,6 +159,9 @@ public sealed class KeycloakTests(AppHostFixture fixture)
                 realm.RootElement.GetProperty("registrationAllowed").GetBoolean(),
                 "The realm does not allow registration.");
             Assert.True(
+                realm.RootElement.GetProperty("verifyEmail").GetBoolean(),
+                "The realm does not verify a registered email; Phase Two offers invitations only to a verified one.");
+            Assert.True(
                 realm.RootElement.GetProperty("organizationsEnabled").GetBoolean(),
                 "The realm does not have Organizations enabled.");
         }
