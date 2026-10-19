@@ -144,6 +144,9 @@ deploy/images/test.sh
 - [`release.yml`](../../.github/workflows/release.yml) runs on a `v*` tag: it validates the tag, runs
   the same verification, then pushes each image with the version tag and the OCI labels. The tag must
   equal the version of every Helm chart (`deploy/charts/check-version.sh`), or nothing is pushed. Only the
-  push job has `packages: write`, and it authenticates with `GITHUB_TOKEN` alone.
+  push job has `packages: write`, and it authenticates with `GITHUB_TOKEN` alone. The same run
+  attaches the firmware, the chart packages and `SHA256SUMS` to a GitHub Release, and on a pull
+  request that touches the release paths it builds the images without pushing them (a dry run):
+  [`docs/operations/release.md`](../../docs/operations/release.md).
 - Any `v*` tag publishes, whatever commit it points to: push release tags only from `main`, and
   protect `v*` tags with a repository tag ruleset so that only maintainers can create them.

@@ -29,3 +29,14 @@ commits = ["b515f4c91cd5d75c24d4e244b9671efc7e475f26"]
 paths = [
   '''^_bmad-output/implementation-artifacts/spec-2-4-tls-with-public-certificates-on-my-home-network\.md$''',
 ]
+
+# The Epic 10 context lists the firmware reference topics ("the eFuse root and HKDF purpose-key
+# hierarchy, ..."); the generic API key rule reads the prose as a key. Only that commit and file are
+# allowed.
+[[allowlists]]
+description = "Epic 10 context names a key hierarchy, not a key"
+condition = "AND"
+commits = ["ee32e273dbf061a62ab15117f464144ea5bce61c"]
+paths = [
+  '''^_bmad-output/implementation-artifacts/epic-10-context\.md$''',
+]

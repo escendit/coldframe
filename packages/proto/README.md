@@ -30,8 +30,12 @@ Sensor, otherwise in `unit` and within the range.
 ## Versioning
 
 - Every top-level frame and envelope carries `uint32 protocol_version = 1`; the current major is `1`
-  (`PROTOCOL_MAJOR` in [`packages/crypto-spec`](../crypto-spec)). The Server accepts the current and the
-  previous major.
+  (`PROTOCOL_MAJOR` in [`packages/crypto-spec`](../crypto-spec)). The Server accepts every major from
+  `OLDEST_ACCEPTED_PROTOCOL_MAJOR` to `PROTOCOL_MAJOR`; the release wire gate fails a major bump that
+  drops the previous one ([`docs/operations/release.md`](../../docs/operations/release.md#wire-gate)).
+  Keeping an old major accepted needs the frame AAD and the downlink sealing to handle that major
+  too, not only the range check; `AFrameAtTheOldestAcceptedMajorIsDecodedAndItsDownlinkOpens` in
+  `tests/cs/server.tests/Devices/NodeFrameReaderTests.cs` fails until they do.
 - Within a major, changes are additive only. A field number is never reused: when a field goes, reserve
   its number and name (`reserved 4; reserved "old_name";`).
 - A wire break is a new major in a new package (`coldframe.device.v2`), shipped in a release whose

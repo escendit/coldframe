@@ -113,7 +113,9 @@ public sealed class NodeFrameReaderTests
             broken.Add(frame);
         }
 
-        Break(frame => frame.ProtocolVersion = 2);
+        // A major above the current one and one below the oldest accepted one.
+        Break(frame => frame.ProtocolVersion = CryptoSpec.ProtocolMajor + 1u);
+        Break(frame => frame.ProtocolVersion = CryptoSpec.OldestAcceptedProtocolMajor - 1u);
         Break(frame => frame.ProtocolVersion = 0);
         Break(frame => frame.ClearMeasured());
         Break(frame => frame.MeasuredAtMs = -1);
@@ -375,6 +377,34 @@ public sealed class NodeFrameReaderTests
     }
 
     // The frame as the Node seals it: with the sealing boot and uptime.
+    /// <summary>
+    /// Tripwire for the release wire gate (docs/operations/release.md#wire-gate): a Node at
+    /// <see cref="CryptoSpec.OldestAcceptedProtocolMajor"/> must still be decoded end to end. Today the
+    /// oldest major is the current one, so this passes trivially; once <c>protocolMajor</c> is bumped
+    /// with the old major still accepted, it fails until the frame AAD (<see cref="Frames.Aad"/>) and the
+    /// downlink sealing (DeviceGrain) handle the old major too.
+    /// </summary>
+    [Fact]
+    public void AFrameAtTheOldestAcceptedMajorIsDecodedAndItsDownlinkOpens()
+    {
+        const ulong counter = 7;
+        var node = SimulatedDevice.Create(ProtocolKind.Node);
+        var frame = Stamp(node, node.Wake(Now));
+        frame.ProtocolVersion = CryptoSpec.OldestAcceptedProtocolMajor;
+
+        // The frame as a Node at the oldest major seals it: its major is the first AAD byte.
+        var oldAad = Frames.Aad(node.DeviceId, counter);
+        oldAad[0] = CryptoSpec.OldestAcceptedProtocolMajor;
+        var sealedFrame = Aead.Seal(node.Keys.SealKey, Frames.Nonce(node.DeviceId, counter), oldAad, frame.ToByteArray());
+
+        var plaintext = Frames.Open(node.Keys.SealKey, node.DeviceId, counter, sealedFrame);
+        Assert.Equal(NodeFrameVerdict.Valid, NodeFrameReader.Read(plaintext, node.DeviceId, Now).Verdict);
+
+        // The downlink as the Server seals it must open on that Node.
+        var downlink = Frames.Seal(node.Keys.AckKey, node.DeviceId, counter, [1, 2, 3]);
+        Assert.Equal([1, 2, 3], Aead.Open(node.Keys.AckKey, Frames.Nonce(node.DeviceId, counter), oldAad, downlink));
+    }
+
     private static NodeFrame Stamp(SimulatedDevice node, NodeFrame wake) =>
         NodeFrame.Parser.ParseFrom(new SimulatedServer(node.Keys.DeviceKey).VerifyFrame(node.SealFrame(wake)));
 }

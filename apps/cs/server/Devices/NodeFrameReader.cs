@@ -98,7 +98,9 @@ public static class NodeFrameReader
             return new NodeFrameRead(NodeFrameVerdict.Invalid);
         }
 
-        if (frame.ProtocolVersion != CryptoSpec.ProtocolMajor
+        // Every major from the oldest accepted one to the current one is decoded (Story 10.1).
+        if (frame.ProtocolVersion < CryptoSpec.OldestAcceptedProtocolMajor
+            || frame.ProtocolVersion > CryptoSpec.ProtocolMajor
             || frame.Readings.Count > MaxReadings
             || (frame.HasBatteryPercent && frame.BatteryPercent > 100))
         {
