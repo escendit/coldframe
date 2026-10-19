@@ -82,6 +82,7 @@ extension Catalogue {
       switch argument {
       case .text(let text): text
       case .number(let number): String(number)
+      case .entry(let key): english[key.rawValue] ?? key.rawValue
       }
     }
     for (index, value) in values.enumerated() {

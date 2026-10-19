@@ -390,6 +390,15 @@ export interface FakeInvitation {
   readonly status: number;
 }
 
+/** One `PUT` or `DELETE /sites/{id}/members/{userId}` the fake Server received (Story 9.2), with the status it answered. */
+export interface FakeMemberChange {
+  readonly siteId: string;
+  readonly userId: string;
+  readonly method: string;
+  readonly body: Record<string, unknown>;
+  readonly status: number;
+}
+
 /** The signed-in User of the fake IdP: the `sub` and profile of every token it issues. */
 export const fakeUser = { userId: 'b5f1c0de-0000-4000-8000-000000000001', name: 'Simon Novak', email: 'simon@example.com' } as const;
 
@@ -486,6 +495,9 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
   let members: FakeMember[] = [];
   let invitations: FakeInvitation[] = [];
   let inviteFailNext: number | null = null;
+  // Story 9.2: every Role change and removal received, and the status the next one answers instead of 204.
+  let memberChanges: FakeMemberChange[] = [];
+  let memberChangeFailNext: number | null = null;
   let pauseFailNext: FakePauseFailure | null = null;
   /** While set, every pause write waits here before it is answered: a Server that is slow to answer. */
   let pauseHold: { readonly held: Promise<void>; readonly release: () => void } | null = null;
@@ -655,6 +667,8 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
       members = [];
       invitations = [];
       inviteFailNext = null;
+      memberChanges = [];
+      memberChangeFailNext = null;
       alertsStatus = null;
       alertReads = 0;
       notificationSettings = defaultNotificationSettings;
@@ -701,11 +715,12 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         members = body.members as FakeMember[];
       }
       inviteFailNext = typeof body.failNext === 'number' ? body.failNext : null;
-      send(response, 200, { members, failNext: inviteFailNext });
+      memberChangeFailNext = typeof body.changeFailNext === 'number' ? body.changeFailNext : null;
+      send(response, 200, { members, failNext: inviteFailNext, changeFailNext: memberChangeFailNext });
       return;
     }
     if (path === '/control/members') {
-      send(response, 200, { members, invitations });
+      send(response, 200, { members, invitations, memberChanges });
       return;
     }
     if (path === '/control/pause') {
@@ -1366,6 +1381,68 @@ export async function startFakeIdp(port: number, host = 'localhost'): Promise<Fa
         return;
       }
       answer(202, null);
+      return;
+    }
+
+    // Story 9.2: an Owner changes a Member's Role or removes them. The fake keeps at least one Owner (409 last-owner), as
+    // the Server does, and a change to the signed-in User's own Membership changes or removes their Site.
+    const memberMatch = /^\/sites\/([^/]+)\/members\/([^/]+)$/u.exec(path);
+    if (memberMatch !== null && (request.method === 'PUT' || request.method === 'DELETE')) {
+      if (!bearerOk(request)) {
+        problem(response, 401, 'unauthorized');
+        return;
+      }
+      const siteId = decodeURIComponent(memberMatch[1] ?? '');
+      const userId = decodeURIComponent(memberMatch[2] ?? '');
+      const body = request.method === 'PUT' ? await readJson(request) : {};
+      const answer = (status: number, slug: string | null): void => {
+        memberChanges.push({ siteId, userId, method: request.method ?? '', body, status });
+        if (slug === null) {
+          response.writeHead(status);
+          response.end();
+        } else {
+          problem(response, status, slug);
+        }
+      };
+      const site = sites.find((candidate) => candidate.id === siteId);
+      if (site === undefined) {
+        answer(404, 'site-not-found');
+        return;
+      }
+      if (site.role !== 'Owner') {
+        answer(403, 'forbidden');
+        return;
+      }
+      const role = String(body.role);
+      if (request.method === 'PUT' && !['Owner', 'Administrator', 'Member'].includes(role)) {
+        answer(400, 'validation');
+        return;
+      }
+      if (memberChangeFailNext !== null) {
+        const status = memberChangeFailNext;
+        memberChangeFailNext = null;
+        answer(status, status === 503 ? 'identity-provider-unavailable' : 'error');
+        return;
+      }
+      const seeded = members.filter((member) => member.siteId === siteId);
+      const ofSite: FakeMember[] = seeded.length > 0 ? seeded : [{ siteId, ...fakeUser, role: site.role }];
+      const target = ofSite.find((member) => member.userId === userId);
+      if (target === undefined) {
+        answer(404, 'member-not-found');
+        return;
+      }
+      const lowered = request.method === 'DELETE' || role !== 'Owner';
+      if (target.role === 'Owner' && lowered && ofSite.filter((member) => member.role === 'Owner').length === 1) {
+        answer(409, 'last-owner');
+        return;
+      }
+      const others = members.filter((member) => member.siteId !== siteId);
+      const kept = request.method === 'DELETE' ? ofSite.filter((member) => member !== target) : ofSite.map((member) => (member === target ? { ...member, role: role as FakeMember['role'] } : member));
+      members = [...others, ...kept];
+      if (userId === fakeUser.userId) {
+        sites = request.method === 'DELETE' ? sites.filter((candidate) => candidate !== site) : sites.map((candidate) => (candidate === site ? { ...site, role: role as FakeSite['role'] } : candidate));
+      }
+      answer(204, null);
       return;
     }
 

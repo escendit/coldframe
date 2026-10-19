@@ -12,6 +12,8 @@ public enum SiteWrite
     GrantRole,
     UpdateDisplayName,
     Invite,
+    RevokeRole,
+    RemoveMember,
 }
 
 /// <summary>
@@ -33,6 +35,7 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
     private readonly HashSet<(string Organization, string Role, string User)> _grants = [];
     private readonly List<FakeInvitation> _invitations = [];
     private readonly Dictionary<string, PhaseTwoMemberProfile> _profiles = new(StringComparer.Ordinal);
+    private readonly List<string> _membershipCalls = [];
     private bool _failOnceAfterCreate;
     private SiteWrite? _failOnceOn;
     private bool _stallOnce;
@@ -144,6 +147,21 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
             _members.Add((organizationId, userId));
             _roles.Add((organizationId, invitation.Role));
             _grants.Add((organizationId, invitation.Role, userId));
+        }
+    }
+
+    /// <summary>
+    /// The grants, revocations and removals the Server made, in order (Story 9.2): <c>grant owner u</c>,
+    /// <c>revoke member u</c>, <c>remove u</c>.
+    /// </summary>
+    public IReadOnlyList<string> MembershipCalls
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _membershipCalls];
+            }
         }
     }
 
@@ -372,6 +390,40 @@ public sealed class FakePhaseTwoOrganizations : IPhaseTwoOrganizations
             }
 
             _grants.Add((organizationId, role, userId));
+            _membershipCalls.Add($"grant {role} {userId}");
+        }
+    }
+
+    public async Task RevokeRoleAsync(string organizationId, string role, string userId, CancellationToken cancellationToken)
+    {
+        ThrowIfUnavailable();
+        await StallIfDueAsync(SiteWrite.RevokeRole, cancellationToken);
+        Interlocked.Increment(ref _writes);
+
+        lock (_lock)
+        {
+            ThrowIfFailingOnce(SiteWrite.RevokeRole);
+            RequireOrganization(organizationId);
+
+            // A role the User does not hold is a 404, which the client takes as done.
+            _grants.Remove((organizationId, role, userId));
+            _membershipCalls.Add($"revoke {role} {userId}");
+        }
+    }
+
+    public async Task RemoveMemberAsync(string organizationId, string userId, CancellationToken cancellationToken)
+    {
+        ThrowIfUnavailable();
+        await StallIfDueAsync(SiteWrite.RemoveMember, cancellationToken);
+        Interlocked.Increment(ref _writes);
+
+        lock (_lock)
+        {
+            ThrowIfFailingOnce(SiteWrite.RemoveMember);
+            RequireOrganization(organizationId);
+            _members.Remove((organizationId, userId));
+            _grants.RemoveWhere(grant => grant.Organization == organizationId && grant.User == userId);
+            _membershipCalls.Add($"remove {userId}");
         }
     }
 

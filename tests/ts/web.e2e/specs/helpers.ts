@@ -14,6 +14,7 @@ import type {
   FakeLiveState,
   FakeLot,
   FakeMember,
+  FakeMemberChange,
   FakeNotificationsSeed,
   FakeNotificationsState,
   FakePauseCall,
@@ -136,15 +137,22 @@ export async function holdPauses(hold: boolean): Promise<void> {
 
 /**
  * Seeds the Members of Sites (Story 9.1); a Site with none lists the signed-in User with their Role. `failNext` makes the
- * next invitation answer that status instead of 202. `resetSites` clears both and the invitations sent.
+ * next invitation answer that status instead of 202, `changeFailNext` the next Role change or removal instead of 204
+ * (Story 9.2). `resetSites` clears them and the calls received.
  */
-export async function setMembers(members: readonly FakeMember[], failNext: number | null = null): Promise<void> {
+export async function setMembers(members: readonly FakeMember[], failNext: number | null = null, changeFailNext: number | null = null): Promise<void> {
   const response = await fetch(`${idpOrigin}/control/members`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ members, ...(failNext === null ? {} : { failNext }) }),
+    body: JSON.stringify({ members, ...(failNext === null ? {} : { failNext }), ...(changeFailNext === null ? {} : { changeFailNext }) }),
   });
   expect(response.ok).toBe(true);
+}
+
+/** Every Role change and removal the fake Server received since the last reset (Story 9.2), with the status it answered. */
+export async function serverMemberChanges(): Promise<FakeMemberChange[]> {
+  const response = await fetch(`${idpOrigin}/control/members`);
+  return ((await response.json()) as { memberChanges: FakeMemberChange[] }).memberChanges;
 }
 
 /** Every invitation the fake Server received since the last reset, with the status it answered. */

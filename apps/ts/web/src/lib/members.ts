@@ -139,5 +139,76 @@ export function inviteNoticeOf(notice: InviteNotice): { readonly message: Messag
   }
 }
 
+/**
+ * Whether a Member is the Site's only Owner (UX-DR51): that tile is locked with "A Site always keeps at least one
+ * Owner." and offers no Role change or removal. The Server checks the same rule against its own Owners.
+ */
+export function isLastOwner(members: readonly Pick<SiteMember, 'role'>[], member: Pick<SiteMember, 'role'>): boolean {
+  return member.role === 'Owner' && members.filter((candidate) => candidate.role === 'Owner').length === 1;
+}
+
+/** The Role line of a tile an Owner can open ("Member · change"), or of the locked last Owner ("Owner · last one"). */
+export function roleLineOf(member: Pick<SiteMember, 'role'>, lastOwner: boolean): { readonly key: MessageKey; readonly role: Role } {
+  return { key: lastOwner ? 'members.lastOwnerLine' : 'members.roleLine', role: member.role };
+}
+
+/** The two changes an Owner makes to a Membership (Story 9.2). */
+export type MemberChangeAction = 'changeRole' | 'removeMember';
+
+/**
+ * Why a Role change or removal did not happen. `lastOwner` is the 409 `last-owner` (one line under the Role
+ * field), `memberGone` the 404 `member-not-found` (the list is read again), `unavailable` a 503 (Try again).
+ */
+export type MemberChangeNotice = 'lastOwner' | 'memberGone' | 'unavailable' | 'forbidden' | 'siteNotFound' | 'unexpected' | 'unreachable' | 'certificate';
+
+/** A Role change or removal that did not happen: the editor stays open on that Member with what was picked. */
+export interface MemberChangeFailure {
+  readonly action: MemberChangeAction;
+  readonly userId: string;
+  /** The name the notices use. */
+  readonly name: string;
+  /** The Role picked (for a removal, the Member's Role). */
+  readonly role: Role;
+  readonly siteName: string;
+  readonly notice: MemberChangeNotice;
+}
+
+/** A Role change or removal the Server saved. `self` is the signed-in User's own Membership: the page reads the Sites again. */
+export interface MemberChangeSuccess {
+  readonly action: MemberChangeAction;
+  readonly done: true;
+  readonly name: string;
+  readonly role: Role;
+  readonly siteName: string;
+  readonly self: boolean;
+}
+
+/** The copy of a refused change, and whether Try again can help. `lastOwner` is shown under the Role field instead. */
+export function memberChangeNoticeOf(notice: MemberChangeNotice): { readonly message: MessageKey; readonly tryAgain: boolean } {
+  switch (notice) {
+    case 'lastOwner':
+      return { message: 'members.lastOwner', tryAgain: false };
+    case 'memberGone':
+      return { message: 'members.memberGone', tryAgain: false };
+    case 'unavailable':
+      return { message: 'members.changeNotSaved', tryAgain: true };
+    case 'forbidden':
+      return { message: 'members.changeForbidden', tryAgain: false };
+    case 'siteNotFound':
+      return { message: 'members.changeSiteNotFound', tryAgain: false };
+    case 'unexpected':
+      return { message: 'members.changeUnexpected', tryAgain: true };
+    case 'unreachable':
+      return { message: 'notice.unreachable', tryAgain: true };
+    case 'certificate':
+      return { message: 'notice.certificate', tryAgain: false };
+  }
+}
+
+/** The success notice: "Ana Lima is now Administrator." or "Ana Lima was removed from Home." */
+export function memberChangedNoticeOf(action: MemberChangeAction): MessageKey {
+  return action === 'changeRole' ? 'members.roleChanged' : 'members.removed';
+}
+
 /** How often Create Site reads the Memberships again while the User has no Site (UX-DR90). */
 export const membershipRefreshMs = 10_000;

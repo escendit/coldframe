@@ -144,8 +144,10 @@ Swift runtimes.
     the day formatter in the phone's zone. Purple and the pause icon mean paused and nothing
     else. There is no "Paused by ‹name›" line, no paused notice on the Add a Hub and Add a Node
     outcome screens, no Resume inside Calibrate and no swipe action.
-  `MembersService` (Story 9.1) carries Members as a `MembersPresentation` built from the core's flat
-  `MembersSnapshot`, with the actions `load`, `setEmail`, `setRole`, `sendInvite` and `retry`.
+  `MembersService` (Stories 9.1 and 9.2) carries Members as a `MembersPresentation` built from the core's flat
+  `MembersSnapshot`, with the actions `load`, `setEmail`, `setRole`, `sendInvite` and `retry`, and for the Role
+  editor and removal `select`, `closeEditor`, `setEditRole`, `saveRole`, `askRemove`, `cancelRemove` and
+  `confirmRemove` (the last Owner's tile is locked; removal confirms in a `.confirmationDialog`).
   Settings lists Members between My notifications and Site settings for an Owner only
   (`SettingsRow.rows(role:)`); for anyone else the row does not exist. `MembersView` reads the
   Memberships on every entry and shows the Member tiles (`MemberTileView`, UX-DR51: the initials

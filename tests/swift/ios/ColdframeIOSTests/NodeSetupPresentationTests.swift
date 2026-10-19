@@ -52,6 +52,7 @@ private func resolved(_ copy: Copy) throws -> String {
       switch argument {
       case .text(let text): ("@", text)
       case .number(let number): ("lld", String(number))
+      case .entry(let key): ("@", (try? Catalogue.entries()[key.rawValue]) ?? key.rawValue)
       }
     value = value.replacingOccurrences(of: "%\(index + 1)$\(placeholder)", with: text)
     if let plain = value.range(of: "%\(placeholder)") {

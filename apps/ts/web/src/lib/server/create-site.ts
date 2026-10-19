@@ -98,6 +98,8 @@ export async function createSiteAction(
     case 'forbidden':
     case 'notFound':
     case 'lotClaimed':
+    case 'lastOwner':
+    case 'memberNotFound':
       return fail(502, { name, nameError: null, notice: 'unexpected', idempotencyKey });
     case 'unreachable':
     case 'certificate':

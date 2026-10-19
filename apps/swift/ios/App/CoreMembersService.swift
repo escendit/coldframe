@@ -2,7 +2,7 @@ import ColdframeCore
 import ColdframeIOS
 import Foundation
 
-/// Adapts `IosMembers` of the shared Kotlin core to `MembersService` (Story 9.1). The snapshot
+/// Adapts `IosMembers` of the shared Kotlin core to `MembersService` (Stories 9.1, 9.2). The snapshot
 /// is flat strings and flags; the Server calls, the email check and what a refused invitation
 /// leaves stay in the core (AD-14).
 @MainActor
@@ -27,7 +27,12 @@ final class CoreMembersService: MembersService {
             memberIsYou: snapshot.memberIsYou.map { $0.boolValue }, email: snapshot.email,
             role: snapshot.role, roles: snapshot.roles, emailError: snapshot.emailError,
             working: snapshot.working, notice: snapshot.notice,
-            noticeTryAgain: snapshot.noticeTryAgain, sentTo: snapshot.sentTo))
+            noticeTryAgain: snapshot.noticeTryAgain, sentTo: snapshot.sentTo,
+            memberLastOwner: snapshot.memberLastOwner.map { $0.boolValue },
+            editorUserId: snapshot.editorUserId, editorName: snapshot.editorName,
+            editorRole: snapshot.editorRole, editorRoleError: snapshot.editorRoleError,
+            editorWorking: snapshot.editorWorking, confirmingRemove: snapshot.confirmingRemove,
+            noticeName: snapshot.noticeName, noticeRole: snapshot.noticeRole))
       }
     }
   }
@@ -42,4 +47,20 @@ final class CoreMembersService: MembersService {
   func sendInvite() { core.sendInvite() }
 
   func retry() { core.retry() }
+
+  // Story 9.2: the Role editor and the removal; the last-Owner rule stays in the core and Server.
+
+  func select(_ userId: String) { core.select(userId: userId) }
+
+  func closeEditor() { core.closeEditor() }
+
+  func setEditRole(_ role: SiteRoleKind) { core.setEditRole(role: role.rawValue) }
+
+  func saveRole() { core.saveRole() }
+
+  func askRemove() { core.askRemove() }
+
+  func cancelRemove() { core.cancelRemove() }
+
+  func confirmRemove() { core.confirmRemove() }
 }

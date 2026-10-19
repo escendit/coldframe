@@ -23,6 +23,11 @@ import com.escendit.coldframe.core.devices.DevicesState
 import com.escendit.coldframe.core.devices.HubSummary
 import com.escendit.coldframe.core.signin.Notice
 import com.escendit.coldframe.core.signin.SignInState
+import com.escendit.coldframe.core.sites.InviteForm
+import com.escendit.coldframe.core.sites.Member
+import com.escendit.coldframe.core.sites.MemberEditor
+import com.escendit.coldframe.core.sites.MembersState
+import com.escendit.coldframe.core.sites.SiteRole
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,6 +43,7 @@ class AccessibilityTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     private var state by mutableStateOf<SignInState>(SignInState.Restoring)
+    private var members by mutableStateOf<MembersState>(MembersState.Hidden)
     private var started = false
 
     /** Shows [next]; the content is set once per test and then only its state changes. */
@@ -70,6 +76,7 @@ class AccessibilityTest {
                         HubSummary("7c19000000000001", online = false, lastSeenAtEpochMs = null),
                     ),
                 ),
+            members = members,
         )
 
     private fun assertControlsAreLabelledWithRole(screen: String) {
@@ -179,5 +186,32 @@ class AccessibilityTest {
         assertTouchTargetsAreAtLeast48dp("Settings")
         compose.onNodeWithText("Appearance").performClick()
         assertTouchTargetsAreAtLeast48dp("Appearance")
+    }
+
+    @Test
+    fun `UX-DR51 UX-DR84 UX-DR100 Member tiles and the editor are labelled 48 dp buttons, the last Owner's is none`() {
+        val simon = Member("u-simon", "Simon Novak", null, SiteRole.Owner, you = true, lastOwner = true)
+        val ana = Member("u-ana", "Ana Costa", null, SiteRole.Member, you = false)
+        members =
+            MembersState.Ready(
+                "Home garden",
+                listOf(simon, ana),
+                InviteForm(),
+                editor = MemberEditor(ana, SiteRole.Member),
+            )
+        show(SignInState.SignedIn(null))
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Members").performClick()
+
+        assertTouchTargetsAreAtLeast48dp("Members")
+        // The email field is a text field, not a button; every other control is a labelled button or segment.
+        val buttons = compose.allNodes().filter { it.isClickable && SemanticsProperties.EditableText !in it.config }
+        for (button in buttons) {
+            assertNotNull(button.role, "Members: a control without a role: ${button.spokenLabel()}")
+            assertTrue(button.spokenLabel().isNotBlank(), "Members: a control without a label")
+        }
+        val clickable = buttons.map { it.spokenLabel() }
+        assertTrue(clickable.any { it.contains("Ana Costa, Member · change") }, clickable.toString())
+        assertTrue(clickable.none { it.contains("Simon Novak") }, clickable.toString())
     }
 }

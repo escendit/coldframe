@@ -7016,6 +7016,171 @@
         }
       }
     },
+    "members_tile_change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · change"
+          }
+        }
+      }
+    },
+    "members_tile_last_owner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owner · last one"
+          }
+        }
+      }
+    },
+    "members_last_owner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Site always keeps at least one Owner."
+          }
+        }
+      }
+    },
+    "members_save_role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Role"
+          }
+        }
+      }
+    },
+    "members_saving_role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving Role…"
+          }
+        }
+      }
+    },
+    "members_remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from Site"
+          }
+        }
+      }
+    },
+    "members_remove_question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@ from %2$@?"
+          }
+        }
+      }
+    },
+    "members_remove_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They lose access to %@ and stop getting its Alerts."
+          }
+        }
+      }
+    },
+    "members_remove_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        }
+      }
+    },
+    "members_removing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing…"
+          }
+        }
+      }
+    },
+    "members_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "members_role_changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is now %2$@."
+          }
+        }
+      }
+    },
+    "members_removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ was removed from %2$@."
+          }
+        }
+      }
+    },
+    "members_member_gone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is no longer a member of %2$@."
+          }
+        }
+      }
+    },
+    "members_not_changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change was not saved. Try again."
+          }
+        }
+      }
+    },
     "create_site_invitation_hint": {
       "extractionState": "manual",
       "localizations": {

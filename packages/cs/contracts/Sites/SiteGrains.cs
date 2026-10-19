@@ -235,6 +235,30 @@ public interface ISiteGrain : IGrainWithStringKey
     Task<SiteInviteResult> Invite(string email, SiteRole role, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Changes the Role of a member of an <see cref="SiteLifecycle.Active"/> Site (Story 9.2). Refuses a change
+    /// that would leave the Site without an Owner, checked against the Site's own persisted Owners (AD-3). Asks
+    /// Phase Two to grant the new Organization role, then to revoke the others; journals
+    /// <see cref="MembershipGranted"/> only once every call succeeded, and brings the identity projection up to
+    /// date before it returns. The current Role changes nothing and calls nothing.
+    /// </summary>
+    /// <param name="userId">The member's User ID.</param>
+    /// <param name="role">The Role from now on.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("change-role")]
+    Task<SiteMembershipChangeResult> ChangeRole(string userId, SiteRole role, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes a member from an <see cref="SiteLifecycle.Active"/> Site (Story 9.2). Refuses to remove the last
+    /// Owner. Asks Phase Two to revoke every Coldframe Organization role and to remove the member; journals
+    /// <see cref="MembershipRevoked"/> only once every call succeeded, and brings the identity projection up to
+    /// date before it returns.
+    /// </summary>
+    /// <param name="userId">The member's User ID.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    [Alias("remove-member")]
+    Task<SiteMembershipChangeResult> RemoveMember(string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Creates a Lot on an <see cref="SiteLifecycle.Active"/> Site, idempotently per caller and key for
     /// 24 h: the request is journaled with its new Lot ID before the Lot grain is called, so a retry
     /// resumes with the same Lot.
@@ -830,6 +854,59 @@ public enum SiteInviteOutcome
 [GenerateSerializer]
 [Alias("coldframe.site-invite-result")]
 public sealed record SiteInviteResult([property: Id(0)] SiteInviteOutcome Outcome);
+
+/// <summary>
+/// How a Role change or a removal ended (Story 9.2).
+/// </summary>
+[GenerateSerializer]
+[Alias("coldframe.site-membership-change-outcome")]
+public enum SiteMembershipChangeOutcome
+{
+    /// <summary>
+    /// Phase Two holds the change, it is journaled and the identity projection is up to date.
+    /// </summary>
+    Changed = 0,
+
+    /// <summary>
+    /// The member holds that Role already. Nothing was called or journaled.
+    /// </summary>
+    Unchanged = 1,
+
+    /// <summary>
+    /// The Site is not <see cref="SiteLifecycle.Active"/>. Nothing changed.
+    /// </summary>
+    NotFound = 2,
+
+    /// <summary>
+    /// The User is not a member of the Site. Nothing changed.
+    /// </summary>
+    MemberNotFound = 3,
+
+    /// <summary>
+    /// The change would leave the Site without an Owner. Nothing was called or journaled.
+    /// </summary>
+    LastOwner = 4,
+
+    /// <summary>
+    /// Keycloak could not be reached, answered with a server error, or took longer than the operation budget.
+    /// Nothing was journaled.
+    /// </summary>
+    IdentityProviderUnavailable = 5,
+}
+
+/// <summary>
+/// The result of <see cref="ISiteGrain.ChangeRole"/> and <see cref="ISiteGrain.RemoveMember"/>.
+/// </summary>
+/// <param name="Outcome">How the change ended.</param>
+/// <param name="Role">
+/// The member's Role afterwards: the new Role when changed or unchanged, <see langword="null"/> after a removal or
+/// when nothing changed for another reason.
+/// </param>
+[GenerateSerializer]
+[Alias("coldframe.site-membership-change-result")]
+public sealed record SiteMembershipChangeResult(
+    [property: Id(0)] SiteMembershipChangeOutcome Outcome,
+    [property: Id(1)] SiteRole? Role = null);
 
 /// <summary>
 /// How a Lot creation ended.

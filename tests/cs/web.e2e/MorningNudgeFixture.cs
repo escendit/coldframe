@@ -45,6 +45,11 @@ public sealed class MorningNudgeFixture : IAsyncLifetime
 
     private static readonly TimeSpan ResourceTimeout = TimeSpan.FromMinutes(15);
 
+    private const string BrowserRedirectUri = "http://localhost/coldframe-tests/callback";
+
+    private readonly SemaphoreSlim _browserClientLock = new(1, 1);
+    private string? _browserClientId;
+
     private readonly string _testClientId = $"coldframe-e2e-{Guid.NewGuid():N}";
     private readonly List<string> _webOutput = [];
     private DistributedApplication? _app;
@@ -86,6 +91,8 @@ public sealed class MorningNudgeFixture : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
+        _browserClientLock.Dispose();
+
         if (_web is not null)
         {
             if (!_web.HasExited)
@@ -153,6 +160,69 @@ public sealed class MorningNudgeFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("Keycloak returned no location for the new User.");
 
         return new JourneyUser(userId, username, password);
+    }
+
+    /// <summary>
+    /// Signs <paramref name="invitee"/> in through Keycloak's browser flow and accepts their pending Phase Two
+    /// invitation to <paramref name="organizationId"/> on the invitation page that the required action shows
+    /// (Story 9.1; as <c>EdgeApiFixture.AcceptInvitationAsync</c> of the Server's integration tests). Keycloak then
+    /// emits the <c>CUSTOM_REQUIRED_ACTION</c> user event that brings the Membership to the Server. Cookies are kept
+    /// by hand: Keycloak marks them Secure, which a cookie container does not send over the stack's plain HTTP.
+    /// </summary>
+    public async Task AcceptInvitationAsync(JourneyUser invitee, string organizationId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(invitee);
+
+        var clientId = await EnsureBrowserClientAsync(cancellationToken);
+        var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        using var addressed = App.CreateHttpClient(KeycloakResource, "http");
+        using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
+        using var keycloak = new HttpClient(handler) { BaseAddress = addressed.BaseAddress };
+
+        var authorize = new Uri(
+            $"/realms/{Realm}/protocol/openid-connect/auth?client_id={clientId}&response_type=code&scope=openid"
+            + $"&redirect_uri={Uri.EscapeDataString(BrowserRedirectUri)}",
+            UriKind.Relative);
+
+        using var loginPage = await BrowseAsync(keycloak, cookies, HttpMethod.Get, authorize, null, cancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.OK, loginPage.StatusCode);
+
+        var page = await BrowseAsync(
+            keycloak,
+            cookies,
+            HttpMethod.Post,
+            FormAction(await loginPage.Content.ReadAsStringAsync(cancellationToken)),
+            [new("username", invitee.Username), new("password", invitee.Password)],
+            cancellationToken);
+
+        // The required action redirects to its own page first.
+        while (page.StatusCode == System.Net.HttpStatusCode.Found
+            && page.Headers.Location is { } next
+            && !next.AbsoluteUri.StartsWith(BrowserRedirectUri, StringComparison.Ordinal))
+        {
+            page.Dispose();
+            page = await BrowseAsync(keycloak, cookies, HttpMethod.Get, next, null, cancellationToken);
+        }
+
+        using (page)
+        {
+            var html = await page.Content.ReadAsStringAsync(cancellationToken);
+            Assert.True(
+                html.Contains($"value=\"{organizationId}\"", StringComparison.Ordinal),
+                $"Keycloak showed no invitation to {organizationId} ({(int)page.StatusCode}).");
+
+            using var accepted = await BrowseAsync(
+                keycloak,
+                cookies,
+                HttpMethod.Post,
+                FormAction(html),
+                [new("orgs", organizationId), new("accept", "Accept")],
+                cancellationToken);
+
+            Assert.Equal(System.Net.HttpStatusCode.Found, accepted.StatusCode);
+            Assert.StartsWith(BrowserRedirectUri, accepted.Headers.Location?.AbsoluteUri ?? string.Empty, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
@@ -302,6 +372,87 @@ public sealed class MorningNudgeFixture : IAsyncLifetime
             },
             cancellationToken);
         created.EnsureSuccessStatusCode();
+    }
+
+    // A public client with the browser flow, for AcceptInvitationAsync; created once per stack.
+    private async Task<string> EnsureBrowserClientAsync(CancellationToken cancellationToken)
+    {
+        await _browserClientLock.WaitAsync(cancellationToken);
+
+        try
+        {
+            if (_browserClientId is { } existing)
+            {
+                return existing;
+            }
+
+            var clientId = $"coldframe-e2e-browser-{Guid.NewGuid():N}";
+            using var admin = await CreateAdminClientAsync(cancellationToken);
+            using var created = await admin.PostAsJsonAsync(
+                new Uri($"/admin/realms/{Realm}/clients", UriKind.Relative),
+                new
+                {
+                    clientId,
+                    enabled = true,
+                    publicClient = true,
+                    standardFlowEnabled = true,
+                    directAccessGrantsEnabled = false,
+                    redirectUris = new[] { BrowserRedirectUri },
+                },
+                cancellationToken);
+            created.EnsureSuccessStatusCode();
+
+            return _browserClientId = clientId;
+        }
+        finally
+        {
+            _browserClientLock.Release();
+        }
+    }
+
+    private static async Task<HttpResponseMessage> BrowseAsync(
+        HttpClient keycloak,
+        Dictionary<string, string> cookies,
+        HttpMethod method,
+        Uri uri,
+        IEnumerable<KeyValuePair<string, string>>? form,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, uri);
+
+        if (form is not null)
+        {
+            request.Content = new FormUrlEncodedContent(form);
+        }
+
+        if (cookies.Count > 0)
+        {
+            request.Headers.Add("Cookie", string.Join("; ", cookies.Select(cookie => $"{cookie.Key}={cookie.Value}")));
+        }
+
+        var response = await keycloak.SendAsync(request, cancellationToken);
+
+        if (response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+        {
+            foreach (var setCookie in setCookies)
+            {
+                var pair = setCookie.Split(';', 2)[0].Split('=', 2);
+                if (pair.Length == 2)
+                {
+                    cookies[pair[0].Trim()] = pair[1];
+                }
+            }
+        }
+
+        return response;
+    }
+
+    // The action of the page's first form, HTML-decoded.
+    private static Uri FormAction(string html)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(html, "<form[^>]*action=\"([^\"]+)\"", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+        Assert.True(match.Success, "The Keycloak page has no form.");
+        return new Uri(System.Net.WebUtility.HtmlDecode(match.Groups[1].Value), UriKind.Absolute);
     }
 
     private async Task<HttpClient> CreateAdminClientAsync(CancellationToken cancellationToken)

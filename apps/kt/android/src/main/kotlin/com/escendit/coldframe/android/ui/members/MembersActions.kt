@@ -19,6 +19,14 @@ class MembersActions(
     val sendInvite: () -> Unit = {},
     /** Try again, where the notice offers it. */
     val retry: () -> Unit = {},
+    /** Story 9.2: a tap on a Member tile opens its editor; the last Owner's tile is locked. */
+    val select: (String) -> Unit = {},
+    val closeEditor: () -> Unit = {},
+    val setEditRole: (SiteRole) -> Unit = {},
+    val saveRole: () -> Unit = {},
+    val askRemove: () -> Unit = {},
+    val cancelRemove: () -> Unit = {},
+    val confirmRemove: () -> Unit = {},
 ) {
     companion object {
         val None = MembersActions()
@@ -30,6 +38,13 @@ class MembersActions(
                 setRole = engine::setRole,
                 sendInvite = engine::sendInvite,
                 retry = engine::retry,
+                select = engine::select,
+                closeEditor = engine::closeEditor,
+                setEditRole = engine::setEditRole,
+                saveRole = engine::saveRole,
+                askRemove = engine::askRemove,
+                cancelRemove = engine::cancelRemove,
+                confirmRemove = engine::confirmRemove,
             )
     }
 }
@@ -50,7 +65,10 @@ fun InviteEmailError.message(): Int =
         InviteEmailError.Invalid -> R.string.members_email_invalid
     }
 
-/** The notice's copy; `%1$s` is the email ([MembersNotice.Sent]) or the Site name. */
+/**
+ * The notice's copy; `%1$s` is the email ([MembersNotice.Sent]) or the Site name. The Story 9.2 notices
+ * take the person as `%1$s` and the Role or the Site as `%2$s`.
+ */
 @StringRes
 fun MembersNotice.message(): Int =
     when (this) {
@@ -63,4 +81,8 @@ fun MembersNotice.message(): Int =
         MembersNotice.Unreachable -> R.string.members_unreachable
         MembersNotice.Certificate -> R.string.notice_certificate
         MembersNotice.Unexpected -> R.string.members_unexpected
+        MembersNotice.RoleChanged -> R.string.members_role_changed
+        MembersNotice.Removed -> R.string.members_removed
+        MembersNotice.MemberGone -> R.string.members_member_gone
+        MembersNotice.NotChanged -> R.string.members_not_changed
     }

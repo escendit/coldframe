@@ -19,7 +19,10 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** An in-memory Server for the two Members calls. An invitation adds no Member: they appear once accepted. */
+/**
+ * An in-memory Server for the Members calls. An invitation adds no Member: they appear once accepted. A Role change
+ * or a removal (Story 9.2) changes [members] unless a failure is queued in [changeFailures].
+ */
 class FakeMembersApi : MembersApi {
     val members = mutableListOf<SiteMemberDto>()
     val invited = mutableListOf<Triple<String, String, String>>()
@@ -42,6 +45,34 @@ class FakeMembersApi : MembersApi {
         invited += Triple(siteId, email, role)
         gate?.await()
         inviteFailures.removeFirstOrNull()?.let { return ApiResult.Failed(it) }
+        return ApiResult.Ok(Unit)
+    }
+
+    val changes = mutableListOf<String>()
+    var changeFailures = ArrayDeque<ApiFailure>()
+    var changeGate: CompletableDeferred<Unit>? = null
+
+    override suspend fun changeRole(
+        siteId: String,
+        userId: String,
+        role: String,
+    ): ApiResult<Unit> {
+        changes += "role $siteId $userId $role"
+        changeGate?.await()
+        changeFailures.removeFirstOrNull()?.let { return ApiResult.Failed(it) }
+        val index = members.indexOfFirst { it.userId == userId }
+        if (index >= 0) members[index] = members[index].copy(role = role)
+        return ApiResult.Ok(Unit)
+    }
+
+    override suspend fun removeMember(
+        siteId: String,
+        userId: String,
+    ): ApiResult<Unit> {
+        changes += "remove $siteId $userId"
+        changeGate?.await()
+        changeFailures.removeFirstOrNull()?.let { return ApiResult.Failed(it) }
+        members.removeAll { it.userId == userId }
         return ApiResult.Ok(Unit)
     }
 }
@@ -396,4 +427,231 @@ class MembersEngineTest {
         assertEquals("?", Member.initialsOf("", null))
         assertEquals("?", Member.initialsOf("", "@example.com"))
     }
+
+    // Story 9.2: change and remove Roles, always keeping an Owner.
+
+    @Test
+    fun uxDr51TheOnlyOwnersTileIsLockedAndEveryOtherTileOpensTheEditor() =
+        runTest {
+            val engine = loaded()
+
+            assertEquals(listOf(true, false), engine.ready().members.map { it.lastOwner })
+            assertEquals(listOf(true, false), snapshotOf(engine.state.value).memberLastOwner)
+            engine.select("u-simon")
+            assertNull(engine.ready().editor)
+
+            engine.select("u-ana")
+            val editor = engine.ready().editor!!
+            assertEquals("u-ana", editor.member.userId)
+            assertEquals(SiteRole.Member, editor.role)
+            val snapshot = snapshotOf(engine.state.value)
+            assertEquals("u-ana", snapshot.editorUserId)
+            assertEquals("ana@example.com", snapshot.editorName)
+            assertEquals("member", snapshot.editorRole)
+            assertFalse(snapshot.confirmingRemove)
+        }
+
+    @Test
+    fun uxDr51WithTwoOwnersNoTileIsLocked() =
+        runTest {
+            api.members += SiteMemberDto("u-bo", "Bo", "Owner")
+            val engine = loaded()
+
+            assertTrue(engine.ready().members.none { it.lastOwner })
+            engine.select("u-simon")
+            assertEquals(
+                "u-simon",
+                engine
+                    .ready()
+                    .editor
+                    ?.member
+                    ?.userId,
+            )
+        }
+
+    @Test
+    fun uxDr84SaveRoleChangesTheRoleNamesThePersonAndReadsTheListAgain() =
+        runTest {
+            val engine = loaded()
+            engine.select("u-ana")
+            engine.setEditRole(SiteRole.Administrator)
+
+            engine.saveRole()
+            runCurrent()
+
+            assertEquals(listOf("role a u-ana Administrator"), api.changes)
+            val ready = engine.ready()
+            assertNull(ready.editor)
+            assertEquals(MembersNotice.RoleChanged, ready.notice)
+            assertEquals("ana@example.com", ready.noticeName)
+            assertEquals(SiteRole.Administrator, ready.noticeRole)
+            assertEquals(SiteRole.Administrator, ready.members.single { it.userId == "u-ana" }.role)
+            val snapshot = snapshotOf(engine.state.value)
+            assertEquals("roleChanged", snapshot.notice)
+            assertEquals("administrator", snapshot.noticeRole)
+            assertEquals(2, api.lists)
+        }
+
+    @Test
+    fun uxDr84TheSameRoleClosesTheEditorAndSendsNothing() =
+        runTest {
+            val engine = loaded()
+            engine.select("u-ana")
+
+            engine.saveRole()
+            runCurrent()
+
+            assertNull(engine.ready().editor)
+            assertTrue(api.changes.isEmpty())
+        }
+
+    @Test
+    fun uxDr84LastOwnerFromTheServerShowsOneLineUnderTheRoleField() =
+        runTest {
+            api.members += SiteMemberDto("u-bo", "Bo", "Owner")
+            val engine = loaded()
+            api.changeFailures += ApiFailure.LastOwner
+            engine.select("u-bo")
+            engine.setEditRole(SiteRole.Member)
+
+            engine.saveRole()
+            runCurrent()
+
+            val editor = engine.ready().editor!!
+            assertEquals(MemberRoleError.LastOwner, editor.roleError)
+            assertEquals(SiteRole.Member, editor.role)
+            assertFalse(editor.working)
+            assertEquals("lastOwner", snapshotOf(engine.state.value).editorRoleError)
+            engine.setEditRole(SiteRole.Administrator)
+            assertNull(engine.ready().editor!!.roleError)
+        }
+
+    @Test
+    fun uxDr84ANotSavedChangeOffersTryAgainWhichSendsTheSameChange() =
+        runTest {
+            val engine = loaded()
+            api.changeFailures += ApiFailure.IdentityProviderUnavailable
+            engine.select("u-ana")
+            engine.setEditRole(SiteRole.Owner)
+
+            engine.saveRole()
+            runCurrent()
+
+            assertEquals(MembersNotice.NotChanged, engine.ready().notice)
+            assertTrue(snapshotOf(engine.state.value).noticeTryAgain)
+
+            engine.retry()
+            runCurrent()
+
+            assertEquals(listOf("role a u-ana Owner", "role a u-ana Owner"), api.changes)
+            assertEquals(MembersNotice.RoleChanged, engine.ready().notice)
+        }
+
+    @Test
+    fun uxDr84AMemberWhoIsGoneSaysSoAndReadsTheListAgain() =
+        runTest {
+            val engine = loaded()
+            api.changeFailures += ApiFailure.MemberNotFound
+            engine.select("u-ana")
+            engine.askRemove()
+            api.members.removeAll { it.userId == "u-ana" }
+
+            engine.confirmRemove()
+            runCurrent()
+
+            val ready = engine.ready()
+            assertEquals(MembersNotice.MemberGone, ready.notice)
+            assertEquals("ana@example.com", ready.noticeName)
+            assertNull(ready.editor)
+            assertEquals(listOf("u-simon"), ready.members.map { it.userId })
+        }
+
+    @Test
+    fun uxDr84AForbiddenChangeSaysSoAndReadsTheSitesAgain() =
+        runTest {
+            val engine = loaded()
+            api.changeFailures += ApiFailure.Forbidden
+            val before = sitesApi.lists
+            engine.select("u-ana")
+            engine.setEditRole(SiteRole.Owner)
+
+            engine.saveRole()
+            runCurrent()
+
+            assertEquals(MembersNotice.Forbidden, engine.ready().notice)
+            assertTrue(sitesApi.lists > before)
+        }
+
+    @Test
+    fun uxDr113RemoveAsksFirstAndCancelKeepsTheMember() =
+        runTest {
+            val engine = loaded()
+            engine.select("u-ana")
+
+            engine.askRemove()
+            assertEquals(
+                "u-ana",
+                engine
+                    .ready()
+                    .removing
+                    ?.member
+                    ?.userId,
+            )
+            assertTrue(snapshotOf(engine.state.value).confirmingRemove)
+            engine.cancelRemove()
+            runCurrent()
+
+            assertNull(engine.ready().removing)
+            assertEquals(
+                "u-ana",
+                engine
+                    .ready()
+                    .editor
+                    ?.member
+                    ?.userId,
+            )
+            assertTrue(api.changes.isEmpty())
+        }
+
+    @Test
+    fun uxDr113ConfirmRemoveRemovesTheMemberAndNamesThemAndTheSite() =
+        runTest {
+            val engine = loaded()
+            api.changeGate = CompletableDeferred()
+            engine.select("u-ana")
+            engine.askRemove()
+
+            engine.confirmRemove()
+            runCurrent()
+            assertTrue(snapshotOf(engine.state.value).editorWorking)
+            engine.closeEditor()
+            engine.cancelRemove()
+            assertTrue(engine.ready().removing!!.working)
+            api.changeGate?.complete(Unit)
+            runCurrent()
+
+            assertEquals(listOf("remove a u-ana"), api.changes)
+            val ready = engine.ready()
+            assertNull(ready.removing)
+            assertNull(ready.editor)
+            assertEquals(MembersNotice.Removed, ready.notice)
+            assertEquals("ana@example.com", ready.noticeName)
+            assertEquals(listOf("u-simon"), ready.members.map { it.userId })
+        }
+
+    @Test
+    fun aChangeOfTheSignedInUsersOwnMembershipReadsTheSitesAgain() =
+        runTest {
+            api.members += SiteMemberDto("u-bo", "Bo", "Owner")
+            val engine = loaded()
+            val before = sitesApi.lists
+            engine.select("u-simon")
+            engine.setEditRole(SiteRole.Member)
+
+            engine.saveRole()
+            runCurrent()
+
+            assertEquals(listOf("role a u-simon Member"), api.changes)
+            assertTrue(sitesApi.lists > before)
+        }
 }

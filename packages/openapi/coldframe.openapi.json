@@ -1033,6 +1033,47 @@
           "503": { "$ref": "#/components/responses/InvitationNotSent" }
         }
       }
+    },
+    "/sites/{siteId}/members/{userId}": {
+      "put": {
+        "operationId": "changeMemberRole",
+        "summary": "Change a Member's Role",
+        "description": "Only an Owner (Story 9.2); an Administrator or a Member gets 403. Changes the Role of one Membership, also the caller's own. The Site keeps at least one Owner: lowering the only Owner answers 409 last-owner and changes nothing; of two Owners lowering each other at the same moment, one succeeds and the other gets last-owner. The Server asks Keycloak (Phase Two) to grant the new Role, then to revoke the others; it saves the change only once Keycloak holds it, and the person's next request is authorized with the new Role. The same Role again answers 204 and saves nothing.",
+        "x-coldframe-minimum-role": "Owner",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }, { "$ref": "#/components/parameters/UserId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MemberRoleRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "The Membership has the Role. No body." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/MemberNotFound" },
+          "409": { "$ref": "#/components/responses/LastOwner" },
+          "503": { "$ref": "#/components/responses/MembershipNotChanged" }
+        }
+      },
+      "delete": {
+        "operationId": "removeSiteMember",
+        "summary": "Remove a Membership",
+        "description": "Only an Owner (Story 9.2); an Administrator or a Member gets 403. Removes one person from the Site, also the caller. Removing the only Owner answers 409 last-owner and changes nothing. The Server asks Keycloak (Phase Two) to revoke the person's Roles and remove them from the Organization, and saves the removal only once Keycloak did: the person's next request on the Site gets 403, and they stop getting its Alerts.",
+        "x-coldframe-minimum-role": "Owner",
+        "parameters": [{ "$ref": "#/components/parameters/SiteId" }, { "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "204": { "description": "The person is no longer a member of the Site. No body." },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/MemberNotFound" },
+          "409": { "$ref": "#/components/responses/LastOwner" },
+          "503": { "$ref": "#/components/responses/MembershipNotChanged" }
+        }
+      }
     }
   },
   "components": {
@@ -1076,6 +1117,13 @@
         "required": true,
         "description": "Chosen by the client per creation; kept 24 h after the request once the creation completes, and until it completes while it is still pending. 1 to 200 printable ASCII characters.",
         "schema": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[\\x20-\\x7E]+$" }
+      },
+      "UserId": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "description": "The User ID (the Keycloak user's ID), as SiteMember.userId gives it.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 255 }
       },
       "LotId": {
         "name": "lotId",
@@ -1976,6 +2024,14 @@
         },
         "examples": [{ "email": "ana@example.com", "role": "Member" }]
       },
+      "MemberRoleRequest": {
+        "type": "object",
+        "required": ["role"],
+        "properties": {
+          "role": { "$ref": "#/components/schemas/SiteRole" }
+        },
+        "examples": [{ "role": "Administrator" }]
+      },
       "SiteMember": {
         "type": "object",
         "description": "One Membership of a Site.",
@@ -2135,6 +2191,8 @@
               "urn:coldframe:problem:calibration-not-delivered",
               "urn:coldframe:problem:reminder-cadence-not-delivered",
               "urn:coldframe:problem:already-invited",
+              "urn:coldframe:problem:last-owner",
+              "urn:coldframe:problem:member-not-found",
               "urn:coldframe:problem:ingest-unavailable"
             ]
           },
@@ -2216,6 +2274,18 @@
       },
       "InvitationNotSent": {
         "description": "urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached, answered with a server error, or the operation budget ran out. The invitation was not created; try again.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "LastOwner": {
+        "description": "urn:coldframe:problem:last-owner: the change would leave the Site without an Owner. Nothing changed.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "MemberNotFound": {
+        "description": "urn:coldframe:problem:site-not-found: no Site has this ID. urn:coldframe:problem:member-not-found: the person is not a member of this Site. Nothing changed.",
+        "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
+      },
+      "MembershipNotChanged": {
+        "description": "urn:coldframe:problem:identity-provider-unavailable: Keycloak could not be reached, answered with a server error, or the operation budget ran out. The Server saved nothing; try again.",
         "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } }
       },
       "MembersUnavailable": {

@@ -80,6 +80,23 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
                 var type = body.RootElement.GetProperty("type").GetString();
                 return type == "urn:coldframe:problem:site-not-found" ? null : $"problem {type}, expected site-not-found";
             }),
+
+        // Role change and removal (Story 9.2), Owner only. Someone who is no member of the Site: an allowed caller
+        // passes the access rule and meets 404 member-not-found before Keycloak is called, and nothing changes.
+        // MembershipChangeTests changes and removes for real.
+        ["PUT /sites/{siteId}/members/{userId}"] = new(
+            (server, siteId, cancellationToken) =>
+                server.PutAsJsonAsync(
+                    new Uri($"/sites/{siteId}/members/{Guid.NewGuid()}", UriKind.Relative),
+                    new { role = "Member" },
+                    cancellationToken),
+            HttpStatusCode.NotFound,
+            MemberNotFoundAsync),
+        ["DELETE /sites/{siteId}/members/{userId}"] = new(
+            (server, siteId, cancellationToken) =>
+                server.DeleteAsync(new Uri($"/sites/{siteId}/members/{Guid.NewGuid()}", UriKind.Relative), cancellationToken),
+            HttpStatusCode.NotFound,
+            MemberNotFoundAsync),
         ["GET /sites/{siteId}/devices"] = new(
             (server, siteId, cancellationToken) => server.GetAsync(new Uri($"/sites/{siteId}/devices", UriKind.Relative), cancellationToken),
             HttpStatusCode.OK),
@@ -368,6 +385,68 @@ public sealed class AuthorizationMatrixTests : IClassFixture<EdgeApiFixture>
             var type = operation.Rule.IsDevice ? DeviceUnauthorized : "urn:coldframe:problem:unauthorized";
             await EdgeApiTests.AssertProblemAsync(response, HttpStatusCode.Unauthorized, type, cancellationToken);
         }
+    }
+
+    [Fact]
+    public async Task OnePersonIsAuthorizedPerSiteAsOwnerOnOneAndMemberOnTheOther()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var person = await _edge.CreateUserAsync("owner-a-member-b", cancellationToken);
+        var ownerOfB = await _edge.CreateUserAsync("owner-of-b", cancellationToken);
+
+        // Site A carries the name the rename sample sends, so an allowed rename stays a no-op as on the matrix's Site A.
+        var siteA = Guid.CreateVersion7().ToString();
+        var siteB = Guid.CreateVersion7().ToString();
+
+        await _edge.AppendAsync(
+            $"site/{siteA}",
+            [new SiteCreated(SiteAName, person.UserId), new MembershipGranted(person.UserId, SiteRole.Owner)],
+            cancellationToken);
+        var last = await _edge.AppendAsync(
+            $"site/{siteB}",
+            [
+                new SiteCreated("Matrix B", ownerOfB.UserId),
+                new MembershipGranted(ownerOfB.UserId, SiteRole.Owner),
+                new MembershipGranted(person.UserId, SiteRole.Member),
+            ],
+            cancellationToken);
+
+        await _edge.WaitForIdentityCheckpointAsync(last);
+
+        using var server = _edge.CreateServerClient(person.AccessToken);
+        var failures = new List<string>();
+
+        foreach (var operation in EdgeEndpointCatalog.Describe().Where(operation => !operation.Rule.IsDevice))
+        {
+            var sample = _samples[operation.Key];
+
+            foreach (var (target, role) in new[] { (siteA, SiteRole.Owner), (siteB, SiteRole.Member) })
+            {
+                // Exactly the matrix row of that Role on its own Site.
+                var allowed = operation.Rule.MinimumRole is not { } required || role >= required;
+                var expected = allowed ? sample.Allowed : HttpStatusCode.Forbidden;
+
+                using var response = await sample.Send(server, target, cancellationToken);
+
+                if (response.StatusCode != expected)
+                {
+                    failures.Add($"{operation.Key} ({operation.Rule}) on the Site where the caller is {role}: expected {(int)expected}, got {(int)response.StatusCode}");
+                }
+                else if (allowed && sample.CheckAllowed is { } check && await check(response, role, cancellationToken) is { } mismatch)
+                {
+                    failures.Add($"{operation.Key} on the Site where the caller is {role}: {mismatch}");
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+    }
+
+    private static async Task<string?> MemberNotFoundAsync(HttpResponseMessage response, SiteRole role, CancellationToken cancellationToken)
+    {
+        using var body = await EdgeApiFixture.ReadJsonAsync(response, cancellationToken);
+        var type = body.RootElement.GetProperty("type").GetString();
+        return type == "urn:coldframe:problem:member-not-found" ? null : $"problem {type}, expected member-not-found";
     }
 
     private static string UnknownNodeId() => Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(8));

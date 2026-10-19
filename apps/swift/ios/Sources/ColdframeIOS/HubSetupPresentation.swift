@@ -5,6 +5,8 @@ import Foundation
 public enum CopyArgument: Equatable, Sendable {
   case text(String)
   case number(Int)
+  /// Another catalogue entry, filled in as its text: a Role name inside a notice.
+  case entry(L10n)
 }
 
 /// A catalogue entry with its arguments, resolved by the views (the catalogue needs Apple's

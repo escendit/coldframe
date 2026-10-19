@@ -122,6 +122,8 @@ function noticeOf(error: Exclude<SitesError, 'unauthorized'>): DeviceActionNotic
     case 'keyReused':
     case 'unavailable':
     case 'unexpected':
+    case 'lastOwner':
+    case 'memberNotFound':
       return 'unexpected';
   }
 }
