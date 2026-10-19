@@ -1,0 +1,126 @@
+# Checks the adopter docs (Story 10.2): every relative link and referenced repository path
+# resolves, and every command block of the build guide (docs/build/*.md) either runs against the
+# firmware crates (`<!-- ci:run <dir> -->`, builds only) or, when it needs a board
+# (`<!-- ci:hardware -->`), names only real espflash subcommands. Nothing is ever flashed, and no
+# external link is fetched. Not a required status check.
+#
+# Actions are pinned to a commit; the comment names the release. The firmware setup of the
+# `commands` job is copied from the `firmware` job of ci.yml: keep the two in step.
+name: Docs
+
+on:
+  pull_request:
+    paths:
+      # Everything the docs link to or mirror (the toolchain pins of ci.yml and release.yml).
+      - "docs/**"
+      - "hardware/**"
+      - "README.md"
+      - "LICENSE"
+      - ".gitignore"
+      - "apps/**"
+      - "packages/**"
+      - "deploy/**"
+      - "tests/**"
+      - "aspire/**"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - "hardware/**"
+      - "README.md"
+      - "LICENSE"
+      - ".gitignore"
+      - "apps/**"
+      - "packages/**"
+      - "deploy/**"
+      - "tests/**"
+      - "aspire/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  links:
+    name: Links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the doc checks
+        run: docs/test.sh
+
+      - name: Check links and paths
+        run: docs/check-links.sh
+
+  commands:
+    name: Commands
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # The same pins as the `firmware` job of ci.yml.
+      ESPUP_VERSION: "0.17.1"
+      ESP_TOOLCHAIN_VERSION: "1.95.0.0"
+      ESPFLASH_VERSION: "4.5.0"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # cmake and ninja for the mbedTLS rebuild; libudev for espflash.
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends cmake ninja-build libudev-dev pkg-config
+
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            apps/rs/hub
+            apps/rs/node
+          key: espup-${{ env.ESPUP_VERSION }}-esp-${{ env.ESP_TOOLCHAIN_VERSION }}-espflash-${{ env.ESPFLASH_VERSION }}
+          cache-bin: "true"
+          cache-directories: |
+            ~/.rustup/toolchains/esp
+            ~/export-esp.sh
+
+      # On the runner's stable toolchain: apps/rs/hub/rust-toolchain.toml names `esp`, which is not
+      # installed until the next step.
+      - name: Install espup and espflash
+        working-directory: apps/rs/hub
+        run: |
+          if [[ "$(espup --version 2>/dev/null)" != "espup ${ESPUP_VERSION}" ]]; then
+            rustup run stable cargo install espup --version "${ESPUP_VERSION}" --locked --force
+          fi
+          if [[ "$(espflash --version 2>/dev/null)" != "espflash ${ESPFLASH_VERSION}" ]]; then
+            rustup run stable cargo install espflash --version "${ESPFLASH_VERSION}" --locked --force
+          fi
+
+      - name: Install the esp toolchain
+        working-directory: apps/rs/hub
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! -f "${HOME}/export-esp.sh" ]] || ! rustup run esp rustc --version | grep -qF "(${ESP_TOOLCHAIN_VERSION})"; then
+            espup install --toolchain-version "${ESP_TOOLCHAIN_VERSION}" --targets esp32s3 --export-file "${HOME}/export-esp.sh"
+          fi
+          rustup run esp rustc --version
+
+      # The guide's own install block runs too; with the tools above already in place it reuses them.
+      - name: Run the documented commands
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          docs/check-commands.sh --list
+          docs/check-commands.sh

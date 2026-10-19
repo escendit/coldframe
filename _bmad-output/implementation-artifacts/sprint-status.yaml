@@ -112,7 +112,7 @@ development_status:
   epic-9-retrospective: optional
 
   epic-10: backlog
-  10-1-releases-with-one-version-and-firmware-binaries: backlog
+  10-1-releases-with-one-version-and-firmware-binaries: awaiting-operator
   10-2-build-a-node-and-a-hub-from-the-docs: backlog
   10-3-deploy-coldframe-at-home-and-build-my-own-apps: backlog
   10-4-firmware-learning-reference: backlog

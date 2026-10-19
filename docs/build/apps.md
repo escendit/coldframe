@@ -4,6 +4,9 @@ Coldframe publishes no mobile store binaries. Each adopter builds the iOS and An
 source for their own Server, with their own push credentials. This page is a short guide; Story 10.3
 expands it.
 
+This page is step 6 of the [build guide](README.md). The Node and Hub hardware is in
+[`hardware/`](../../hardware/README.md).
+
 ## What you need
 
 - **Your own push credentials.** iOS pushes go through the Apple Push Notification service with

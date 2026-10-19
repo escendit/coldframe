@@ -337,6 +337,9 @@ hardware. The Hub's on-device behaviour is checked by hand with
 [`docs/bench/hub-setup-checklist.md`](bench/hub-setup-checklist.md) and
 [`docs/bench/hub-uplink-checklist.md`](bench/hub-uplink-checklist.md).
 
+To build a real Node and Hub, flash them and add them from the app, follow the adopter
+[build guide](build/README.md) and the [hardware design](../hardware/README.md).
+
 ### TypeScript
 
 ```sh
@@ -464,7 +467,7 @@ packages/   what the runtimes reference: contracts, shared libraries, generated 
 tests/      all tests, by language: cs/ rs/ kt/ swift/ ts/
 aspire/     the local stack and integration-test host
 deploy/     Helm charts, Fleet bundles, Compose example
-hardware/   schematics, PCB, enclosure
+hardware/   reference design: schematics, BOM, wiring, enclosure
 docs/       guides and references
 ```
 

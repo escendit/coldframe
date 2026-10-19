@@ -930,3 +930,19 @@ location: tests/cs/server.integration/Edge/InvitationTests.cs
 source_spec: `spec-9-1-invite-someone-to-my-site.md`
 reason: InvitationTests asserts the link equals the configured redirect URI and accepts by signing in on Keycloak directly; the web app is not part of the AppHost, so link -> web sign-in -> invitation required action is unverified end to end. Settle by running the web app against the AppHost and following the Mailpit link.
 status: open
+
+### DW-120: A v* tag on any commit publishes; the documented "tag only from main" rule is not enforced by the workflow.
+origin: spec-deferred 7aa938ff9d90
+location: .github/workflows/release.yml (mode job)
+source_spec: `spec-10-1-releases-with-one-version-and-firmware-binaries.md`
+severity: low
+reason: Pre-existing since Story 2.1 (deploy/images/README.md already asks for a tag ruleset); the mode job accepts any v* push.
+status: open
+
+### DW-121: The tag-only branches of release.yml (ghcr login, --push, imagetools summary, verify, gh release create, --prerelease) never run in the dry run.
+origin: spec-deferred bce640467f2d
+location: .github/workflows/release.yml (publish, release jobs)
+source_spec: `spec-10-1-releases-with-one-version-and-firmware-binaries.md`
+severity: medium
+reason: dry_run is true for every non-push event, so these steps are skipped on PRs; only a real v* tag exercises them. Owed as an operator action (cut the first release and check it).
+status: open
