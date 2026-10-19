@@ -39,7 +39,8 @@ The same page, for the Node. Its setup code appears when you long-press its butt
 ## 6. Add them from the app
 
 Build the iOS or Android app for your own Server: [apps.md](apps.md). The Server must be running
-first (the developer [quickstart](../quickstart.md) runs one locally). Then, in the app:
+first: the [deploy guide](../deploy/README.md) sets it up on your home server (the developer
+[quickstart](../quickstart.md) runs one locally). Then, in the app:
 
 1. **Add a Hub.** The app finds the unprovisioned Hub over BLE, asks for its setup code, and sends it
    your Wi-Fi network (2.4 GHz, WPA2 or mixed WPA2/WPA3) and your Server's address.

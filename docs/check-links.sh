@@ -6,8 +6,9 @@
 #
 # Each root is a directory (every *.md below it) or a Markdown file, relative to the repository
 # root unless absolute. The default is `docs hardware README.md apps/rs/hub/README.md
-# apps/rs/node/README.md` (the build guide sends readers to the firmware READMEs). Outside fenced
-# code blocks, two things are checked:
+# apps/rs/node/README.md deploy/compose/README.md` (the build guide sends readers to the firmware
+# READMEs, the deploy guide to the Compose example). Outside fenced code blocks, two things are
+# checked:
 #
 # - inline links `[text](target)`: the file part of the target (no #anchor, no ?query), relative
 #   to the Markdown file, or to the repository root when it starts with `/`;
@@ -24,13 +25,13 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=${DOCS_REPO_ROOT:-$(cd "${here}/.." && pwd)}
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
 roots=("$@")
 if [[ ${#roots[@]} -eq 0 ]]; then
-  roots=(docs hardware README.md apps/rs/hub/README.md apps/rs/node/README.md)
+  roots=(docs hardware README.md apps/rs/hub/README.md apps/rs/node/README.md deploy/compose/README.md)
 fi
 
 files=()

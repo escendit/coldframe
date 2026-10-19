@@ -64,6 +64,17 @@ jobs:
       - name: Check links and paths
         run: docs/check-links.sh
 
+      # The realm writer of the deploy guide (Story 10.3); needs jq, which the runner has.
+      - name: Test the realm writer
+        run: deploy/realm/test.sh
+
+      # The Compose reference example parses with the placeholder settings, and each required
+      # variable stops `config` when it is missing (deploy/compose/test.sh). Nothing is started.
+      - name: Validate the Compose example
+        run: |
+          docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env.example config --quiet
+          deploy/compose/test.sh
+
   commands:
     name: Commands
     runs-on: ubuntu-24.04

@@ -11,6 +11,8 @@ and deployment all live in this repository.
 
 - [Developer quickstart](docs/quickstart.md): run the local stack and every test suite.
 - [Build guide](docs/build/README.md): build, flash and add your own Node and Hub.
+- [Deploy guide](docs/deploy/README.md): run Coldframe on your home server, then
+  [build your own apps](docs/build/apps.md).
 - [Hardware design](hardware/README.md): schematics, BOM, wiring, enclosure and probe sealing.
 - [Hub radio coexistence spike](docs/spikes/hub-radio-coexistence.md): what the Hub's radio can do at once.
 
@@ -22,7 +24,7 @@ and deployment all live in this repository.
 | [`packages/`](packages) | Contracts, shared libraries and generated clients the runtimes reference |
 | [`tests/`](tests) | All tests, split by language |
 | [`aspire/`](aspire) | The local development stack, which is also the integration-test host |
-| [`deploy/`](deploy) | Helm charts, Fleet bundles and a Compose example |
+| [`deploy/`](deploy) | Helm charts, Fleet bundles and a Compose reference example ([`deploy/compose`](deploy/compose/README.md)); deploy at home with [`docs/deploy`](docs/deploy/README.md) |
 | [`hardware/`](hardware) | The reference Node and Hub design: schematics, BOM, wiring, enclosure |
 | [`docs/`](docs) | Guides and references |
 

@@ -1,0 +1,237 @@
+# Coldframe with Docker Compose: a REFERENCE EXAMPLE ONLY, not the supported deployment (NFR7).
+# The supported path is single-node RKE2 with Fleet: docs/deploy/README.md.
+#
+# This file shows how the released images fit together, with the same topology and environment
+# variables as the Helm charts in deploy/charts. It has no TLS, no backups and no upgrade path, and
+# it serves the web app only: release builds of the mobile apps need HTTPS with a public
+# certificate. Read deploy/compose/README.md before you start it.
+#
+# Every secret and host comes from .env (copy .env.example; git ignores .env). The Keycloak realm
+# is the file ./coldframe-realm.json, written by deploy/realm/prepare-realm.sh --allow-http.
+name: coldframe
+
+services:
+  # PostgreSQL with the four databases of the charts' `database` release; postgres-init.sh creates
+  # the roles and databases on the first start (an empty volume) only.
+  postgres:
+    image: docker.io/library/postgres:18.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      COLDFRAME_DB_PASSWORD: ${COLDFRAME_DB_PASSWORD:?set COLDFRAME_DB_PASSWORD in .env}
+      TEMPORAL_DB_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-coldframe.sh:ro
+    healthcheck:
+      # TCP only: the init scripts run on a socket-only server, so this waits for them.
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--username", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # NATS with JetStream, as the `nats` chart starts it.
+  nats:
+    image: docker.io/library/nats:2.15.0
+    restart: unless-stopped
+    command: ["--port=4222", "--http_port=8222", "--jetstream", "--store_dir=/data"]
+    volumes:
+      - nats:/data
+
+  # The four temporal-sql-tool commands of the `temporal` chart's schema Job. Idempotent: runs on
+  # every `up` and exits.
+  temporal-schema:
+    image: docker.io/temporalio/admin-tools:1.31.2
+    restart: "no"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        schema=/etc/temporal/schema/postgresql/v12
+        temporal-sql-tool --database "$${DATABASE}" setup-schema -v 0.0
+        temporal-sql-tool --database "$${DATABASE}" update-schema -d "$${schema}/temporal/versioned"
+        temporal-sql-tool --database "$${VISIBILITY_DATABASE}" setup-schema -v 0.0
+        temporal-sql-tool --database "$${VISIBILITY_DATABASE}" update-schema -d "$${schema}/visibility/versioned"
+    environment:
+      SQL_PLUGIN: postgres12
+      SQL_HOST: postgres
+      SQL_PORT: "5432"
+      SQL_USER: temporal
+      SQL_PASSWORD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      DATABASE: temporal
+      VISIBILITY_DATABASE: temporal_visibility
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Temporal Server for the Keycloak event pipeline (frontend, history, matching and worker).
+  temporal:
+    image: docker.io/temporalio/server:1.31.2
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      POSTGRES_SEEDS: postgres
+      DB_PORT: "5432"
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:?set TEMPORAL_DB_PASSWORD in .env}
+      NUM_HISTORY_SHARDS: "4"
+      # The image's entrypoint sets the broadcast address to the container's own address.
+      BIND_ON_IP: 0.0.0.0
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamicconfig/dynamicconfig.yaml
+    configs:
+      - source: temporal-dynamicconfig
+        target: /etc/temporal/dynamicconfig/dynamicconfig.yaml
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+
+  # The `temporal` chart's namespace Job: creates the namespace `coldframe` when it is absent.
+  temporal-namespace:
+    image: docker.io/temporalio/admin-tools:1.31.2
+    restart: "no"
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        tries=0
+        until temporal operator cluster health >/dev/null 2>&1; do
+          tries=$$((tries + 1))
+          if [ "$${tries}" -ge 200 ]; then
+            echo "the Temporal frontend at $${TEMPORAL_ADDRESS} did not answer within 10 minutes" >&2
+            exit 1
+          fi
+          echo "waiting for the Temporal frontend at $${TEMPORAL_ADDRESS}"
+          sleep 3
+        done
+        if temporal operator namespace describe --namespace "$${NAMESPACE}" >/dev/null 2>&1; then
+          echo "namespace $${NAMESPACE} exists; left as it is"
+        else
+          temporal operator namespace create --namespace "$${NAMESPACE}" --retention "$${RETENTION}"
+        fi
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      NAMESPACE: coldframe
+      RETENTION: 72h
+    depends_on:
+      temporal:
+        condition: service_started
+
+  # Phase Two Keycloak with the Temporal event listener. The realm is imported on the first start
+  # only; a realm that exists is never re-imported.
+  keycloak:
+    image: ghcr.io/escendit/coldframe/keycloak:${COLDFRAME_VERSION:?set COLDFRAME_VERSION in .env, e.g. 1.2.3}
+    restart: unless-stopped
+    command: ["start", "--optimized", "--import-realm"]
+    environment:
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:?set KEYCLOAK_ADMIN_USERNAME in .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      # Plain HTTP, no proxy: the one URL the browser and the containers both use.
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://${COLDFRAME_HOST:?set COLDFRAME_HOST in .env}:8180
+      KC_SPI_EVENTS_LISTENER__TEMPORAL__TARGET_HOST: temporal:7233
+      KC_SPI_EVENTS_LISTENER__TEMPORAL__NAMESPACE: coldframe
+      # Substituted into the imported realm.
+      COLDFRAME_WEB_CLIENT_SECRET: ${WEB_CLIENT_SECRET:?set WEB_CLIENT_SECRET in .env}
+      COLDFRAME_SERVER_CLIENT_SECRET: ${SERVER_CLIENT_SECRET:?set SERVER_CLIENT_SECRET in .env}
+      COLDFRAME_SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST in .env}
+      COLDFRAME_SMTP_PORT: ${SMTP_PORT:?set SMTP_PORT in .env}
+      COLDFRAME_SMTP_FROM: ${SMTP_FROM:?set SMTP_FROM in .env}
+      COLDFRAME_SMTP_USER: ${SMTP_USERNAME:-}
+      COLDFRAME_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      COLDFRAME_SMTP_AUTH: ${SMTP_AUTH:-true}
+      COLDFRAME_SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      COLDFRAME_SMTP_SSL: ${SMTP_SSL:-false}
+    ports:
+      - "8180:8080"
+    volumes:
+      - type: bind
+        source: ./coldframe-realm.json
+        target: /opt/keycloak/data/import/coldframe-realm.json
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal-namespace:
+        condition: service_completed_successfully
+
+  # The Server's migration Job: runs before the Server, on every `up`, and exits.
+  migrations:
+    image: ghcr.io/escendit/coldframe/migrations:${COLDFRAME_VERSION:?set COLDFRAME_VERSION in .env, e.g. 1.2.3}
+    restart: "no"
+    environment:
+      ConnectionStrings__coldframe: Host=postgres;Port=5432;Database=coldframe;Username=coldframe;Password=${COLDFRAME_DB_PASSWORD:?set COLDFRAME_DB_PASSWORD in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Server: Orleans silo, Edge API and SignalR.
+  server:
+    image: ghcr.io/escendit/coldframe/server:${COLDFRAME_VERSION:?set COLDFRAME_VERSION in .env, e.g. 1.2.3}
+    restart: unless-stopped
+    environment:
+      ConnectionStrings__coldframe: Host=postgres;Port=5432;Database=coldframe;Username=coldframe;Password=${COLDFRAME_DB_PASSWORD:?set COLDFRAME_DB_PASSWORD in .env}
+      ConnectionStrings__nats: nats://nats:4222
+      # The issuer exactly as the browser sees it, over plain HTTP.
+      Identity__Authority: http://${COLDFRAME_HOST:?set COLDFRAME_HOST in .env}:8180/realms/coldframe
+      Identity__Audience: coldframe-server
+      Identity__RequireHttpsMetadata: "false"
+      Keycloak__BaseUrl: http://keycloak:8080
+      Keycloak__Realm: coldframe
+      Keycloak__ClientId: coldframe-server
+      Keycloak__ClientSecret: ${SERVER_CLIENT_SECRET:?set SERVER_CLIENT_SECRET in .env}
+      Keycloak__InvitationRedirectUri: http://${COLDFRAME_HOST:?set COLDFRAME_HOST in .env}:3000/garden
+      KeycloakEvents__TargetHost: temporal:7233
+      KeycloakEvents__Namespace: coldframe
+      KeycloakEvents__RealmId: coldframe
+      Enrolment__PrivateKeyPem: ${ENROLMENT_PRIVATE_KEY_PEM:?set ENROLMENT_PRIVATE_KEY_PEM in .env}
+      Enrolment__DeviceKeyEncryptionKey: ${DEVICE_KEK:?set DEVICE_KEK in .env}
+      ASPNETCORE_HTTP_PORTS: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      temporal-namespace:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+
+  # The web app (backend-for-frontend).
+  web:
+    image: ghcr.io/escendit/coldframe/web:${COLDFRAME_VERSION:?set COLDFRAME_VERSION in .env, e.g. 1.2.3}
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      COLDFRAME_SERVER_URL: http://server:8080
+      KEYCLOAK_ISSUER: http://${COLDFRAME_HOST:?set COLDFRAME_HOST in .env}:8180/realms/coldframe
+      KEYCLOAK_CLIENT_ID: coldframe-web
+      KEYCLOAK_CLIENT_SECRET: ${WEB_CLIENT_SECRET:?set WEB_CLIENT_SECRET in .env}
+      KEYCLOAK_ALLOW_INSECURE_HTTP: "true"
+      SESSION_COOKIE_SECURE: "false"
+      ORIGIN: http://${COLDFRAME_HOST:?set COLDFRAME_HOST in .env}:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      server:
+        condition: service_started
+      keycloak:
+        condition: service_started
+
+configs:
+  # The dynamic configuration file the Temporal server requires; empty, as in the chart.
+  temporal-dynamicconfig:
+    content: "{}\n"
+
+volumes:
+  postgres:
+  nats:

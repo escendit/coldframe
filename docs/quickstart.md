@@ -466,7 +466,7 @@ apps/       runtimes: firmware, Server, web app, mobile shells
 packages/   what the runtimes reference: contracts, shared libraries, generated clients
 tests/      all tests, by language: cs/ rs/ kt/ swift/ ts/
 aspire/     the local stack and integration-test host
-deploy/     Helm charts, Fleet bundles, Compose example
+deploy/     Helm charts, Fleet bundles, Compose reference example (deploy/compose)
 hardware/   reference design: schematics, BOM, wiring, enclosure
 docs/       guides and references
 ```

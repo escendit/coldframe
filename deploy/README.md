@@ -11,7 +11,7 @@ Everything needed to run Coldframe outside a developer machine.
 | Epic 2, Story 2.5a | The Fleet bundles: a `fleet.yaml` in every chart folder, the operator bundles and the reference GitRepo in [`fleet/`](fleet), and the `rke2-traefik` bundle in [`rke2/`](rke2/README.md); the GitOps install runbook [`docs/operations/install.md`](../docs/operations/install.md). |
 | Epic 2, Story 2.5b | The Fleet smoke [`fleet/smoke.sh`](fleet/smoke.sh): Fleet installs the bundles on a disposable cluster in dependency order, then an upgrade and three restarts lose no committed data |
 | Epic 10, Story 10.1 | One release per tag `vX.Y.Z`: images, Hub and Node firmware, chart packages and `SHA256SUMS` on a GitHub Release, the wire gate and the dry run: see [`release/`](release) and the runbook [`docs/operations/release.md`](../docs/operations/release.md). [`charts/set-version.sh`](charts/set-version.sh) sets the charts to the version before tagging |
-| Epic 10 | The Compose file, as a reference example only |
+| Epic 10, Story 10.3 | The adopter deploy guide [`docs/deploy/`](../docs/deploy/README.md), the realm writer [`realm/prepare-realm.sh`](realm/prepare-realm.sh), and the Compose file in [`compose/`](compose/README.md), as a reference example only (not the supported deployment) |
 
 No secret value is ever committed here. Charts reference Secrets by fixed names and keys, listed in
 [`SECRETS.md`](SECRETS.md), and never create one (AD-15).

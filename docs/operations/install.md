@@ -84,13 +84,19 @@ the Device enrolment key `coldframe-enrolment-key` and the Device key-encryption
 apart from the database backups and their credentials, since no enrolled Device works without it and
 together with a backup it decrypts every Device key), and the ConfigMap `coldframe-realm` holding the `coldframe` realm file with the
 redirect URIs of your hosts ([`deploy/charts/README.md`](../../deploy/charts/README.md#prerequisites),
-items 1 to 4):
+items 1 to 4). Write the realm file with [`deploy/realm/prepare-realm.sh`](../../deploy/realm/prepare-realm.sh),
+which sets the web client's redirect URIs to your web origin; the adopter guide
+[`docs/deploy/`](../deploy/README.md) puts these steps in order:
 
 ```sh
 kubectl create namespace coldframe
 # kubectl -n coldframe create secret generic ...   (deploy/SECRETS.md)
-kubectl -n coldframe create configmap coldframe-realm --from-file=coldframe-realm.json=<your-realm.json>
+deploy/realm/prepare-realm.sh --web-origin https://<domain> --out coldframe-realm.json
+kubectl -n coldframe create configmap coldframe-realm --from-file=coldframe-realm.json=coldframe-realm.json
 ```
+
+To replace an existing `coldframe-realm` (before Keycloak's first start; the realm is imported once),
+add `--dry-run=client -o yaml | kubectl apply -f -` to the `create configmap` command.
 
 `coldframe-push` is the one Secret you may leave out: without it the Server runs and sends no push
 notification. To notify phones, create it and set `push.apns.enabled: true` and/or
