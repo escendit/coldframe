@@ -1,0 +1,12 @@
+{
+  "actions": [
+    "Build one Node and one Hub from hardware/ (bom.md, node.md, hub.md, enclosure.md) on real parts, and correct any wiring or part error you find in those pages.",
+    "Check every example part number and figure in hardware/bom.md (TPS22917, RT9080-33, TP4056 input limit and R_PROG table, CN3791, the cell size) against its datasheet before anyone orders parts.",
+    "Flash a test board in dev mode from source, and a fresh board from the first release's binaries (after Story 10-1's v0.1.0 release), following docs/build/flash.md; confirm the identity line and the setup code appear as documented (Hub at first boot, Node on a 3 s long press), and fix any log line that differs.",
+    "Measure the reference Node's average sleep current with docs/bench/node-power-checklist.md, record the result in that checklist's Result table, and replace the 'not measured yet' notes in docs/build/power.md and hardware/node.md with the measured value."
+  ],
+  "parked_at": "2026-10-19",
+  "run_id": "20261012-230921-d74a",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-10-2-build-a-node-and-a-hub-from-the-docs.md",
+  "story_key": "10-2-build-a-node-and-a-hub-from-the-docs"
+}
