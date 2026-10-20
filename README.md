@@ -13,6 +13,8 @@ and deployment all live in this repository.
 - [Build guide](docs/build/README.md): build, flash and add your own Node and Hub.
 - [Deploy guide](docs/deploy/README.md): run Coldframe on your home server, then
   [build your own apps](docs/build/apps.md).
+- [Firmware reference](docs/firmware/README.md): learn ESP-NOW, BLE provisioning, eFuse keys and
+  deep sleep from the Node and Hub firmware.
 - [Hardware design](hardware/README.md): schematics, BOM, wiring, enclosure and probe sealing.
 - [Hub radio coexistence spike](docs/spikes/hub-radio-coexistence.md): what the Hub's radio can do at once.
 

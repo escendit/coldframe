@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Runs the commands the build guide documents (Story 10.2). Firmware builds only, never flashing.
+# Runs the commands the build guide (Story 10.2) and the firmware reference (Story 10.4) document.
+# Firmware builds only, never flashing.
 #
 #   docs/check-commands.sh [--list] [file...]
 #
-# The default files are docs/build/*.md, relative to the repository root unless absolute. Every
-# fenced bash/sh block must be preceded by a marker (blank lines between them are allowed):
+# The default files are docs/build/*.md and docs/firmware/*.md (Story 10.4), relative to the
+# repository root unless absolute. Every fenced bash/sh block must be preceded by a marker (blank
+# lines between them are allowed):
 #
 #   <!-- ci:run <repo-relative dir> -->  the block runs in that directory, after
 #                                        `source ~/export-esp.sh` when it exists (the guide's
 #                                        install block creates it), with errexit and pipefail;
 #   <!-- ci:hardware -->                 the block needs a board: only `espflash <subcommand> --help`
 #                                        runs, for every espflash subcommand in it;
-#   <!-- ci:manual -->                   the block needs a phone, Xcode, the Android SDK or a cluster
-#                                        (Story 10.3): nothing runs; --list shows it as manual.
+#   <!-- ci:manual -->                   the block needs a phone, Xcode, the Android SDK, a cluster
+#                                        (Story 10.3) or a browser (Story 10.4): nothing runs;
+#                                        --list shows it as manual.
 #
 # An unmarked block, a marker that no bash/sh block follows, an unknown ci: marker or a ci:run
 # directory that does not exist fails. --list prints every block with its marker and runs nothing.
@@ -31,7 +34,7 @@ for arg in "$@"; do
   case ${arg} in
     --list) list=true ;;
     -h | --help)
-      sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -*)
@@ -43,7 +46,7 @@ for arg in "$@"; do
   esac
 done
 if [[ ${#files[@]} -eq 0 ]]; then
-  for file in "${repo}"/docs/build/*.md; do
+  for file in "${repo}"/docs/build/*.md "${repo}"/docs/firmware/*.md; do
     [[ -f ${file} ]] && files+=("${file}")
   done
 fi
@@ -199,7 +202,7 @@ for file in "${files[@]}"; do
           echo "${where}: ci:manual"
           indent "${block}"
         else
-          echo "==> ${where}: ci:manual (not run: needs a phone, Xcode, the Android SDK or a cluster)"
+          echo "==> ${where}: ci:manual (not run: needs a phone, Xcode, the Android SDK, a cluster or a browser)"
         fi
         ;;
     esac

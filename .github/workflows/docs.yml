@@ -1,8 +1,10 @@
-# Checks the adopter docs (Story 10.2): every relative link and referenced repository path
-# resolves, and every command block of the build guide (docs/build/*.md) either runs against the
-# firmware crates (`<!-- ci:run <dir> -->`, builds only) or, when it needs a board
-# (`<!-- ci:hardware -->`), names only real espflash subcommands. Nothing is ever flashed, and no
-# external link is fetched. Not a required status check.
+# Checks the adopter docs (Stories 10.2 and 10.4): every relative link and referenced repository
+# path resolves; every command block of the build guide and the firmware reference
+# (docs/build/*.md, docs/firmware/*.md) either runs against the firmware crates
+# (`<!-- ci:run <dir> -->`, builds only) or, when it needs a board (`<!-- ci:hardware -->`), names
+# only real espflash subcommands; and the API docs of the packages/rs crates build without a
+# rustdoc warning, a public item without docs included. Nothing is ever flashed, and no external
+# link is fetched. Not a required status check.
 #
 # Actions are pinned to a commit; the comment names the release. The firmware setup of the
 # `commands` job is copied from the `firmware` job of ci.yml: keep the two in step.
@@ -16,6 +18,9 @@ on:
       - "hardware/**"
       - "README.md"
       - "LICENSE"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".gitignore"
       - "apps/**"
       - "packages/**"
@@ -31,6 +36,9 @@ on:
       - "hardware/**"
       - "README.md"
       - "LICENSE"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".gitignore"
       - "apps/**"
       - "packages/**"
@@ -135,3 +143,32 @@ jobs:
         run: |
           docs/check-commands.sh --list
           docs/check-commands.sh
+
+  # Story 10.4: the firmware crates are a learning reference, so their API docs build without a
+  # single warning (a missing doc, a broken or ambiguous intra-doc link, a bare URL). It lives here
+  # rather than in ci.yml, whose required `rust` job already runs clippy with `missing_docs`,
+  # because any ci.yml edit makes every ci.yml job run.
+  rustdoc:
+    name: Rust docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the toolchain named in rust-toolchain.toml.
+      - name: Set up Rust
+        run: rustup toolchain install
+
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Build the API docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: >-
+          cargo doc --no-deps --locked --features coldframe-hal/mock
+          -p coldframe-hal -p coldframe-crypto -p coldframe-protocol -p coldframe-setup
+          -p coldframe-uplink -p coldframe-sensing -p coldframe-transport

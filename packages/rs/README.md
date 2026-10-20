@@ -16,4 +16,8 @@ These crates are members of the Cargo workspace in the repository root. The Hub 
 of them but `sensing` and `transport`, and the Node firmware links all of them (`setup` brings in
 `uplink`, which the Node never runs), with the `esp` toolchain, which is Rust 1.95. That is why they declare `rust-version = "1.95"`. None depends on an
 esp crate.
+
+The [firmware reference](../../docs/firmware/README.md) explains the mechanisms these crates
+implement and where to read them.
+
 Unit tests stay inline next to the code. Integration tests live in [`tests/rs`](../../tests/rs).

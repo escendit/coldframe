@@ -286,7 +286,7 @@ public static class CryptoSpec
 
     /// <summary>
     /// UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace,
-    /// "https://github.com/escendit/coldframe/sensor"): `sensorId = UUIDv5(namespace, name), name = UTF-8
+    /// `https://github.com/escendit/coldframe/sensor`): `sensorId = UUIDv5(namespace, name), name = UTF-8
     /// of nameFormat; namespace = UUIDv5(urlNamespace, namespaceName)`.
     /// </summary>
     public const string SensorIdNamespace = "5f496f62-2f32-5456-8b2a-ebe01228c999";

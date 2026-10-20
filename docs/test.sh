@@ -332,6 +332,15 @@ test -z "${STUB_ESP:-}"
 expect "without the export file a ci:run block still runs, unsourced" 0 "1 blocks in 2 files pass" - \
   -- env -u STUB_ESP PATH="${stubs}:${PATH}" DOCS_REPO_ROOT="${no_export}" ESP_EXPORT="${work}/none.sh" "${commands}"
 
+firmware_unmarked=$(fixture firmware-unmarked)
+page "${firmware_unmarked}" docs/firmware/x.md '# Firmware
+
+```bash
+true
+```'
+expect "docs/firmware/*.md is checked by default" 1 - "docs/firmware/x.md:3" \
+  -- check "${firmware_unmarked}"
+
 expect "a file argument that is no file is a usage error" 2 "" "usage:" -- check "${good}" docs/build/nope.md
 expect "the repository guide marks every block" 0 "pass" "" -- "${commands}" --list
 

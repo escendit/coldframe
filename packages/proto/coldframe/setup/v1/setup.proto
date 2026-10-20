@@ -76,8 +76,11 @@ message SetupMessage {
 
 // What kind of Device answers.
 enum DeviceKind {
+  // Not set: the default when the field is absent.
   DEVICE_KIND_UNSPECIFIED = 0;
+  // A Hub: relays Node frames to the Server over Wi-Fi.
   DEVICE_KIND_HUB = 1;
+  // A Node: measures and reports to its Hub over ESP-NOW.
   DEVICE_KIND_NODE = 2;
 }
 
@@ -99,8 +102,11 @@ message WifiScanRequest {}
 
 // How a Wi-Fi network authenticates, as the Hub sees it.
 enum WifiSecurity {
+  // Not set: the default when the field is absent.
   WIFI_SECURITY_UNSPECIFIED = 0;
+  // No passphrase.
   WIFI_SECURITY_OPEN = 1;
+  // WPA2 with a passphrase.
   WIFI_SECURITY_WPA2_PERSONAL = 2;
   // WPA2/WPA3 transition mode; the Hub joins with WPA2.
   WIFI_SECURITY_WPA3_TRANSITION = 3;
@@ -140,6 +146,7 @@ message WifiConfig {
 
 // The outcome of joining.
 enum WifiStatus {
+  // Not set: the default when the field is absent.
   WIFI_STATUS_UNSPECIFIED = 0;
   // Joined, and the Server at SiteBinding.server_url was reached and accepted the Hub (a signed
   // heartbeat answered 200). Only then is the provisioning record stored.
@@ -196,6 +203,7 @@ message EnrolmentResponse {
 
 // Why a step failed.
 enum SetupErrorCode {
+  // Not set: the default when the field is absent.
   SETUP_ERROR_CODE_UNSPECIFIED = 0;
   // The message did not parse or had missing fields.
   SETUP_ERROR_CODE_MALFORMED_MESSAGE = 1;
