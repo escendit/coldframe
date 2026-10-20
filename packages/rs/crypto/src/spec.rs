@@ -178,7 +178,7 @@ pub const HEARTBEAT_MAX_SKEW_MS: u64 = 300000;
 // Sensor identity (AD-19)
 
 /// UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace,
-/// "https://github.com/escendit/coldframe/sensor"): `sensorId = UUIDv5(namespace, name), name =
+/// `https://github.com/escendit/coldframe/sensor`): `sensorId = UUIDv5(namespace, name), name =
 /// UTF-8 of nameFormat; namespace = UUIDv5(urlNamespace, namespaceName)`.
 pub const SENSOR_ID_NAMESPACE: &str = "5f496f62-2f32-5456-8b2a-ebe01228c999";
 

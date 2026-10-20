@@ -23,4 +23,7 @@ cargo build --features dev-mode
 ./check-image.sh
 ```
 
+To learn how the firmware works (ESP-NOW, BLE setup, eFuse keys, sealing, deep sleep), read the
+[firmware reference](../../docs/firmware/README.md).
+
 On-device behaviour is checked by hand against the checklists in [`docs/bench`](../../docs/bench).

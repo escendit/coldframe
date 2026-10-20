@@ -7,7 +7,8 @@
 //!   decides what the wake does.
 //! - [`battery`]: the switched-divider scaling and the LiPo discharge curve, giving an
 //!   approximate [`BatteryLevel`].
-//! - [`env`]: [`env_sample_from`], the one conversion of the BME680's floats to integer units.
+//! - [`env`](mod@env): [`env_sample_from`], the one conversion of the BME680's floats to integer
+//!   units.
 //! - [`counter`]: [`ReservedCounter`], a strictly increasing `u64` reserved in flash before any
 //!   value is handed out (AD-17). It backs both `reading_seq` and the boot counter.
 //! - [`wake`]: [`run_wake`], one measurement with the probe and divider switched on only while
