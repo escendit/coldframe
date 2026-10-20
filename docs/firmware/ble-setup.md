@@ -43,7 +43,8 @@ A protocol frame can be larger than one BLE write, so each write or notification
 `packages/rs/setup/src/framing.rs` splits frames (`fragments`) and joins them again
 (`Reassembler`). A frame that grows past 1152 bytes is dropped, together with its remaining
 fragments. The board adapter sizes payloads from the connection's ATT MTU minus 3, between 20 and 248
-bytes (`max_payload` in `apps/rs/hub/src/board/ble.rs`).
+bytes (`max_payload` in `apps/rs/hub/src/board/ble.rs`). The header byte sits inside that payload,
+so a fragment carries at most ATT MTU − 4 bytes, as the `coldframe-setup` crate docs say.
 
 ### Opening the session
 

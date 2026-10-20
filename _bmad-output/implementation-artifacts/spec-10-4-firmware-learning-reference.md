@@ -5,7 +5,7 @@ created: '2026-10-20'
 status: 'done'
 baseline_revision: 'a5bae8573c50692249adf99c9ce494e96ff36dd0'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context.md'
 warnings: [oversized]
@@ -145,6 +145,30 @@ deferred:
   - `[low]` `[reject]` intent audit: the spec reads "the firmware crates" as the 7 `packages/rs` crates, which is narrower than `apps/rs` — this is the same as the "no `cargo doc` for `apps/rs/{node,hub}`" row above, and the AC text itself says `packages/rs/*`.
   - `[false]` `[reject]` intent audit: the work is uncommitted — this is the review stage. The commit happens at finalization through gzp-pipeline (the On Complete hook owns commit, push and PR).
 
+### 2026-10-20 — Review pass
+- verdicts: 20 findings — high 0, medium 0, low 15, false 5, maybe-false 0
+- findings:
+  - `[false]` `[reject]` the rustdoc gate cannot block a merge but the docs say it does — `docs/firmware/README.md:63` says only "CI builds the docs with warnings as errors", which the Docs job does; no page claims the check is required, and the intent forbids making it one.
+  - `[low]` `[patch]` the new `WIFI_SECURITY_WPA2_PERSONAL` proto comment says "WPA2 with a passphrase", but `security()` in `apps/rs/hub/src/board/wifi.rs:41-45` also maps `Wpa` and `WpaWpa2Personal` to it — fixed: the comment-only proto change now reads "WPA or WPA2 with a passphrase, including mixed WPA/WPA2"; the regenerated rustdoc of `WifiSecurity` shows it.
+  - `[low]` `[patch]` `deep-sleep.md` calls AD-17 "bounded radio time", but the spine titles AD-17 "Frame sequence and replay" (the spine's own traceability table at line 571 uses the other label) — fixed: the page now gives the real title and says the spine also cites it for bounded radio time.
+  - `[low]` `[reject]` the spec's Tasks, AC and Verification command omit `--features coldframe-hal/mock` that the job runs — the fix is an edit to this build's spec; the job's wider check is already recorded in the first pass.
+  - `[low]` `[reject]` the spec's Code Map still says `board/{efuse,hmac}.rs` are the only `unsafe` code — the fix is an edit to this build's spec; the code-side staleness is already deferred (DW-122).
+  - `[false]` `[reject]` the spec front matter is stale (`in-review`, iteration 0) — `in-review` is the correct state during this review stage, and `review_loop_iteration` counts bad_spec loopbacks, of which there were none.
+  - `[low]` `[patch]` `identity.md` says both crates refuse dev-mode in release, then quotes only the Node's `compile_error!` text — fixed: the lead-in now says the excerpt is the Node's guard and the Hub's says "a release Hub" (`apps/rs/hub/src/main.rs:38-40`).
+  - `[low]` `[reject]` code excerpts copied into the pages (`sleep_ms`, `derive_keys`, `compile_error!`) have no drift check — the excerpts match the code today, and a drift checker is the same new complexity the first pass and the 10-2 review rejected.
+  - `[low]` `[reject]` the pages hard-code esp-hal 1.2.2, esp-radio 1.0.0-beta.1, Rust 1.97 and 1.95 — all four match `apps/rs/*/Cargo.lock`, `rust-toolchain.toml` (1.97.1), `packages/rs/*/Cargo.toml` (`rust-version = "1.95"`) and `flash.md`; the drift is hypothetical and the README already points to `flash.md` for CI pins.
+  - `[low]` `[patch]` the `buttons.md` constants table lists `take_pins` as if it were a constant — fixed: the row now names `take_pins!` (macro); GPIO7 is set in that macro at `apps/rs/node/src/board/pins.rs:86`.
+  - `[low]` `[reject]` no test pins the `check-commands.sh --help` range `2,24p` or the "or a browser" wording — the edge-case layer confirmed the range matches the 24-line header; a test for help text adds surface for a cosmetic output.
+  - `[low]` `[patch]` `ble-setup.md` says payloads are ATT MTU minus 3 while the `coldframe-setup` crate docs say a fragment is at most ATT MTU − 4 — both are right (`max_payload` subtracts 3 at `apps/rs/hub/src/board/ble.rs:345`; the 1-byte header sits inside it) — fixed: one sentence now explains the difference.
+  - `[low]` `[patch]` `apps/rs/node/README.md` and `apps/rs/hub/README.md` do not link to the new reference — fixed: each README's opening paragraph now links `docs/firmware/README.md`.
+  - `[low]` `[reject]` intent audit: no check that cited symbols, constants and behaviours are true of the code — carried from the first pass ("cited symbols and constant values are not machine-checked"); this pass also checked by script that every backticked identifier in `docs/firmware/` exists in `apps`, `packages` or `tests` (only `HMAC_UP`, the eFuse purpose name, is prose; the page pairs it with `KeyPurpose::HmacUp`).
+  - `[low]` `[reject]` intent audit: the firmware crates `apps/rs/{node,hub}` are outside the rustdoc gate — carried from the first pass; the AC scopes the gate to `packages/rs/*`.
+  - `[low]` `[reject]` intent audit: the gate covers only the hand-listed crates and features — carried from the first pass ("the rustdoc job lists the 7 crates by hand"); `mock` is the only non-default feature today.
+  - `[false]` `[reject]` intent audit: `-D warnings` proves an item has a doc, not that the doc is useful — no defect at a cited location and no named harm; the reviewed wire docs describe each value.
+  - `[false]` `[reject]` intent audit: the AC says "no warnings" but the check is not required — the intent's Never list forbids making the Docs workflow required, so the advisory job is the only allowed reading (same claim as the first row).
+  - `[low]` `[reject]` intent audit: the README's `cargo doc --open` block is `ci:manual`, widening that marker to "a browser" — carried from the first pass (same location and claim).
+  - `[false]` `[reject]` intent audit: the working tree has an uncommitted `sprint-status.yaml` edit (10-4 → done), against the Never rule — that edit is the orchestrator's own bookkeeping, not part of this change; this run neither wrote nor reverted it.
+
 ## Design Notes
 
 **Why the gate lives in `docs.yml`:** the `rust` job in `ci.yml` is the required check. But any `ci.yml` edit forces run-all, which includes the Images job that is known to be slow and flaky, and specs 10-2 and 10-3 both forbid editing it. `docs.yml` is already path-filtered on `packages/**`. The AC only asks that `cargo doc` runs in CI. Clippy `-D warnings` in the required `rust` job already enforces `missing_docs` on hand-written items.
@@ -168,47 +192,39 @@ deferred:
 
 Status: done
 
-**Summary.** Added the firmware learning reference `docs/firmware/`: an index plus 7 topic pages (identity, sealing, ESP-NOW, deep sleep, buttons, BLE setup, radio coexistence). Each page explains its mechanism, lists the key constants and points to the code by path and symbol. It states the required facts (irreversible eFuse burn, unmeasured ~100 µA budget, no WPA3-only, short vs long press, never erase `cf_frame`) and flags where the code differs from the planning docs. Made every public item of `packages/rs/*` documented, including the generated wire types: proto comments now become rustdoc, and the `missing_docs` allow is gone. Fixed the 2 existing rustdoc warnings at their source. Added a `Rust docs` job (`cargo doc` with `RUSTDOCFLAGS=-D warnings`) to the Docs workflow. No human-only acceptance criteria, so no operator actions.
+**Summary.** Follow-up review pass on the firmware learning reference (first pass merged as PR #126). Four review layers ran over the full diff since the baseline: blind hunter, edge-case hunter, verification gap and intent alignment. The edge-case and verification-gap layers found nothing. The edge-case layer also re-checked the cited constants named as the open risk by the first pass (scan back-off, `sleep_ms`, payload clamp, setup watchdog, `unsafe` locations) and found them correct. A script check confirmed that every backticked identifier in `docs/firmware/` exists in the code. Six low-severity wording fixes were applied; no high or medium finding survived verification.
 
 **Files changed.**
-- `docs/firmware/{README,identity,sealing,espnow,deep-sleep,buttons,ble-setup,radio-coexistence}.md` -- the new reference.
-- `packages/rs/protocol/build.rs` -- keeps proto source info, so comments become rustdoc.
-- `packages/rs/protocol/src/lib.rs` -- `setup_v1`/`device_v1` are now documented glob re-export modules, and no `missing_docs` allow remains.
-- `packages/proto/coldframe/setup/v1/setup.proto` -- comments on 8 enum values (comment-only).
-- `packages/crypto-spec/scripts/lib/spec.ts` -- the namespace URL is now in a code span. The generated outputs are regenerated: `packages/rs/crypto/src/spec.rs`, `packages/cs/crypto/Generated/CryptoSpec.g.cs` and the Kotlin `CryptoSpec.kt`.
-- `packages/rs/sensing/src/lib.rs` -- unambiguous `mod@env` link.
-- `.github/workflows/docs.yml` -- new `rustdoc` job, root Cargo files added to the path filters, header updated.
-- `docs/check-commands.sh` -- `docs/firmware/*.md` added to the default files, header updated.
-- `docs/test.sh` -- fixture test for the firmware glob.
-- `README.md`, `apps/rs/README.md`, `packages/rs/README.md` -- links to the reference.
+- `packages/proto/coldframe/setup/v1/setup.proto` -- the `WIFI_SECURITY_WPA2_PERSONAL` comment now covers WPA and mixed WPA/WPA2 (comment-only).
+- `docs/firmware/deep-sleep.md` -- AD-17 is cited by its real title.
+- `docs/firmware/identity.md` -- the release-guard excerpt is labelled as the Node's.
+- `docs/firmware/ble-setup.md` -- one sentence reconciles "ATT MTU minus 3" with the crate's "ATT MTU − 4".
+- `docs/firmware/buttons.md` -- the `take_pins!` row is named as a macro.
+- `apps/rs/node/README.md`, `apps/rs/hub/README.md` -- link to the firmware reference.
 
-**Review findings.** 18 findings: high 0, medium 4, low 13, false 1.
-- **Patches applied (8 entries):** medium ×3 (ble-setup table facts; Docs path filters for root Cargo files, grouped with the verification-gap row; test for the `docs/firmware` glob) and low ×5 (identity "same file" wording, headers, buttons table layout, `build.rs` comment, `mock` feature in the rustdoc gate).
-- **Deferred (1):** stale Hub "only unsafe code" comments, which are pre-existing.
+**Review findings.** 20 findings: high 0, medium 0, low 15, false 5.
+- **Patches applied (6, all low):** WPA2 proto comment, AD-17 title, Node guard label, MTU sentence, `take_pins!` row, README links.
+- **Deferred:** none new.
 - **Rejected:**
-  - Hand-listed crates: they match `ci.yml`, and the alternative is the same list or more complexity.
-  - No CI `cargo doc` for `apps/rs` (raised twice, once by the intent audit): the AC scopes the gate to `packages/rs/*`.
-  - The `ci:manual` browser block: a cosmetic choice, and `ci:run` would put the host toolchain in the esp job.
-  - Symbol and constant checker: adds complexity, and the 10-2 review rejected the same idea.
-  - Uplink page and measurement page: outside the 7 AC topics.
-  - ID glossary and dated links: the links are guarded and the harm is low.
-  - "Uncommitted": false, because the commit happens at finalization.
+  - Spec Verification command lacks `--features coldframe-hal/mock`, and the spec Code Map's stale `unsafe` claim: both fixes edit this build's spec.
+  - Copied code excerpts without a drift check: they match the code today, and a checker was already rejected.
+  - Hard-coded versions: all four match the lockfiles and toolchain files.
+  - No test for the `--help` range: the range was confirmed correct, and the output is cosmetic.
+  - Carried from the first pass: facts not machine-checked, `apps/rs` not gated, hand-listed crates, `ci:manual` for the browser block.
+  - False: the gate claimed as blocking (no page says that), stale front matter (correct for the stage), doc usefulness (no named harm), required-check AC reading (forbidden by the intent), and the `sprint-status.yaml` edit (orchestrator bookkeeping).
 
-**Follow-up review recommended: true.** Patched: high 0, medium 3, low 5. The named unverified risk: the 7 topic pages were drafted from the code and only spot-checked. The review itself found two wrong constants in `ble-setup.md`, so other cited constants, timings or symbol names may still be inaccurate. A second pass should check every "Key constants" table and "Where to read the code" symbol against the source.
+**Follow-up review recommended: false.** This is a follow-up pass and no high finding was patched. Patched: high 0, medium 0, low 6.
 
 **Verification.** All of the following passed:
-- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked --features coldframe-hal/mock -p` over the 7 crates: 0 warnings.
-- `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -D warnings` and `cargo test --workspace --locked`: no failures.
-- `pnpm --filter @coldframe/crypto-spec run check`: all outputs fresh.
-- `docs/test.sh`: 50/50 pass. A mutation run that reverted the glob makes the new test fail.
-- `docs/check-links.sh`: 819 links and paths resolve.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked --features coldframe-hal/mock -p` over the 7 crates: no warnings; the new proto comment appears in the `WifiSecurity` rustdoc.
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+- `cargo test --workspace --locked`: 350 passed, 0 failed.
+- `docs/check-links.sh`: 821 links and paths in 35 files resolve.
 - `docs/check-commands.sh --list`: OK.
-- `cargo build --release` of `apps/rs/node` and `apps/rs/hub` on the esp toolchain: builds.
+- `docs/test.sh`: 50 passed, 0 failed.
 
-`buf` and `actionlint` are not installed locally, so buf lint/breaking and actionlint did not run. The proto change is comment-only.
+`buf` and `actionlint` are not installed locally, so buf lint/breaking and actionlint did not run. The proto change is comment-only. The esp toolchain build was not re-run; no firmware code changed.
 
 **Residual risks.**
-- The `Rust docs` job is not a required check.
-- Any future proto item without a comment now fails clippy in the required `rust` job too, not only the Docs job. This is intended, but stricter than before.
-- `cargo doc` inside `apps/rs/node` still prints one warning of its own. That is outside the AC scope.
-
+- The `Rust docs` job is still not a required check.
+- Cited constants and code excerpts can drift from the code; only paths and identifier existence are checked.

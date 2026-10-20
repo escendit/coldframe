@@ -166,7 +166,7 @@ without `dev-mode` burns an eFuse key block on first boot, and that cannot be un
 - [`apps/rs/node/README.md`](../../apps/rs/node/README.md): boot steps, partitions, pins and log
   lines.
 
-Governing items: AD-11 (time, boot ID and uptime) and AD-17 (bounded radio time) in the
+Governing items: AD-11 (time, boot ID and uptime) and AD-17 (frame sequence and replay, which the spine also cites for bounded radio time) in the
 [architecture spine](../../_bmad-output/planning-artifacts/architecture/architecture-coldframe-2026-09-26/ARCHITECTURE-SPINE.md);
 the power budget (NFR-4) in
 [device-hardware.md](../../_bmad-output/specs/spec-coldframe/device-hardware.md).

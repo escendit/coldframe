@@ -102,7 +102,7 @@ normally off the button by the time the window has run, so the button wake is ar
 | `NODE_SESSION_IDLE_TIMEOUT_MS` | Idle connection dropped after 60 000 ms | `packages/rs/setup/src/node.rs` |
 | `SETUP_WATCHDOG_MS` | Watchdog in setup mode: window + 30 s | `apps/rs/node/src/main.rs` |
 | `WAKE_PERIOD_MS` | Full sleep after a press 900 000 ms (15 min) | `packages/rs/sensing/src/wake.rs` |
-| `take_pins` | Button pin GPIO7, active low | `apps/rs/node/src/board/pins.rs` |
+| `take_pins!` (macro) | Button pin GPIO7, active low | `apps/rs/node/src/board/pins.rs` |
 
 ## Where to read the code
 
