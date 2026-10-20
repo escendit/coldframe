@@ -3,7 +3,10 @@
 //!
 //! protox compiles the file into a descriptor set in pure Rust (no `protoc`), and micropb-gen
 //! turns that into no_std Rust with heapless containers. Every string, bytes and repeated field
-//! gets a fixed capacity, so each message has a compile-time `MAX_SIZE`.
+//! gets a fixed capacity, so each message has a compile-time `MAX_SIZE`. The descriptor set keeps
+//! its source info, so micropb-gen turns every proto comment into the rustdoc of the generated
+//! item. A message, field or enum value without a comment warns under `missing_docs`, which CI
+//! turns into a failure with `-D warnings` (clippy in the `rust` job, rustdoc in the Docs workflow).
 
 use std::path::PathBuf;
 use std::{env, fmt};
@@ -46,7 +49,7 @@ fn main() {
     }
 
     let mut compiler = protox::Compiler::new([&proto_root]).expect("proto root exists");
-    compiler.include_source_info(false);
+    compiler.include_source_info(true);
     compiler
         .open_file(SETUP_PROTO)
         .expect("setup.proto compiles");

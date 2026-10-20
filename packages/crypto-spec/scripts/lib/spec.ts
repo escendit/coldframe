@@ -206,7 +206,7 @@ export function constantsOf(spec: CryptoSpec): ConstantGroup[] {
     {
       title: 'Sensor identity (AD-19)',
       constants: [
-        { name: 'sensorIdNamespace', kind: 'str', value: sensorId.namespace, doc: `UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace, "${sensorId.namespaceName}"): \`${sensorId.construction}\`.` },
+        { name: 'sensorIdNamespace', kind: 'str', value: sensorId.namespace, doc: `UUIDv5 namespace of every Sensor ID, itself UUIDv5(URL namespace, \`${sensorId.namespaceName}\`): \`${sensorId.construction}\`.` },
         { name: 'sensorIdNameFormat', kind: 'str', value: sensorId.nameFormat, doc: `The UUIDv5 name of a Sensor: ${sensorId.name}.` },
         { name: 'sensorQuantitySoilMoisture', kind: 'str', value: sensorId.quantities.soilMoisture, doc: 'Quantity token of soil moisture.' },
         { name: 'sensorQuantityAirTemperature', kind: 'str', value: sensorId.quantities.airTemperature, doc: 'Quantity token of air temperature.' },

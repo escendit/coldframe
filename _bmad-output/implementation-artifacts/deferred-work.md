@@ -946,3 +946,11 @@ source_spec: `spec-10-1-releases-with-one-version-and-firmware-binaries.md`
 severity: medium
 reason: dry_run is true for every non-push event, so these steps are skipped on PRs; only a real v* tag exercises them. Owed as an operator action (cut the first release and check it).
 status: open
+
+### DW-122: Hub comments still claim the eFuse adapter holds the Hub's only unsafe code, but board/rtc.rs has an unsafe block for the mbedTLS clock hooks.
+origin: spec-deferred d5a00e9af471
+location: apps/rs/hub/src/board/efuse.rs:7
+source_spec: `spec-10-4-firmware-learning-reference.md`
+severity: low
+reason: apps/rs/hub/src/board/efuse.rs module doc line 7 and apps/rs/hub/Cargo.toml:60 say only efuse.rs may use unsafe; apps/rs/hub/src/board/rtc.rs:40-41 has #[allow(unsafe_code)] unsafe { ... }. Pre-existing, not caused by story 10-4; docs/firmware/identity.md already states the code's truth.
+status: open
