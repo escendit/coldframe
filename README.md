@@ -13,6 +13,8 @@ and deployment all live in this repository.
 - [Build guide](docs/build/README.md): build, flash and add your own Node and Hub.
 - [Deploy guide](docs/deploy/README.md): run Coldframe on your home server, then
   [build your own apps](docs/build/apps.md).
+- [Reproduce Coldframe](docs/reproduce/README.md): the end-to-end checklist for a second person
+  rebuilding Coldframe from these docs, and how to report where they got stuck.
 - [Firmware reference](docs/firmware/README.md): learn ESP-NOW, BLE provisioning, eFuse keys and
   deep sleep from the Node and Hub firmware.
 - [Hardware design](hardware/README.md): schematics, BOM, wiring, enclosure and probe sealing.

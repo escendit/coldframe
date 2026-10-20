@@ -1,0 +1,82 @@
+name: Reproduction stuck point
+description: >-
+  A place where the docs alone did not get you through the reproduction checklist
+  (docs/reproduce/README.md).
+title: "[reproduce] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Thank you for running the reproduction checklist. File one issue per stuck point.
+        **Do not paste any secret**: no setup code, key, token, password, KEK, Secret value or
+        account credential. Write your domain as `<domain>`.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Checklist part
+      options:
+        - A. Start clean
+        - B. The release
+        - C. Build the Node and the Hub
+        - D. Flash the Hub and the Node
+        - E. Deploy the Server at home
+        - F. Build your own apps
+        - G. Add the Hub and the Node, calibrate
+        - H. A Threshold Alert inside the Notification Window
+    validations:
+      required: true
+  - type: input
+    id: guide
+    attributes:
+      label: Guide page and section
+      description: The page and heading you were following.
+      placeholder: docs/build/flash.md#first-boot-and-the-setup-code
+    validations:
+      required: true
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The steps, commands and values you used (secrets removed).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What the guide or the checklist said should happen.
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The output, error or screen you got instead, and any workaround you found.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Release tag
+      description: Write none if you have no tag yet.
+      placeholder: v0.2.0
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Machine OS, home server arch and OS, boards and BOM substitutes, phone model and OS.
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: No secrets
+      options:
+        - label: This issue contains no setup code, key, token, password or other credential.
+          required: true
