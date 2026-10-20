@@ -1,0 +1,11 @@
+{
+  "actions": [
+    "Follow docs/deploy/README.md end to end on a real domain with its zone at Cloudflare and a single-node RKE2 home server, at a published release tag, and fix in the guide every step that differs from what you see (RKE2 install, firewall, namespace, Secrets, realm, split DNS, first sign-in).",
+    "Build the Android app with your own Firebase project and the iOS app with your own Apple Developer team and APNs key, following docs/build/apps.md, install both on your phones, sign in against your deployment and receive a push; correct any console step or command in the guide that differs.",
+    "Once a release tag publishes the images, start deploy/compose/ with docker compose up on a LAN Docker host following deploy/compose/README.md, sign in to the web app, and fix compose.yaml or the README where the stack does not come up."
+  ],
+  "parked_at": "2026-10-20",
+  "run_id": "20261012-230921-d74a",
+  "spec_file": "_bmad-output/implementation-artifacts/spec-10-3-deploy-coldframe-at-home-and-build-my-own-apps.md",
+  "story_key": "10-3-deploy-coldframe-at-home-and-build-my-own-apps"
+}
