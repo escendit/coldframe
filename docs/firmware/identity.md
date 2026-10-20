@@ -126,7 +126,7 @@ Both modes end in `DeviceKeys::from_device_key`, so a given root gives the same 
 ### The release guard
 
 A dev-mode root is readable from flash, so a release Device must never use it. Both firmware
-crates refuse the combination at compile time:
+crates refuse the combination at compile time. The Node's guard reads (the Hub's says "a release Hub"):
 
 ```rust
 #[cfg(all(feature = "dev-mode", not(debug_assertions)))]

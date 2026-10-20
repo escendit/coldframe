@@ -1,6 +1,7 @@
 # coldframe-node
 
-Node firmware for the ESP32-S3, in `no_std` Rust on esp-hal.
+Node firmware for the ESP32-S3, in `no_std` Rust on esp-hal. The
+[firmware reference](../../../docs/firmware/README.md) explains its mechanisms topic by topic.
 
 Story 4.1 gives the Node its wake cycle: every 15 minutes it wakes, takes one Reading per Sensor
 with one shared `measured_at` and a `reading_seq` that never repeats, reads its battery and charger,

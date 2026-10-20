@@ -1,6 +1,7 @@
 # coldframe-hub
 
-Hub firmware for the ESP32-S3, in `no_std` Rust on esp-hal.
+Hub firmware for the ESP32-S3, in `no_std` Rust on esp-hal. The
+[firmware reference](../../../docs/firmware/README.md) explains its mechanisms topic by topic.
 
 Story 3.2 brings the chip up with a hardware-bound identity (AD-12):
 
