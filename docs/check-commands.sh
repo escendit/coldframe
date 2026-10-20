@@ -10,7 +10,9 @@
 #                                        `source ~/export-esp.sh` when it exists (the guide's
 #                                        install block creates it), with errexit and pipefail;
 #   <!-- ci:hardware -->                 the block needs a board: only `espflash <subcommand> --help`
-#                                        runs, for every espflash subcommand in it.
+#                                        runs, for every espflash subcommand in it;
+#   <!-- ci:manual -->                   the block needs a phone, Xcode, the Android SDK or a cluster
+#                                        (Story 10.3): nothing runs; --list shows it as manual.
 #
 # An unmarked block, a marker that no bash/sh block follows, an unknown ci: marker or a ci:run
 # directory that does not exist fails. --list prints every block with its marker and runs nothing.
@@ -29,7 +31,7 @@ for arg in "$@"; do
   case ${arg} in
     --list) list=true ;;
     -h | --help)
-      sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -*)
@@ -56,7 +58,7 @@ work=$(mktemp -d)
 trap 'rm -rf "${work}"' EXIT
 
 # Splits a Markdown file into ${work}/<n>.sh blocks and prints one manifest line per block or
-# problem: "<line> <run|hardware|unmarked|orphan|unknown> <argument> <block file>", separated by
+# problem: "<line> <run|hardware|manual|unmarked|orphan|unknown> <argument> <block file>", separated by
 # the unit separator 0x1F (a tab would collapse an empty argument).
 # Plain POSIX awk: the CI runner's awk is mawk.
 extract() {
@@ -74,6 +76,7 @@ extract() {
       sub(/^[ \t]*<!--[ \t]*/, "", m)
       sub(/[ \t]*-->[ \t]*$/, "", m)
       if (m == "ci:hardware") { pending = "hardware"; arg = "" }
+      else if (m == "ci:manual") { pending = "manual"; arg = "" }
       else if (m ~ /^ci:run[ \t]+[^ \t]+$/) { pending = "run"; arg = trim(substr(m, 7)) }
       else { emit("unknown", m, ""); pending = "" }
       next
@@ -165,7 +168,7 @@ for file in "${files[@]}"; do
     case ${kind} in
       unmarked)
         blocks=$((blocks + 1))
-        fail "${where}: unmarked bash/sh block; precede it with <!-- ci:run <dir> --> or <!-- ci:hardware -->"
+        fail "${where}: unmarked bash/sh block; precede it with <!-- ci:run <dir> -->, <!-- ci:hardware --> or <!-- ci:manual -->"
         ${list} && indent "${block}"
         ;;
       orphan) fail "${where}: a ci:${arg} marker is not followed by a bash/sh block" ;;
@@ -188,6 +191,15 @@ for file in "${files[@]}"; do
           indent "${block}"
         else
           check_hardware "${where}" "${block}"
+        fi
+        ;;
+      manual)
+        blocks=$((blocks + 1))
+        if ${list}; then
+          echo "${where}: ci:manual"
+          indent "${block}"
+        else
+          echo "==> ${where}: ci:manual (not run: needs a phone, Xcode, the Android SDK or a cluster)"
         fi
         ;;
     esac

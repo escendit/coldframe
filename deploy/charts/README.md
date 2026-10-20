@@ -78,7 +78,9 @@ In the namespace of the releases (the defaults assume one namespace):
    database Secrets (each `username` equal to its role name) and `coldframe-backup-s3`.
 2. An S3 bucket off the node for the backups, and its endpoint.
 3. For Keycloak, a ConfigMap holding the `coldframe` realm file, with the redirect URIs of your
-   host names (the realm in `aspire/keycloak/realms` is for localhost and is not packaged).
+   host names (the realm in `aspire/keycloak/realms` is for localhost and is not packaged): write
+   it with [`../realm/prepare-realm.sh`](../realm/prepare-realm.sh) `--web-origin https://<domain>`
+   ([`docs/deploy/`](../../docs/deploy/README.md#4-keycloak-realm-and-phase-two)).
 4. A domain with its DNS zone at Cloudflare, the Secret `coldframe-dns01` holding an API token for
    that zone, and split DNS for the three hosts
    ([`docs/operations/split-dns.md`](../../docs/operations/split-dns.md)).

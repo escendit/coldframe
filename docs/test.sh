@@ -290,6 +290,40 @@ else
   failed "--list runs nothing" "ran: $(ls "${listed}/apps/rs/node")" "calls: $(cat "${calls}")"
 fi
 
+manual=$(fixture manual)
+page "${manual}" docs/build/flash.md '# Flash
+
+<!-- ci:manual -->
+
+```bash
+touch ran
+espflash bogus
+```'
+: > "${calls}"
+expect "a ci:manual block is not run" 0 "docs/build/flash.md:5: ci:manual (not run" "" -- check "${manual}"
+if [[ ! -e ${manual}/ran && ! -e ${manual}/apps/rs/node/ran && ! -s ${calls} ]]; then
+  pass "a ci:manual block runs nothing, not even espflash --help"
+else
+  failed "a ci:manual block runs nothing, not even espflash --help" "calls: $(cat "${calls}")"
+fi
+expect "--list shows a ci:manual block as manual" 0 "docs/build/flash.md:5: ci:manual" "" -- check "${manual}" --list
+
+manual_arg=$(fixture manual-arg)
+page "${manual_arg}" docs/build/flash.md '<!-- ci:manual apps/rs/node -->
+```bash
+true
+```'
+expect "a ci:manual marker with an argument is an unknown marker" 1 - \
+  "docs/build/flash.md:1: unknown marker 'ci:manual apps/rs/node'" -- check "${manual_arg}"
+
+manual_orphan=$(fixture manual-orphan)
+page "${manual_orphan}" docs/build/flash.md '<!-- ci:manual -->
+```text
+not a command block
+```'
+expect "a ci:manual marker before a non-shell block is an orphan" 1 - "a ci:manual marker is not followed" \
+  -- check "${manual_orphan}"
+
 no_export=$(fixture no-export)
 page "${no_export}" docs/build/flash.md '<!-- ci:run apps/rs/node -->
 ```bash
