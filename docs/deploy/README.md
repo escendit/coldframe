@@ -233,3 +233,5 @@ restart durability and a backup in S3.
 - **Verification**: tick the checklist again after every upgrade.
 - **Restore**: when the database is lost or damaged, restore it from the S3 backups with the
   same `coldframe-device-kek` ([`restore.md`](../operations/restore.md)).
+- **Reproducing Coldframe** as a second person: the [reproduction checklist](../reproduce/README.md)
+  walks this guide and the build guide end to end.

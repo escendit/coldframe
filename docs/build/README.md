@@ -49,6 +49,10 @@ first: the [deploy guide](../deploy/README.md) sets it up on your home server (t
 3. Calibrate the soil probe once it has settled in the soil for 2–3 days
    ([why](power.md#soil-moisture)).
 
+Reproducing Coldframe as someone other than its author? Follow the
+[reproduction checklist](../reproduce/README.md), which walks this guide and the deploy guide end
+to end.
+
 ## Checking this guide
 
 CI checks these pages on every change (`.github/workflows/docs.yml`):
