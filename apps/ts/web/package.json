@@ -21,7 +21,7 @@
   "devDependencies": {
     "@coldframe/design-tokens": "workspace:*",
     "@sveltejs/adapter-node": "5.5.7",
-    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/kit": "3.0.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@types/node": "24.19.0",
     "svelte": "5.57.1",
